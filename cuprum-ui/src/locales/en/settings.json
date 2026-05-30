@@ -1,0 +1,20 @@
+{
+  "title": "Machine capability profile",
+  "subtitle": "Limits a board is checked against on import.",
+  "reset": "Reset",
+  "resetTitle": "Reset to Saturn 4 Ultra 16K",
+  "category": {
+    "interface": "Interface",
+    "panel": "Panel size",
+    "copper": "Copper",
+    "drill": "Drilling",
+    "maskSilk": "Mask / silk / outline"
+  },
+  "interface": {
+    "language": "Language",
+    "languageAuto": "Auto (system)",
+    "units": "Units",
+    "unitsMetric": "Metric (mm)",
+    "unitsImperial": "Imperial (in, mil)"
+  }
+}

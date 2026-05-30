@@ -1,11 +1,14 @@
 import * as React from "react";
 import { RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { Switch } from "@/components/ui/Switch";
 import { HelpTip } from "@/components/ui/HelpTip";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Diagrams } from "@/components/settings/diagrams";
 import { useSettings } from "@/settingsStore";
+import { type Language, type Units } from "@/settingsStore";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
 /** Label cell: text + optional inline hint + an optional "?" help tooltip. */
@@ -120,54 +123,82 @@ function ArrayField({
   );
 }
 
-type CategoryId = "panel" | "copper" | "drill" | "maskSilk";
-const CATEGORIES: { id: CategoryId; label: string }[] = [
-  { id: "panel", label: "Размер панели" },
-  { id: "copper", label: "Медь" },
-  { id: "drill", label: "Сверловка" },
-  { id: "maskSilk", label: "Маска / шелк / контур" },
-];
+type CategoryId = "interface" | "panel" | "copper" | "drill" | "maskSilk";
+const CATEGORY_IDS: CategoryId[] = ["interface", "panel", "copper", "drill", "maskSilk"];
 
 export function SettingsPage() {
+  const { t } = useTranslation("settings");
   const profile = useSettings((s) => s.profile);
   const setProfile = useSettings((s) => s.setProfile);
   const resetProfile = useSettings((s) => s.resetProfile);
   const set = <K extends keyof CapabilityProfile>(k: K) => (v: CapabilityProfile[K]) => setProfile({ [k]: v });
-  const [active, setActive] = React.useState<CategoryId>("panel");
+  const language = useSettings((s) => s.language);
+  const setLanguage = useSettings((s) => s.setLanguage);
+  const units = useSettings((s) => s.units);
+  const setUnits = useSettings((s) => s.setUnits);
+  const [active, setActive] = React.useState<CategoryId>("interface");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <div>
-          <h1 className="text-[14px] font-semibold text-foreground">Профиль возможностей станка</h1>
+          <h1 className="text-[14px] font-semibold text-foreground">{t("title")}</h1>
           <p className="mt-0.5 text-[12px] text-muted-foreground">
-            Пределы, по которым плата проверяется на выполнимость при импорте.
+            {t("subtitle")}
           </p>
         </div>
-        <Button variant="ghost" onClick={resetProfile} title="Сбросить к Saturn 4 Ultra 16K">
-          <RotateCcw className="size-4" /> Сбросить
+        <Button variant="ghost" onClick={resetProfile} title={t("resetTitle")}>
+          <RotateCcw className="size-4" /> {t("reset")}
         </Button>
       </div>
 
       <div className="flex min-h-0 flex-1">
         {/* Left tab menu (extensible: future settings groups go here). */}
         <nav className="w-52 shrink-0 border-r border-border bg-panel p-2">
-          {CATEGORIES.map((c) => (
+          {CATEGORY_IDS.map((id) => (
             <button
-              key={c.id}
+              key={id}
               type="button"
-              onClick={() => setActive(c.id)}
+              onClick={() => setActive(id)}
               className={`mb-0.5 w-full rounded-md px-3 py-2 text-left text-[12px] transition-colors ${
-                active === c.id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                active === id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
               }`}
             >
-              {c.label}
+              {t(`category.${id}`)}
             </button>
           ))}
         </nav>
 
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-xl divide-y divide-border/60 p-6">
+            {active === "interface" && (
+              <>
+                <label className="flex items-center justify-between gap-4 py-2">
+                  <span className="text-[12px] text-foreground">{t("interface.language")}</span>
+                  <SegmentedControl<Language>
+                    value={language}
+                    onChange={setLanguage}
+                    options={[
+                      { value: "auto", label: t("interface.languageAuto") },
+                      { value: "ru", label: "Русский" },
+                      { value: "en", label: "English" },
+                    ]}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-4 py-2">
+                  <span className="text-[12px] text-foreground">{t("interface.units")}</span>
+                  <SegmentedControl<Units>
+                    value={units}
+                    onChange={setUnits}
+                    options={[
+                      { value: "mm", label: t("interface.unitsMetric") },
+                      { value: "imperial", label: t("interface.unitsImperial") },
+                    ]}
+                  />
+                </label>
+              </>
+            )}
+
             {active === "panel" && (
               <>
                 <NumberField

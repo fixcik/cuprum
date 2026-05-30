@@ -1,6 +1,7 @@
 import "react-i18next";
 import type enCommon from "@/locales/en/common.json";
 import type enNav from "@/locales/en/nav.json";
+import type enSettings from "@/locales/en/settings.json";
 
 declare module "react-i18next" {
   interface CustomTypeOptions {
@@ -8,6 +9,7 @@ declare module "react-i18next" {
     resources: {
       common: typeof enCommon;
       nav: typeof enNav;
+      settings: typeof enSettings;
     };
   }
 }
