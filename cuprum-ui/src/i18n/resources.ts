@@ -8,12 +8,14 @@ import enFeasibility from "@/locales/en/feasibility.json";
 import ruFeasibility from "@/locales/ru/feasibility.json";
 import enMetrics from "@/locales/en/metrics.json";
 import ruMetrics from "@/locales/ru/metrics.json";
+import enImport from "@/locales/en/import.json";
+import ruImport from "@/locales/ru/import.json";
 
 // Add new namespaces here as features are migrated.
 export const resources = {
-  en: { common: enCommon, nav: enNav, settings: enSettings, feasibility: enFeasibility, metrics: enMetrics },
-  ru: { common: ruCommon, nav: ruNav, settings: ruSettings, feasibility: ruFeasibility, metrics: ruMetrics },
+  en: { common: enCommon, nav: enNav, settings: enSettings, feasibility: enFeasibility, metrics: enMetrics, import: enImport },
+  ru: { common: ruCommon, nav: ruNav, settings: ruSettings, feasibility: ruFeasibility, metrics: ruMetrics, import: ruImport },
 } as const;
 
-export const NAMESPACES = ["common", "nav", "settings", "feasibility", "metrics"] as const;
+export const NAMESPACES = ["common", "nav", "settings", "feasibility", "metrics", "import"] as const;
 export const DEFAULT_NS = "common";

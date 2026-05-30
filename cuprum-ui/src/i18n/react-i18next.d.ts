@@ -4,6 +4,7 @@ import type enNav from "@/locales/en/nav.json";
 import type enSettings from "@/locales/en/settings.json";
 import type enFeasibility from "@/locales/en/feasibility.json";
 import type enMetrics from "@/locales/en/metrics.json";
+import type enImport from "@/locales/en/import.json";
 
 declare module "react-i18next" {
   interface CustomTypeOptions {
@@ -14,6 +15,7 @@ declare module "react-i18next" {
       settings: typeof enSettings;
       feasibility: typeof enFeasibility;
       metrics: typeof enMetrics;
+      import: typeof enImport;
     };
   }
 }

@@ -1,0 +1,45 @@
+{
+  "heading": "Import Gerbers",
+  "tab": {
+    "preview": "Preview",
+    "metrics": "Characteristics",
+    "feasibility": "Check"
+  },
+  "action": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "back": "Back",
+    "openFeasibility": "Open check"
+  },
+  "state": {
+    "reading": "Reading archive…",
+    "checking": "Checking…"
+  },
+  "empty": {
+    "title": "Doesn't look like a Gerber archive",
+    "description": "No Gerber files were found in the selected ZIP. Make sure this is a Gerber export (KiCad/Protel) and not a different archive."
+  },
+  "missing": {
+    "title": "Assign required layers",
+    "descriptionPrefix": "To build the board, the following must be assigned:",
+    "descriptionSuffix": "Select the appropriate type for the file in the list on the left."
+  },
+  "panel": {
+    "layers": "Layers",
+    "renderingPreview": "rendering preview…",
+    "parseError": "parse error",
+    "noHoles": "no holes",
+    "previewUnavailable": "preview unavailable"
+  },
+  "viewer": {
+    "noLayers": "No layers for preview",
+    "boardSize": "Board size (outline)",
+    "ruler": "Ruler (measure)",
+    "zoomOut": "Zoom out",
+    "realSize": "Real size (100%)",
+    "zoomIn": "Zoom in",
+    "realSize1to1": "Real size 1:1",
+    "center": "Center view",
+    "fitAll": "Fit all"
+  }
+}
