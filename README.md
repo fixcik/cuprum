@@ -3,6 +3,8 @@
 **A CAM toolchain for making printed circuit boards at home — one tool for the
 whole cycle, from fab package to finished board.**
 
+![Cuprum — import wizard with live board preview](docs/preview.png)
+
 Cuprum takes a Gerber/Excellon fab job and drives the machines on your bench to
 produce a real PCB. It treats fabrication as a set of *processes* — each one a
 (layer, machine, action) — and ties them together with shared fiducials so the
