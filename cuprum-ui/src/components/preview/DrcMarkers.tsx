@@ -11,7 +11,7 @@ export interface ProjectedMarker {
   by: number;
   mx: number;
   my: number;
-  value: string; // e.g. "0.08 мм" — drawn on the focused marker
+  value: string; // e.g. "0.08 mm" — drawn on the focused marker
   label: string;
   limit: string;
   detail?: string;

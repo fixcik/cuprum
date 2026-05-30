@@ -134,7 +134,7 @@ function wrapPi(a: number): number {
 }
 
 /** Snap the camera straight onto `side` when `snapNonce` bumps (the user clicked
- *  the Верх/Низ toggle). Eased over 300ms. Interpolates the view in SPHERICAL
+ *  the Top/Bottom toggle). Eased over 300ms. Interpolates the view in SPHERICAL
  *  coords (azimuth around the vertical + elevation) at a constant distance — so
  *  top↔bottom swings around the SIDE (azimuth 0→π at elevation 0) instead of over
  *  a pole (where up∥view glitches) or through the board centre (a position lerp). */

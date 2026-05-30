@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, FileX2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LayerPanel, type PanelRow } from "@/components/import/LayerPanel";
@@ -8,11 +9,15 @@ import { PreviewPane, type PreviewMode, type PreviewTab } from "@/components/pre
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { colorFor, sideOf, stackOrder, missingRequired, LAYER_LABELS } from "@/lib/layerColors";
 import { api, type BoardMetrics, type LayerType } from "@/lib/api";
-import type { FindingCategory } from "@/lib/feasibility";
+import type { FindingCategory, I18nText } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
-import { evaluate, overallVerdict, VERDICT_LABEL, fmtLen } from "@/lib/feasibility";
+import { evaluate, overallVerdict, VERDICT_KEY } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
+
+/** Param names carrying a RAW length in mm — formatted via fmtLen at render. */
+const LEN_PARAMS = new Set(["len", "w", "h"]);
 
 /** Findings whose hotspots mark a thin feature (drawn as a box). */
 const BOX_FINDINGS = new Set(["copper.minTrace"]);
@@ -45,6 +50,24 @@ export function ImportWizardPage() {
   const cancelImport = useShell((s) => s.cancelImport);
   const stagingError = useShell((s) => s.stagingError);
   const manifest = useShell((s) => s.currentManifest);
+
+  const { t } = useTranslation(["feasibility", "common"]);
+  const { fmtLen } = useUnitFormat();
+  // Resolve an I18nText to a display string: length params unit-formatted,
+  // key-like string params translated, then the text key translated.
+  const tr = useCallback(
+    (text?: I18nText): string => {
+      if (!text) return "";
+      const params: Record<string, string | number> = {};
+      for (const [k, v] of Object.entries(text.params ?? {})) {
+        if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
+        else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
+        else params[k] = v;
+      }
+      return t(text.key, params);
+    },
+    [t, fmtLen],
+  );
 
   const [mode, setMode] = useState<PreviewMode>("2d");
   const [tab, setTab] = useState<PreviewTab>("preview");
@@ -180,7 +203,7 @@ export function ImportWizardPage() {
   );
 
   // DRC overlay on the preview is OFF by default (clean preview); it turns on
-  // only when arriving from the Проверка tab (clicking a finding) or via its
+  // only when arriving from the Feasibility tab (clicking a finding) or via its
   // toggle — so the markers don't clutter casual browsing.
   const [showDrc, setShowDrc] = useState(false);
   // DRC marker focus: which finding's hotspot is highlighted/centred in 2D.
@@ -221,9 +244,9 @@ export function ImportWizardPage() {
             a: h.a,
             b: h.b,
             value: fmtLen(h.v),
-            label: f.label,
-            limit: f.limit,
-            detail: f.detail,
+            label: tr(f.label),
+            limit: tr(f.limit),
+            detail: tr(f.detail) || undefined,
             severity: f.severity,
             // Line highlights aren't individually focusable (it's a bulk tint).
             focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
@@ -238,17 +261,17 @@ export function ImportWizardPage() {
             key: `${f.id}~hover#${i}`,
             a: h.a,
             b: h.b,
-            value: f.measured,
-            label: f.label,
-            limit: f.limit,
-            detail: f.detail,
+            value: tr(f.measured),
+            label: tr(f.label),
+            limit: tr(f.limit),
+            detail: tr(f.detail) || undefined,
             severity: f.severity,
             focused: false,
             shape: "hover" as const,
           }));
         return [...visual, ...hovers];
       }),
-    [findings, focus, markerVisible],
+    [findings, focus, markerVisible, tr, fmtLen],
   );
 
   // Flat list of navigable problems for the on-preview stepper ("walk the
@@ -263,16 +286,16 @@ export function ImportWizardPage() {
         if (hs.length === 0) return [];
         if (f.highlightAll) {
           return markerVisible(f.category, hs[0].side)
-            ? [{ fid: f.id, hi: 0, label: f.label, value: f.measured, severity: f.severity }]
+            ? [{ fid: f.id, hi: 0, label: tr(f.label), value: tr(f.measured), severity: f.severity }]
             : [];
         }
         return hs.flatMap((h, i) =>
           markerVisible(f.category, h.side)
-            ? [{ fid: f.id, hi: i, label: f.label, value: fmtLen(h.v), severity: f.severity }]
+            ? [{ fid: f.id, hi: i, label: tr(f.label), value: fmtLen(h.v), severity: f.severity }]
             : [],
         );
       }),
-    [findings, markerVisible],
+    [findings, markerVisible, tr, fmtLen],
   );
   const issueIndex = focus ? issues.findIndex((n) => n.fid === focus.fid && n.hi === focus.hi) : -1;
 
@@ -413,7 +436,7 @@ export function ImportWizardPage() {
                 {
                   value: "feasibility",
                   label: "Проверка",
-                  title: metricsLoading ? "Проверяем…" : metrics ? VERDICT_LABEL[verdict] : undefined,
+                  title: metricsLoading ? "Проверяем…" : metrics ? t(VERDICT_KEY[verdict]) : undefined,
                   icon: metricsLoading ? (
                     <Loader2 className="size-3 animate-spin" />
                   ) : metrics ? (
@@ -471,7 +494,7 @@ export function ImportWizardPage() {
                       verdict === "block" ? "bg-destructive" : verdict === "warn" ? "bg-warning" : "bg-success"
                     }`}
                   />
-                  {VERDICT_LABEL[verdict]}
+                  {t(VERDICT_KEY[verdict])}
                 </>
               )}
             </button>

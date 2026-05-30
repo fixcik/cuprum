@@ -16,7 +16,7 @@ export interface PanelRow {
   hasPreview: boolean;
   /** This layer's SVG preview is still rendering. */
   loading?: boolean;
-  /** Set when a drill file couldn't be parsed (shown as "ошибка парсинга"). */
+  /** Set when a drill file couldn't be parsed (shown as a parse-error badge). */
   drillError?: string | null;
 }
 

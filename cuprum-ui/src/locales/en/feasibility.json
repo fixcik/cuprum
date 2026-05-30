@@ -1,0 +1,105 @@
+{
+  "raw": "{{v}}",
+  "lteCount": "≤ {{v}}",
+  "lenOnly": "{{len}}",
+  "gteLen": "≥ {{len}}",
+  "lteLen": "≤ {{len}}",
+  "side": {
+    "top": "top",
+    "bottom": "bottom",
+    "inner": "inner",
+    "both": "both sides"
+  },
+  "size": {
+    "label": "Board size",
+    "measured": "{{w}} × {{h}}",
+    "limit": "≤ {{w}} × {{h}}",
+    "rotated": "Fits only when rotated 90°.",
+    "tooBig": "Board exceeds the maximum panel size."
+  },
+  "outline": {
+    "label": "Outline closed",
+    "limit": "must be closed",
+    "open": "Outline didn't close — size is an estimate, check Edge_Cuts."
+  },
+  "layers": {
+    "count": {
+      "label": "Copper layer count",
+      "over": "More layers than can be manufactured."
+    },
+    "inner": {
+      "label": "Inner layers",
+      "allowed": "allowed",
+      "unsupported": "unsupported",
+      "bad": "Inner layers can't be made at home."
+    }
+  },
+  "trace": {
+    "label": "Min. trace width",
+    "measured": "{{len}} ({{side}})",
+    "tooThin": "Thinner than the process limit — may not reproduce."
+  },
+  "drill": {
+    "minHole": {
+      "label": "Min. hole size",
+      "tooSmall": "Smaller than the minimum hole size."
+    }
+  },
+  "via": {
+    "label": "Vias",
+    "measured": "≈ {{v}}",
+    "limit": "no plating",
+    "detail": "Likely {{v}} vias (⌀ ≤ {{len}}) — without plating each is plated by hand."
+  },
+  "space": {
+    "label": "Min. copper clearance",
+    "detail": "Adjacent nets may merge during manufacturing."
+  },
+  "sliver": {
+    "label": "Thin copper",
+    "detail": "Thin bridges/slivers may peel off."
+  },
+  "annular": {
+    "label": "Annular ring",
+    "noPad": "no pad",
+    "noPadDetail": "There's a hole with no copper pad.",
+    "narrow": "Narrow ring — risk of the drill breaking into the pad edge."
+  },
+  "mask": {
+    "label": "Mask dam",
+    "detail": "A thin mask dam may not print."
+  },
+  "silk": {
+    "label": "Silk line width ({{side}})",
+    "detail": "Thin silkscreen may disappear when printed."
+  },
+  "overshoot": {
+    "label": "Outline overshoot",
+    "detail": "Layer features extend past the board edge."
+  },
+  "bitSnap": {
+    "label": "Drill bit match",
+    "measured": "{{list}}",
+    "limit": "from the bit set",
+    "detail": "No matching bit — use the nearest one or buy it."
+  },
+  "slots": {
+    "label": "Slots (routing)",
+    "measured": "{{count}}",
+    "measuredMin": "{{count}}, min {{len}}",
+    "limit": "needs CNC routing"
+  },
+  "verdict": {
+    "ok": "Can be produced",
+    "warn": "With risks",
+    "block": "Cannot be produced"
+  },
+  "chrome": {
+    "loading": "Checking feasibility…",
+    "noData": "No data — assign layers.",
+    "blocks": "{{count}} blocking",
+    "warns": "{{count}} risk",
+    "allOk": "all clear",
+    "footer": "Thresholds are set in Settings. Rows without problems are hidden."
+  }
+}

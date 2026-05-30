@@ -31,7 +31,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** "Характеристики" tab: the measured manufacturing facts, no judgement. */
+/** Metrics tab: the measured manufacturing facts, no judgement. */
 export function MetricsTab({ metrics, loading }: { metrics: BoardMetrics | null; loading?: boolean }) {
   const ignoreBelow = useSettings((s) => s.profile.ignoreBelowMm);
   if (loading && !metrics) {

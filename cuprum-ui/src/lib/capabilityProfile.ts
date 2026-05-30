@@ -3,13 +3,13 @@
  *  persisted. Some fields (minSpaceMm, minAnnularRingMm, mask/silk) are stored
  *  now but only evaluated in Phase 2/3. */
 export interface CapabilityProfile {
-  // Максимальный размер панели (рабочее поле станка, независимо от способа
-  // изготовления меди).
+  // Maximum panel size (the machine's work area, independent of the copper
+  // fabrication method).
   maxPanelWidthMm: number;
   maxPanelHeightMm: number;
   /** Allow trying the board rotated 90° before declaring it too big. */
   allowRotateToFit: boolean;
-  // Медь
+  // Copper
   maxCopperLayers: number;
   allowInnerLayers: boolean;
   minTraceMm: number;
@@ -17,7 +17,7 @@ export interface CapabilityProfile {
   /** Ignore geometric copper/space/mask issues thinner than this (artefacts of
    *  the boolean ops — a near-zero sliver isn't a real feature). */
   ignoreBelowMm: number;
-  // Сверловка / Via
+  // Drilling / Via
   minDrillMm: number; // smallest hole size you're willing to make (separate from the bit set)
   drillBitSetMm: number[]; // available CNC bits (snap check)
   drillBitToleranceMm: number; // ± tolerance when matching a tool to a bit
@@ -25,7 +25,7 @@ export interface CapabilityProfile {
   viaWarnCount: number; // # via-sized holes above which → warn (no plating)
   viaBlockCount: number; // → block (no plating)
   viaMaxDiameterMm: number; // holes ≤ this count as "vias" for the heuristic
-  // Геометрия
+  // Geometry
   minAnnularRingMm: number;
   minMaskDamMm: number;
   minSilkLineMm: number;

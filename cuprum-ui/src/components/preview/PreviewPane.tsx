@@ -71,22 +71,22 @@ export function PreviewPane({
   onSideChange?: (side: "top" | "bottom") => void;
   mode: PreviewMode;
   onModeChange: (mode: PreviewMode) => void;
-  /** Optional progress note (e.g. "Слои 3/6") shown while previews stream in. */
+  /** Optional progress note (e.g. "Layers 3/6") shown while previews stream in. */
   notice?: string;
   /** Which tab to show. The switch itself lives in the wizard header. */
   tab?: PreviewTab;
-  /** Measured board facts for the Характеристики tab (null while loading). */
+  /** Measured board facts for the Metrics tab (null while loading). */
   metrics?: BoardMetrics | null;
   metricsLoading?: boolean;
-  /** DFM verdict rows for the Проверка tab. */
+  /** DFM verdict rows for the Feasibility tab. */
   findings?: Finding[];
   /** DRC dimension markers (board mm) drawn on the 2D view. */
   markers?: DrcMarkerInput[];
   /** Focus request for the 2D view (centre+zoom on a hotspot). */
   focusTarget?: FocusTarget | null;
-  /** Currently focused hotspot (finding id + index), for the Проверка stepper. */
+  /** Currently focused hotspot (finding id + index), for the Feasibility stepper. */
   focus?: { fid: string; hi: number } | null;
-  /** Focus a finding's hotspot (from the Проверка tab) → centres the 2D view. */
+  /** Focus a finding's hotspot (from the Feasibility tab) → centres the 2D view. */
   onFocus?: (fid: string, hi: number) => void;
   /** Whether the DRC marker overlay is shown on the 2D preview. */
   showDrc?: boolean;
@@ -95,7 +95,7 @@ export function PreviewPane({
   issues?: DrcIssue[];
   issueIndex?: number;
   /** The face the 3D camera currently looks at (null = tilted off-axis). Drives
-   *  the Верх/Низ toggle highlight in 3D so it deselects when you orbit away. */
+   *  the Top/Bottom toggle highlight in 3D so it deselects when you orbit away. */
   facing?: "top" | "bottom" | null;
   onFacingChange?: (f: "top" | "bottom" | null) => void;
   /** Bumped on a side pick → tells Board3D to snap the camera onto that side. */
