@@ -82,7 +82,7 @@ pub fn parse_drill(bytes: &[u8]) -> Result<Vec<Hole>> {
     }
     // Coordinates were present but none produced a hole → we failed to understand
     // the body (no tool table, or an unsupported coordinate format). Surface it as
-    // an error so the UI can say "ошибка парсинга" instead of "нет отверстий".
+    // an error so the UI can say "parse error" instead of "no holes".
     if holes.is_empty() && saw_coord {
         bail!("drill body carries coordinates but no holes could be parsed (unsupported format or missing tool table)");
     }
