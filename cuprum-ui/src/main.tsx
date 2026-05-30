@@ -2,6 +2,16 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles.css";
+import i18n from "./i18n";
+import { resolveLanguage } from "./i18n/resolveLanguage";
+import { useSettings } from "./settingsStore";
+
+// Keep i18next's active language in sync with the persisted setting (and the
+// system locale when set to "auto"). Switches without a reload.
+useSettings.subscribe((state) => {
+  const lng = resolveLanguage(state.language);
+  if (i18n.language !== lng) i18n.changeLanguage(lng);
+});
 
 // Reveal overlay scrollbars while actively scrolling (capture phase — `scroll`
 // doesn't bubble), then fade them out shortly after scrolling stops.
