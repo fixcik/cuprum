@@ -4,6 +4,8 @@
   "no": "no",
   "dash": "—",
   "pcs": "pcs",
+  "limit": "limit",
+  "helpHint": "Help",
   "side": { "top": "Top", "bottom": "Bottom" },
   "preview": {
     "drcToggleTitle": "Show detected issues on preview",

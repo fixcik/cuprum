@@ -92,21 +92,6 @@ function clusterBoxes(hs: GeoHotspot[], radius: number): GeoHotspot[] {
   return out;
 }
 
-/** Trim a number without trailing zeros, keeping enough precision for small
- *  values so a thin 0.004 mm feature doesn't read as a flat "0". */
-const n = (v: number) => {
-  const a = Math.abs(v);
-  return a > 0 && a < 0.1 ? `${+v.toFixed(3)}` : `${+v.toFixed(2)}`;
-};
-
-/** Format a length, switching to microns for sub-0.1 mm values so a tiny gap
- *  reads as "12 µm" instead of a misleading "0 mm". */
-export const fmtLen = (mm: number): string => {
-  const a = Math.abs(mm);
-  if (a > 0 && a < 0.1) return `${Math.round(mm * 1000)} мкм`;
-  return `${n(mm)} мм`;
-};
-
 /** Smallest width ≥ `floor` from a sorted-ascending list, or null. Drops tiny
  *  artefact apertures (a 10 µm marker) before taking the min, so a single such
  *  stroke doesn't poison the metric and hide a real thin feature. */

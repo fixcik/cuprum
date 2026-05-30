@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { HelpCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 /** A small "?" icon that shows an explanatory tooltip on hover/focus, with an
  *  optional illustration (e.g. an SVG diagram) above the text. */
 export function HelpTip({ text, image }: { text: string; image?: ReactNode }) {
+  const { t } = useTranslation("common");
   return (
     <TooltipPrimitive.Provider delayDuration={120}>
       <TooltipPrimitive.Root>
@@ -12,7 +14,7 @@ export function HelpTip({ text, image }: { text: string; image?: ReactNode }) {
           <button
             type="button"
             tabIndex={-1}
-            aria-label="Подсказка"
+            aria-label={t("helpHint")}
             className="inline-flex cursor-help items-center justify-center rounded-full p-0.5 text-muted-foreground/40 transition-colors hover:bg-foreground/10 hover:text-foreground"
           >
             <HelpCircle className="size-3.5" />

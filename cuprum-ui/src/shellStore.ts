@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "@/i18n";
 import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type RecentProject, type StagedFile } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
@@ -138,7 +139,7 @@ export const useShell = create<ShellStore>((set, get) => ({
         }
         await get().loadRecents();
         set({
-          homeNotice: `Проект «${name}» не найден — убрал из списка.`,
+          homeNotice: i18n.t("home:notFoundRemoved", { name }),
           error: null,
         });
         return;
@@ -176,7 +177,7 @@ export const useShell = create<ShellStore>((set, get) => ({
           view: "home",
           currentPath: null,
           currentManifest: null,
-          homeNotice: `Проект «${displayName}» не найден — убрал из списка.`,
+          homeNotice: i18n.t("home:notFoundRemoved", { name: displayName }),
           error: null,
         });
         return;
