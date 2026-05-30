@@ -29,7 +29,7 @@
     "minSpace": { "label": "Min clearance", "help": "Minimum gap between different nets. Less and adjacent traces merge (short)." },
     "ignoreBelow": { "label": "Ignore below", "help": "Copper/clearance/mask defects thinner than this are treated as compute artefacts (degenerate slivers) and hidden. Default 0.05 mm (50 µm)." },
     "minDrill": { "label": "Min hole size", "help": "The smallest hole you're willing to make. Separate from the bit set — your lower bound on hole diameter." },
-    "drillBitSet": { "label": "Bit set", "hint": "comma-separated", "help": "Available drill diameters. Board diameters outside the set (within tolerance) → warning." },
+    "drillBitSet": { "label": "Bit set", "hint": "space-separated", "help": "Available drill diameters. Board diameters outside the set (within tolerance) → warning." },
     "drillBitTolerance": { "label": "Bit snap tolerance", "help": "How far a hole diameter may differ from a bit to count as matched." },
     "minAnnular": { "label": "Min annular ring", "help": "Minimum copper ring around a hole. Narrow and the drill wanders into the pad edge or breaks out." },
     "viaPlating": { "label": "Via plating available", "help": "Whether holes can be plated. If not, vias are made by hand and their count matters." },

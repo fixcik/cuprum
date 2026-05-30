@@ -110,9 +110,11 @@ function ArrayField({
   help?: string;
 }) {
   const { toDisplay, fromDisplay, unitLabel } = useUnitFormat();
-  const fmt = (arr: number[]) => arr.map((mm) => +toDisplay(mm, "fine").toFixed(3)).join(", ");
+  const fmt = (arr: number[]) => arr.map((mm) => +toDisplay(mm, "fine").toFixed(3)).join(" ");
   const [text, setText] = React.useState(fmt(value));
-  React.useEffect(() => setText(fmt(value)), [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Resync on value AND unit change: toDisplay's identity changes with the units
+  // setting, so depending on it re-renders the field in the active unit.
+  React.useEffect(() => setText(fmt(value)), [value, toDisplay]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label className="flex items-center justify-between gap-4 py-2">
       <FieldLabel label={label} hint={hint ? `${hint}, ${unitLabel("fine")}` : unitLabel("fine")} help={help} />
@@ -120,9 +122,12 @@ function ArrayField({
         value={text}
         onChange={(e) => {
           setText(e.target.value);
+          // Split on whitespace/semicolons only — never the comma, which is the
+          // decimal separator in many locales (e.g. "0,25 0,35"). A comma inside
+          // a token is normalized to a dot before parsing.
           const arr = e.target.value
-            .split(/[,\s]+/)
-            .map((s) => parseFloat(s))
+            .split(/[\s;]+/)
+            .map((s) => parseFloat(s.replace(",", ".")))
             .filter((x) => !Number.isNaN(x) && x > 0)
             .map((v) => fromDisplay(v, "fine"))
             .sort((a, b) => a - b);
