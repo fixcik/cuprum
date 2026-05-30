@@ -23,7 +23,8 @@ function useRenderText() {
     if (!text) return "";
     const params: Record<string, string | number> = {};
     for (const [k, v] of Object.entries(text.params ?? {})) {
-      if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
+      if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
+      else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
       else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
       else params[k] = v;
     }

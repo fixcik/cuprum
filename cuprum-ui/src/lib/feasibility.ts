@@ -10,10 +10,11 @@ export type Verdict = "ok" | "warn" | "block";
 export type FindingCategory = "size" | "layers" | "copper" | "drill" | "via" | "mask" | "silk";
 
 /** A translatable text: an i18n key plus optional interpolation params.
- *  Length params are RAW MILLIMETRES — formatted at render via useUnitFormat. */
+ *  Length params (`len`/`w`/`h`, or a `number[]` list) are RAW MILLIMETRES —
+ *  formatted at render via useUnitFormat so they react to the units setting. */
 export interface I18nText {
   key: string;
-  params?: Record<string, string | number>;
+  params?: Record<string, string | number | number[]>;
 }
 
 /** One DFM check: a measured value compared against a profile limit. */
@@ -382,7 +383,7 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       category: "drill",
       severity: "warn",
       label: { key: "feasibility:bitSnap.label" },
-      measured: { key: "feasibility:bitSnap.measured", params: { list: offBits.map(n).join(", ") } },
+      measured: { key: "feasibility:bitSnap.measured", params: { list: offBits } },
       limit: { key: "feasibility:bitSnap.limit" },
       detail: { key: "feasibility:bitSnap.detail" },
       hotspots: (g.drillHotspots ?? []).filter((h) => offBits.some((d) => Math.abs(h.v - d) < 0.0011)),
