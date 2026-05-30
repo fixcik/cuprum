@@ -154,6 +154,8 @@ jobs:
           workspaces: cuprum-ui/src-tauri
 
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: cuprum-ui/package.json
 
       - uses: actions/setup-node@v4
         with:
