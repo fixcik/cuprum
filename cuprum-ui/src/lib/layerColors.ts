@@ -18,21 +18,6 @@ export const DEFAULT_LAYER_COLORS: Record<LayerType, string> = {
   other: "#8a8f98",
 };
 
-/** Human label for a layer type (Russian UI). */
-export const LAYER_LABELS: Record<LayerType, string> = {
-  topCopper: "Медь (верх)",
-  bottomCopper: "Медь (низ)",
-  innerCopper: "Медь (внутр.)",
-  topMask: "Маска (верх)",
-  bottomMask: "Маска (низ)",
-  topSilk: "Шелк (верх)",
-  bottomSilk: "Шелк (низ)",
-  topPaste: "Паста (верх)",
-  bottomPaste: "Паста (низ)",
-  edgeCuts: "Контур",
-  drill: "Сверловка",
-  other: "Прочее",
-};
 
 /** Layer-panel display order: by fabrication role, building outward from the bare
  *  board — board outline first, then drilling, then the copper/mask/silk stack

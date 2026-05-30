@@ -5,13 +5,13 @@ import { InlineEditableField } from "@/components/ui/InlineEditableField";
 import { Button } from "@/components/ui/Button";
 import { type StackLayer } from "@/components/import/LayerStack";
 import { PreviewPane, type PreviewMode } from "@/components/preview/PreviewPane";
-import { colorFor, LAYER_LABELS, sideOf } from "@/lib/layerColors";
+import { colorFor, sideOf } from "@/lib/layerColors";
 import { api, type Hole } from "@/lib/api";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { useShell } from "@/shellStore";
 
 export function ProjectPage() {
-  const { t } = useTranslation("project");
+  const { t } = useTranslation(["project", "layers"]);
   const manifest = useShell((s) => s.currentManifest);
   const currentPath = useShell((s) => s.currentPath);
   const updateProjectMetadata = useShell((s) => s.updateProjectMetadata);
@@ -225,7 +225,7 @@ export function ProjectPage() {
                         />
                         <span className="truncate text-foreground">{g.path.split("/").pop()}</span>
                         <span className="ml-auto shrink-0 text-muted-foreground">
-                          {LAYER_LABELS[g.layer_type]}
+                          {t(`layers:${g.layer_type}`)}
                         </span>
                       </li>
                     ))}

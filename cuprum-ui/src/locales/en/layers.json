@@ -1,0 +1,14 @@
+{
+  "topCopper": "Copper (top)",
+  "bottomCopper": "Copper (bottom)",
+  "innerCopper": "Copper (inner)",
+  "topMask": "Mask (top)",
+  "bottomMask": "Mask (bottom)",
+  "topSilk": "Silk (top)",
+  "bottomSilk": "Silk (bottom)",
+  "topPaste": "Paste (top)",
+  "bottomPaste": "Paste (bottom)",
+  "edgeCuts": "Outline",
+  "drill": "Drilling",
+  "other": "Other"
+}

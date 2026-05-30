@@ -28,10 +28,10 @@ export function RecentTile({
   project: RecentProject;
   layout: RecentTileLayout;
 }) {
-  const { t } = useTranslation("home");
+  const { t, i18n } = useTranslation("home");
   const openByPath = useShell((s) => s.openProjectByPath);
   const removeRecent = useShell((s) => s.removeRecent);
-  const when = formatRelativeTime(project.last_opened_at);
+  const when = formatRelativeTime(project.last_opened_at, i18n.language);
 
   if (!project.exists) {
     if (layout === "list") {

@@ -1,0 +1,14 @@
+{
+  "topCopper": "Медь (верх)",
+  "bottomCopper": "Медь (низ)",
+  "innerCopper": "Медь (внутр.)",
+  "topMask": "Маска (верх)",
+  "bottomMask": "Маска (низ)",
+  "topSilk": "Шелк (верх)",
+  "bottomSilk": "Шелк (низ)",
+  "topPaste": "Паста (верх)",
+  "bottomPaste": "Паста (низ)",
+  "edgeCuts": "Контур",
+  "drill": "Сверловка",
+  "other": "Прочее"
+}

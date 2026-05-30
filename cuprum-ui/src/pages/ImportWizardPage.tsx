@@ -7,7 +7,7 @@ import { type StackLayer, type FocusTarget } from "@/components/import/LayerStac
 import { type DrcMarkerInput } from "@/components/preview/DrcMarkers";
 import { PreviewPane, type PreviewMode, type PreviewTab } from "@/components/preview/PreviewPane";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { colorFor, sideOf, stackOrder, missingRequired, LAYER_LABELS } from "@/lib/layerColors";
+import { colorFor, sideOf, stackOrder, missingRequired } from "@/lib/layerColors";
 import { api, type BoardMetrics, type LayerType } from "@/lib/api";
 import type { FindingCategory, I18nText } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
@@ -51,7 +51,7 @@ export function ImportWizardPage() {
   const stagingError = useShell((s) => s.stagingError);
   const manifest = useShell((s) => s.currentManifest);
 
-  const { t } = useTranslation(["feasibility", "common", "metrics", "import"]);
+  const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers"]);
   const { fmtLen } = useUnitFormat();
   // Resolve an I18nText to a display string: length params unit-formatted,
   // key-like string params translated, then the text key translated.
@@ -568,7 +568,7 @@ export function ImportWizardPage() {
                 <div className="text-[15px] font-semibold text-foreground">{t("import:missing.title")}</div>
                 <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
                   {t("import:missing.descriptionPrefix")}{" "}
-                  <span className="text-foreground">{missing.map((t) => LAYER_LABELS[t]).join(", ")}</span>.{" "}
+                  <span className="text-foreground">{missing.map((lt) => t(`layers:${lt}`)).join(", ")}</span>.{" "}
                   {t("import:missing.descriptionSuffix")}
                 </p>
               </div>

@@ -8,6 +8,7 @@ import type enImport from "@/locales/en/import.json";
 import type enHome from "@/locales/en/home.json";
 import type enPrinter from "@/locales/en/printer.json";
 import type enProject from "@/locales/en/project.json";
+import type enLayers from "@/locales/en/layers.json";
 
 declare module "react-i18next" {
   interface CustomTypeOptions {
@@ -22,6 +23,7 @@ declare module "react-i18next" {
       home: typeof enHome;
       printer: typeof enPrinter;
       project: typeof enProject;
+      layers: typeof enLayers;
     };
   }
 }
