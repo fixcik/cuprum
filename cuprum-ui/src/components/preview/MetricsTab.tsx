@@ -1,15 +1,9 @@
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { BoardMetrics } from "@/lib/api";
-import { fmtLen, minAbove } from "@/lib/feasibility";
+import { minAbove } from "@/lib/feasibility";
 import { useSettings } from "@/settingsStore";
-
-const num = (v: number) => {
-  const a = Math.abs(v);
-  return a > 0 && a < 0.1 ? `${+v.toFixed(3)}` : `${+v.toFixed(2)}`;
-};
-// Microns for sub-0.1 mm values so a tiny feature isn't shown as a flat "0".
-const mm = (v: number | null) => (v != null ? fmtLen(v) : "—");
-const yn = (b: boolean) => (b ? "да" : "нет");
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 /** One label/value row. */
 function Row({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
@@ -33,96 +27,147 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 /** Metrics tab: the measured manufacturing facts, no judgement. */
 export function MetricsTab({ metrics, loading }: { metrics: BoardMetrics | null; loading?: boolean }) {
+  const { t } = useTranslation(["metrics", "common"]);
+  const { fmtLen } = useUnitFormat();
   const ignoreBelow = useSettings((s) => s.profile.ignoreBelowMm);
+
+  /** Format a nullable length, falling back to em dash. */
+  const fmtMm = (v: number | null) => (v != null ? fmtLen(v) : t("common:dash"));
+
   if (loading && !metrics) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
-        <Loader2 className="size-5 animate-spin text-primary" /> Измеряем плату…
+        <Loader2 className="size-5 animate-spin text-primary" /> {t("metrics:loading")}
       </div>
     );
   }
   if (!metrics) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-[13px] text-muted-foreground">
-        Нет данных — назначьте слои.
+        {t("metrics:noData")}
       </div>
     );
   }
 
   const { board, layers, copper, drill, geo } = metrics;
+
+  // Build the copper-sides label list (e.g. "top, bottom, inner ×2").
   const copperSides = [
-    layers.copperTop && "верх",
-    layers.copperBottom && "низ",
-    layers.innerCopperCount > 0 && `внутр. ×${layers.innerCopperCount}`,
+    layers.copperTop && t("metrics:side.top"),
+    layers.copperBottom && t("metrics:side.bottom"),
+    layers.innerCopperCount > 0 && `${t("metrics:side.inner")} ×${layers.innerCopperCount}`,
   ].filter(Boolean) as string[];
-  const sideLabel = (s: string) => (s === "top" ? "верх" : s === "bottom" ? "низ" : "внутр.");
+
+  /** Map a side key string ("top" | "bottom" | anything else) to a localized label. */
+  const sideLabel = (s: string) =>
+    s === "top"
+      ? t("metrics:side.top")
+      : s === "bottom"
+        ? t("metrics:side.bottom")
+        : t("metrics:side.inner");
 
   return (
     <div className="h-full overflow-auto">
-      <SectionTitle>Габариты</SectionTitle>
-      <Row label="Размер" value={board.hasEdgeLayer ? `${num(board.widthMm)} × ${num(board.heightMm)} мм` : "—"} />
-      <Row label="Контур замкнут" value={board.hasEdgeLayer ? yn(board.outlineClosed) : "нет контура"} />
-      <Row label="Внутренние вырезы" value={`${board.cutoutCount}`} />
+      <SectionTitle>{t("metrics:section.dimensions")}</SectionTitle>
+      <Row
+        label={t("metrics:row.size")}
+        value={board.hasEdgeLayer ? `${fmtLen(board.widthMm)} × ${fmtLen(board.heightMm)}` : t("common:dash")}
+      />
+      <Row
+        label={t("metrics:row.outlineClosed")}
+        value={board.hasEdgeLayer ? (board.outlineClosed ? t("common:yes") : t("common:no")) : t("metrics:noOutline")}
+      />
+      <Row label={t("metrics:row.cutouts")} value={`${board.cutoutCount}`} />
 
-      <SectionTitle>Слои</SectionTitle>
-      <Row label="Медь" value={`${layers.copperLayerCount}${copperSides.length ? ` (${copperSides.join(", ")})` : ""}`} />
+      <SectionTitle>{t("metrics:section.layers")}</SectionTitle>
       <Row
-        label="Маска"
-        value={[layers.hasMaskTop && "верх", layers.hasMaskBottom && "низ"].filter(Boolean).join(", ") || "нет"}
+        label={t("metrics:row.copper")}
+        value={`${layers.copperLayerCount}${copperSides.length ? ` (${copperSides.join(", ")})` : ""}`}
       />
       <Row
-        label="Шелк"
-        value={[layers.hasSilkTop && "верх", layers.hasSilkBottom && "низ"].filter(Boolean).join(", ") || "нет"}
+        label={t("metrics:row.mask")}
+        value={
+          [layers.hasMaskTop && t("metrics:side.top"), layers.hasMaskBottom && t("metrics:side.bottom")]
+            .filter(Boolean)
+            .join(", ") || t("common:no")
+        }
       />
-      <Row label="Паста" value={yn(layers.hasPaste)} />
+      <Row
+        label={t("metrics:row.silk")}
+        value={
+          [layers.hasSilkTop && t("metrics:side.top"), layers.hasSilkBottom && t("metrics:side.bottom")]
+            .filter(Boolean)
+            .join(", ") || t("common:no")
+        }
+      />
+      <Row label={t("metrics:row.paste")} value={layers.hasPaste ? t("common:yes") : t("common:no")} />
 
       {copper.length > 0 && (
         <>
-          <SectionTitle>Мин. ширина дорожки</SectionTitle>
+          <SectionTitle>{t("metrics:section.minTrace")}</SectionTitle>
           {copper.map((c, i) => {
-            const t = minAbove(c.traceWidthsMm, ignoreBelow);
-            return <Row key={i} label={sideLabel(c.side)} value={t != null ? mm(t) : "нет дорожек"} muted={t == null} />;
+            const minW = minAbove(c.traceWidthsMm, ignoreBelow);
+            return (
+              <Row
+                key={i}
+                label={sideLabel(c.side)}
+                value={minW != null ? fmtLen(minW) : t("metrics:noTraces")}
+                muted={minW == null}
+              />
+            );
           })}
         </>
       )}
 
-      <SectionTitle>Геометрия меди</SectionTitle>
-      <Row label="Мин. зазор" value={mm(geo.minClearanceMm)} muted={geo.minClearanceMm == null} />
-      <Row label="Мин. ширина меди" value={mm(geo.minCopperWidthMm)} muted={geo.minCopperWidthMm == null} />
+      <SectionTitle>{t("metrics:section.copperGeo")}</SectionTitle>
+      <Row label={t("metrics:row.minClearance")} value={fmtMm(geo.minClearanceMm)} muted={geo.minClearanceMm == null} />
+      <Row label={t("metrics:row.minCopperWidth")} value={fmtMm(geo.minCopperWidthMm)} muted={geo.minCopperWidthMm == null} />
       <Row
-        label="Покрытие медью"
-        value={geo.copperCoveragePct != null ? `${num(geo.copperCoveragePct)} %` : "—"}
+        label={t("metrics:row.copperCoverage")}
+        value={geo.copperCoveragePct != null ? `${+geo.copperCoveragePct.toFixed(2)} %` : t("common:dash")}
         muted={geo.copperCoveragePct == null}
       />
 
-      <SectionTitle>Сверловка</SectionTitle>
-      <Row label="Всего отверстий" value={`${drill.totalHoles}`} />
-      <Row label="Мин. диаметр" value={mm(drill.minHoleMm)} />
+      <SectionTitle>{t("metrics:section.drill")}</SectionTitle>
+      <Row label={t("metrics:row.totalHoles")} value={`${drill.totalHoles}`} />
+      <Row label={t("metrics:row.minDiameter")} value={fmtMm(drill.minHoleMm)} />
       <Row
-        label="Диаметры (инстр.)"
-        value={drill.uniqueToolDiametersMm.length ? drill.uniqueToolDiametersMm.map(num).join(", ") + " мм" : "—"}
+        label={t("metrics:row.toolDiameters")}
+        value={drill.uniqueToolDiametersMm.length ? drill.uniqueToolDiametersMm.map(fmtLen).join(", ") : t("common:dash")}
       />
-      <Row label="Металлизир. / нет" value={`${drill.platedHoleCount} / ${drill.nonplatedHoleCount}`} />
-      <Row label="Мин. поясок" value={mm(geo.minAnnularMm)} muted={geo.minAnnularMm == null} />
+      <Row label={t("metrics:row.platedNonplated")} value={`${drill.platedHoleCount} / ${drill.nonplatedHoleCount}`} />
+      <Row label={t("metrics:row.minAnnular")} value={fmtMm(geo.minAnnularMm)} muted={geo.minAnnularMm == null} />
       <Row
-        label="Слоты (раут)"
-        value={geo.slotCount > 0 ? `${geo.slotCount}${geo.minSlotWidthMm != null ? `, мин ${num(geo.minSlotWidthMm)} мм` : ""}` : "нет"}
+        label={t("metrics:row.slots")}
+        value={
+          geo.slotCount > 0
+            ? geo.minSlotWidthMm != null
+              ? t("metrics:slotsWithMin", { count: geo.slotCount, min: fmtLen(geo.minSlotWidthMm) })
+              : `${geo.slotCount}`
+            : t("metrics:noSlots")
+        }
         muted={geo.slotCount === 0}
       />
 
       {(layers.hasMaskTop || layers.hasMaskBottom || layers.hasSilkTop || layers.hasSilkBottom) && (
         <>
-          <SectionTitle>Маска / шелк</SectionTitle>
-          <Row label="Перемычка маски" value={mm(geo.minMaskDamMm)} muted={geo.minMaskDamMm == null} />
+          <SectionTitle>{t("metrics:section.maskSilk")}</SectionTitle>
+          <Row label={t("metrics:row.maskDam")} value={fmtMm(geo.minMaskDamMm)} muted={geo.minMaskDamMm == null} />
           {(() => {
             const s = minAbove(geo.silkLineWidthsMm, ignoreBelow);
-            return <Row label="Мин. линия шелка" value={s != null ? mm(s) : "—"} muted={s == null} />;
+            return (
+              <Row
+                label={t("metrics:row.minSilkLine")}
+                value={s != null ? fmtLen(s) : t("common:dash")}
+                muted={s == null}
+              />
+            );
           })()}
         </>
       )}
 
-      <SectionTitle>Совмещение</SectionTitle>
-      <Row label="Выход за контур" value={mm(geo.layerOvershootMm)} muted={geo.layerOvershootMm == null} />
+      <SectionTitle>{t("metrics:section.registration")}</SectionTitle>
+      <Row label={t("metrics:row.layerOvershoot")} value={fmtMm(geo.layerOvershootMm)} muted={geo.layerOvershootMm == null} />
     </div>
   );
 }

@@ -51,7 +51,7 @@ export function ImportWizardPage() {
   const stagingError = useShell((s) => s.stagingError);
   const manifest = useShell((s) => s.currentManifest);
 
-  const { t } = useTranslation(["feasibility", "common"]);
+  const { t } = useTranslation(["feasibility", "common", "metrics"]);
   const { fmtLen } = useUnitFormat();
   // Resolve an I18nText to a display string: length params unit-formatted,
   // key-like string params translated, then the text key translated.
@@ -383,7 +383,7 @@ export function ImportWizardPage() {
   // spinner until the mesh is ready).
   const svgTotal = staged.filter((f) => f.svgStatus !== "none").length;
   const svgLoaded = staged.filter((f) => f.svgStatus === "loaded").length;
-  const previewNotice = mode === "2d" && svgTotal > 0 && svgLoaded < svgTotal ? `Слои ${svgLoaded}/${svgTotal}` : undefined;
+  const previewNotice = mode === "2d" && svgTotal > 0 && svgLoaded < svgTotal ? t("metrics:layersProgress", { done: svgLoaded, total: svgTotal }) : undefined;
 
   // Holes from the currently-visible drill layers (each drill file toggles its own).
   const visibleHoles = useMemo(
