@@ -1,15 +1,10 @@
 {
-  "title": "Machine capability profile",
   "subtitle": "Limits a board is checked against on import.",
   "reset": "Reset",
   "resetTitle": "Reset to Saturn 4 Ultra 16K",
   "tab": {
     "general": "General",
     "capabilities": "Capabilities"
-  },
-  "general": {
-    "title": "General",
-    "subtitle": "Interface language and measurement units."
   },
   "category": {
     "panel": "Panel size",
