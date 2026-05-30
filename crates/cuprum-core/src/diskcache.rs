@@ -154,6 +154,17 @@ mod tests {
         put(&dir, "aaa", &[1u8; 100], 1_000, day);
         assert_eq!(get(&dir, "aaa", day).as_deref(), Some(&[1u8; 100][..]));
 
+        // Pin "aaa" to an unambiguously older mtime so the LRU victim is
+        // deterministic regardless of filesystem timestamp granularity — on a
+        // fast runner the get() touch above and the put() below can otherwise
+        // land in the same tick and tie.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(entry_path(&dir, "aaa"))
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(60))
+            .unwrap();
+
         put(&dir, "bbb", &[2u8; 100], 150, day);
         // "aaa" was older (and not touched after) → evicted; "bbb" stays.
         assert!(
