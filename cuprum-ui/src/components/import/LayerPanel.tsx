@@ -1,9 +1,10 @@
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { LayerType } from "@/lib/api";
 import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { LAYER_LABELS, LAYER_ORDER } from "@/lib/layerColors";
+import { LAYER_ORDER } from "@/lib/layerColors";
 
 export interface PanelRow {
   key: string;
@@ -16,7 +17,7 @@ export interface PanelRow {
   hasPreview: boolean;
   /** This layer's SVG preview is still rendering. */
   loading?: boolean;
-  /** Set when a drill file couldn't be parsed (shown as "ошибка парсинга"). */
+  /** Set when a drill file couldn't be parsed (shown as a parse-error badge). */
   drillError?: string | null;
 }
 
@@ -32,11 +33,12 @@ export function LayerPanel({
   /** Whole-panel skeleton while the file list is being classified. */
   loading?: boolean;
 }) {
+  const { t } = useTranslation(["import", "layers"]);
   return (
     <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-panel">
       <div className="flex items-center justify-between border-b border-border px-3 py-3">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Слои
+          {t("panel.layers")}
         </span>
       </div>
       <ul className="min-h-0 flex-1 overflow-auto">
@@ -67,25 +69,25 @@ export function LayerPanel({
                     onChange={(e) => onType(r.index, e.target.value as LayerType)}
                     className="mt-1 h-7"
                   >
-                    {LAYER_ORDER.map((t) => (
-                      <option key={t} value={t}>
-                        {LAYER_LABELS[t]}
+                    {LAYER_ORDER.map((lt) => (
+                      <option key={lt} value={lt}>
+                        {t(`layers:${lt}`)}
                       </option>
                     ))}
                   </Select>
                   {r.loading ? (
                     <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <Loader2 className="size-3 animate-spin" /> рендер превью…
+                      <Loader2 className="size-3 animate-spin" /> {t("panel.renderingPreview")}
                     </div>
                   ) : (
                     !r.hasPreview &&
                     (r.drillError ? (
                       <div className="mt-1 text-[10px] text-destructive" title={r.drillError}>
-                        ошибка парсинга
+                        {t("panel.parseError")}
                       </div>
                     ) : (
                       <div className="mt-1 text-[10px] text-muted-foreground">
-                        {r.type === "drill" ? "нет отверстий" : "превью недоступно"}
+                        {r.type === "drill" ? t("panel.noHoles") : t("panel.previewUnavailable")}
                       </div>
                     ))
                   )}

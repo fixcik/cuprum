@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { PcbPreviewPlaceholder } from "@/components/home/PcbPreviewPlaceholder";
 import { type RecentProject } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
@@ -27,9 +28,10 @@ export function RecentTile({
   project: RecentProject;
   layout: RecentTileLayout;
 }) {
+  const { t, i18n } = useTranslation("home");
   const openByPath = useShell((s) => s.openProjectByPath);
   const removeRecent = useShell((s) => s.removeRecent);
-  const when = formatRelativeTime(project.last_opened_at);
+  const when = formatRelativeTime(project.last_opened_at, i18n.language);
 
   if (!project.exists) {
     if (layout === "list") {
@@ -44,7 +46,7 @@ export function RecentTile({
               className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
             >
               <X className="size-3" />
-              файл не найден — убрать
+              {t("fileNotFound")}
             </button>
           </div>
         </div>
@@ -61,7 +63,7 @@ export function RecentTile({
           className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
         >
           <X className="size-3" />
-          файл не найден — убрать
+          {t("fileNotFound")}
         </button>
       </div>
     );

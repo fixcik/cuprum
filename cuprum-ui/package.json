@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/i18n-check.mjs && tsc --noEmit && vite build",
+    "i18n:check": "node scripts/i18n-check.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -20,11 +21,13 @@
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "i18next": "^26.3.0",
     "konva": "^9.3.18",
     "lucide-react": "^0.469.0",
     "polygon-clipping": "^0.15.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.8",
     "react-konva": "^18.2.10",
     "tailwind-merge": "^2.6.0",
     "three": "^0.184.0",

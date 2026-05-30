@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Crosshair, Maximize, Minus, Plus, Ruler } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { BBox, Hole, LayerType } from "@/lib/api";
 import { LAYER_Z } from "@/lib/layerColors";
 import { outlineLoops, outlinePathD } from "@/lib/boardOutline";
 import { DrcMarkers, type DrcMarkerInput, type ProjectedMarker } from "@/components/preview/DrcMarkers";
 import { useShell } from "@/shellStore";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 /** Programmatic view focus: centre board point `p`, zoomed so ~`spanMm` fits the
  *  pane width (context around the spot). `nonce` lets re-clicking re-centre. */
@@ -109,6 +111,9 @@ export function LayerStack({
   /** When set, centre+zoom the view on this board point. */
   focusTarget?: FocusTarget | null;
 }) {
+  const { t } = useTranslation("import");
+  const { fmtLen } = useUnitFormat();
+
   // True CSS px/mm for the host display — fetched once at launch in App.tsx.
   // Falls back to the 96dpi CSS reference if the native query fails.
   const pxPerMm = useShell((s) => s.pxPerMm);
@@ -279,7 +284,7 @@ export function LayerStack({
         ref={setContainer}
         className="flex h-full w-full items-center justify-center text-[12px] text-muted-foreground"
       >
-        Нет слоёв для предпросмотра
+        {t("viewer.noLayers")}
       </div>
     );
   }
@@ -639,10 +644,10 @@ export function LayerStack({
                   <g transform={`translate(${labelX} ${labelY})`}>
                     <rect x={0} y={0} width={labelW} height={labelH} rx={6} style={{ fill: MEASURE_LABEL_BG, stroke: "hsl(var(--border))" }} />
                     <text x={8} y={14} style={{ fill: MEASURE, fontSize: "11px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                      {dist.toFixed(2)} мм
+                      {fmtLen(dist)}
                     </text>
                     <text x={8} y={27} style={{ fill: MEASURE_DIM, fontSize: "9px", fontVariantNumeric: "tabular-nums" }}>
-                      ΔX {dxmm.toFixed(2)} · ΔY {dymm.toFixed(2)}
+                      ΔX {fmtLen(dxmm)} · ΔY {fmtLen(dymm)}
                     </text>
                   </g>
                 </>
@@ -656,57 +661,57 @@ export function LayerStack({
 
       <div
         className="absolute right-2 top-[26px] rounded-md border border-border bg-card/90 px-2 py-1 text-[11px] tabular-nums text-muted-foreground"
-        title="Размер платы (по контуру)"
+        title={t("viewer.boardSize")}
       >
-        {boardW.toFixed(1)} × {boardH.toFixed(1)} мм
+        {fmtLen(boardW)} × {fmtLen(boardH)}
       </div>
 
       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground">
         <button
           className={`cursor-pointer rounded p-1 hover:bg-muted/60 ${tool === "measure" ? "bg-primary/20 text-primary" : ""}`}
-          title="Линейка (замер)"
+          title={t("viewer.ruler")}
           onClick={() => { setTool((t) => (t === "measure" ? "pan" : "measure")); setMA(null); setMB(null); setHover(null); }}
         >
           <Ruler className="size-4" />
         </button>
         <button
           className="cursor-pointer rounded p-1 hover:bg-muted/60"
-          title="Отдалить"
+          title={t("viewer.zoomOut")}
           onClick={() => zoomButton(1 / 1.2)}
         >
           <Minus className="size-4" />
         </button>
         <button
           className="min-w-12 cursor-pointer rounded px-1.5 py-1 text-center text-[11px] tabular-nums hover:bg-muted/60"
-          title="Реальный размер (100%)"
+          title={t("viewer.realSize")}
           onClick={realSize}
         >
           {pct}%
         </button>
         <button
           className="cursor-pointer rounded p-1 hover:bg-muted/60"
-          title="Приблизить"
+          title={t("viewer.zoomIn")}
           onClick={() => zoomButton(1.2)}
         >
           <Plus className="size-4" />
         </button>
         <button
           className="cursor-pointer rounded px-1.5 py-1 text-[11px] font-medium hover:bg-muted/60"
-          title="Реальный размер 1:1"
+          title={t("viewer.realSize1to1")}
           onClick={realSize}
         >
           1:1
         </button>
         <button
           className="cursor-pointer rounded p-1 hover:bg-muted/60"
-          title="Центрировать"
+          title={t("viewer.center")}
           onClick={centerView}
         >
           <Crosshair className="size-4" />
         </button>
         <button
           className="cursor-pointer rounded p-1 hover:bg-muted/60"
-          title="Вписать целиком"
+          title={t("viewer.fitAll")}
           onClick={fitFull}
         >
           <Maximize className="size-4" />

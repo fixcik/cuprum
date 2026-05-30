@@ -1,0 +1,44 @@
+{
+  "loading": "Measuring board…",
+  "noData": "No data — assign layers.",
+  "section": {
+    "dimensions": "Dimensions",
+    "layers": "Layers",
+    "minTrace": "Min. trace width",
+    "copperGeo": "Copper geometry",
+    "drill": "Drill",
+    "maskSilk": "Mask / silk",
+    "registration": "Registration"
+  },
+  "row": {
+    "size": "Size",
+    "outlineClosed": "Outline closed",
+    "cutouts": "Cutouts",
+    "copper": "Copper",
+    "mask": "Mask",
+    "silk": "Silk",
+    "paste": "Paste",
+    "minClearance": "Min. clearance",
+    "minCopperWidth": "Min. copper width",
+    "copperCoverage": "Copper coverage",
+    "totalHoles": "Total holes",
+    "minDiameter": "Min. diameter",
+    "toolDiameters": "Diameters (tool)",
+    "platedNonplated": "Plated / non-plated",
+    "minAnnular": "Min. annular ring",
+    "slots": "Slots (routing)",
+    "maskDam": "Mask dam",
+    "minSilkLine": "Min. silk line",
+    "layerOvershoot": "Layer overshoot"
+  },
+  "side": {
+    "top": "top",
+    "bottom": "bottom",
+    "inner": "inner"
+  },
+  "noTraces": "no traces",
+  "noOutline": "no outline",
+  "noSlots": "none",
+  "slotsWithMin": "{{count}}, min {{min}}",
+  "layersProgress": "Layers {{done}}/{{total}}"
+}

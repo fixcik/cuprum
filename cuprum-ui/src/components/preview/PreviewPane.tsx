@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Loader2, ShieldCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
 import { LayerStack, type StackLayer, type FocusTarget } from "@/components/import/LayerStack";
@@ -71,22 +72,22 @@ export function PreviewPane({
   onSideChange?: (side: "top" | "bottom") => void;
   mode: PreviewMode;
   onModeChange: (mode: PreviewMode) => void;
-  /** Optional progress note (e.g. "Слои 3/6") shown while previews stream in. */
+  /** Optional progress note (e.g. "Layers 3/6") shown while previews stream in. */
   notice?: string;
   /** Which tab to show. The switch itself lives in the wizard header. */
   tab?: PreviewTab;
-  /** Measured board facts for the Характеристики tab (null while loading). */
+  /** Measured board facts for the Metrics tab (null while loading). */
   metrics?: BoardMetrics | null;
   metricsLoading?: boolean;
-  /** DFM verdict rows for the Проверка tab. */
+  /** DFM verdict rows for the Feasibility tab. */
   findings?: Finding[];
   /** DRC dimension markers (board mm) drawn on the 2D view. */
   markers?: DrcMarkerInput[];
   /** Focus request for the 2D view (centre+zoom on a hotspot). */
   focusTarget?: FocusTarget | null;
-  /** Currently focused hotspot (finding id + index), for the Проверка stepper. */
+  /** Currently focused hotspot (finding id + index), for the Feasibility stepper. */
   focus?: { fid: string; hi: number } | null;
-  /** Focus a finding's hotspot (from the Проверка tab) → centres the 2D view. */
+  /** Focus a finding's hotspot (from the Feasibility tab) → centres the 2D view. */
   onFocus?: (fid: string, hi: number) => void;
   /** Whether the DRC marker overlay is shown on the 2D preview. */
   showDrc?: boolean;
@@ -95,12 +96,13 @@ export function PreviewPane({
   issues?: DrcIssue[];
   issueIndex?: number;
   /** The face the 3D camera currently looks at (null = tilted off-axis). Drives
-   *  the Верх/Низ toggle highlight in 3D so it deselects when you orbit away. */
+   *  the Top/Bottom toggle highlight in 3D so it deselects when you orbit away. */
   facing?: "top" | "bottom" | null;
   onFacingChange?: (f: "top" | "bottom" | null) => void;
   /** Bumped on a side pick → tells Board3D to snap the camera onto that side. */
   snapNonce?: number;
 }) {
+  const { t } = useTranslation("common");
   // The 2D view's current px/mm scale, carried over so 3D opens at the same size.
   const [scale2d, setScale2d] = useState<number | undefined>(undefined);
 
@@ -152,8 +154,8 @@ export function PreviewPane({
               value={(mode === "3d" ? (facing ?? "__none__") : side) as "top" | "bottom"}
               onChange={onSideChange}
               options={[
-                { value: "top", label: "Верх" },
-                { value: "bottom", label: "Низ" },
+                { value: "top", label: t("side.top") },
+                { value: "bottom", label: t("side.bottom") },
               ]}
             />
           )}
@@ -165,10 +167,10 @@ export function PreviewPane({
           {mode === "2d" && (findings ?? []).some((f) => (f.hotspots?.length ?? 0) > 0) && onShowDrcChange && (
             <label
               className="flex cursor-pointer items-center gap-1.5 rounded-md bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
-              title="Показывать найденные проблемы на превью"
+              title={t("preview.drcToggleTitle")}
             >
               <ShieldCheck className="size-3.5" />
-              Проверка
+              {t("preview.drcLabel")}
               <Switch checked={showDrc} onCheckedChange={onShowDrcChange} />
             </label>
           )}
@@ -189,7 +191,7 @@ export function PreviewPane({
             <button
               type="button"
               className="cursor-pointer rounded p-1 text-muted-foreground hover:bg-foreground/10"
-              title="Предыдущая проблема"
+              title={t("preview.prevIssue")}
               onClick={() => go(-1)}
             >
               <ChevronLeft className="size-4" />
@@ -204,12 +206,12 @@ export function PreviewPane({
                 </span>
               </span>
             ) : (
-              <span className="px-1 text-muted-foreground">Проблемы: {N} · ◂ ▸ для перехода</span>
+              <span className="px-1 text-muted-foreground">{t("preview.stepperIssues", { count: N })}</span>
             )}
             <button
               type="button"
               className="cursor-pointer rounded p-1 text-muted-foreground hover:bg-foreground/10"
-              title="Следующая проблема"
+              title={t("preview.nextIssue")}
               onClick={() => go(1)}
             >
               <ChevronRight className="size-4" />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, FileX2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LayerPanel, type PanelRow } from "@/components/import/LayerPanel";
@@ -6,13 +7,17 @@ import { type StackLayer, type FocusTarget } from "@/components/import/LayerStac
 import { type DrcMarkerInput } from "@/components/preview/DrcMarkers";
 import { PreviewPane, type PreviewMode, type PreviewTab } from "@/components/preview/PreviewPane";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { colorFor, sideOf, stackOrder, missingRequired, LAYER_LABELS } from "@/lib/layerColors";
+import { colorFor, sideOf, stackOrder, missingRequired } from "@/lib/layerColors";
 import { api, type BoardMetrics, type LayerType } from "@/lib/api";
-import type { FindingCategory } from "@/lib/feasibility";
+import type { FindingCategory, I18nText } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
-import { evaluate, overallVerdict, VERDICT_LABEL, fmtLen } from "@/lib/feasibility";
+import { evaluate, overallVerdict, VERDICT_KEY } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
+
+/** Param names carrying a RAW length in mm — formatted via fmtLen at render. */
+const LEN_PARAMS = new Set(["len", "w", "h"]);
 
 /** Findings whose hotspots mark a thin feature (drawn as a box). */
 const BOX_FINDINGS = new Set(["copper.minTrace"]);
@@ -45,6 +50,25 @@ export function ImportWizardPage() {
   const cancelImport = useShell((s) => s.cancelImport);
   const stagingError = useShell((s) => s.stagingError);
   const manifest = useShell((s) => s.currentManifest);
+
+  const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers"]);
+  const { fmtLen } = useUnitFormat();
+  // Resolve an I18nText to a display string: length params unit-formatted,
+  // key-like string params translated, then the text key translated.
+  const tr = useCallback(
+    (text?: I18nText): string => {
+      if (!text) return "";
+      const params: Record<string, string | number> = {};
+      for (const [k, v] of Object.entries(text.params ?? {})) {
+        if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
+        else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
+        else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
+        else params[k] = v;
+      }
+      return t(text.key, params);
+    },
+    [t, fmtLen],
+  );
 
   const [mode, setMode] = useState<PreviewMode>("2d");
   const [tab, setTab] = useState<PreviewTab>("preview");
@@ -180,7 +204,7 @@ export function ImportWizardPage() {
   );
 
   // DRC overlay on the preview is OFF by default (clean preview); it turns on
-  // only when arriving from the Проверка tab (clicking a finding) or via its
+  // only when arriving from the Feasibility tab (clicking a finding) or via its
   // toggle — so the markers don't clutter casual browsing.
   const [showDrc, setShowDrc] = useState(false);
   // DRC marker focus: which finding's hotspot is highlighted/centred in 2D.
@@ -221,9 +245,9 @@ export function ImportWizardPage() {
             a: h.a,
             b: h.b,
             value: fmtLen(h.v),
-            label: f.label,
-            limit: f.limit,
-            detail: f.detail,
+            label: tr(f.label),
+            limit: tr(f.limit),
+            detail: tr(f.detail) || undefined,
             severity: f.severity,
             // Line highlights aren't individually focusable (it's a bulk tint).
             focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
@@ -238,17 +262,17 @@ export function ImportWizardPage() {
             key: `${f.id}~hover#${i}`,
             a: h.a,
             b: h.b,
-            value: f.measured,
-            label: f.label,
-            limit: f.limit,
-            detail: f.detail,
+            value: tr(f.measured),
+            label: tr(f.label),
+            limit: tr(f.limit),
+            detail: tr(f.detail) || undefined,
             severity: f.severity,
             focused: false,
             shape: "hover" as const,
           }));
         return [...visual, ...hovers];
       }),
-    [findings, focus, markerVisible],
+    [findings, focus, markerVisible, tr, fmtLen],
   );
 
   // Flat list of navigable problems for the on-preview stepper ("walk the
@@ -263,16 +287,16 @@ export function ImportWizardPage() {
         if (hs.length === 0) return [];
         if (f.highlightAll) {
           return markerVisible(f.category, hs[0].side)
-            ? [{ fid: f.id, hi: 0, label: f.label, value: f.measured, severity: f.severity }]
+            ? [{ fid: f.id, hi: 0, label: tr(f.label), value: tr(f.measured), severity: f.severity }]
             : [];
         }
         return hs.flatMap((h, i) =>
           markerVisible(f.category, h.side)
-            ? [{ fid: f.id, hi: i, label: f.label, value: fmtLen(h.v), severity: f.severity }]
+            ? [{ fid: f.id, hi: i, label: tr(f.label), value: fmtLen(h.v), severity: f.severity }]
             : [],
         );
       }),
-    [findings, markerVisible],
+    [findings, markerVisible, tr, fmtLen],
   );
   const issueIndex = focus ? issues.findIndex((n) => n.fid === focus.fid && n.hi === focus.hi) : -1;
 
@@ -359,7 +383,7 @@ export function ImportWizardPage() {
   // spinner until the mesh is ready).
   const svgTotal = staged.filter((f) => f.svgStatus !== "none").length;
   const svgLoaded = staged.filter((f) => f.svgStatus === "loaded").length;
-  const previewNotice = mode === "2d" && svgTotal > 0 && svgLoaded < svgTotal ? `Слои ${svgLoaded}/${svgTotal}` : undefined;
+  const previewNotice = mode === "2d" && svgTotal > 0 && svgLoaded < svgTotal ? t("metrics:layersProgress", { done: svgLoaded, total: svgTotal }) : undefined;
 
   // Holes from the currently-visible drill layers (each drill file toggles its own).
   const visibleHoles = useMemo(
@@ -398,22 +422,22 @@ export function ImportWizardPage() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
         <div className="flex items-center gap-4">
-          <h1 className="text-[13px] font-semibold text-foreground">Импорт герберов</h1>
+          <h1 className="text-[13px] font-semibold text-foreground">{t("import:heading")}</h1>
           {hasRequired && (
             <SegmentedControl
               value={tab}
               onChange={setTab}
               options={[
-                { value: "preview", label: "Превью" },
+                { value: "preview", label: t("import:tab.preview") },
                 {
                   value: "metrics",
-                  label: "Характеристики",
+                  label: t("import:tab.metrics"),
                   icon: metricsLoading ? <Loader2 className="size-3 animate-spin" /> : undefined,
                 },
                 {
                   value: "feasibility",
-                  label: "Проверка",
-                  title: metricsLoading ? "Проверяем…" : metrics ? VERDICT_LABEL[verdict] : undefined,
+                  label: t("import:tab.feasibility"),
+                  title: metricsLoading ? t("import:state.checking") : metrics ? t(VERDICT_KEY[verdict]) : undefined,
                   icon: metricsLoading ? (
                     <Loader2 className="size-3 animate-spin" />
                   ) : metrics ? (
@@ -437,7 +461,7 @@ export function ImportWizardPage() {
             <button
               type="button"
               onClick={() => setTab("feasibility")}
-              title="Открыть проверку"
+              title={t("import:action.openFeasibility")}
               // Border colour set inline (the dynamic `border-{verdict}` utilities
               // weren't reliably generated by Tailwind → it fell back to the grey
               // default border).
@@ -462,7 +486,7 @@ export function ImportWizardPage() {
             >
               {metricsLoading ? (
                 <>
-                  <Loader2 className="size-3 animate-spin" /> Проверка…
+                  <Loader2 className="size-3 animate-spin" /> {t("import:state.checking")}
                 </>
               ) : (
                 <>
@@ -471,16 +495,16 @@ export function ImportWizardPage() {
                       verdict === "block" ? "bg-destructive" : verdict === "warn" ? "bg-warning" : "bg-success"
                     }`}
                   />
-                  {VERDICT_LABEL[verdict]}
+                  {t(VERDICT_KEY[verdict])}
                 </>
               )}
             </button>
           )}
           <Button variant="ghost" onClick={cancelImport}>
-            Отмена
+            {t("import:action.cancel")}
           </Button>
           <Button onClick={confirmImport} disabled={staged.length === 0 || !hasRequired}>
-            Подтвердить
+            {t("import:action.confirm")}
           </Button>
         </div>
       </div>
@@ -492,19 +516,18 @@ export function ImportWizardPage() {
           <LayerPanel rows={[]} loading onType={setLayerType} onToggle={toggle} />
           <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
             <Loader2 className="size-6 animate-spin text-primary" />
-            Чтение архива…
+            {t("import:state.reading")}
           </div>
         </div>
       ) : staged.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <FileX2 className="size-12 text-muted-foreground/50" />
-          <div className="text-[15px] font-semibold text-foreground">Не похоже на гербер-архив</div>
+          <div className="text-[15px] font-semibold text-foreground">{t("import:empty.title")}</div>
           <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-            В выбранном ZIP не найдено ни одного гербер-файла. Убедитесь, что это экспорт
-            герберов (KiCad/Protel), а не другой архив.
+            {t("import:empty.description")}
           </p>
           <Button variant="ghost" onClick={cancelImport}>
-            Назад
+            {t("import:action.back")}
           </Button>
         </div>
       ) : (
@@ -542,11 +565,11 @@ export function ImportWizardPage() {
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
                 <Layers className="size-12 text-muted-foreground/50" />
-                <div className="text-[15px] font-semibold text-foreground">Назначьте обязательные слои</div>
+                <div className="text-[15px] font-semibold text-foreground">{t("import:missing.title")}</div>
                 <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-                  Для построения платы нужно назначить:{" "}
-                  <span className="text-foreground">{missing.map((t) => LAYER_LABELS[t]).join(", ")}</span>.
-                  Выберите соответствующий тип у нужного файла в списке слева.
+                  {t("import:missing.descriptionPrefix")}{" "}
+                  <span className="text-foreground">{missing.map((lt) => t(`layers:${lt}`)).join(", ")}</span>.{" "}
+                  {t("import:missing.descriptionSuffix")}
                 </p>
               </div>
             )}

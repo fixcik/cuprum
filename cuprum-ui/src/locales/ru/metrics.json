@@ -1,0 +1,44 @@
+{
+  "loading": "Измеряем плату…",
+  "noData": "Нет данных — назначьте слои.",
+  "section": {
+    "dimensions": "Габариты",
+    "layers": "Слои",
+    "minTrace": "Мин. ширина дорожки",
+    "copperGeo": "Геометрия меди",
+    "drill": "Сверловка",
+    "maskSilk": "Маска / шелк",
+    "registration": "Совмещение"
+  },
+  "row": {
+    "size": "Размер",
+    "outlineClosed": "Контур замкнут",
+    "cutouts": "Внутренние вырезы",
+    "copper": "Медь",
+    "mask": "Маска",
+    "silk": "Шелк",
+    "paste": "Паста",
+    "minClearance": "Мин. зазор",
+    "minCopperWidth": "Мин. ширина меди",
+    "copperCoverage": "Покрытие медью",
+    "totalHoles": "Всего отверстий",
+    "minDiameter": "Мин. диаметр",
+    "toolDiameters": "Диаметры (инстр.)",
+    "platedNonplated": "Металлизир. / нет",
+    "minAnnular": "Мин. поясок",
+    "slots": "Слоты (раут)",
+    "maskDam": "Перемычка маски",
+    "minSilkLine": "Мин. линия шелка",
+    "layerOvershoot": "Выход за контур"
+  },
+  "side": {
+    "top": "верх",
+    "bottom": "низ",
+    "inner": "внутр."
+  },
+  "noTraces": "нет дорожек",
+  "noOutline": "нет контура",
+  "noSlots": "нет",
+  "slotsWithMin": "{{count}}, мин {{min}}",
+  "layersProgress": "Слои {{done}}/{{total}}"
+}

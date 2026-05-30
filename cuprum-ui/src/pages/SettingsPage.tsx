@@ -1,12 +1,16 @@
 import * as React from "react";
 import { RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { Switch } from "@/components/ui/Switch";
 import { HelpTip } from "@/components/ui/HelpTip";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Diagrams } from "@/components/settings/diagrams";
 import { useSettings } from "@/settingsStore";
+import { type Language, type Units } from "@/settingsStore";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
+import { useUnitFormat, type Dim } from "@/i18n/useUnitFormat";
 
 /** Label cell: text + optional inline hint + an optional "?" help tooltip. */
 function FieldLabel({ label, hint, help, helpImage }: { label: string; hint?: string; help?: string; helpImage?: React.ReactNode }) {
@@ -19,12 +23,13 @@ function FieldLabel({ label, hint, help, helpImage }: { label: string; hint?: st
   );
 }
 
-/** A labelled numeric field that commits any valid number live. */
+/** A labelled numeric field that commits any valid number live. Supports unit conversion via dim. */
 function NumberField({
   label,
   value,
   onChange,
   step = "0.01",
+  dim,
   suffix,
   hint,
   help,
@@ -34,30 +39,36 @@ function NumberField({
   value: number;
   onChange: (v: number) => void;
   step?: string;
+  dim?: Dim;
   suffix?: string;
   hint?: string;
   help?: string;
   helpImage?: React.ReactNode;
 }) {
-  const [text, setText] = React.useState(String(value));
-  React.useEffect(() => setText(String(value)), [value]);
+  const { units, toDisplay, fromDisplay, unitLabel } = useUnitFormat();
+  const shown = dim ? toDisplay(value, dim) : value;
+  const [text, setText] = React.useState(String(shown));
+  React.useEffect(() => setText(String(dim ? toDisplay(value, dim) : value)), [value, dim, toDisplay]);
+  // In imperial, mm-tuned steps are too coarse/fine; pick a sensible per-unit step.
+  const effStep = !dim || units !== "imperial" ? step : dim === "coarse" ? "0.001" : "0.1";
+  const suffixText = dim ? unitLabel(dim) : (suffix ?? "");
   return (
     <label className="flex items-center justify-between gap-4 py-2">
       <FieldLabel label={label} hint={hint} help={help} helpImage={helpImage} />
       <div className="flex shrink-0 items-center gap-1.5">
         <TextInput
           type="number"
-          step={step}
+          step={effStep}
           inputMode="decimal"
           value={text}
           onChange={(e) => {
             setText(e.target.value);
             const v = parseFloat(e.target.value);
-            if (!Number.isNaN(v)) onChange(v);
+            if (!Number.isNaN(v)) onChange(dim ? fromDisplay(v, dim) : v);
           }}
           className="w-24 text-right tabular-nums"
         />
-        <span className="w-7 text-[11px] text-muted-foreground">{suffix}</span>
+        <span className="w-7 text-[11px] text-muted-foreground">{suffixText}</span>
       </div>
     </label>
   );
@@ -84,7 +95,7 @@ function BoolField({
   );
 }
 
-/** Edits a numeric array as a comma/space-separated list (e.g. the drill bit set). */
+/** Edits a numeric array as a comma/space-separated list (the drill bit set). Always dim="fine". */
 function ArrayField({
   label,
   value,
@@ -98,19 +109,27 @@ function ArrayField({
   hint?: string;
   help?: string;
 }) {
-  const [text, setText] = React.useState(value.join(", "));
-  React.useEffect(() => setText(value.join(", ")), [value]);
+  const { toDisplay, fromDisplay, unitLabel } = useUnitFormat();
+  const fmt = (arr: number[]) => arr.map((mm) => +toDisplay(mm, "fine").toFixed(3)).join(" ");
+  const [text, setText] = React.useState(fmt(value));
+  // Resync on value AND unit change: toDisplay's identity changes with the units
+  // setting, so depending on it re-renders the field in the active unit.
+  React.useEffect(() => setText(fmt(value)), [value, toDisplay]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label className="flex items-center justify-between gap-4 py-2">
-      <FieldLabel label={label} hint={hint} help={help} />
+      <FieldLabel label={label} hint={hint ? `${hint}, ${unitLabel("fine")}` : unitLabel("fine")} help={help} />
       <TextInput
         value={text}
         onChange={(e) => {
           setText(e.target.value);
+          // Split on whitespace/semicolons only — never the comma, which is the
+          // decimal separator in many locales (e.g. "0,25 0,35"). A comma inside
+          // a token is normalized to a dot before parsing.
           const arr = e.target.value
-            .split(/[,\s]+/)
-            .map(parseFloat)
+            .split(/[\s;]+/)
+            .map((s) => parseFloat(s.replace(",", ".")))
             .filter((x) => !Number.isNaN(x) && x > 0)
+            .map((v) => fromDisplay(v, "fine"))
             .sort((a, b) => a - b);
           if (arr.length) onChange(arr);
         }}
@@ -120,77 +139,127 @@ function ArrayField({
   );
 }
 
-type CategoryId = "panel" | "copper" | "drill" | "maskSilk";
-const CATEGORIES: { id: CategoryId; label: string }[] = [
-  { id: "panel", label: "Размер панели" },
-  { id: "copper", label: "Медь" },
-  { id: "drill", label: "Сверловка" },
-  { id: "maskSilk", label: "Маска / шелк / контур" },
-];
+type Tab = "general" | "capabilities";
+const TABS: Tab[] = ["general", "capabilities"];
+type CapCategoryId = "panel" | "copper" | "drill" | "maskSilk";
+const CAP_CATEGORIES: CapCategoryId[] = ["panel", "copper", "drill", "maskSilk"];
 
 export function SettingsPage() {
+  const { t } = useTranslation("settings");
+  const { t: tc } = useTranslation("common");
   const profile = useSettings((s) => s.profile);
   const setProfile = useSettings((s) => s.setProfile);
   const resetProfile = useSettings((s) => s.resetProfile);
   const set = <K extends keyof CapabilityProfile>(k: K) => (v: CapabilityProfile[K]) => setProfile({ [k]: v });
-  const [active, setActive] = React.useState<CategoryId>("panel");
+  const language = useSettings((s) => s.language);
+  const setLanguage = useSettings((s) => s.setLanguage);
+  const units = useSettings((s) => s.units);
+  const setUnits = useSettings((s) => s.setUnits);
+  const [tab, setTab] = React.useState<Tab>("general");
+  const [active, setActive] = React.useState<CapCategoryId>("panel");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between border-b border-border px-5 py-3">
-        <div>
-          <h1 className="text-[14px] font-semibold text-foreground">Профиль возможностей станка</h1>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            Пределы, по которым плата проверяется на выполнимость при импорте.
-          </p>
-        </div>
-        <Button variant="ghost" onClick={resetProfile} title="Сбросить к Saturn 4 Ultra 16K">
-          <RotateCcw className="size-4" /> Сбросить
-        </Button>
-      </div>
-
-      <div className="flex min-h-0 flex-1">
-        {/* Left tab menu (extensible: future settings groups go here). */}
-        <nav className="w-52 shrink-0 border-r border-border bg-panel p-2">
-          {CATEGORIES.map((c) => (
+      {/* Single header row: tabs on the left, the contextual action on the right.
+       *  No separate title row — the active tab already names the section. */}
+      <div className="flex items-center justify-between border-b border-border px-3">
+        <div className="flex items-center gap-1">
+          {TABS.map((tb) => (
             <button
-              key={c.id}
+              key={tb}
               type="button"
-              onClick={() => setActive(c.id)}
-              className={`mb-0.5 w-full rounded-md px-3 py-2 text-left text-[12px] transition-colors ${
-                active === c.id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+              onClick={() => setTab(tb)}
+              className={`relative px-3 py-2.5 text-[12px] transition-colors ${
+                tab === tb ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {c.label}
+              {t(`tab.${tb}`)}
+              {tab === tb && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />}
+            </button>
+          ))}
+        </div>
+        {tab === "capabilities" && (
+          <Button variant="ghost" onClick={resetProfile} title={t("resetTitle")}>
+            <RotateCcw className="size-4" /> {t("reset")}
+          </Button>
+        )}
+      </div>
+
+      {tab === "general" && (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="mx-auto max-w-xl divide-y divide-border/60 p-6">
+            <label className="flex items-center justify-between gap-4 py-2">
+              <span className="text-[12px] text-foreground">{t("interface.language")}</span>
+              <SegmentedControl<Language>
+                value={language}
+                onChange={setLanguage}
+                options={[
+                  { value: "auto", label: t("interface.languageAuto") },
+                  { value: "ru", label: "Русский" },
+                  { value: "en", label: "English" },
+                ]}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-4 py-2">
+              <span className="text-[12px] text-foreground">{t("interface.units")}</span>
+              <SegmentedControl<Units>
+                value={units}
+                onChange={setUnits}
+                options={[
+                  { value: "mm", label: t("interface.unitsMetric") },
+                  { value: "imperial", label: t("interface.unitsImperial") },
+                ]}
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {tab === "capabilities" && (
+      <div className="flex min-h-0 flex-1">
+        {/* Capability sub-categories. */}
+        <nav className="w-52 shrink-0 border-r border-border bg-panel p-2">
+          {CAP_CATEGORIES.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActive(id)}
+              className={`mb-0.5 w-full rounded-md px-3 py-2 text-left text-[12px] transition-colors ${
+                active === id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+              }`}
+            >
+              {t(`category.${id}`)}
             </button>
           ))}
         </nav>
 
         <div className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-xl divide-y divide-border/60 p-6">
+          <div className="mx-auto max-w-xl p-6">
+            <p className="mb-3 text-[11px] text-muted-foreground">{t("subtitle")}</p>
+            <div className="divide-y divide-border/60">
             {active === "panel" && (
               <>
                 <NumberField
-                  label="Макс. ширина панели"
+                  label={t("field.maxPanelWidth.label")}
                   value={profile.maxPanelWidthMm}
                   onChange={set("maxPanelWidthMm")}
-                  suffix="мм"
-                  help="Максимальный размер заготовки, влезающий в рабочее поле станка. Плата больше — нельзя изготовить в один проход (засветка или CNC)."
+                  dim="coarse"
+                  help={t("field.maxPanelWidth.help")}
                   helpImage={Diagrams.panelSize}
                 />
                 <NumberField
-                  label="Макс. высота панели"
+                  label={t("field.maxPanelHeight.label")}
                   value={profile.maxPanelHeightMm}
                   onChange={set("maxPanelHeightMm")}
-                  suffix="мм"
-                  help="Вторая сторона рабочего поля. Плата сравнивается с этим размером (с учётом поворота, если он разрешён)."
+                  dim="coarse"
+                  help={t("field.maxPanelHeight.help")}
                   helpImage={Diagrams.panelSize}
                 />
                 <BoolField
-                  label="Пробовать поворот на 90°"
+                  label={t("field.allowRotate.label")}
                   value={profile.allowRotateToFit}
                   onChange={set("allowRotateToFit")}
-                  help="Если плата не влезает как есть — попробовать повернуть её на 90° перед тем, как считать слишком большой."
+                  help={t("field.allowRotate.help")}
                 />
               </>
             )}
@@ -198,41 +267,41 @@ export function SettingsPage() {
             {active === "copper" && (
               <>
                 <NumberField
-                  label="Макс. слоёв меди"
+                  label={t("field.maxCopperLayers.label")}
                   value={profile.maxCopperLayers}
                   onChange={set("maxCopperLayers")}
                   step="1"
-                  suffix="шт"
-                  help="Сколько медных слоёв реально изготовить (дома обычно 1–2)."
+                  suffix={tc("pcs")}
+                  help={t("field.maxCopperLayers.help")}
                 />
                 <BoolField
-                  label="Разрешить внутренние слои"
+                  label={t("field.allowInner.label")}
                   value={profile.allowInnerLayers}
                   onChange={set("allowInnerLayers")}
-                  help="Разрешить платы с внутренними медными слоями (4+). В DIY недоступно."
+                  help={t("field.allowInner.help")}
                 />
                 <NumberField
-                  label="Мин. ширина дорожки"
+                  label={t("field.minTrace.label")}
                   value={profile.minTraceMm}
                   onChange={set("minTraceMm")}
-                  suffix="мм"
-                  help="Самая тонкая дорожка, которую процесс воспроизводит. Тоньше — риск разрыва или непропечатки."
+                  dim="fine"
+                  help={t("field.minTrace.help")}
                   helpImage={Diagrams.traceWidth}
                 />
                 <NumberField
-                  label="Мин. зазор"
+                  label={t("field.minSpace.label")}
                   value={profile.minSpaceMm}
                   onChange={set("minSpaceMm")}
-                  suffix="мм"
-                  help="Минимальный зазор между разными цепями. Меньше — соседние дорожки слипнутся (короткое)."
+                  dim="fine"
+                  help={t("field.minSpace.help")}
                   helpImage={Diagrams.clearance}
                 />
                 <NumberField
-                  label="Игнорировать ниже"
+                  label={t("field.ignoreBelow.label")}
                   value={profile.ignoreBelowMm}
                   onChange={set("ignoreBelowMm")}
-                  suffix="мм"
-                  help="Геометрические дефекты меди/зазора/маски тоньше этого порога считаются артефактами расчёта (вырожденные слайверы) и не показываются. По умолчанию 0.05 мм (50 мкм)."
+                  dim="fine"
+                  help={t("field.ignoreBelow.help")}
                 />
               </>
             )}
@@ -240,64 +309,64 @@ export function SettingsPage() {
             {active === "drill" && (
               <>
                 <NumberField
-                  label="Мин. размер отверстия"
+                  label={t("field.minDrill.label")}
                   value={profile.minDrillMm}
                   onChange={set("minDrillMm")}
-                  suffix="мм"
-                  help="Самое маленькое отверстие, которое готов делать. Отдельно от набора бит — это твой нижний предел по диаметру отверстий."
+                  dim="fine"
+                  help={t("field.minDrill.help")}
                   helpImage={Diagrams.drill}
                 />
                 <ArrayField
-                  label="Набор бит"
+                  label={t("field.drillBitSet.label")}
                   value={profile.drillBitSetMm}
                   onChange={set("drillBitSetMm")}
-                  hint="через запятую, мм"
-                  help="Доступные диаметры свёрл. Диаметры платы вне набора (с учётом допуска) → предупреждение."
+                  hint={t("field.drillBitSet.hint")}
+                  help={t("field.drillBitSet.help")}
                 />
                 <NumberField
-                  label="Допуск снапа к биту"
+                  label={t("field.drillBitTolerance.label")}
                   value={profile.drillBitToleranceMm}
                   onChange={set("drillBitToleranceMm")}
-                  suffix="мм"
-                  help="Насколько диаметр отверстия может отличаться от бита, чтобы считаться совпавшим."
+                  dim="fine"
+                  help={t("field.drillBitTolerance.help")}
                 />
                 <NumberField
-                  label="Мин. поясок"
+                  label={t("field.minAnnular.label")}
                   value={profile.minAnnularRingMm}
                   onChange={set("minAnnularRingMm")}
-                  suffix="мм"
-                  help="Минимальное кольцо меди вокруг отверстия (поясок). Узкое — сверло уводит в край пада или прорывает его."
+                  dim="fine"
+                  help={t("field.minAnnular.help")}
                   helpImage={Diagrams.annular}
                 />
                 <BoolField
-                  label="Есть металлизация отверстий"
+                  label={t("field.viaPlating.label")}
                   value={profile.viaPlatingAvailable}
                   onChange={set("viaPlatingAvailable")}
-                  help="Можно ли металлизировать отверстия. Если нет — переходные (via) делаются вручную, и их количество важно."
+                  help={t("field.viaPlating.help")}
                 />
                 <NumberField
-                  label="Via — макс. диаметр"
+                  label={t("field.viaMaxDiameter.label")}
                   value={profile.viaMaxDiameterMm}
                   onChange={set("viaMaxDiameterMm")}
-                  suffix="мм"
-                  hint="отверстия ≤ — это via"
-                  help="Отверстия не больше этого диаметра считаются переходными (via) для эвристики подсчёта."
+                  dim="fine"
+                  hint={t("field.viaMaxDiameter.hint")}
+                  help={t("field.viaMaxDiameter.help")}
                 />
                 <NumberField
-                  label="Via — порог предупреждения"
+                  label={t("field.viaWarn.label")}
                   value={profile.viaWarnCount}
                   onChange={set("viaWarnCount")}
                   step="1"
-                  suffix="шт"
-                  help="Сколько via без металлизации допустимо до предупреждения (каждое металлизируется вручную)."
+                  suffix={tc("pcs")}
+                  help={t("field.viaWarn.help")}
                 />
                 <NumberField
-                  label="Via — порог блокировки"
+                  label={t("field.viaBlock.label")}
                   value={profile.viaBlockCount}
                   onChange={set("viaBlockCount")}
                   step="1"
-                  suffix="шт"
-                  help="Сколько via без металлизации делают плату практически невыполнимой."
+                  suffix={tc("pcs")}
+                  help={t("field.viaBlock.help")}
                 />
               </>
             )}
@@ -305,34 +374,36 @@ export function SettingsPage() {
             {active === "maskSilk" && (
               <>
                 <NumberField
-                  label="Мин. перемычка маски"
+                  label={t("field.minMaskDam.label")}
                   value={profile.minMaskDamMm}
                   onChange={set("minMaskDamMm")}
-                  suffix="мм"
-                  help="Минимальная перемычка паяльной маски между соседними вскрытиями. Тоньше — не пропечатается."
+                  dim="fine"
+                  help={t("field.minMaskDam.help")}
                   helpImage={Diagrams.maskDam}
                 />
                 <NumberField
-                  label="Мин. линия шелка"
+                  label={t("field.minSilkLine.label")}
                   value={profile.minSilkLineMm}
                   onChange={set("minSilkLineMm")}
-                  suffix="мм"
-                  help="Минимальная ширина линии/текста шелкографии. Тоньше — пропадёт при печати."
+                  dim="fine"
+                  help={t("field.minSilkLine.help")}
                   helpImage={Diagrams.silkLine}
                 />
                 <NumberField
-                  label="Макс. выход за контур"
+                  label={t("field.maxOvershoot.label")}
                   value={profile.maxOvershootMm}
                   onChange={set("maxOvershootMm")}
-                  suffix="мм"
-                  help="Насколько элементы слоёв могут выступать за контур платы. Больше — что-то торчит за краем."
+                  dim="fine"
+                  help={t("field.maxOvershoot.help")}
                   helpImage={Diagrams.overshoot}
                 />
               </>
             )}
+            </div>
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

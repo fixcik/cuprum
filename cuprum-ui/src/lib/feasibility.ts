@@ -9,20 +9,28 @@ export type Severity = "ok" | "warn" | "block" | "info";
 export type Verdict = "ok" | "warn" | "block";
 export type FindingCategory = "size" | "layers" | "copper" | "drill" | "via" | "mask" | "silk";
 
+/** A translatable text: an i18n key plus optional interpolation params.
+ *  Length params (`len`/`w`/`h`, or a `number[]` list) are RAW MILLIMETRES —
+ *  formatted at render via useUnitFormat so they react to the units setting. */
+export interface I18nText {
+  key: string;
+  params?: Record<string, string | number | number[]>;
+}
+
 /** One DFM check: a measured value compared against a profile limit. */
 export interface Finding {
   id: string;
   category: FindingCategory;
   severity: Severity;
-  label: string;
-  measured: string;
-  limit: string;
-  detail?: string;
+  label: I18nText;
+  measured?: I18nText;
+  limit?: I18nText;
+  detail?: I18nText;
   /** Located instances of this issue for preview markers. */
   hotspots?: GeoHotspot[];
   /** When set, the hotspots are the FULL failing geometry to colour-highlight all
    *  at once (e.g. every thin silk stroke) rather than step through — the preview
-   *  tints them and the Проверка row drops the per-item stepper. */
+   *  tints them and the Feasibility row drops the per-item stepper. */
   highlightAll?: boolean;
   /** Invisible hover regions (cluster bboxes) so a tooltip pops on hovering any
    *  part of a line-highlighted feature — without one hitbox per stroke. */
@@ -84,21 +92,6 @@ function clusterBoxes(hs: GeoHotspot[], radius: number): GeoHotspot[] {
   return out;
 }
 
-/** Trim a number without trailing zeros, keeping enough precision for small
- *  values so a thin 0.004 mm feature doesn't read as a flat "0". */
-const n = (v: number) => {
-  const a = Math.abs(v);
-  return a > 0 && a < 0.1 ? `${+v.toFixed(3)}` : `${+v.toFixed(2)}`;
-};
-
-/** Format a length, switching to microns for sub-0.1 mm values so a tiny gap
- *  reads as "12 мкм" instead of a misleading "0 мм". */
-export const fmtLen = (mm: number): string => {
-  const a = Math.abs(mm);
-  if (a > 0 && a < 0.1) return `${Math.round(mm * 1000)} мкм`;
-  return `${n(mm)} мм`;
-};
-
 /** Smallest width ≥ `floor` from a sorted-ascending list, or null. Drops tiny
  *  artefact apertures (a 10 µm marker) before taking the min, so a single such
  *  stroke doesn't poison the metric and hide a real thin feature. */
@@ -125,29 +118,30 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
     const { maxPanelWidthMm: mw, maxPanelHeightMm: mh } = profile;
     const fitsDirect = w <= mw && h <= mh;
     const fitsRotated = h <= mw && w <= mh;
-    const measured = `${n(w)} × ${n(h)} мм`;
-    const limit = `≤ ${n(mw)} × ${n(mh)} мм`;
+    const label: I18nText = { key: "feasibility:size.label" };
+    const measured: I18nText = { key: "feasibility:size.measured", params: { w, h } };
+    const limit: I18nText = { key: "feasibility:size.limit", params: { w: mw, h: mh } };
     if (fitsDirect) {
-      out.push({ id: "size.fits", category: "size", severity: "ok", label: "Габариты платы", measured, limit });
+      out.push({ id: "size.fits", category: "size", severity: "ok", label, measured, limit });
     } else if (profile.allowRotateToFit && fitsRotated) {
       out.push({
         id: "size.fits",
         category: "size",
         severity: "warn",
-        label: "Габариты платы",
+        label,
         measured,
         limit,
-        detail: "Поместится только при повороте на 90°.",
+        detail: { key: "feasibility:size.rotated" },
       });
     } else {
       out.push({
         id: "size.fits",
         category: "size",
         severity: "block",
-        label: "Габариты платы",
+        label,
         measured,
         limit,
-        detail: "Плата больше максимального размера панели.",
+        detail: { key: "feasibility:size.tooBig" },
       });
     }
 
@@ -156,10 +150,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "size.outlineClosed",
       category: "size",
       severity: board.outlineClosed ? "ok" : "warn",
-      label: "Контур замкнут",
-      measured: board.outlineClosed ? "да" : "нет",
-      limit: "должен быть замкнут",
-      detail: board.outlineClosed ? undefined : "Контур не замкнулся — размер оценочный, проверьте Edge_Cuts.",
+      label: { key: "feasibility:outline.label" },
+      measured: { key: board.outlineClosed ? "common:yes" : "common:no" },
+      limit: { key: "feasibility:outline.limit" },
+      detail: board.outlineClosed ? undefined : { key: "feasibility:outline.open" },
     });
   }
 
@@ -168,12 +162,12 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
     id: "layers.count",
     category: "layers",
     severity: layers.copperLayerCount > profile.maxCopperLayers ? "block" : "ok",
-    label: "Число слоёв меди",
-    measured: `${layers.copperLayerCount}`,
-    limit: `≤ ${profile.maxCopperLayers}`,
+    label: { key: "feasibility:layers.count.label" },
+    measured: { key: "feasibility:raw", params: { v: layers.copperLayerCount } },
+    limit: { key: "feasibility:lteCount", params: { v: profile.maxCopperLayers } },
     detail:
       layers.copperLayerCount > profile.maxCopperLayers
-        ? "Больше слоёв, чем можно изготовить."
+        ? { key: "feasibility:layers.count.over" }
         : undefined,
   });
 
@@ -184,10 +178,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "layers.inner",
       category: "layers",
       severity: bad ? "block" : "ok",
-      label: "Внутренние слои",
-      measured: `${layers.innerCopperCount}`,
-      limit: profile.allowInnerLayers ? "разрешены" : "не поддерживаются",
-      detail: bad ? "Внутренние слои дома не изготовить." : undefined,
+      label: { key: "feasibility:layers.inner.label" },
+      measured: { key: "feasibility:raw", params: { v: layers.innerCopperCount } },
+      limit: { key: profile.allowInnerLayers ? "feasibility:layers.inner.allowed" : "feasibility:layers.inner.unsupported" },
+      detail: bad ? { key: "feasibility:layers.inner.bad" } : undefined,
     });
   }
 
@@ -199,7 +193,8 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
     const worst = traces.reduce((a, b) => (b.w < a.w ? b : a));
     const t = worst.w;
     const lim = profile.minTraceMm;
-    const sideLabel = worst.side === "top" ? "верх" : worst.side === "bottom" ? "низ" : "внутр.";
+    const sideKey =
+      worst.side === "top" ? "feasibility:side.top" : worst.side === "bottom" ? "feasibility:side.bottom" : "feasibility:side.inner";
     let severity: Severity = "ok";
     if (t < lim) severity = "block";
     else if (t < lim / 0.8) severity = "warn"; // within 80–100% of the limit
@@ -208,10 +203,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "copper.minTrace",
       category: "copper",
       severity,
-      label: "Мин. ширина дорожки",
-      measured: `${fmtLen(t)} (${sideLabel})`,
-      limit: `≥ ${fmtLen(lim)}`,
-      detail: severity === "block" ? "Тоньше технологического предела — может не воспроизвестись." : undefined,
+      label: { key: "feasibility:trace.label" },
+      measured: { key: "feasibility:trace.measured", params: { len: t, side: sideKey } },
+      limit: { key: "feasibility:gteLen", params: { len: lim } },
+      detail: severity === "block" ? { key: "feasibility:trace.tooThin" } : undefined,
       hotspots: clusterBoxes(traceHs, 1.5),
     });
   }
@@ -224,10 +219,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "drill.minHole",
       category: "drill",
       severity: tooSmall ? "block" : "ok",
-      label: "Мин. размер отверстия",
-      measured: `${n(d)} мм`,
-      limit: `≥ ${n(profile.minDrillMm)} мм`,
-      detail: tooSmall ? "Меньше минимального размера отверстий." : undefined,
+      label: { key: "feasibility:drill.minHole.label" },
+      measured: { key: "feasibility:lenOnly", params: { len: d } },
+      limit: { key: "feasibility:gteLen", params: { len: profile.minDrillMm } },
+      detail: tooSmall ? { key: "feasibility:drill.minHole.tooSmall" } : undefined,
       hotspots: (metrics.geo.drillHotspots ?? []).filter((h) => h.v < profile.minDrillMm),
     });
   }
@@ -242,13 +237,13 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "via.plating",
       category: "via",
       severity,
-      label: "Переходные отверстия",
-      measured: `≈ ${vias}`,
-      limit: `без металлизации`,
+      label: { key: "feasibility:via.label" },
+      measured: { key: "feasibility:via.measured", params: { v: vias } },
+      limit: { key: "feasibility:via.limit" },
       detail:
         severity === "ok"
           ? undefined
-          : `Вероятно, ${vias} переходных (⌀ ≤ ${n(profile.viaMaxDiameterMm)} мм) — без металлизации каждое металлизируется вручную.`,
+          : { key: "feasibility:via.detail", params: { v: vias, len: profile.viaMaxDiameterMm } },
       hotspots: severity === "ok" ? undefined : (metrics.geo.drillHotspots ?? []).filter((h) => h.v <= profile.viaMaxDiameterMm),
     });
   }
@@ -267,10 +262,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "copper.minSpace",
       category: "copper",
       severity: "block",
-      label: "Мин. зазор меди",
-      measured: fmtLen(minBelow(clearViol)),
-      limit: `≥ ${fmtLen(profile.minSpaceMm)}`,
-      detail: "Соседние цепи могут слипнуться при изготовлении.",
+      label: { key: "feasibility:space.label" },
+      measured: { key: "feasibility:lenOnly", params: { len: minBelow(clearViol) } },
+      limit: { key: "feasibility:gteLen", params: { len: profile.minSpaceMm } },
+      detail: { key: "feasibility:space.detail" },
       hotspots: clearViol,
     });
   }
@@ -281,10 +276,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "copper.sliver",
       category: "copper",
       severity: "warn",
-      label: "Тонкая медь",
-      measured: fmtLen(minBelow(sliverViol)),
-      limit: `≥ ${fmtLen(profile.minTraceMm)}`,
-      detail: "Тонкие перемычки/слайверы могут отслоиться.",
+      label: { key: "feasibility:sliver.label" },
+      measured: { key: "feasibility:lenOnly", params: { len: minBelow(sliverViol) } },
+      limit: { key: "feasibility:gteLen", params: { len: profile.minTraceMm } },
+      detail: { key: "feasibility:sliver.detail" },
       hotspots: sliverViol,
     });
   }
@@ -296,14 +291,14 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "copper.annular",
       category: "drill",
       severity,
-      label: "Поясок отверстий",
-      measured: a <= 0 ? "нет пада" : fmtLen(a),
-      limit: `≥ ${fmtLen(profile.minAnnularRingMm)}`,
+      label: { key: "feasibility:annular.label" },
+      measured: a <= 0 ? { key: "feasibility:annular.noPad" } : { key: "feasibility:lenOnly", params: { len: a } },
+      limit: { key: "feasibility:gteLen", params: { len: profile.minAnnularRingMm } },
       detail:
         a <= 0
-          ? "Есть отверстие без медного пада."
+          ? { key: "feasibility:annular.noPadDetail" }
           : severity === "warn"
-            ? "Узкий поясок — риск увода сверла в край пада."
+            ? { key: "feasibility:annular.narrow" }
             : undefined,
       hotspots: g.annularHotspots.filter((h) => h.v < profile.minAnnularRingMm),
     });
@@ -315,17 +310,21 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "mask.dam",
       category: "mask",
       severity: "info",
-      label: "Перемычка маски",
-      measured: fmtLen(minBelow(maskViol)),
-      limit: `≥ ${fmtLen(profile.minMaskDamMm)}`,
-      detail: "Тонкая перемычка маски может не пропечататься.",
+      label: { key: "feasibility:mask.label" },
+      measured: { key: "feasibility:lenOnly", params: { len: minBelow(maskViol) } },
+      limit: { key: "feasibility:gteLen", params: { len: profile.minMaskDamMm } },
+      detail: { key: "feasibility:mask.detail" },
       hotspots: maskViol,
     });
   }
 
   // Silk line width — judged PER SIDE (top vs bottom never merge into one row, so
   // a thin top legend isn't masked by a fine bottom one).
-  const silkSideLabel: Record<string, string> = { top: "верх", bottom: "низ", both: "обе стороны" };
+  const silkSideKey: Record<string, string> = {
+    top: "feasibility:side.top",
+    bottom: "feasibility:side.bottom",
+    both: "feasibility:side.both",
+  };
   for (const sd of [...new Set(g.silkHotspots.map((h) => h.side))]) {
     const sideHs = g.silkHotspots.filter((h) => h.side === sd && h.v >= profile.ignoreBelowMm);
     if (sideHs.length === 0) continue;
@@ -336,10 +335,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: `silk.line.${sd}`,
       category: "silk",
       severity: "info",
-      label: `Ширина линии шелка (${silkSideLabel[sd] ?? sd})`,
-      measured: fmtLen(minW),
-      limit: `≥ ${fmtLen(profile.minSilkLineMm)}`,
-      detail: "Тонкий шелк может пропасть при печати.",
+      label: { key: "feasibility:silk.label", params: { side: silkSideKey[sd] ?? sd } },
+      measured: { key: "feasibility:lenOnly", params: { len: minW } },
+      limit: { key: "feasibility:gteLen", params: { len: profile.minSilkLineMm } },
+      detail: { key: "feasibility:silk.detail" },
       hotspots: failing,
       hoverBoxes: clusterBoxes(failing, 4),
       highlightAll: true,
@@ -351,10 +350,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "size.overshoot",
       category: "size",
       severity: "warn",
-      label: "Выход за контур",
-      measured: fmtLen(g.layerOvershootMm),
-      limit: `≤ ${fmtLen(profile.maxOvershootMm)}`,
-      detail: "Элементы слоёв выходят за край платы.",
+      label: { key: "feasibility:overshoot.label" },
+      measured: { key: "feasibility:lenOnly", params: { len: g.layerOvershootMm } },
+      limit: { key: "feasibility:lteLen", params: { len: profile.maxOvershootMm } },
+      detail: { key: "feasibility:overshoot.detail" },
       hotspots: g.overshootHotspots.filter((h) => h.v > profile.maxOvershootMm),
     });
   }
@@ -368,10 +367,10 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "drill.bitSnap",
       category: "drill",
       severity: "warn",
-      label: "Совпадение со свёрлами",
-      measured: `${offBits.map(n).join(", ")} мм`,
-      limit: "из набора бит",
-      detail: "Нет подходящего сверла — нужно ближайшее или докупить.",
+      label: { key: "feasibility:bitSnap.label" },
+      measured: { key: "feasibility:bitSnap.measured", params: { list: offBits } },
+      limit: { key: "feasibility:bitSnap.limit" },
+      detail: { key: "feasibility:bitSnap.detail" },
       hotspots: (g.drillHotspots ?? []).filter((h) => offBits.some((d) => Math.abs(h.v - d) < 0.0011)),
     });
   }
@@ -381,9 +380,12 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
       id: "drill.slots",
       category: "drill",
       severity: "ok",
-      label: "Слоты (раут)",
-      measured: `${g.slotCount}${g.minSlotWidthMm != null ? `, мин ${n(g.minSlotWidthMm)} мм` : ""}`,
-      limit: "нужен раут ЧПУ",
+      label: { key: "feasibility:slots.label" },
+      measured: {
+        key: g.minSlotWidthMm != null ? "feasibility:slots.measuredMin" : "feasibility:slots.measured",
+        params: { count: g.slotCount, len: g.minSlotWidthMm ?? 0 },
+      },
+      limit: { key: "feasibility:slots.limit" },
     });
   }
 
@@ -398,9 +400,9 @@ export function overallVerdict(findings: Finding[]): Verdict {
   return "ok";
 }
 
-/** Russian label for a verdict (for the badge). */
-export const VERDICT_LABEL: Record<Verdict, string> = {
-  ok: "Можно произвести",
-  warn: "С рисками",
-  block: "Нельзя произвести",
+/** i18n key for a verdict (for the badge). */
+export const VERDICT_KEY: Record<Verdict, string> = {
+  ok: "feasibility:verdict.ok",
+  warn: "feasibility:verdict.warn",
+  block: "feasibility:verdict.block",
 };

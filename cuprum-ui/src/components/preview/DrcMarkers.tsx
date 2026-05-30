@@ -1,4 +1,5 @@
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { useTranslation } from "react-i18next";
 import type { Severity } from "@/lib/feasibility";
 
 /** A DRC hotspot projected to screen px: a dimension line a→b with the value at
@@ -11,7 +12,7 @@ export interface ProjectedMarker {
   by: number;
   mx: number;
   my: number;
-  value: string; // e.g. "0.08 мм" — drawn on the focused marker
+  value: string; // e.g. "0.08 mm" — drawn on the focused marker
   label: string;
   limit: string;
   detail?: string;
@@ -58,6 +59,7 @@ const LINE_HIGHLIGHT = "#3b82f6";
  *  with end ticks at each issue, the value drawn on the focused one, and a hover
  *  card describing the problem. Screen-space; the parent projects mm→px. */
 export function DrcMarkers({ markers, width, height }: { markers: ProjectedMarker[]; width: number; height: number }) {
+  const { t } = useTranslation("common");
   if (markers.length === 0) return null;
   return (
     <div className="pointer-events-none absolute inset-0">
@@ -238,7 +240,7 @@ export function DrcMarkers({ markers, width, height }: { markers: ProjectedMarke
                   {m.label}
                 </div>
                 <div className="tabular-nums text-muted-foreground">
-                  {m.value} · лимит {m.limit}
+                  {m.value} · {t("limit")} {m.limit}
                 </div>
                 {m.detail && <div className="mt-0.5 text-muted-foreground">{m.detail}</div>}
                 <TooltipPrimitive.Arrow className="fill-border" />
