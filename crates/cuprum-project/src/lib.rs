@@ -77,7 +77,9 @@ fn unique_name(base: &str, used: &std::collections::HashSet<String>) -> String {
 /// Build container entries (gerbers) + manifest imports from a set of imports.
 /// Each gerber is classified by its file name (see [`layer::classify`]).
 /// Shared by create_project and import_zips.
-fn build_entries(imports: &[import::ImportedZip]) -> (Vec<manifest::Import>, Vec<(String, Vec<u8>)>) {
+fn build_entries(
+    imports: &[import::ImportedZip],
+) -> (Vec<manifest::Import>, Vec<(String, Vec<u8>)>) {
     let mut manifest_imports = Vec::new();
     let mut entries = Vec::new();
 
@@ -155,7 +157,10 @@ pub fn import_zips(
             let bytes = container::read_entry(container, &g.path)?;
             gerbers.push((base, bytes));
         }
-        imports.push(import::ImportedZip { source_name: imp.source_name.clone(), gerbers });
+        imports.push(import::ImportedZip {
+            source_name: imp.source_name.clone(),
+            gerbers,
+        });
     }
     for p in zip_paths {
         imports.push(import::read_zip_gerbers(p)?);
@@ -262,7 +267,8 @@ mod tests {
         let path = dir.join(file_name);
         let f = File::create(&path).unwrap();
         let mut zip = zip::ZipWriter::new(f);
-        zip.start_file("board.gbr", SimpleFileOptions::default()).unwrap();
+        zip.start_file("board.gbr", SimpleFileOptions::default())
+            .unwrap();
         zip.write_all(b"G04 board*").unwrap();
         zip.finish().unwrap();
         path
@@ -296,7 +302,10 @@ mod tests {
         let m2 = import_zips(&db, &save, &[zip2], 3000).unwrap();
         assert_eq!(m2.imports.len(), 2);
         assert_eq!(m2.imports[1].id, "import-2");
-        assert_eq!(container::read_entry(&save, "gerbers/import-1/board.gbr").unwrap(), b"G04 board*");
+        assert_eq!(
+            container::read_entry(&save, "gerbers/import-1/board.gbr").unwrap(),
+            b"G04 board*"
+        );
 
         // recents entry's last_opened_at is updated to 3000 after import.
         let recents = list_recent(&db).unwrap();
@@ -322,8 +331,7 @@ mod tests {
 
     #[test]
     fn dedup_duplicate_basenames() {
-        let dir =
-            std::env::temp_dir().join(format!("cuprum-dedup-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("cuprum-dedup-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("catalog.sqlite");
         let zip1 = make_dup_source_zip(&dir, "dup.zip");
@@ -334,11 +342,13 @@ mod tests {
 
         let gerbers = &m.imports[0].gerbers;
         assert_eq!(gerbers.len(), 2, "both gerbers must be present");
-        assert_ne!(gerbers[0].path, gerbers[1].path, "rel paths must be distinct after dedup");
+        assert_ne!(
+            gerbers[0].path, gerbers[1].path,
+            "rel paths must be distinct after dedup"
+        );
         let bytes0 = container::read_entry(&save, &gerbers[0].path).unwrap();
         let bytes1 = container::read_entry(&save, &gerbers[1].path).unwrap();
-        let both: std::collections::HashSet<Vec<u8>> =
-            [bytes0, bytes1].into_iter().collect();
+        let both: std::collections::HashSet<Vec<u8>> = [bytes0, bytes1].into_iter().collect();
         assert!(both.contains(b"AAA" as &[u8]), "AAA payload must be stored");
         assert!(both.contains(b"BBB" as &[u8]), "BBB payload must be stored");
 
@@ -384,7 +394,11 @@ mod tests {
         let gerbers = &m.imports[0].gerbers;
         assert_eq!(gerbers.len(), 2);
         assert_eq!(gerbers[0].layer_type, LayerType::TopCopper);
-        assert_eq!(gerbers[1].layer_type, LayerType::BottomCopper, "2nd choice must land on the deduped file");
+        assert_eq!(
+            gerbers[1].layer_type,
+            LayerType::BottomCopper,
+            "2nd choice must land on the deduped file"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

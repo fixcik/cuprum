@@ -164,7 +164,11 @@ fn add_poly(buf: &mut Buffer, poly: &Poly, z: f32, nz: f32) {
     // a DoubleSide material, three.js flips the normal by gl_FrontFacing and the
     // bottom copper lights as if facing away (no specular: dull back, shiny front).
     for tri in tris.chunks_exact(3) {
-        let (a, b, c) = (base + tri[0] as u32, base + tri[1] as u32, base + tri[2] as u32);
+        let (a, b, c) = (
+            base + tri[0] as u32,
+            base + tri[1] as u32,
+            base + tri[2] as u32,
+        );
         if nz < 0.0 {
             buf.indices.extend_from_slice(&[a, c, b]);
         } else {
@@ -243,7 +247,10 @@ fn edge_segments(edge_bytes: &[u8]) -> Vec<([f64; 2], [f64; 2])> {
                 for i in 0..=EDGE_ARC_STEPS {
                     let t = i as f64 / EDGE_ARC_STEPS as f64;
                     let ang = a.start_angle + a.sweep_angle * t;
-                    let pt = [a.center.x + a.radius * ang.cos(), a.center.y + a.radius * ang.sin()];
+                    let pt = [
+                        a.center.x + a.radius * ang.cos(),
+                        a.center.y + a.radius * ang.sin(),
+                    ];
                     if let Some(p) = prev {
                         segs.push((p, pt));
                     }
@@ -263,7 +270,10 @@ fn edge_segments(edge_bytes: &[u8]) -> Vec<([f64; 2], [f64; 2])> {
 pub(crate) fn outline_info(edge_bytes: &[u8]) -> (Vec<Vec<[f64; 2]>>, bool) {
     let loops = stitch(edge_segments(edge_bytes));
     let perimeter_closed = loops.first().map(|(_, closed)| *closed).unwrap_or(false);
-    (loops.into_iter().map(|(ring, _)| ring).collect(), perimeter_closed)
+    (
+        loops.into_iter().map(|(ring, _)| ring).collect(),
+        perimeter_closed,
+    )
 }
 
 /// Edge_Cuts outline loops only (perimeter first, then inner cutouts).
@@ -276,7 +286,9 @@ fn outline_loops(edge_bytes: &[u8]) -> Vec<Vec<[f64; 2]>> {
 /// chain that ran out of matching segments). Edge_Cuts is tiny (a handful of
 /// segments), so O(n²) chaining is fine.
 fn stitch(segs: Vec<([f64; 2], [f64; 2])>) -> Vec<(Vec<[f64; 2]>, bool)> {
-    let near = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).abs() < STITCH_EPS && (a[1] - b[1]).abs() < STITCH_EPS;
+    let near = |a: [f64; 2], b: [f64; 2]| {
+        (a[0] - b[0]).abs() < STITCH_EPS && (a[1] - b[1]).abs() < STITCH_EPS
+    };
     let mut used = vec![false; segs.len()];
     let mut loops: Vec<(Vec<[f64; 2]>, bool)> = Vec::new();
 
@@ -328,7 +340,12 @@ fn stitch(segs: Vec<([f64; 2], [f64; 2])>) -> Vec<(Vec<[f64; 2]>, bool)> {
     }
 
     // Largest-area loop first = the board perimeter; the rest are inner cutouts.
-    loops.sort_by(|a, b| ring_area(&b.0).abs().partial_cmp(&ring_area(&a.0).abs()).unwrap_or(std::cmp::Ordering::Equal));
+    loops.sort_by(|a, b| {
+        ring_area(&b.0)
+            .abs()
+            .partial_cmp(&ring_area(&a.0).abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     loops
 }
 
@@ -363,7 +380,8 @@ fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
     let shapes = if clip.is_empty() {
         FloatOverlay::with_subj(&outer).overlay(OverlayRule::Subject, FillRule::NonZero)
     } else {
-        FloatOverlay::with_subj_and_clip(&outer, &clip).overlay(OverlayRule::Difference, FillRule::NonZero)
+        FloatOverlay::with_subj_and_clip(&outer, &clip)
+            .overlay(OverlayRule::Difference, FillRule::NonZero)
     };
     let board_polys = geometry::shapes_to_polys(shapes);
     for p in &board_polys {
@@ -380,7 +398,11 @@ fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
 
 /// Triangulate one surface layer into a `LayerMesh`, or `None` if empty / not a
 /// surface (edge/drill handled elsewhere).
-fn build_surface_layer(layer: &LayerInput, holes: &[Hole], outline: &[Vec<[f64; 2]>]) -> Option<LayerMesh> {
+fn build_surface_layer(
+    layer: &LayerInput,
+    holes: &[Hole],
+    outline: &[Vec<[f64; 2]>],
+) -> Option<LayerMesh> {
     let (kind, is_mask) = match layer.role {
         Role::Copper => (KIND_COPPER, false),
         Role::Mask => (KIND_MASK, true),
@@ -400,7 +422,11 @@ fn build_surface_layer(layer: &LayerInput, holes: &[Hole], outline: &[Vec<[f64; 
         return None;
     }
     let z = z_for(layer.role, layer.side);
-    let nz = if matches!(layer.side, Side::Bottom) { -1.0 } else { 1.0 };
+    let nz = if matches!(layer.side, Side::Bottom) {
+        -1.0
+    } else {
+        1.0
+    };
     let mut buf = Buffer::default();
     for p in &polys {
         add_poly(&mut buf, p, z, nz);
@@ -408,7 +434,11 @@ fn build_surface_layer(layer: &LayerInput, holes: &[Hole], outline: &[Vec<[f64; 
     if buf.positions.is_empty() {
         return None;
     }
-    Some(LayerMesh { key: layer.key.clone(), kind, buffer: buf })
+    Some(LayerMesh {
+        key: layer.key.clone(),
+        kind,
+        buffer: buf,
+    })
 }
 
 /// Build the complete board mesh from every layer's raw bytes.
@@ -425,7 +455,11 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
         if l.role == Role::Drill {
             if let Ok(hs) = crate::drill::parse_drill(l.bytes) {
                 for h in hs {
-                    holes.push(Hole { x: h.x_mm as f64, y: h.y_mm as f64, d: h.d_mm as f64 });
+                    holes.push(Hole {
+                        x: h.x_mm as f64,
+                        y: h.y_mm as f64,
+                        d: h.d_mm as f64,
+                    });
                 }
             }
         }
@@ -452,7 +486,9 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
         if l.role != Role::Drill {
             continue;
         }
-        let Ok(hs) = crate::drill::parse_drill(l.bytes) else { continue };
+        let Ok(hs) = crate::drill::parse_drill(l.bytes) else {
+            continue;
+        };
         let mut buf = Buffer::default();
         for h in &hs {
             if h.d_mm > 0.0 {
@@ -460,11 +496,18 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
             }
         }
         if !buf.positions.is_empty() {
-            meshes.push(LayerMesh { key: l.key.clone(), kind: KIND_BARREL, buffer: buf });
+            meshes.push(LayerMesh {
+                key: l.key.clone(),
+                kind: KIND_BARREL,
+                buffer: buf,
+            });
         }
     }
 
-    BoardMesh { substrate, layers: meshes }
+    BoardMesh {
+        substrate,
+        layers: meshes,
+    }
 }
 
 #[cfg(test)]
@@ -477,21 +520,44 @@ mod tests {
 
     #[test]
     fn copper_layer_triangulates_to_nonempty_buffer() {
-        let layers = vec![LayerInput { key: "cu".into(), role: Role::Copper, side: Side::Top, bytes: FLASH_PAD }];
+        let layers = vec![LayerInput {
+            key: "cu".into(),
+            role: Role::Copper,
+            side: Side::Top,
+            bytes: FLASH_PAD,
+        }];
         let board = board_geometry(&layers);
         assert_eq!(board.layers.len(), 1);
         let m = &board.layers[0];
         assert_eq!(m.kind, KIND_COPPER);
-        assert!(!m.buffer.positions.is_empty(), "copper buffer should have verts");
-        assert!(!m.buffer.indices.is_empty(), "copper buffer should have indices");
-        assert_eq!(m.buffer.positions.len(), m.buffer.normals.len(), "pos/normal parity");
+        assert!(
+            !m.buffer.positions.is_empty(),
+            "copper buffer should have verts"
+        );
+        assert!(
+            !m.buffer.indices.is_empty(),
+            "copper buffer should have indices"
+        );
+        assert_eq!(
+            m.buffer.positions.len(),
+            m.buffer.normals.len(),
+            "pos/normal parity"
+        );
     }
 
     #[test]
     fn edge_outline_builds_substrate_faces_and_walls() {
-        let layers = vec![LayerInput { key: "edge".into(), role: Role::Edge, side: Side::Both, bytes: EDGE_SQUARE }];
+        let layers = vec![LayerInput {
+            key: "edge".into(),
+            role: Role::Edge,
+            side: Side::Both,
+            bytes: EDGE_SQUARE,
+        }];
         let board = board_geometry(&layers);
-        assert!(!board.substrate.positions.is_empty(), "substrate should be built from the outline");
+        assert!(
+            !board.substrate.positions.is_empty(),
+            "substrate should be built from the outline"
+        );
         assert!(!board.substrate.indices.is_empty());
     }
 
@@ -499,11 +565,27 @@ mod tests {
     fn drill_layer_emits_a_barrel_mesh() {
         // One PTH drill: a 0.3 mm hole at (5,5).
         const DRL: &[u8] = b"M48\nMETRIC,TZ\nT1C0.300\n%\nT1\nX5.0Y5.0\nM30\n";
-        let layers = vec![LayerInput { key: "drl".into(), role: Role::Drill, side: Side::Both, bytes: DRL }];
+        let layers = vec![LayerInput {
+            key: "drl".into(),
+            role: Role::Drill,
+            side: Side::Both,
+            bytes: DRL,
+        }];
         let board = board_geometry(&layers);
-        let barrels: Vec<_> = board.layers.iter().filter(|m| m.kind == KIND_BARREL).collect();
-        assert_eq!(barrels.len(), 1, "expected one barrel mesh for the drill layer");
-        assert!(!barrels[0].buffer.positions.is_empty(), "barrel should have wall verts");
+        let barrels: Vec<_> = board
+            .layers
+            .iter()
+            .filter(|m| m.kind == KIND_BARREL)
+            .collect();
+        assert_eq!(
+            barrels.len(),
+            1,
+            "expected one barrel mesh for the drill layer"
+        );
+        assert!(
+            !barrels[0].buffer.positions.is_empty(),
+            "barrel should have wall verts"
+        );
     }
 
     #[test]
@@ -516,7 +598,12 @@ mod tests {
         ];
         let loops = stitch(segs);
         assert_eq!(loops.len(), 1, "four sides should stitch into one loop");
-        assert_eq!(loops[0].0.len(), 4, "square has 4 unique corners: {:?}", loops[0].0);
+        assert_eq!(
+            loops[0].0.len(),
+            4,
+            "square has 4 unique corners: {:?}",
+            loops[0].0
+        );
         assert!(loops[0].1, "a square should be detected as a closed loop");
     }
 }

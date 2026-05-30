@@ -82,7 +82,10 @@ pub fn render(commands: Vec<Command>, opts: &RenderOptions) -> Result<Pixmap> {
 
 /// Like [`render`], but also returns the image's pixel and millimeter geometry —
 /// the UI needs the true mm size to place the board at 1:1 scale.
-pub fn render_with_info(commands: Vec<Command>, opts: &RenderOptions) -> Result<(Pixmap, RenderInfo)> {
+pub fn render_with_info(
+    commands: Vec<Command>,
+    opts: &RenderOptions,
+) -> Result<(Pixmap, RenderInfo)> {
     let layer = GerberLayer::new(commands);
     render_layer(&layer, opts)
 }
@@ -112,9 +115,23 @@ pub fn render_layer(layer: &GerberLayer, opts: &RenderOptions) -> Result<(Pixmap
     // Paths are built in mm; tiny-skia applies this transform (so a round aperture
     // correctly becomes an ellipse on the non-square pixel grid).
     let tf = if opts.mirror_x {
-        Transform::from_row(-sx as f32, 0.0, 0.0, -sy as f32, (sx * (w_mm + min_x)) as f32, (sy * max_y) as f32)
+        Transform::from_row(
+            -sx as f32,
+            0.0,
+            0.0,
+            -sy as f32,
+            (sx * (w_mm + min_x)) as f32,
+            (sy * max_y) as f32,
+        )
     } else {
-        Transform::from_row(sx as f32, 0.0, 0.0, -sy as f32, (-sx * min_x) as f32, (sy * max_y) as f32)
+        Transform::from_row(
+            sx as f32,
+            0.0,
+            0.0,
+            -sy as f32,
+            (-sx * min_x) as f32,
+            (sy * max_y) as f32,
+        )
     };
 
     let mut white = Paint::default();
@@ -139,16 +156,21 @@ pub fn render_layer(layer: &GerberLayer, opts: &RenderOptions) -> Result<(Pixmap
     for prim in layer.primitives() {
         match prim {
             GerberPrimitive::Circle(c) => {
-                if let Some(path) =
-                    PathBuilder::from_circle(c.center.x as f32, c.center.y as f32, (c.diameter / 2.0) as f32)
-                {
+                if let Some(path) = PathBuilder::from_circle(
+                    c.center.x as f32,
+                    c.center.y as f32,
+                    (c.diameter / 2.0) as f32,
+                ) {
                     pm.fill_path(&path, paint_for(c.exposure), FillRule::Winding, tf, None);
                 }
             }
             GerberPrimitive::Rectangle(r) => {
-                if let Some(rect) =
-                    Rect::from_xywh(r.origin.x as f32, r.origin.y as f32, r.width as f32, r.height as f32)
-                {
+                if let Some(rect) = Rect::from_xywh(
+                    r.origin.x as f32,
+                    r.origin.y as f32,
+                    r.width as f32,
+                    r.height as f32,
+                ) {
                     let mut pb = PathBuilder::new();
                     pb.push_rect(rect);
                     if let Some(path) = pb.finish() {
@@ -239,7 +261,9 @@ pub fn render_preview_png(path: &Path, max_px: u32) -> Result<(Vec<u8>, RenderIn
     // Build the layer once (regenerating primitives is the costly step); reuse it
     // for both the bounding box and the raster.
     let layer = GerberLayer::new(commands);
-    let bbox = layer.try_bounding_box().context("gerber has no drawable geometry")?;
+    let bbox = layer
+        .try_bounding_box()
+        .context("gerber has no drawable geometry")?;
     let (w_mm, h_mm) = (bbox.width() as f32, bbox.height() as f32);
     let t_layer = t0.elapsed();
 
@@ -249,7 +273,10 @@ pub fn render_preview_png(path: &Path, max_px: u32) -> Result<(Vec<u8>, RenderIn
     // cap by max_px so a large board doesn't produce a huge PNG.
     let native = crate::goo::SCREEN_PX_PER_MM_X;
     let pitch = (max_px as f32 / longest).clamp(1.0, native);
-    let opts = RenderOptions { margin_mm: 0.0, ..RenderOptions::square(pitch) };
+    let opts = RenderOptions {
+        margin_mm: 0.0,
+        ..RenderOptions::square(pitch)
+    };
     let (pm, info) = render_layer(&layer, &opts)?;
     let t_render = t0.elapsed();
 
@@ -281,7 +308,9 @@ fn encode_gray_png_fast(gray: &[u8], w: u32, h: u32) -> Result<Vec<u8>> {
         // pixels); a B/W mask compresses fine without it.
         enc.set_filter(png::FilterType::NoFilter);
         let mut writer = enc.write_header().map_err(|e| anyhow!("png header: {e}"))?;
-        writer.write_image_data(gray).map_err(|e| anyhow!("png data: {e}"))?;
+        writer
+            .write_image_data(gray)
+            .map_err(|e| anyhow!("png data: {e}"))?;
     }
     Ok(out)
 }
@@ -345,7 +374,10 @@ pub fn summarize(commands: &[Command]) -> String {
         out.push_str(&format!("  {k}: {v}\n"));
     }
     out.push_str(&format!("operations: D01={d01} D02={d02} D03={d03}\n"));
-    out.push_str(&format!("aperture/macro definitions ({}):\n", aperture_defs.len()));
+    out.push_str(&format!(
+        "aperture/macro definitions ({}):\n",
+        aperture_defs.len()
+    ));
     for def in &aperture_defs {
         out.push_str(&format!("  {def}\n"));
     }

@@ -165,7 +165,9 @@ pub fn place_on_screen(
     off_y: i32,
 ) -> Vec<u8> {
     let mut buf = vec![0u8; screen_w as usize * screen_h as usize];
-    blit_max(&mut buf, screen_w, screen_h, mask, mask_w, mask_h, off_x, off_y);
+    blit_max(
+        &mut buf, screen_w, screen_h, mask, mask_w, mask_h, off_x, off_y,
+    );
     buf
 }
 

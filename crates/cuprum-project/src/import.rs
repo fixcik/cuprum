@@ -14,8 +14,8 @@ use anyhow::Result;
 /// `nc`/`xln` are kept as common Excellon drill extensions; `txt` is NOT, since
 /// it overwhelmingly means a readme, not a drill file.
 const GERBER_EXTS: &[&str] = &[
-    "gbr", "grb", "ger", "gtl", "gbl", "gto", "gbo", "gts", "gbs", "gko", "gm1",
-    "gpb", "gpt", "drl", "xln", "nc",
+    "gbr", "grb", "ger", "gtl", "gbl", "gto", "gbo", "gts", "gbs", "gko", "gm1", "gpb", "gpt",
+    "drl", "xln", "nc",
 ];
 
 fn is_gerber_name(name: &str) -> bool {
@@ -66,7 +66,10 @@ pub fn read_zip_gerbers(zip_path: &Path) -> Result<ImportedZip> {
         entry.read_to_end(&mut buf)?;
         gerbers.push((base, buf));
     }
-    Ok(ImportedZip { source_name, gerbers })
+    Ok(ImportedZip {
+        source_name,
+        gerbers,
+    })
 }
 
 #[cfg(test)]
@@ -112,7 +115,10 @@ mod tests {
         assert!(names.contains(&"bottom.gbl"));
         // Only the two real layers: .txt/.gbrjob/.md and AppleDouble cruft excluded.
         assert_eq!(imported.gerbers.len(), 2, "got {names:?}");
-        assert!(!names.iter().any(|n| n.starts_with("._")), "AppleDouble leaked: {names:?}");
+        assert!(
+            !names.iter().any(|n| n.starts_with("._")),
+            "AppleDouble leaked: {names:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

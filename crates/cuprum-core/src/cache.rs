@@ -62,7 +62,13 @@ pub fn preview_png(path: &Path, max_px: u32) -> Result<(Vec<u8>, RenderInfo, Str
     let (png, info, summary) = gerber::render_preview_png(path, max_px)?;
     preview_cache().lock().unwrap().insert(
         path.to_owned(),
-        PreviewEntry { mtime: m, max_px, png: png.clone(), info, summary: summary.clone() },
+        PreviewEntry {
+            mtime: m,
+            max_px,
+            png: png.clone(),
+            info,
+            summary: summary.clone(),
+        },
     );
     Ok((png, info, summary))
 }
@@ -76,12 +82,22 @@ pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
         }
     }
     let commands = gerber::parse_file(path)?;
-    let opts = RenderOptions { margin_mm: 0.0, ..Default::default() };
+    let opts = RenderOptions {
+        margin_mm: 0.0,
+        ..Default::default()
+    };
     let (pm, info) = gerber::render_with_info(commands, &opts)?;
-    let mask = Arc::new(Mask { px: gerber::to_grayscale(&pm), w: info.px_w, h: info.px_h });
-    mask_cache()
-        .lock()
-        .unwrap()
-        .insert(path.to_owned(), MaskEntry { mtime: m, mask: mask.clone() });
+    let mask = Arc::new(Mask {
+        px: gerber::to_grayscale(&pm),
+        w: info.px_w,
+        h: info.px_h,
+    });
+    mask_cache().lock().unwrap().insert(
+        path.to_owned(),
+        MaskEntry {
+            mtime: m,
+            mask: mask.clone(),
+        },
+    );
     Ok(mask)
 }

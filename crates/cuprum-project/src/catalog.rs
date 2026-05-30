@@ -55,7 +55,12 @@ pub fn list(conn: &Connection) -> Result<Vec<RecentProject>> {
     for r in rows {
         let (path, name, last_opened_at) = r?;
         let exists = Path::new(&path).exists();
-        out.push(RecentProject { path, name, last_opened_at, exists });
+        out.push(RecentProject {
+            path,
+            name,
+            last_opened_at,
+            exists,
+        });
     }
     Ok(out)
 }

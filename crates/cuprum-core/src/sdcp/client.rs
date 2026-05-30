@@ -30,13 +30,18 @@ pub struct Session {
 impl Session {
     /// Connect to a discovered device's WebSocket.
     pub fn connect(device: &DeviceInfo) -> Result<Self> {
-        Self::connect_to(&device.data.mainboard_ip, &device.id, &device.data.mainboard_id)
+        Self::connect_to(
+            &device.data.mainboard_ip,
+            &device.id,
+            &device.data.mainboard_id,
+        )
     }
 
     /// Connect by explicit IP + ids (when discovery is bypassed).
     pub fn connect_to(ip: &str, id: &str, mainboard_id: &str) -> Result<Self> {
         let url = format!("ws://{ip}:{CONTROL_PORT}/websocket");
-        let (socket, _resp) = tungstenite::connect(&url).with_context(|| format!("connect {url}"))?;
+        let (socket, _resp) =
+            tungstenite::connect(&url).with_context(|| format!("connect {url}"))?;
         if let MaybeTlsStream::Plain(tcp) = socket.get_ref() {
             tcp.set_read_timeout(Some(Duration::from_millis(500)))?;
         }
@@ -101,7 +106,10 @@ impl Session {
     }
 
     pub fn start_print(&mut self, filename: &str) -> Result<String> {
-        self.send_cmd(CMD_START_PRINT, json!({ "Filename": filename, "StartLayer": 0 }))
+        self.send_cmd(
+            CMD_START_PRINT,
+            json!({ "Filename": filename, "StartLayer": 0 }),
+        )
     }
 
     pub fn stop_print(&mut self) -> Result<String> {

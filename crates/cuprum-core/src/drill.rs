@@ -76,7 +76,11 @@ pub fn parse_drill(bytes: &[u8]) -> Result<Vec<Hole>> {
             }
             if cur_d > 0.0 {
                 let k = if inch { 25.4 } else { 1.0 };
-                holes.push(Hole { x_mm: last_x * k, y_mm: last_y * k, d_mm: cur_d * k });
+                holes.push(Hole {
+                    x_mm: last_x * k,
+                    y_mm: last_y * k,
+                    d_mm: cur_d * k,
+                });
             }
         }
     }
@@ -135,7 +139,11 @@ pub fn parse_slots(bytes: &[u8]) -> Vec<Slot> {
             let bx = num_after(tail, 'X').unwrap_or(ax);
             let by = num_after(tail, 'Y').unwrap_or(ay);
             if cur_d > 0.0 {
-                slots.push(Slot { a: [ax * k, ay * k], b: [bx * k, by * k], w_mm: cur_d * k });
+                slots.push(Slot {
+                    a: [ax * k, ay * k],
+                    b: [bx * k, by * k],
+                    w_mm: cur_d * k,
+                });
             }
             last_x = bx;
             last_y = by;
@@ -153,7 +161,12 @@ pub fn parse_slots(bytes: &[u8]) -> Vec<Slot> {
 
 /// Digits right after a leading `T` (stops at the first non-digit, e.g. `C`).
 fn tool_num(line: &str) -> Option<u32> {
-    line[1..].chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok()
+    line[1..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()
 }
 
 /// The decimal number following `marker` (requires a literal decimal/digits).
@@ -180,9 +193,30 @@ mod tests {
     fn parses_metric_tools_and_hits() {
         let h = parse_drill(SAMPLE).unwrap();
         assert_eq!(h.len(), 3, "{h:?}");
-        assert_eq!(h[0], Hole { x_mm: 10.0, y_mm: 10.0, d_mm: 0.3 });
-        assert_eq!(h[1], Hole { x_mm: 20.0, y_mm: 10.0, d_mm: 0.3 });
-        assert_eq!(h[2], Hole { x_mm: 15.5, y_mm: 20.25, d_mm: 0.8 });
+        assert_eq!(
+            h[0],
+            Hole {
+                x_mm: 10.0,
+                y_mm: 10.0,
+                d_mm: 0.3
+            }
+        );
+        assert_eq!(
+            h[1],
+            Hole {
+                x_mm: 20.0,
+                y_mm: 10.0,
+                d_mm: 0.3
+            }
+        );
+        assert_eq!(
+            h[2],
+            Hole {
+                x_mm: 15.5,
+                y_mm: 20.25,
+                d_mm: 0.8
+            }
+        );
     }
 
     #[test]
@@ -213,7 +247,14 @@ mod tests {
         let drl = b"M48\nMETRIC,TZ\nT1C1.000\n%\nT1\nX10.0Y10.0G85X20.0Y10.0\nM30\n";
         let s = parse_slots(drl);
         assert_eq!(s.len(), 1, "{s:?}");
-        assert_eq!(s[0], Slot { a: [10.0, 10.0], b: [20.0, 10.0], w_mm: 1.0 });
+        assert_eq!(
+            s[0],
+            Slot {
+                a: [10.0, 10.0],
+                b: [20.0, 10.0],
+                w_mm: 1.0
+            }
+        );
     }
 
     #[test]

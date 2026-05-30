@@ -36,7 +36,13 @@ pub fn render_layer_svg(bytes: &[u8], id: &str) -> Result<LayerGeometry> {
     // escape an SVG attribute or poison a url(#…) reference.
     let safe_id: String = id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
 
     let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
@@ -81,7 +87,11 @@ pub fn render_layer_svg(bytes: &[u8], id: &str) -> Result<LayerGeometry> {
         )
     };
 
-    Ok(LayerGeometry { svg_body, bbox, snap })
+    Ok(LayerGeometry {
+        svg_body,
+        bbox,
+        snap,
+    })
 }
 
 use std::collections::HashSet;
@@ -101,10 +111,10 @@ fn push_snap(seen: &mut HashSet<(i32, i32)>, out: &mut Vec<[f32; 2]>, x: f64, y:
     }
 }
 
-/// Collect snap candidates for one primitive: feature centers, rectangle corners
-/// + edge midpoints, small-polygon vertices (pad shapes), line endpoints +
-/// midpoint, arc center + endpoints. Large pours (poly with many verts) contribute
-/// only their centroid.
+/// Collect snap candidates for one primitive. Emits feature centers, rectangle
+/// corners and edge midpoints, small-polygon vertices (pad shapes), line
+/// endpoints and midpoint, and arc center and endpoints. Large pours (polygons
+/// with many vertices) contribute only their centroid.
 fn collect_snap(p: &GerberPrimitive, seen: &mut HashSet<(i32, i32)>, out: &mut Vec<[f32; 2]>) {
     match p {
         GerberPrimitive::Circle(c) => push_snap(seen, out, c.center.x, c.center.y),
@@ -132,13 +142,23 @@ fn collect_snap(p: &GerberPrimitive, seen: &mut HashSet<(i32, i32)>, out: &mut V
         GerberPrimitive::Line(l) => {
             push_snap(seen, out, l.start.x, l.start.y);
             push_snap(seen, out, l.end.x, l.end.y);
-            push_snap(seen, out, (l.start.x + l.end.x) / 2.0, (l.start.y + l.end.y) / 2.0);
+            push_snap(
+                seen,
+                out,
+                (l.start.x + l.end.x) / 2.0,
+                (l.start.y + l.end.y) / 2.0,
+            );
         }
         GerberPrimitive::Arc(a) => {
             push_snap(seen, out, a.center.x, a.center.y);
             for t in [0.0_f64, 0.5, 1.0] {
                 let ang = a.start_angle + a.sweep_angle * t;
-                push_snap(seen, out, a.center.x + a.radius * ang.cos(), a.center.y + a.radius * ang.sin());
+                push_snap(
+                    seen,
+                    out,
+                    a.center.x + a.radius * ang.cos(),
+                    a.center.y + a.radius * ang.sin(),
+                );
             }
         }
     }
@@ -223,7 +243,9 @@ mod tests {
         let g = render_layer_svg(FLASH_CIRCLE, "t").unwrap();
         // The 1mm circle is flashed at the origin → a snap point near (0,0).
         assert!(
-            g.snap.iter().any(|p| p[0].abs() < 0.01 && p[1].abs() < 0.01),
+            g.snap
+                .iter()
+                .any(|p| p[0].abs() < 0.01 && p[1].abs() < 0.01),
             "expected a center snap near origin: {:?}",
             g.snap
         );
@@ -239,7 +261,11 @@ mod tests {
     #[test]
     fn renders_circle_fragment_with_bbox() {
         let g = render_layer_svg(FLASH_CIRCLE, "import-1-top").unwrap();
-        assert!(g.svg_body.contains("<circle"), "expected a circle element: {}", g.svg_body);
+        assert!(
+            g.svg_body.contains("<circle"),
+            "expected a circle element: {}",
+            g.svg_body
+        );
         assert!(g.svg_body.contains("currentColor"), "must be themeable");
         // ~1mm circle centred at origin.
         assert!((g.bbox.min_x - -0.5).abs() < 0.05, "min_x={}", g.bbox.min_x);

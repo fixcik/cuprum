@@ -9,7 +9,9 @@ use tauri::{AppHandle, Emitter};
 
 use cuprum_core::cache;
 use cuprum_core::compose::{self, Placement};
-use cuprum_core::goo::{self, ExposureParams, SCREEN_H, SCREEN_PX_PER_MM_X, SCREEN_PX_PER_MM_Y, SCREEN_W};
+use cuprum_core::goo::{
+    self, ExposureParams, SCREEN_H, SCREEN_PX_PER_MM_X, SCREEN_PX_PER_MM_Y, SCREEN_W,
+};
 use cuprum_core::sdcp;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -54,11 +56,12 @@ struct PreviewResult {
 /// thread so concurrent renders (reload) don't serialize and the UI stays live.
 #[tauri::command]
 async fn render_preview(path: String, max_px: u32) -> Result<PreviewResult, String> {
-    let (png, info, timings) =
-        tauri::async_runtime::spawn_blocking(move || cache::preview_png(std::path::Path::new(&path), max_px))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
+    let (png, info, timings) = tauri::async_runtime::spawn_blocking(move || {
+        cache::preview_png(std::path::Path::new(&path), max_px)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
     Ok(PreviewResult {
         png_data_url: format!("data:image/png;base64,{b64}"),
@@ -142,7 +145,11 @@ fn run_print(app: &AppHandle, req: PrintRequest) -> anyhow::Result<()> {
     emit_status(
         app,
         "uploading",
-        format!("uploading {:.1} KiB to {}…", bytes.len() as f64 / 1024.0, device.data.name),
+        format!(
+            "uploading {:.1} KiB to {}…",
+            bytes.len() as f64 / 1024.0,
+            device.data.name
+        ),
     );
     sdcp::upload_file(&device.data.mainboard_ip, PRINT_FILENAME, &bytes)?;
 
@@ -162,7 +169,11 @@ fn run_print(app: &AppHandle, req: PrintRequest) -> anyhow::Result<()> {
     while std::time::Instant::now() < drain {
         let _ = session.try_recv()?;
     }
-    emit_status(app, "done", "exposure running — UV turns off when time elapses");
+    emit_status(
+        app,
+        "done",
+        "exposure running — UV turns off when time elapses",
+    );
     Ok(())
 }
 
@@ -246,7 +257,8 @@ fn import_zips(
 ) -> Result<cuprum_project::Manifest, String> {
     let db = catalog_db_path(&app)?;
     let zips: Vec<PathBuf> = zip_paths.into_iter().map(PathBuf::from).collect();
-    cuprum_project::import_zips(&db, Path::new(&path), &zips, now_epoch()).map_err(|e| e.to_string())
+    cuprum_project::import_zips(&db, Path::new(&path), &zips, now_epoch())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -284,7 +296,11 @@ fn read_drill(path: String, gerber_rel: String) -> Result<Vec<HoleDto>, String> 
     let holes = cuprum_core::drill::parse_drill(&bytes).map_err(|e| e.to_string())?;
     Ok(holes
         .into_iter()
-        .map(|h| HoleDto { x: h.x_mm, y: h.y_mm, d: h.d_mm })
+        .map(|h| HoleDto {
+            x: h.x_mm,
+            y: h.y_mm,
+            d: h.d_mm,
+        })
         .collect())
 }
 
@@ -336,7 +352,11 @@ fn stage_import(zip_paths: Vec<String>) -> Result<StagedImportDto, String> {
                     Ok(hs) => {
                         file_holes = hs
                             .into_iter()
-                            .map(|h| HoleDto { x: h.x_mm, y: h.y_mm, d: h.d_mm })
+                            .map(|h| HoleDto {
+                                x: h.x_mm,
+                                y: h.y_mm,
+                                d: h.d_mm,
+                            })
                             .collect()
                     }
                     Err(e) => drill_error = Some(e.to_string()),
@@ -364,7 +384,16 @@ fn stage_import(zip_paths: Vec<String>) -> Result<StagedImportDto, String> {
                     Err(e) => (None, None, Vec::new(), Some(e.to_string())),
                 }
             };
-            files.push(StagedFileDto { source_zip: imported.source_name.clone(), filename: filename.clone(), layer_type, svg_body, bbox, snap, error, holes: file_holes });
+            files.push(StagedFileDto {
+                source_zip: imported.source_name.clone(),
+                filename: filename.clone(),
+                layer_type,
+                svg_body,
+                bbox,
+                snap,
+                error,
+                holes: file_holes,
+            });
         }
     }
     Ok(StagedImportDto { files, holes })
@@ -402,7 +431,8 @@ struct StagedClassifyDto {
 fn stage_classify(zip_paths: Vec<String>) -> Result<StagedClassifyDto, String> {
     let mut files = Vec::new();
     for zip in &zip_paths {
-        let imported = cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
+        let imported =
+            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
         for (filename, bytes) in &imported.gerbers {
             let layer_type = cuprum_project::layer::classify(filename);
             let mut holes = Vec::new();
@@ -412,7 +442,11 @@ fn stage_classify(zip_paths: Vec<String>) -> Result<StagedClassifyDto, String> {
                     Ok(hs) => {
                         holes = hs
                             .into_iter()
-                            .map(|h| HoleDto { x: h.x_mm, y: h.y_mm, d: h.d_mm })
+                            .map(|h| HoleDto {
+                                x: h.x_mm,
+                                y: h.y_mm,
+                                d: h.d_mm,
+                            })
                             .collect()
                     }
                     Err(e) => drill_error = Some(e.to_string()),
@@ -433,10 +467,15 @@ fn stage_classify(zip_paths: Vec<String>) -> Result<StagedClassifyDto, String> {
 /// Render ONE staged gerber's SVG by its staging index (the same order as
 /// `stage_classify`). Called per-layer, in parallel, so previews stream in.
 #[tauri::command]
-fn stage_layer_svg(app: AppHandle, zip_paths: Vec<String>, index: usize) -> Result<LayerGeometryDto, String> {
+fn stage_layer_svg(
+    app: AppHandle,
+    zip_paths: Vec<String>,
+    index: usize,
+) -> Result<LayerGeometryDto, String> {
     let mut i = 0usize;
     for zip in &zip_paths {
-        let imported = cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
+        let imported =
+            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
         for (_filename, bytes) in &imported.gerbers {
             if i == index {
                 return render_or_cache_svg(&app, bytes);
@@ -469,7 +508,11 @@ struct LayerGeometryDto {
 }
 
 #[tauri::command]
-fn render_gerber_svg(app: AppHandle, path: String, gerber_rel: String) -> Result<LayerGeometryDto, String> {
+fn render_gerber_svg(
+    app: AppHandle,
+    path: String,
+    gerber_rel: String,
+) -> Result<LayerGeometryDto, String> {
     let bytes = cuprum_project::container::read_entry(Path::new(&path), &gerber_rel)
         .map_err(|e| e.to_string())?;
     render_or_cache_svg(&app, &bytes)
@@ -494,7 +537,10 @@ struct PolyDto {
 fn polys_to_dtos(polys: Vec<cuprum_core::geometry::Poly>) -> Vec<PolyDto> {
     polys
         .into_iter()
-        .map(|p| PolyDto { outer: p.outer, holes: p.holes })
+        .map(|p| PolyDto {
+            outer: p.outer,
+            holes: p.holes,
+        })
         .collect()
 }
 
@@ -512,7 +558,11 @@ fn layer_polygons(
         .map_err(|e| e.to_string())?;
     let holes: Vec<cuprum_core::geometry::Hole> = holes
         .into_iter()
-        .map(|h| cuprum_core::geometry::Hole { x: h.x, y: h.y, d: h.d })
+        .map(|h| cuprum_core::geometry::Hole {
+            x: h.x,
+            y: h.y,
+            d: h.d,
+        })
         .collect();
     let polys = cuprum_core::geometry::layer_polygons(&bytes, &holes).map_err(|e| e.to_string())?;
     Ok(polys_to_dtos(polys))
@@ -541,7 +591,11 @@ fn mask_polygons(
         .map_err(|e| e.to_string())?;
     let rings: Vec<Vec<[f64; 2]>> = outline_rings
         .into_iter()
-        .map(|ring| ring.into_iter().map(|[x, y]| [x as f64, y as f64]).collect())
+        .map(|ring| {
+            ring.into_iter()
+                .map(|[x, y]| [x as f64, y as f64])
+                .collect()
+        })
         .collect();
     let polys = cuprum_core::geometry::mask_polygons(&rings, &bytes).map_err(|e| e.to_string())?;
     Ok(polys_to_dtos(polys))
@@ -588,7 +642,13 @@ fn render_or_cache_svg(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto
     };
     if let Some(d) = &dir {
         if let Ok(blob) = serde_json::to_vec(&dto) {
-            cuprum_core::diskcache::put(d, &key, &blob, ARTIFACT_CACHE_MAX_BYTES, ARTIFACT_CACHE_TTL);
+            cuprum_core::diskcache::put(
+                d,
+                &key,
+                &blob,
+                ARTIFACT_CACHE_MAX_BYTES,
+                ARTIFACT_CACHE_TTL,
+            );
         }
     }
     Ok(dto)
@@ -670,7 +730,13 @@ fn section(data: &mut Vec<u8>, buf: &cuprum_core::mesh::Buffer) -> SectHdr {
     let (pos_off, pos_len) = append_f32(data, &buf.positions);
     let (norm_off, _) = append_f32(data, &buf.normals);
     let (idx_off, idx_len) = append_u32(data, &buf.indices);
-    SectHdr { pos_off, pos_len, norm_off, idx_off, idx_len }
+    SectHdr {
+        pos_off,
+        pos_len,
+        norm_off,
+        idx_off,
+        idx_len,
+    }
 }
 
 /// Pack a [`cuprum_core::mesh::BoardMesh`] into the wire format:
@@ -681,7 +747,11 @@ fn pack_board_mesh(board: cuprum_core::mesh::BoardMesh) -> Vec<u8> {
     let layers: Vec<LayerHdr> = board
         .layers
         .iter()
-        .map(|m| LayerHdr { key: m.key.clone(), kind: m.kind, sect: section(&mut data, &m.buffer) })
+        .map(|m| LayerHdr {
+            key: m.key.clone(),
+            kind: m.kind,
+            sect: section(&mut data, &m.buffer),
+        })
         .collect();
     let header = MeshHdr { substrate, layers };
     let hbytes = serde_json::to_vec(&header).unwrap_or_default();
@@ -711,13 +781,18 @@ fn staged_board_mesh(
 ) -> Result<tauri::ipc::Response, String> {
     let mut entries: Vec<Vec<u8>> = Vec::new();
     for zip in &zip_paths {
-        let imported = cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
+        let imported =
+            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
         for (_fname, bytes) in imported.gerbers {
             entries.push(bytes);
         }
     }
     if entries.len() != layer_types.len() {
-        return Err(format!("layer_types ({}) != gerbers ({})", layer_types.len(), entries.len()));
+        return Err(format!(
+            "layer_types ({}) != gerbers ({})",
+            layer_types.len(),
+            entries.len()
+        ));
     }
     let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
     // Cache key: included layers only (staging-index key + type + bytes).
@@ -738,7 +813,12 @@ fn staged_board_mesh(
             .filter(|(i, _)| !excluded.contains(&i.to_string()))
             .map(|(i, bytes)| {
                 let (role, side) = role_side(&layer_types[i]);
-                cuprum_core::mesh::LayerInput { key: i.to_string(), role, side, bytes }
+                cuprum_core::mesh::LayerInput {
+                    key: i.to_string(),
+                    role,
+                    side,
+                    bytes,
+                }
             })
             .collect();
         pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))
@@ -758,13 +838,18 @@ fn staged_board_metrics(
 ) -> Result<cuprum_core::metrics::BoardMetrics, String> {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     for zip in &zip_paths {
-        let imported = cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
+        let imported =
+            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
         for (fname, bytes) in imported.gerbers {
             entries.push((fname, bytes));
         }
     }
     if entries.len() != layer_types.len() {
-        return Err(format!("layer_types ({}) != gerbers ({})", layer_types.len(), entries.len()));
+        return Err(format!(
+            "layer_types ({}) != gerbers ({})",
+            layer_types.len(),
+            entries.len()
+        ));
     }
     // Geometry is heavy → cache by content hash (filename + type + bytes). The
     // result is a pure measurement, so it stays valid as the user edits profile
@@ -795,7 +880,8 @@ fn staged_board_metrics(
                 side,
                 inner: matches!(lt, cuprum_project::LayerType::InnerCopper),
                 // Excellon can't carry plating; NPTH is known only from the filename.
-                plated: role == cuprum_core::mesh::Role::Drill && !fname.to_lowercase().contains("npth"),
+                plated: role == cuprum_core::mesh::Role::Drill
+                    && !fname.to_lowercase().contains("npth"),
                 bytes,
             }
         })
@@ -803,7 +889,13 @@ fn staged_board_metrics(
     let metrics = cuprum_core::metrics::board_metrics(&inputs);
     if let Some(dir) = artifact_cache_dir(&app) {
         if let Ok(blob) = serde_json::to_vec(&metrics) {
-            cuprum_core::diskcache::put(&dir, &key, &blob, ARTIFACT_CACHE_MAX_BYTES, ARTIFACT_CACHE_TTL);
+            cuprum_core::diskcache::put(
+                &dir,
+                &key,
+                &blob,
+                ARTIFACT_CACHE_MAX_BYTES,
+                ARTIFACT_CACHE_TTL,
+            );
         }
     }
     Ok(metrics)
@@ -866,7 +958,12 @@ fn project_board_mesh(
             .filter(|(rel, _, _)| !excluded.contains(rel))
             .map(|(rel, t, bytes)| {
                 let (role, side) = role_side(t);
-                cuprum_core::mesh::LayerInput { key: rel.clone(), role, side, bytes }
+                cuprum_core::mesh::LayerInput {
+                    key: rel.clone(),
+                    role,
+                    side,
+                    bytes,
+                }
             })
             .collect();
         pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))

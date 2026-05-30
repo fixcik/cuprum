@@ -1,7 +1,7 @@
 //! Project manifest — the `manifest.json` inside a `.cuprum` container.
 
-use serde::{Deserialize, Serialize};
 use crate::layer::LayerType;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Bump when the on-disk shape changes incompatibly. v2: gerbers carry a layer type.
@@ -79,7 +79,10 @@ impl<'de> Deserialize<'de> for GerberFile {
             },
         }
         Ok(match Compat::deserialize(de)? {
-            Compat::Legacy(path) => GerberFile { path, layer_type: LayerType::Other },
+            Compat::Legacy(path) => GerberFile {
+                path,
+                layer_type: LayerType::Other,
+            },
             Compat::Full { path, layer_type } => GerberFile { path, layer_type },
         })
     }
@@ -125,12 +128,18 @@ mod tests {
                 layer_type: crate::layer::LayerType::TopCopper,
             }],
         });
-        m.layer_colors.insert(crate::layer::LayerType::TopCopper, "#b87333".into());
+        m.layer_colors
+            .insert(crate::layer::LayerType::TopCopper, "#b87333".into());
         let json = serde_json::to_string_pretty(&m).unwrap();
         let back: Manifest = serde_json::from_str(&json).unwrap();
         assert_eq!(m, back);
         assert_eq!(back.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(back.layer_colors.get(&crate::layer::LayerType::TopCopper).map(String::as_str), Some("#b87333"));
+        assert_eq!(
+            back.layer_colors
+                .get(&crate::layer::LayerType::TopCopper)
+                .map(String::as_str),
+            Some("#b87333")
+        );
     }
 
     #[test]
@@ -142,7 +151,10 @@ mod tests {
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.imports[0].gerbers.len(), 1);
         assert_eq!(m.imports[0].gerbers[0].path, "gerbers/import-1/a.gbr");
-        assert_eq!(m.imports[0].gerbers[0].layer_type, crate::layer::LayerType::Other);
+        assert_eq!(
+            m.imports[0].gerbers[0].layer_type,
+            crate::layer::LayerType::Other
+        );
         assert!(m.layer_colors.is_empty());
     }
 
