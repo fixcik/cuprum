@@ -1,0 +1,7 @@
+{
+  "unit": { "mm": "mm", "um": "µm", "mil": "mil", "inch": "in" },
+  "yes": "yes",
+  "no": "no",
+  "dash": "—",
+  "pcs": "pcs"
+}
