@@ -647,7 +647,7 @@ export function LayerStack({
                       {fmtLen(dist)}
                     </text>
                     <text x={8} y={27} style={{ fill: MEASURE_DIM, fontSize: "9px", fontVariantNumeric: "tabular-nums" }}>
-                      ΔX {dxmm.toFixed(2)} · ΔY {dymm.toFixed(2)}
+                      ΔX {fmtLen(dxmm)} · ΔY {fmtLen(dymm)}
                     </text>
                   </g>
                 </>

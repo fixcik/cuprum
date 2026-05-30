@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/settingsStore";
 
 const MM_PER_INCH = 25.4;
-const MIL_PER_MM = 39.3701;
+const MIL_PER_MM = 1000 / MM_PER_INCH; // single source of truth (exact)
 
 /** Imperial dimension class: fine features show in mils, coarse ones in inches. */
 export type Dim = "fine" | "coarse";
