@@ -16,5 +16,26 @@
     "units": "Units",
     "unitsMetric": "Metric (mm)",
     "unitsImperial": "Imperial (in, mil)"
+  },
+  "field": {
+    "maxPanelWidth": { "label": "Max panel width", "help": "Largest blank that fits the machine work area. A bigger board can't be made in one pass (exposure or CNC)." },
+    "maxPanelHeight": { "label": "Max panel height", "help": "The other side of the work area. The board is compared against it (accounting for rotation if allowed)." },
+    "allowRotate": { "label": "Try 90° rotation", "help": "If the board doesn't fit as-is, try rotating it 90° before declaring it too big." },
+    "maxCopperLayers": { "label": "Max copper layers", "help": "How many copper layers you can actually make (usually 1–2 at home)." },
+    "allowInner": { "label": "Allow inner layers", "help": "Allow boards with inner copper layers (4+). Not available for DIY." },
+    "minTrace": { "label": "Min trace width", "help": "The thinnest trace the process reproduces. Thinner risks breaks or non-printing." },
+    "minSpace": { "label": "Min clearance", "help": "Minimum gap between different nets. Less and adjacent traces merge (short)." },
+    "ignoreBelow": { "label": "Ignore below", "help": "Copper/clearance/mask defects thinner than this are treated as compute artefacts (degenerate slivers) and hidden. Default 0.05 mm (50 µm)." },
+    "minDrill": { "label": "Min hole size", "help": "The smallest hole you're willing to make. Separate from the bit set — your lower bound on hole diameter." },
+    "drillBitSet": { "label": "Bit set", "hint": "comma-separated", "help": "Available drill diameters. Board diameters outside the set (within tolerance) → warning." },
+    "drillBitTolerance": { "label": "Bit snap tolerance", "help": "How far a hole diameter may differ from a bit to count as matched." },
+    "minAnnular": { "label": "Min annular ring", "help": "Minimum copper ring around a hole. Narrow and the drill wanders into the pad edge or breaks out." },
+    "viaPlating": { "label": "Via plating available", "help": "Whether holes can be plated. If not, vias are made by hand and their count matters." },
+    "viaMaxDiameter": { "label": "Via — max diameter", "hint": "holes ≤ are vias", "help": "Holes no larger than this count as vias for the counting heuristic." },
+    "viaWarn": { "label": "Via — warn threshold", "help": "How many un-plated vias are acceptable before a warning (each plated by hand)." },
+    "viaBlock": { "label": "Via — block threshold", "help": "How many un-plated vias make the board practically infeasible." },
+    "minMaskDam": { "label": "Min mask dam", "help": "Minimum soldermask dam between adjacent openings. Thinner won't print." },
+    "minSilkLine": { "label": "Min silk line", "help": "Minimum silkscreen line/text width. Thinner disappears in print." },
+    "maxOvershoot": { "label": "Max overshoot", "help": "How far layer features may stick out past the board outline. More and something hangs off the edge." }
   }
 }

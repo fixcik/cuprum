@@ -10,6 +10,7 @@ import { Diagrams } from "@/components/settings/diagrams";
 import { useSettings } from "@/settingsStore";
 import { type Language, type Units } from "@/settingsStore";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
+import { useUnitFormat, type Dim } from "@/i18n/useUnitFormat";
 
 /** Label cell: text + optional inline hint + an optional "?" help tooltip. */
 function FieldLabel({ label, hint, help, helpImage }: { label: string; hint?: string; help?: string; helpImage?: React.ReactNode }) {
@@ -22,12 +23,13 @@ function FieldLabel({ label, hint, help, helpImage }: { label: string; hint?: st
   );
 }
 
-/** A labelled numeric field that commits any valid number live. */
+/** A labelled numeric field that commits any valid number live. Supports unit conversion via dim. */
 function NumberField({
   label,
   value,
   onChange,
   step = "0.01",
+  dim,
   suffix,
   hint,
   help,
@@ -37,30 +39,36 @@ function NumberField({
   value: number;
   onChange: (v: number) => void;
   step?: string;
+  dim?: Dim;
   suffix?: string;
   hint?: string;
   help?: string;
   helpImage?: React.ReactNode;
 }) {
-  const [text, setText] = React.useState(String(value));
-  React.useEffect(() => setText(String(value)), [value]);
+  const { units, toDisplay, fromDisplay, unitLabel } = useUnitFormat();
+  const shown = dim ? toDisplay(value, dim) : value;
+  const [text, setText] = React.useState(String(shown));
+  React.useEffect(() => setText(String(dim ? toDisplay(value, dim) : value)), [value, dim, toDisplay]);
+  // In imperial, mm-tuned steps are too coarse/fine; pick a sensible per-unit step.
+  const effStep = !dim || units !== "imperial" ? step : dim === "coarse" ? "0.001" : "0.1";
+  const suffixText = dim ? unitLabel(dim) : (suffix ?? "");
   return (
     <label className="flex items-center justify-between gap-4 py-2">
       <FieldLabel label={label} hint={hint} help={help} helpImage={helpImage} />
       <div className="flex shrink-0 items-center gap-1.5">
         <TextInput
           type="number"
-          step={step}
+          step={effStep}
           inputMode="decimal"
           value={text}
           onChange={(e) => {
             setText(e.target.value);
             const v = parseFloat(e.target.value);
-            if (!Number.isNaN(v)) onChange(v);
+            if (!Number.isNaN(v)) onChange(dim ? fromDisplay(v, dim) : v);
           }}
           className="w-24 text-right tabular-nums"
         />
-        <span className="w-7 text-[11px] text-muted-foreground">{suffix}</span>
+        <span className="w-7 text-[11px] text-muted-foreground">{suffixText}</span>
       </div>
     </label>
   );
@@ -87,7 +95,7 @@ function BoolField({
   );
 }
 
-/** Edits a numeric array as a comma/space-separated list (e.g. the drill bit set). */
+/** Edits a numeric array as a comma/space-separated list (the drill bit set). Always dim="fine". */
 function ArrayField({
   label,
   value,
@@ -101,19 +109,22 @@ function ArrayField({
   hint?: string;
   help?: string;
 }) {
-  const [text, setText] = React.useState(value.join(", "));
-  React.useEffect(() => setText(value.join(", ")), [value]);
+  const { toDisplay, fromDisplay, unitLabel } = useUnitFormat();
+  const fmt = (arr: number[]) => arr.map((mm) => +toDisplay(mm, "fine").toFixed(3)).join(", ");
+  const [text, setText] = React.useState(fmt(value));
+  React.useEffect(() => setText(fmt(value)), [value]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label className="flex items-center justify-between gap-4 py-2">
-      <FieldLabel label={label} hint={hint} help={help} />
+      <FieldLabel label={label} hint={hint ? `${hint}, ${unitLabel("fine")}` : unitLabel("fine")} help={help} />
       <TextInput
         value={text}
         onChange={(e) => {
           setText(e.target.value);
           const arr = e.target.value
             .split(/[,\s]+/)
-            .map(parseFloat)
+            .map((s) => parseFloat(s))
             .filter((x) => !Number.isNaN(x) && x > 0)
+            .map((v) => fromDisplay(v, "fine"))
             .sort((a, b) => a - b);
           if (arr.length) onChange(arr);
         }}
@@ -128,6 +139,7 @@ const CATEGORY_IDS: CategoryId[] = ["interface", "panel", "copper", "drill", "ma
 
 export function SettingsPage() {
   const { t } = useTranslation("settings");
+  const { t: tc } = useTranslation("common");
   const profile = useSettings((s) => s.profile);
   const setProfile = useSettings((s) => s.setProfile);
   const resetProfile = useSettings((s) => s.resetProfile);
@@ -202,26 +214,26 @@ export function SettingsPage() {
             {active === "panel" && (
               <>
                 <NumberField
-                  label="Макс. ширина панели"
+                  label={t("field.maxPanelWidth.label")}
                   value={profile.maxPanelWidthMm}
                   onChange={set("maxPanelWidthMm")}
-                  suffix="мм"
-                  help="Максимальный размер заготовки, влезающий в рабочее поле станка. Плата больше — нельзя изготовить в один проход (засветка или CNC)."
+                  dim="coarse"
+                  help={t("field.maxPanelWidth.help")}
                   helpImage={Diagrams.panelSize}
                 />
                 <NumberField
-                  label="Макс. высота панели"
+                  label={t("field.maxPanelHeight.label")}
                   value={profile.maxPanelHeightMm}
                   onChange={set("maxPanelHeightMm")}
-                  suffix="мм"
-                  help="Вторая сторона рабочего поля. Плата сравнивается с этим размером (с учётом поворота, если он разрешён)."
+                  dim="coarse"
+                  help={t("field.maxPanelHeight.help")}
                   helpImage={Diagrams.panelSize}
                 />
                 <BoolField
-                  label="Пробовать поворот на 90°"
+                  label={t("field.allowRotate.label")}
                   value={profile.allowRotateToFit}
                   onChange={set("allowRotateToFit")}
-                  help="Если плата не влезает как есть — попробовать повернуть её на 90° перед тем, как считать слишком большой."
+                  help={t("field.allowRotate.help")}
                 />
               </>
             )}
@@ -229,41 +241,41 @@ export function SettingsPage() {
             {active === "copper" && (
               <>
                 <NumberField
-                  label="Макс. слоёв меди"
+                  label={t("field.maxCopperLayers.label")}
                   value={profile.maxCopperLayers}
                   onChange={set("maxCopperLayers")}
                   step="1"
-                  suffix="шт"
-                  help="Сколько медных слоёв реально изготовить (дома обычно 1–2)."
+                  suffix={tc("pcs")}
+                  help={t("field.maxCopperLayers.help")}
                 />
                 <BoolField
-                  label="Разрешить внутренние слои"
+                  label={t("field.allowInner.label")}
                   value={profile.allowInnerLayers}
                   onChange={set("allowInnerLayers")}
-                  help="Разрешить платы с внутренними медными слоями (4+). В DIY недоступно."
+                  help={t("field.allowInner.help")}
                 />
                 <NumberField
-                  label="Мин. ширина дорожки"
+                  label={t("field.minTrace.label")}
                   value={profile.minTraceMm}
                   onChange={set("minTraceMm")}
-                  suffix="мм"
-                  help="Самая тонкая дорожка, которую процесс воспроизводит. Тоньше — риск разрыва или непропечатки."
+                  dim="fine"
+                  help={t("field.minTrace.help")}
                   helpImage={Diagrams.traceWidth}
                 />
                 <NumberField
-                  label="Мин. зазор"
+                  label={t("field.minSpace.label")}
                   value={profile.minSpaceMm}
                   onChange={set("minSpaceMm")}
-                  suffix="мм"
-                  help="Минимальный зазор между разными цепями. Меньше — соседние дорожки слипнутся (короткое)."
+                  dim="fine"
+                  help={t("field.minSpace.help")}
                   helpImage={Diagrams.clearance}
                 />
                 <NumberField
-                  label="Игнорировать ниже"
+                  label={t("field.ignoreBelow.label")}
                   value={profile.ignoreBelowMm}
                   onChange={set("ignoreBelowMm")}
-                  suffix="мм"
-                  help="Геометрические дефекты меди/зазора/маски тоньше этого порога считаются артефактами расчёта (вырожденные слайверы) и не показываются. По умолчанию 0.05 мм (50 мкм)."
+                  dim="fine"
+                  help={t("field.ignoreBelow.help")}
                 />
               </>
             )}
@@ -271,64 +283,64 @@ export function SettingsPage() {
             {active === "drill" && (
               <>
                 <NumberField
-                  label="Мин. размер отверстия"
+                  label={t("field.minDrill.label")}
                   value={profile.minDrillMm}
                   onChange={set("minDrillMm")}
-                  suffix="мм"
-                  help="Самое маленькое отверстие, которое готов делать. Отдельно от набора бит — это твой нижний предел по диаметру отверстий."
+                  dim="fine"
+                  help={t("field.minDrill.help")}
                   helpImage={Diagrams.drill}
                 />
                 <ArrayField
-                  label="Набор бит"
+                  label={t("field.drillBitSet.label")}
                   value={profile.drillBitSetMm}
                   onChange={set("drillBitSetMm")}
-                  hint="через запятую, мм"
-                  help="Доступные диаметры свёрл. Диаметры платы вне набора (с учётом допуска) → предупреждение."
+                  hint={t("field.drillBitSet.hint")}
+                  help={t("field.drillBitSet.help")}
                 />
                 <NumberField
-                  label="Допуск снапа к биту"
+                  label={t("field.drillBitTolerance.label")}
                   value={profile.drillBitToleranceMm}
                   onChange={set("drillBitToleranceMm")}
-                  suffix="мм"
-                  help="Насколько диаметр отверстия может отличаться от бита, чтобы считаться совпавшим."
+                  dim="fine"
+                  help={t("field.drillBitTolerance.help")}
                 />
                 <NumberField
-                  label="Мин. поясок"
+                  label={t("field.minAnnular.label")}
                   value={profile.minAnnularRingMm}
                   onChange={set("minAnnularRingMm")}
-                  suffix="мм"
-                  help="Минимальное кольцо меди вокруг отверстия (поясок). Узкое — сверло уводит в край пада или прорывает его."
+                  dim="fine"
+                  help={t("field.minAnnular.help")}
                   helpImage={Diagrams.annular}
                 />
                 <BoolField
-                  label="Есть металлизация отверстий"
+                  label={t("field.viaPlating.label")}
                   value={profile.viaPlatingAvailable}
                   onChange={set("viaPlatingAvailable")}
-                  help="Можно ли металлизировать отверстия. Если нет — переходные (via) делаются вручную, и их количество важно."
+                  help={t("field.viaPlating.help")}
                 />
                 <NumberField
-                  label="Via — макс. диаметр"
+                  label={t("field.viaMaxDiameter.label")}
                   value={profile.viaMaxDiameterMm}
                   onChange={set("viaMaxDiameterMm")}
-                  suffix="мм"
-                  hint="отверстия ≤ — это via"
-                  help="Отверстия не больше этого диаметра считаются переходными (via) для эвристики подсчёта."
+                  dim="fine"
+                  hint={t("field.viaMaxDiameter.hint")}
+                  help={t("field.viaMaxDiameter.help")}
                 />
                 <NumberField
-                  label="Via — порог предупреждения"
+                  label={t("field.viaWarn.label")}
                   value={profile.viaWarnCount}
                   onChange={set("viaWarnCount")}
                   step="1"
-                  suffix="шт"
-                  help="Сколько via без металлизации допустимо до предупреждения (каждое металлизируется вручную)."
+                  suffix={tc("pcs")}
+                  help={t("field.viaWarn.help")}
                 />
                 <NumberField
-                  label="Via — порог блокировки"
+                  label={t("field.viaBlock.label")}
                   value={profile.viaBlockCount}
                   onChange={set("viaBlockCount")}
                   step="1"
-                  suffix="шт"
-                  help="Сколько via без металлизации делают плату практически невыполнимой."
+                  suffix={tc("pcs")}
+                  help={t("field.viaBlock.help")}
                 />
               </>
             )}
@@ -336,27 +348,27 @@ export function SettingsPage() {
             {active === "maskSilk" && (
               <>
                 <NumberField
-                  label="Мин. перемычка маски"
+                  label={t("field.minMaskDam.label")}
                   value={profile.minMaskDamMm}
                   onChange={set("minMaskDamMm")}
-                  suffix="мм"
-                  help="Минимальная перемычка паяльной маски между соседними вскрытиями. Тоньше — не пропечатается."
+                  dim="fine"
+                  help={t("field.minMaskDam.help")}
                   helpImage={Diagrams.maskDam}
                 />
                 <NumberField
-                  label="Мин. линия шелка"
+                  label={t("field.minSilkLine.label")}
                   value={profile.minSilkLineMm}
                   onChange={set("minSilkLineMm")}
-                  suffix="мм"
-                  help="Минимальная ширина линии/текста шелкографии. Тоньше — пропадёт при печати."
+                  dim="fine"
+                  help={t("field.minSilkLine.help")}
                   helpImage={Diagrams.silkLine}
                 />
                 <NumberField
-                  label="Макс. выход за контур"
+                  label={t("field.maxOvershoot.label")}
                   value={profile.maxOvershootMm}
                   onChange={set("maxOvershootMm")}
-                  suffix="мм"
-                  help="Насколько элементы слоёв могут выступать за контур платы. Больше — что-то торчит за краем."
+                  dim="fine"
+                  help={t("field.maxOvershoot.help")}
                   helpImage={Diagrams.overshoot}
                 />
               </>
