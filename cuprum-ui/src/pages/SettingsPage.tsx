@@ -134,8 +134,10 @@ function ArrayField({
   );
 }
 
-type CategoryId = "interface" | "panel" | "copper" | "drill" | "maskSilk";
-const CATEGORY_IDS: CategoryId[] = ["interface", "panel", "copper", "drill", "maskSilk"];
+type Tab = "general" | "capabilities";
+const TABS: Tab[] = ["general", "capabilities"];
+type CapCategoryId = "panel" | "copper" | "drill" | "maskSilk";
+const CAP_CATEGORIES: CapCategoryId[] = ["panel", "copper", "drill", "maskSilk"];
 
 export function SettingsPage() {
   const { t } = useTranslation("settings");
@@ -148,10 +150,64 @@ export function SettingsPage() {
   const setLanguage = useSettings((s) => s.setLanguage);
   const units = useSettings((s) => s.units);
   const setUnits = useSettings((s) => s.setUnits);
-  const [active, setActive] = React.useState<CategoryId>("interface");
+  const [tab, setTab] = React.useState<Tab>("general");
+  const [active, setActive] = React.useState<CapCategoryId>("panel");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Top-level tabs: General (interface prefs) vs Capabilities (machine profile). */}
+      <div className="flex items-center gap-1 border-b border-border px-3">
+        {TABS.map((tb) => (
+          <button
+            key={tb}
+            type="button"
+            onClick={() => setTab(tb)}
+            className={`relative px-3 py-2.5 text-[12px] transition-colors ${
+              tab === tb ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t(`tab.${tb}`)}
+            {tab === tb && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />}
+          </button>
+        ))}
+      </div>
+
+      {tab === "general" && (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="border-b border-border px-5 py-3">
+            <h1 className="text-[14px] font-semibold text-foreground">{t("general.title")}</h1>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">{t("general.subtitle")}</p>
+          </div>
+          <div className="mx-auto max-w-xl divide-y divide-border/60 p-6">
+            <label className="flex items-center justify-between gap-4 py-2">
+              <span className="text-[12px] text-foreground">{t("interface.language")}</span>
+              <SegmentedControl<Language>
+                value={language}
+                onChange={setLanguage}
+                options={[
+                  { value: "auto", label: t("interface.languageAuto") },
+                  { value: "ru", label: "Русский" },
+                  { value: "en", label: "English" },
+                ]}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-4 py-2">
+              <span className="text-[12px] text-foreground">{t("interface.units")}</span>
+              <SegmentedControl<Units>
+                value={units}
+                onChange={setUnits}
+                options={[
+                  { value: "mm", label: t("interface.unitsMetric") },
+                  { value: "imperial", label: t("interface.unitsImperial") },
+                ]}
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {tab === "capabilities" && (
+      <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <div>
           <h1 className="text-[14px] font-semibold text-foreground">{t("title")}</h1>
@@ -165,9 +221,9 @@ export function SettingsPage() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* Left tab menu (extensible: future settings groups go here). */}
+        {/* Capability sub-categories. */}
         <nav className="w-52 shrink-0 border-r border-border bg-panel p-2">
-          {CATEGORY_IDS.map((id) => (
+          {CAP_CATEGORIES.map((id) => (
             <button
               key={id}
               type="button"
@@ -183,34 +239,6 @@ export function SettingsPage() {
 
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-xl divide-y divide-border/60 p-6">
-            {active === "interface" && (
-              <>
-                <label className="flex items-center justify-between gap-4 py-2">
-                  <span className="text-[12px] text-foreground">{t("interface.language")}</span>
-                  <SegmentedControl<Language>
-                    value={language}
-                    onChange={setLanguage}
-                    options={[
-                      { value: "auto", label: t("interface.languageAuto") },
-                      { value: "ru", label: "Русский" },
-                      { value: "en", label: "English" },
-                    ]}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-4 py-2">
-                  <span className="text-[12px] text-foreground">{t("interface.units")}</span>
-                  <SegmentedControl<Units>
-                    value={units}
-                    onChange={setUnits}
-                    options={[
-                      { value: "mm", label: t("interface.unitsMetric") },
-                      { value: "imperial", label: t("interface.unitsImperial") },
-                    ]}
-                  />
-                </label>
-              </>
-            )}
-
             {active === "panel" && (
               <>
                 <NumberField
@@ -376,6 +404,8 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+      </div>
+      )}
     </div>
   );
 }
