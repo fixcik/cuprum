@@ -1,0 +1,17 @@
+[package]
+name = "cuprum-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cuprum CLI: UV exposure on Elegoo Saturn 4 Ultra 16K"
+
+[[bin]]
+name = "cuprum"
+path = "src/main.rs"
+
+[dependencies]
+cuprum-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+serde_json.workspace = true

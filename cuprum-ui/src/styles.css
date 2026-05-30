@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Dark technical theme (VSCode/BambuLab vibe) with a copper accent for Cuprum. */
+:root,
+.dark {
+  --background: 222 16% 9%;
+  --foreground: 210 20% 92%;
+  --card: 222 15% 12%;
+  --card-foreground: 210 20% 92%;
+  --popover: 222 16% 11%;
+  --popover-foreground: 210 20% 92%;
+  --panel: 222 14% 13%;
+  --muted: 222 12% 18%;
+  --muted-foreground: 215 14% 60%;
+  --border: 222 12% 20%;
+  --input: 222 12% 22%;
+  --ring: 24 80% 52%;
+  /* copper accent */
+  --primary: 24 80% 52%;
+  --primary-foreground: 24 30% 10%;
+  --accent: 24 70% 48%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 70% 50%;
+  --destructive-foreground: 0 0% 100%;
+  /* DFM feasibility severities: warn = amber, ok = green (destructive = block). */
+  --warning: 38 92% 55%;
+  --success: 145 55% 48%;
+  /* Preview backdrop — matches the 3D view background (#1b1f24). */
+  --pcb-preview: 213 14% 12%;
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-panel: hsl(var(--panel));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-success: hsl(var(--success));
+  --color-pcb-preview: hsl(var(--pcb-preview));
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+/* All interactive buttons get the pointer cursor (Tailwind preflight sets
+   buttons to `cursor: default`). Element-selector specificity → still
+   overridable by a `cursor-*` utility class where needed. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Overlay scrollbars: invisible at rest, fading in on hover or while scrolling.
+   A floating rounded "pill" (the transparent border + padding-box clip insets it
+   off the edge). Global — every scroll area gets it. `html.scrolling` is toggled
+   by a short-lived class on scroll (see main.tsx) so the bar shows during wheel/
+   trackpad scrolling even without a hover. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.18s ease;
+}
+/* Reveal ONLY while actively scrolling (not on plain hover — the cursor sits
+   over scroll areas most of the time). Brightens when the thumb itself is
+   grabbed. */
+html.scrolling *::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.45);
+  background-clip: padding-box;
+}
+html.scrolling *::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.7);
+  background-clip: padding-box;
+}
+html.scrolling * {
+  scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
+}

@@ -1,0 +1,22 @@
+[package]
+name = "cuprum-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core library for Cuprum: drive an Elegoo Saturn 4 Ultra 16K as a UV PCB exposure unit"
+
+[dependencies]
+goo.workspace = true
+anyhow.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+md-5.workspace = true
+uuid.workspace = true
+tungstenite.workspace = true
+gerber_viewer.workspace = true
+tiny-skia.workspace = true
+rayon.workspace = true
+png.workspace = true
+i_overlay = "4"
+earcutr = "0.4"

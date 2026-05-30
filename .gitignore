@@ -1,0 +1,12 @@
+/target
+/out
+*.goo
+__pycache__/
+*.pyc
+
+# cuprum-ui (Tauri + Vite)
+cuprum-ui/node_modules/
+cuprum-ui/dist/
+cuprum-ui/src-tauri/target/
+cuprum-ui/src-tauri/gen/
+cuprum-ui/src-tauri/Cargo.lock

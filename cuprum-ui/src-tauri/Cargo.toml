@@ -1,0 +1,38 @@
+[package]
+name = "cuprum-ui"
+version = "0.1.0"
+edition = "2021"
+description = "Cuprum UI: Tauri 2 front-end for UV PCB exposure"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "Cuprum"
+path = "src/main.rs"
+
+# Own workspace so the heavy Tauri dep tree does not slow core/CLI builds.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+base64 = "0.22"
+cuprum-core = { path = "../../crates/cuprum-core" }
+cuprum-project = { path = "../../crates/cuprum-project" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.24"
+
+[profile.release]
+opt-level = "s"
+
+# Optimise dependencies even in dev builds, so the off-thread board-geometry
+# compute (i_overlay union of tens of thousands of trace contours) stays sub-
+# second in `tauri dev`, not seconds on an unoptimised i_overlay/earcutr.
+[profile.dev.package."*"]
+opt-level = 3

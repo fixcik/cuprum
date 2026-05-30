@@ -1,0 +1,17 @@
+[
+  {
+    "from": "192.168.1.123:3000",
+    "json": {
+      "Id": "f25273b12b094c5a8b9513a30ca60049",
+      "Data": {
+        "Name": "Saturn 4 Ultra 16K",
+        "MachineName": "Saturn 4 Ultra 16K",
+        "BrandName": "ELEGOO",
+        "MainboardIP": "192.168.1.123",
+        "MainboardID": "e6f6603f4e6b0100",
+        "ProtocolVersion": "V3.0.0",
+        "FirmwareVersion": "V1.5.0"
+      }
+    }
+  }
+]
