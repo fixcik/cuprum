@@ -1,0 +1,9 @@
+{
+  "noProject": "No project open.",
+  "importZip": "Import ZIP",
+  "importedPackages": "Imported packages",
+  "noPackages": "No packages yet. Click «Import ZIP».",
+  "descriptionPlaceholder": "Click to edit description.",
+  "layersProgress": "Layers {{loaded}}/{{total}}",
+  "building3d": "Building 3D model…"
+}

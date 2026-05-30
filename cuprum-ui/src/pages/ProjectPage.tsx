@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Upload } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { InlineEditableField } from "@/components/ui/InlineEditableField";
 import { Button } from "@/components/ui/Button";
 import { type StackLayer } from "@/components/import/LayerStack";
@@ -9,9 +10,8 @@ import { api, type Hole } from "@/lib/api";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { useShell } from "@/shellStore";
 
-const DESCRIPTION_PLACEHOLDER = "Нажмите чтобы отредактировать описание.";
-
 export function ProjectPage() {
+  const { t } = useTranslation("project");
   const manifest = useShell((s) => s.currentManifest);
   const currentPath = useShell((s) => s.currentPath);
   const updateProjectMetadata = useShell((s) => s.updateProjectMetadata);
@@ -96,7 +96,7 @@ export function ProjectPage() {
   );
   const previewNotice =
     mode === "2d" && renderableTotal > 0 && layers.length < renderableTotal
-      ? `Слои ${layers.length}/${renderableTotal}`
+      ? t("layersProgress", { loaded: layers.length, total: renderableTotal })
       : undefined;
 
   // Fetch drill holes for the 3D view.
@@ -157,7 +157,7 @@ export function ProjectPage() {
   }, [manifest, currentPath]);
 
   if (!manifest) {
-    return <div className="flex-1 p-6 text-[13px] text-muted-foreground">Проект не открыт.</div>;
+    return <div className="flex-1 p-6 text-[13px] text-muted-foreground">{t("noProject")}</div>;
   }
 
   const saveName = (name: string) => {
@@ -186,7 +186,7 @@ export function ProjectPage() {
           <InlineEditableField
             value={manifest.description}
             onCommit={saveDescription}
-            placeholder={DESCRIPTION_PLACEHOLDER}
+            placeholder={t("descriptionPlaceholder")}
             multiline
             ariaLabel="Project description"
             displayClassName="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted-foreground"
@@ -196,7 +196,7 @@ export function ProjectPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={startImport}>
-            <Upload className="size-4" /> Импорт ZIP
+            <Upload className="size-4" /> {t("importZip")}
           </Button>
         </div>
       </div>
@@ -204,11 +204,11 @@ export function ProjectPage() {
       <div className="flex min-h-0 flex-1">
         <div className="w-80 shrink-0 overflow-auto border-r border-border p-4">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Импортированные пакеты
+            {t("importedPackages")}
           </div>
           {manifest.imports.length === 0 ? (
             <p className="text-[12px] text-muted-foreground">
-              Пакетов пока нет. Нажмите «Импорт ZIP».
+              {t("noPackages")}
             </p>
           ) : (
             <ul className="flex flex-col gap-2">

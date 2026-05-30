@@ -1,0 +1,9 @@
+{
+  "noProject": "Проект не открыт.",
+  "importZip": "Импорт ZIP",
+  "importedPackages": "Импортированные пакеты",
+  "noPackages": "Пакетов пока нет. Нажмите «Импорт ZIP».",
+  "descriptionPlaceholder": "Нажмите чтобы отредактировать описание.",
+  "layersProgress": "Слои {{loaded}}/{{total}}",
+  "building3d": "Построение 3D-модели…"
+}

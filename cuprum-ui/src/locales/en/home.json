@@ -1,0 +1,14 @@
+{
+  "newProject": "New project",
+  "open": "Open…",
+  "searchPlaceholder": "Search recent…",
+  "recents": "Recent",
+  "viewGrid": "Grid",
+  "viewList": "List",
+  "sortByDate": "by date",
+  "sortByName": "by name",
+  "loading": "Loading…",
+  "noResults": "Nothing found. Try a different query.",
+  "empty": "No projects yet — create a new one or open an existing one.",
+  "fileNotFound": "file not found — remove"
+}

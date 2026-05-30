@@ -1,21 +1,23 @@
 import { Home, LayoutGrid, Printer, Settings } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useShell, type View } from "@/shellStore";
 
 interface RailItem {
   view: View;
   icon: typeof Home;
-  label: string;
+  key: "home" | "project" | "printer";
   /** Disabled until a project is open. */
   needsProject?: boolean;
 }
 
 const ITEMS: RailItem[] = [
-  { view: "home", icon: Home, label: "Home" },
-  { view: "project", icon: LayoutGrid, label: "Проект", needsProject: true },
-  { view: "printer", icon: Printer, label: "Принтер" },
+  { view: "home", icon: Home, key: "home" },
+  { view: "project", icon: LayoutGrid, key: "project", needsProject: true },
+  { view: "printer", icon: Printer, key: "printer" },
 ];
 
 export function NavRail() {
+  const { t } = useTranslation("nav");
   const view = useShell((s) => s.view);
   const setView = useShell((s) => s.setView);
   const hasProject = useShell((s) => s.currentPath !== null);
@@ -35,7 +37,7 @@ export function NavRail() {
         return (
           <button
             key={item.view}
-            title={item.label}
+            title={t(item.key)}
             disabled={disabled}
             onClick={() => setView(item.view)}
             className={btnClass(view === item.view, disabled)}
@@ -46,7 +48,7 @@ export function NavRail() {
       })}
       <div className="flex-1" />
       <button
-        title="Настройки"
+        title={t("settings")}
         onClick={() => setView("settings")}
         className={btnClass(view === "settings", false)}
       >

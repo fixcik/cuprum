@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, OrthographicCamera, GizmoHelper, GizmoViewcube } from "@react-three/drei";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import type { BoardMeshData } from "@/lib/boardMesh";
 
@@ -225,11 +226,12 @@ export function Board3D({
   /** Bumped when the user picks a side → snaps the camera straight onto it. */
   snapNonce?: number;
 }) {
+  const { t } = useTranslation("project");
   if (!mesh) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
         <Loader2 className="size-6 animate-spin text-primary" />
-        Построение 3D-модели…
+        {t("building3d")}
       </div>
     );
   }

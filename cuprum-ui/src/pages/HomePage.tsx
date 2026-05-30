@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FolderOpen, Grid3x3, List, Plus, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { RecentTile } from "@/components/home/RecentTile";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
@@ -11,6 +12,7 @@ type SortKey = "date" | "name";
 type Layout = "grid" | "list";
 
 export function HomePage() {
+  const { t } = useTranslation("home");
   const recents = useShell((s) => s.recents);
   const recentsLoading = useShell((s) => s.recentsLoading);
   const loadRecents = useShell((s) => s.loadRecents);
@@ -44,16 +46,16 @@ export function HomePage() {
         <div className="flex items-center gap-2.5">
           <Button size="sm" onClick={newProject}>
             <Plus />
-            Новый проект
+            {t("newProject")}
           </Button>
           <Button size="sm" variant="outline" onClick={openFromPicker}>
             <FolderOpen />
-            Открыть…
+            {t("open")}
           </Button>
           <div className="min-w-0 flex-1">
             <TextInput
               icon={<Search className="size-3.5" />}
-              placeholder="Поиск по недавним…"
+              placeholder={t("searchPlaceholder")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -69,7 +71,7 @@ export function HomePage() {
 
         <div className="mb-3 flex shrink-0 items-center gap-2.5 border-b border-border pb-3">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Недавние
+            {t("recents")}
             {recentCount > 0 && (
               <span className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground/80">
                 · {recentCount}
@@ -80,37 +82,35 @@ export function HomePage() {
             value={layout}
             onChange={setLayout}
             options={[
-              { value: "grid", icon: <Grid3x3 className="size-3.5" />, title: "Сетка" },
-              { value: "list", icon: <List className="size-3.5" />, title: "Список" },
+              { value: "grid", icon: <Grid3x3 className="size-3.5" />, title: t("viewGrid") },
+              { value: "list", icon: <List className="size-3.5" />, title: t("viewList") },
             ]}
           />
           <Select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-            <option value="date">по дате</option>
-            <option value="name">по имени</option>
+            <option value="date">{t("sortByDate")}</option>
+            <option value="name">{t("sortByName")}</option>
           </Select>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">
           {recentsLoading && recents.length === 0 ? (
             <div className="flex h-full min-h-[12rem] items-center justify-center">
-              <p className="text-[12px] text-muted-foreground">Загрузка…</p>
+              <p className="text-[12px] text-muted-foreground">{t("loading")}</p>
             </div>
           ) : showEmpty ? (
             <div className="flex h-full min-h-[12rem] flex-col items-center justify-center px-4 text-center">
               <p className="max-w-md text-[13px] text-muted-foreground">
-                {query.trim()
-                  ? "Ничего не найдено. Попробуй другой запрос."
-                  : "Пока нет проектов — создай новый или открой существующий."}
+                {query.trim() ? t("noResults") : t("empty")}
               </p>
               {!query.trim() && (
                 <div className="mt-4 flex gap-2">
                   <Button size="sm" onClick={newProject}>
                     <Plus />
-                    Новый проект
+                    {t("newProject")}
                   </Button>
                   <Button size="sm" variant="outline" onClick={openFromPicker}>
                     <FolderOpen />
-                    Открыть…
+                    {t("open")}
                   </Button>
                 </div>
               )}

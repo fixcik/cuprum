@@ -3,5 +3,13 @@
   "yes": "yes",
   "no": "no",
   "dash": "—",
-  "pcs": "pcs"
+  "pcs": "pcs",
+  "side": { "top": "Top", "bottom": "Bottom" },
+  "preview": {
+    "drcToggleTitle": "Show detected issues on preview",
+    "drcLabel": "Check",
+    "stepperIssues": "Issues: {{count}} · ◂ ▸ to navigate",
+    "prevIssue": "Previous issue",
+    "nextIssue": "Next issue"
+  }
 }
