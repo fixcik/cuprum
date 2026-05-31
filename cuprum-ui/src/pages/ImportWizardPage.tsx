@@ -52,7 +52,7 @@ export function ImportWizardPage() {
   const manifest = useShell((s) => s.currentManifest);
 
   const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers"]);
-  const { fmtLen } = useUnitFormat();
+  const { fmtLen, fmtLenPair } = useUnitFormat();
   // Resolve an I18nText to a display string: length params unit-formatted,
   // key-like string params translated, then the text key translated.
   const tr = useCallback(
@@ -61,6 +61,24 @@ export function ImportWizardPage() {
       const params: Record<string, string | number> = {};
       for (const [k, v] of Object.entries(text.params ?? {})) {
         if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
+        else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
+        else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
+        else params[k] = v;
+      }
+      return t(text.key, params);
+    },
+    [t, fmtLen],
+  );
+
+  // Resolve an I18nText, but use `lenStr` for its `len` param instead of fmtLen
+  // (so a value and its limit can be formatted in a shared unit by the caller).
+  const trLen = useCallback(
+    (text: I18nText | undefined, lenStr: string): string => {
+      if (!text) return "";
+      const params: Record<string, string | number> = {};
+      for (const [k, v] of Object.entries(text.params ?? {})) {
+        if (k === "len" && typeof v === "number") params[k] = lenStr;
+        else if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
         else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
         else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
         else params[k] = v;
@@ -240,40 +258,54 @@ export function ImportWizardPage() {
           // Hide markers whose layer isn't currently shown (e.g. bottom-side
           // issues while viewing the top).
           .filter(({ h }) => markerVisible(f.category, h.side))
-          .map(({ h, i }) => ({
-            key: `${f.id}#${i}`,
-            a: h.a,
-            b: h.b,
-            value: fmtLen(h.v),
-            label: tr(f.label),
-            limit: tr(f.limit),
-            detail: tr(f.detail) || undefined,
-            severity: f.severity,
-            // Line highlights aren't individually focusable (it's a bulk tint).
-            focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
-            shape,
-            widthMm: shape === "line" ? h.v : undefined,
-            lineColor: shape === "line" && f.category === "copper" ? "hsl(var(--destructive))" : undefined,
-          }));
+          .map(({ h, i }) => {
+            // value (this hotspot) + the finding's limit share one unit.
+            const l = f.limit?.params?.len;
+            const [vs, ls2] = typeof l === "number" ? fmtLenPair([h.v, l]) : [fmtLen(h.v), ""];
+            const limitStr = typeof l === "number" ? trLen(f.limit, ls2) : tr(f.limit);
+            return {
+              key: `${f.id}#${i}`,
+              a: h.a,
+              b: h.b,
+              value: vs,
+              label: tr(f.label),
+              limit: limitStr,
+              detail: tr(f.detail) || undefined,
+              severity: f.severity,
+              // Line highlights aren't individually focusable (it's a bulk tint).
+              focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
+              shape,
+              widthMm: shape === "line" ? h.v : undefined,
+              lineColor: shape === "line" && f.category === "copper" ? "hsl(var(--destructive))" : undefined,
+            };
+          });
         // Invisible per-cluster hover regions so a tooltip pops on any part of a
         // line-highlighted feature (without one hitbox per stroke).
         const hovers = (f.hoverBoxes ?? [])
           .filter((h) => markerVisible(f.category, h.side))
-          .map((h, i) => ({
-            key: `${f.id}~hover#${i}`,
-            a: h.a,
-            b: h.b,
-            value: tr(f.measured),
-            label: tr(f.label),
-            limit: tr(f.limit),
-            detail: tr(f.detail) || undefined,
-            severity: f.severity,
-            focused: false,
-            shape: "hover" as const,
-          }));
+          .map((h, i) => {
+            const m = f.measured?.params?.len;
+            const l = f.limit?.params?.len;
+            const [valueStr, limitStr] =
+              typeof m === "number" && typeof l === "number"
+                ? (() => { const [ms, ls] = fmtLenPair([m, l]); return [trLen(f.measured, ms), trLen(f.limit, ls)]; })()
+                : [tr(f.measured), tr(f.limit)];
+            return {
+              key: `${f.id}~hover#${i}`,
+              a: h.a,
+              b: h.b,
+              value: valueStr,
+              label: tr(f.label),
+              limit: limitStr,
+              detail: tr(f.detail) || undefined,
+              severity: f.severity,
+              focused: false,
+              shape: "hover" as const,
+            };
+          });
         return [...visual, ...hovers];
       }),
-    [findings, focus, markerVisible, tr, fmtLen],
+    [findings, focus, markerVisible, tr, trLen, fmtLen, fmtLenPair],
   );
 
   // Flat list of navigable problems for the on-preview stepper ("walk the
