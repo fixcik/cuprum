@@ -4,6 +4,7 @@
 
 pub mod catalog;
 pub mod container;
+pub mod history;
 pub mod import;
 pub mod layer;
 pub mod manifest;
@@ -15,6 +16,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 pub use catalog::RecentProject;
+pub use history::{RestorePoint, RestorePointMeta};
 pub use layer::LayerType;
 pub use manifest::{GerberFile, Manifest, Stackup};
 pub use panel::PanelDoc;

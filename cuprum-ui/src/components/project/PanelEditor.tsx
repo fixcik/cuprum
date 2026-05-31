@@ -22,6 +22,7 @@ export function PanelEditor() {
   const { t } = useTranslation("project");
   const currentPath = useShell((s) => s.currentPath);
   const savePanelConfig = useShell((s) => s.savePanelConfig);
+  const docNonce = useShell((s) => s.docNonce);
   const userPresets = useSettings((s) => s.panelPresets);
   const addPanelPreset = useSettings((s) => s.addPanelPreset);
 
@@ -49,12 +50,11 @@ export function PanelEditor() {
   );
   const prefilled = useRef<string | null>(null);
 
-  // Prefill ONCE per project. Read panel and stackup from the in-store manifest
-  // snapshot (synchronous — no round-trip needed; panel now lives in the manifest).
-  // The `prefilled` guard is marked done only AFTER apply so React StrictMode's
-  // mount→unmount→mount in dev doesn't leave the guard set before values land.
+  // Re-prefill on project change AND whenever the document is replaced wholesale
+  // (undo/redo/restore bump docNonce). The key folds both so a no-op render skips.
+  const prefilledKey = `${currentPath ?? ""}#${docNonce}`;
   useEffect(() => {
-    if (!currentPath || prefilled.current === currentPath) return;
+    if (!currentPath || prefilled.current === prefilledKey) return;
     const m = useShell.getState().currentManifest;
     const st = m?.stackup;
     const cw = st?.copper_weight_oz ?? DEFAULT_STACKUP.copper_weight_oz;
@@ -68,8 +68,9 @@ export function PanelEditor() {
     setSubstrate(sub);
     setDoubleSided(ds);
     lastSaved.current = JSON.stringify({ w, h, cw, sub, ds });
-    prefilled.current = currentPath;
-  }, [currentPath]);
+    prefilled.current = prefilledKey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath, docNonce]);
 
   const valid = width > 0 && height > 0 && substrate > 0;
 
