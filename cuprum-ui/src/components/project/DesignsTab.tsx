@@ -15,7 +15,7 @@ import { useShell } from "@/shellStore";
 export function DesignsTab() {
   const { t } = useTranslation(["project", "layers"]);
   const manifest = useShell((s) => s.currentManifest);
-  const currentPath = useShell((s) => s.currentPath);
+  const workingDir = useShell((s) => s.workingDir);
   const startImport = useShell((s) => s.startImport);
 
   const [layers, setLayers] = useState<StackLayer[]>([]);
@@ -46,7 +46,7 @@ export function DesignsTab() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!manifest || !currentPath) {
+    if (!manifest || !workingDir) {
       setLayers([]);
       return;
     }
@@ -61,7 +61,7 @@ export function DesignsTab() {
     };
     gerbers.forEach((g, idx) => {
       api
-        .renderGerberSvg(currentPath, g.path)
+        .renderGerberSvg(workingDir, g.path)
         .then((geo) => {
           if (cancelled) return;
           slots[idx] = {
@@ -81,7 +81,7 @@ export function DesignsTab() {
     return () => {
       cancelled = true;
     };
-  }, [manifest, currentPath]);
+  }, [manifest, workingDir]);
 
   const renderableTotal = useMemo(
     () =>
@@ -104,7 +104,7 @@ export function DesignsTab() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!manifest || !currentPath) {
+    if (!manifest || !workingDir) {
       setHoles([]);
       return;
     }
@@ -115,7 +115,7 @@ export function DesignsTab() {
         for (const g of design.gerbers) {
           if (g.layer_type === "drill") {
             try {
-              const h = await api.readDrill(currentPath, g.path);
+              const h = await api.readDrill(workingDir, g.path);
               allHoles.push(...h);
             } catch {
               // Skip unreadable drill files.
@@ -128,11 +128,11 @@ export function DesignsTab() {
     return () => {
       cancelled = true;
     };
-  }, [manifest, currentPath]);
+  }, [manifest, workingDir]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!manifest || !currentPath) {
+    if (!manifest || !workingDir) {
       setMesh(null);
       return;
     }
@@ -142,7 +142,7 @@ export function DesignsTab() {
     );
     (async () => {
       try {
-        const buf = await api.projectBoardMesh(currentPath, gerbers);
+        const buf = await api.projectBoardMesh(workingDir, gerbers);
         if (!cancelled) setMesh(parseBoardMesh(buf));
       } catch {
         if (!cancelled) setMesh(null);
@@ -151,7 +151,7 @@ export function DesignsTab() {
     return () => {
       cancelled = true;
     };
-  }, [manifest, currentPath]);
+  }, [manifest, workingDir]);
 
   if (!manifest) return null;
 
