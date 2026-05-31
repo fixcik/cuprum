@@ -70,6 +70,19 @@ export interface ProjectDesign {
   gerbers: GerberFile[];
 }
 
+export interface Stackup {
+  copper_weight_oz: number;
+  substrate_thickness_mm: number;
+}
+
+export interface PanelDoc {
+  schema_version: number;
+  width_mm: number;
+  height_mm: number;
+  origin_x_mm: number;
+  origin_y_mm: number;
+}
+
 export interface Manifest {
   schema_version: number;
   name: string;
@@ -78,6 +91,7 @@ export interface Manifest {
   exposure: unknown | null;
   placements: unknown[];
   layer_colors: Record<string, string>;
+  stackup: Stackup | null;
 }
 
 export interface BBox {
@@ -239,6 +253,9 @@ export const api = {
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   updateProjectMetadata: (path: string, name: string, description: string) =>
     invoke<Manifest>("update_project_metadata", { path, name, description }),
+  configurePanel: (path: string, panel: PanelDoc, stackup: Stackup) =>
+    invoke<Manifest>("configure_panel", { path, panel, stackup }),
+  readPanel: (path: string) => invoke<PanelDoc | null>("read_panel", { path }),
   stageImport: (zipPaths: string[]) => invoke<StagedImport>("stage_import", { zipPaths }),
   /** Fast: classify every gerber (names + types + drill holes), no SVG render. */
   stageClassify: (zipPaths: string[]) =>
