@@ -324,6 +324,19 @@ fn write_working_manifest(
         .map_err(|e| e.to_string())
 }
 
+/// Copy one source ZIP into the open project's working dir as a new Design
+/// (auto-classified). Returns the Design for the UI to merge into the manifest;
+/// the UI then persists via write_working_manifest + save_project (autosave),
+/// which repacks the freshly-copied gerbers into the `.cuprum`.
+#[tauri::command]
+fn add_design_from_zip(
+    working_dir: String,
+    zip_path: String,
+) -> Result<cuprum_project::manifest::Design, String> {
+    cuprum_project::add_design_to_workdir(Path::new(&working_dir), Path::new(&zip_path))
+        .map_err(|e| e.to_string())
+}
+
 /// List recoverable (dirty) orphan working dirs left by a previous run.
 #[tauri::command]
 fn scan_recoverable(app: AppHandle) -> Result<Vec<cuprum_project::Orphan>, String> {
@@ -420,7 +433,7 @@ fn configure_panel(
         .map_err(|e| e.to_string())
 }
 
-// ---- Staging import (classify + SVG-render, no container write) ----
+// ---- Working-dir gerber inspection (drill holes, SVG geometry) ----
 
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -451,192 +464,6 @@ struct BBoxDto {
     min_y: f32,
     max_x: f32,
     max_y: f32,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StagedFileDto {
-    source_zip: String,
-    filename: String,
-    layer_type: cuprum_project::LayerType,
-    svg_body: Option<String>,
-    bbox: Option<BBoxDto>,
-    snap: Vec<[f32; 2]>,
-    error: Option<String>,
-    /// Drill holes parsed from THIS file (empty for non-drill files), so the UI
-    /// can toggle each drill layer's holes independently.
-    holes: Vec<HoleDto>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StagedImportDto {
-    files: Vec<StagedFileDto>,
-    holes: Vec<HoleDto>,
-}
-
-#[tauri::command]
-fn stage_import(zip_paths: Vec<String>) -> Result<StagedImportDto, String> {
-    let mut files = Vec::new();
-    let mut holes: Vec<HoleDto> = Vec::new();
-    for zip in &zip_paths {
-        let imported = cuprum_project::import::read_zip_gerbers(std::path::Path::new(zip))
-            .map_err(|e| e.to_string())?;
-        for (idx, (filename, bytes)) in imported.gerbers.iter().enumerate() {
-            let layer_type = cuprum_project::layer::classify(filename);
-            let is_drill = matches!(layer_type, cuprum_project::LayerType::Drill);
-            let mut file_holes: Vec<HoleDto> = Vec::new();
-            let mut drill_error = None;
-            if is_drill {
-                match cuprum_core::drill::parse_drill(bytes) {
-                    Ok(hs) => {
-                        file_holes = hs
-                            .into_iter()
-                            .map(|h| HoleDto {
-                                x: h.x_mm,
-                                y: h.y_mm,
-                                d: h.d_mm,
-                            })
-                            .collect()
-                    }
-                    Err(e) => drill_error = Some(e.to_string()),
-                }
-            }
-            holes.extend(file_holes.iter().cloned());
-            let id = format!("stage-{}-{}", files.len(), idx);
-            // Drill files aren't gerbers — skip the SVG render and carry the drill
-            // parse error (if any) in `error` instead.
-            let (svg_body, bbox, snap, error) = if is_drill {
-                (None, None, Vec::new(), drill_error)
-            } else {
-                match cuprum_core::svg::render_layer_svg(bytes, &id) {
-                    Ok(g) => (
-                        Some(g.svg_body),
-                        Some(BBoxDto {
-                            min_x: g.bbox.min_x,
-                            min_y: g.bbox.min_y,
-                            max_x: g.bbox.max_x,
-                            max_y: g.bbox.max_y,
-                        }),
-                        g.snap,
-                        None,
-                    ),
-                    Err(e) => (None, None, Vec::new(), Some(e.to_string())),
-                }
-            };
-            files.push(StagedFileDto {
-                source_zip: imported.source_name.clone(),
-                filename: filename.clone(),
-                layer_type,
-                svg_body,
-                bbox,
-                snap,
-                error,
-                holes: file_holes,
-            });
-        }
-    }
-    Ok(StagedImportDto { files, holes })
-}
-
-// ---- Progressive staging: fast classify, then per-layer SVG on demand ----
-//
-// `stage_import` did everything (classify + parse drill + render every SVG) in
-// one blocking call, so the wizard showed nothing until ALL layers were ready.
-// Split it: `stage_classify` returns the layer LIST instantly (names + types +
-// drill holes, no SVG), and `stage_layer_svg` renders ONE layer's SVG. The
-// frontend opens the wizard immediately and fills previews in as each resolves.
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StagedClassFileDto {
-    source_zip: String,
-    filename: String,
-    layer_type: cuprum_project::LayerType,
-    holes: Vec<HoleDto>,
-    /// Set when a drill file carried coordinate data we couldn't parse into holes
-    /// (distinct from a genuinely empty drill file, which leaves this `None`).
-    drill_error: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StagedClassifyDto {
-    files: Vec<StagedClassFileDto>,
-}
-
-/// Classify every gerber in the ZIPs (by name) and parse drill holes — fast, no
-/// SVG rendering. Order matches `stage_layer_svg`'s index and `commit_import`.
-#[tauri::command]
-fn stage_classify(zip_paths: Vec<String>) -> Result<StagedClassifyDto, String> {
-    let mut files = Vec::new();
-    for zip in &zip_paths {
-        let imported =
-            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
-        for (filename, bytes) in &imported.gerbers {
-            let layer_type = cuprum_project::layer::classify(filename);
-            let mut holes = Vec::new();
-            let mut drill_error = None;
-            if matches!(layer_type, cuprum_project::LayerType::Drill) {
-                match cuprum_core::drill::parse_drill(bytes) {
-                    Ok(hs) => {
-                        holes = hs
-                            .into_iter()
-                            .map(|h| HoleDto {
-                                x: h.x_mm,
-                                y: h.y_mm,
-                                d: h.d_mm,
-                            })
-                            .collect()
-                    }
-                    Err(e) => drill_error = Some(e.to_string()),
-                }
-            }
-            files.push(StagedClassFileDto {
-                source_zip: imported.source_name.clone(),
-                filename: filename.clone(),
-                layer_type,
-                holes,
-                drill_error,
-            });
-        }
-    }
-    Ok(StagedClassifyDto { files })
-}
-
-/// Render ONE staged gerber's SVG by its staging index (the same order as
-/// `stage_classify`). Called per-layer, in parallel, so previews stream in.
-#[tauri::command]
-fn stage_layer_svg(
-    app: AppHandle,
-    zip_paths: Vec<String>,
-    index: usize,
-) -> Result<LayerGeometryDto, String> {
-    let mut i = 0usize;
-    for zip in &zip_paths {
-        let imported =
-            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
-        for (_filename, bytes) in &imported.gerbers {
-            if i == index {
-                return render_or_cache_svg(&app, bytes);
-            }
-            i += 1;
-        }
-    }
-    Err(format!("staged index {index} out of range"))
-}
-
-#[tauri::command]
-fn commit_import(
-    app: AppHandle,
-    path: String,
-    zip_paths: Vec<String>,
-    layer_types: Vec<cuprum_project::LayerType>,
-) -> Result<cuprum_project::Manifest, String> {
-    let db = catalog_db_path(&app)?;
-    let zips: Vec<PathBuf> = zip_paths.into_iter().map(PathBuf::from).collect();
-    cuprum_project::commit_import(&db, Path::new(&path), &zips, &layer_types, now_epoch())
-        .map_err(|e| e.to_string())
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -903,141 +730,6 @@ fn pack_board_mesh(board: cuprum_core::mesh::BoardMesh) -> Vec<u8> {
     out
 }
 
-/// Build the 3D board mesh for STAGED gerbers (the import wizard): re-read the
-/// ZIPs in staging order, apply the current per-file layer types, return the
-/// blob. Keys are the staging index (matches the wizard's `String(i)` keys).
-#[tauri::command]
-fn staged_board_mesh(
-    app: AppHandle,
-    zip_paths: Vec<String>,
-    layer_types: Vec<cuprum_project::LayerType>,
-    // Staging-index keys to OMIT from the mesh entirely (hidden drill layers): a
-    // hidden drill must remove its holes from the board, not just its barrels —
-    // which means re-drilling the substrate, so it's a server-side rebuild.
-    excluded_keys: Vec<String>,
-) -> Result<tauri::ipc::Response, String> {
-    let mut entries: Vec<Vec<u8>> = Vec::new();
-    for zip in &zip_paths {
-        let imported =
-            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
-        for (_fname, bytes) in imported.gerbers {
-            entries.push(bytes);
-        }
-    }
-    if entries.len() != layer_types.len() {
-        return Err(format!(
-            "layer_types ({}) != gerbers ({})",
-            layer_types.len(),
-            entries.len()
-        ));
-    }
-    let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
-    // Cache key: included layers only (staging-index key + type + bytes).
-    let mut hasher = cuprum_core::diskcache::Hasher::new();
-    hasher.add(b"mesh-v4");
-    for (i, bytes) in entries.iter().enumerate() {
-        if excluded.contains(&i.to_string()) {
-            continue;
-        }
-        hasher.add(i.to_string().as_bytes());
-        hasher.add(format!("{:?}", layer_types[i]).as_bytes());
-        hasher.add(bytes);
-    }
-    let blob = board_mesh_cached(&app, &hasher.finish(), || {
-        let inputs: Vec<cuprum_core::mesh::LayerInput> = entries
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !excluded.contains(&i.to_string()))
-            .map(|(i, bytes)| {
-                let (role, side) = role_side(&layer_types[i]);
-                cuprum_core::mesh::LayerInput {
-                    key: i.to_string(),
-                    role,
-                    side,
-                    bytes,
-                }
-            })
-            .collect();
-        pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))
-    });
-    Ok(tauri::ipc::Response::new(blob))
-}
-
-/// Measure manufacturing facts (board size, layer inventory, min trace width,
-/// drill statistics) for the staged gerbers under the CURRENT per-file layer-type
-/// assignments. Cheap — no caching needed. The frontend judges these against its
-/// capability profile to produce the DFM feasibility verdict.
-#[tauri::command]
-fn staged_board_metrics(
-    app: AppHandle,
-    zip_paths: Vec<String>,
-    layer_types: Vec<cuprum_project::LayerType>,
-) -> Result<cuprum_core::metrics::BoardMetrics, String> {
-    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
-    for zip in &zip_paths {
-        let imported =
-            cuprum_project::import::read_zip_gerbers(Path::new(zip)).map_err(|e| e.to_string())?;
-        for (fname, bytes) in imported.gerbers {
-            entries.push((fname, bytes));
-        }
-    }
-    if entries.len() != layer_types.len() {
-        return Err(format!(
-            "layer_types ({}) != gerbers ({})",
-            layer_types.len(),
-            entries.len()
-        ));
-    }
-    // Geometry is heavy → cache by content hash (filename + type + bytes). The
-    // result is a pure measurement, so it stays valid as the user edits profile
-    // thresholds (judging happens client-side).
-    let mut hasher = cuprum_core::diskcache::Hasher::new();
-    hasher.add(b"metrics-v12");
-    for (i, (fname, bytes)) in entries.iter().enumerate() {
-        hasher.add(format!("{:?}", layer_types[i]).as_bytes());
-        hasher.add(fname.to_lowercase().as_bytes()); // plating is inferred from the name
-        hasher.add(bytes);
-    }
-    let key = hasher.finish();
-    if let Some(dir) = artifact_cache_dir(&app) {
-        if let Some(blob) = cuprum_core::diskcache::get(&dir, &key, ARTIFACT_CACHE_TTL) {
-            if let Ok(m) = serde_json::from_slice::<cuprum_core::metrics::BoardMetrics>(&blob) {
-                return Ok(m);
-            }
-        }
-    }
-    let inputs: Vec<cuprum_core::metrics::MetricLayerInput> = entries
-        .iter()
-        .enumerate()
-        .map(|(i, (fname, bytes))| {
-            let lt = &layer_types[i];
-            let (role, side) = role_side(lt);
-            cuprum_core::metrics::MetricLayerInput {
-                role,
-                side,
-                inner: matches!(lt, cuprum_project::LayerType::InnerCopper),
-                // Excellon can't carry plating; NPTH is known only from the filename.
-                plated: role == cuprum_core::mesh::Role::Drill
-                    && !fname.to_lowercase().contains("npth"),
-                bytes,
-            }
-        })
-        .collect();
-    let metrics = cuprum_core::metrics::board_metrics(&inputs);
-    if let Some(dir) = artifact_cache_dir(&app) {
-        if let Ok(blob) = serde_json::to_vec(&metrics) {
-            cuprum_core::diskcache::put(
-                &dir,
-                &key,
-                &blob,
-                ARTIFACT_CACHE_MAX_BYTES,
-                ARTIFACT_CACHE_TTL,
-            );
-        }
-    }
-    Ok(metrics)
-}
-
 /// Return a cached board-mesh blob for `key`, or build it via `build`, cache it,
 /// and return. Caching is best-effort (skipped if the cache dir is unavailable).
 fn board_mesh_cached(app: &AppHandle, key: &str, build: impl FnOnce() -> Vec<u8>) -> Vec<u8> {
@@ -1068,7 +760,9 @@ fn project_board_mesh(
     app: AppHandle,
     working_dir: String,
     gerbers: Vec<GerberRef>,
-    // Gerber-rel keys to OMIT (hidden drill layers); see `staged_board_mesh`.
+    // Gerber-rel keys to OMIT from the mesh entirely (hidden drill layers): a
+    // hidden drill must remove its holes from the board, not just its barrels —
+    // which means re-drilling the substrate, so it's a server-side rebuild.
     excluded_keys: Vec<String>,
 ) -> Result<tauri::ipc::Response, String> {
     let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
@@ -1179,16 +873,11 @@ fn main() {
             remove_recent,
             update_project_metadata,
             configure_panel,
-            stage_import,
-            stage_classify,
-            stage_layer_svg,
-            commit_import,
+            add_design_from_zip,
             render_gerber_svg,
             copper_polygons,
             layer_polygons,
             mask_polygons,
-            staged_board_mesh,
-            staged_board_metrics,
             project_board_mesh,
             read_drill,
             display_px_per_mm
