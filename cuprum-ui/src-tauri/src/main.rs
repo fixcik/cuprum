@@ -223,6 +223,14 @@ fn working_base(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// A unique restore-point id: epoch seconds + a process-local counter.
+fn new_restore_point_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("rp-{}-{}", now_epoch(), n)
+}
+
 /// A freshly chosen, not-yet-existing working-dir path for one open project.
 /// Unique by pid + epoch + a process-local monotonic counter, so repeated
 /// opens of the same project within one wall-clock second never collide.
@@ -343,6 +351,31 @@ fn cleanup_workdir(app: AppHandle, working_dir: String) -> Result<(), String> {
         }
         _ => Ok(()),
     }
+}
+
+/// Create a restore point from the working dir's current manifest.
+#[tauri::command]
+fn make_restore_point(
+    working_dir: String,
+    label: Option<String>,
+) -> Result<cuprum_project::RestorePointMeta, String> {
+    let id = new_restore_point_id();
+    cuprum_project::history::write(Path::new(&working_dir), &id, label.as_deref(), now_epoch())
+        .map_err(|e| e.to_string())
+}
+
+/// List restore points (newest first), without their manifest bodies.
+#[tauri::command]
+fn list_restore_points(
+    working_dir: String,
+) -> Result<Vec<cuprum_project::RestorePointMeta>, String> {
+    cuprum_project::history::list(Path::new(&working_dir)).map_err(|e| e.to_string())
+}
+
+/// The manifest captured by a restore point.
+#[tauri::command]
+fn read_restore_point(working_dir: String, id: String) -> Result<cuprum_project::Manifest, String> {
+    cuprum_project::history::read(Path::new(&working_dir), &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1139,6 +1172,9 @@ fn main() {
             write_working_manifest,
             scan_recoverable,
             cleanup_workdir,
+            make_restore_point,
+            list_restore_points,
+            read_restore_point,
             import_zips,
             remove_recent,
             update_project_metadata,
