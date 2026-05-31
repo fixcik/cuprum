@@ -11,6 +11,7 @@ export function DesignsGallery() {
   const manifest = useShell((s) => s.currentManifest);
   const addDesignsFromZips = useShell((s) => s.addDesignsFromZips);
   const addDesignsFromPaths = useShell((s) => s.addDesignsFromPaths);
+  const removeDesign = useShell((s) => s.removeDesign);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -49,7 +50,12 @@ export function DesignsGallery() {
       )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
         {manifest.designs.map((d) => (
-          <DesignCard key={d.id} design={d} onOpen={() => setSelectedId(d.id)} />
+          <DesignCard
+            key={d.id}
+            design={d}
+            onOpen={() => setSelectedId(d.id)}
+            onDelete={() => removeDesign(d.id)}
+          />
         ))}
         {/* No fixed aspect: the grid row stretches this tile to match a real card
             (thumbnail + footer); min-h keeps it sensible when it's the only tile. */}

@@ -72,6 +72,9 @@ interface ShellStore {
   addDesignsFromPaths: (paths: string[]) => Promise<void>;
   /** Reassign one gerber's layer type within a design (undoable, persisted). */
   setDesignLayerType: (designId: string, gerberPath: string, type: LayerType) => Promise<void>;
+  /** Remove a design from the project (undoable). Only the manifest reference is
+   *  dropped; the gerber bytes stay on disk so undo/restore points stay valid. */
+  removeDesign: (designId: string) => Promise<void>;
 }
 
 /** Strip directory + .cuprum extension to a display/default name. */
@@ -460,6 +463,23 @@ export const useShell = create<ShellStore>((set, get) => ({
             ),
           },
     );
+    const manifest: Manifest = { ...prev, designs };
+    try {
+      get()._recordUndo(prev);
+      set({ currentManifest: manifest, error: null });
+      await get()._persistManifest(manifest);
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  removeDesign: async (designId) => {
+    const prev = get().currentManifest;
+    if (!prev) return;
+    const designs = prev.designs.filter((d) => d.id !== designId);
+    if (designs.length === prev.designs.length) return; // unknown id — nothing to do
+    // Drop only the manifest reference; the gerber bytes stay in the working dir
+    // (and the repacked .cuprum), so undo and restore points remain valid.
     const manifest: Manifest = { ...prev, designs };
     try {
       get()._recordUndo(prev);

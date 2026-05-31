@@ -441,7 +441,7 @@ export function LayerStack({
     <div ref={setContainer} className="relative h-full w-full overflow-hidden bg-pcb-preview">
       <svg
         ref={svgRef}
-        className={`h-full w-full ${!chrome ? "cursor-default" : tool === "measure" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+        className={`h-full w-full ${!chrome ? "cursor-pointer" : tool === "measure" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
         onMouseDown={onDown}
         onMouseMove={onMove}
         onMouseUp={onUp}
