@@ -17,6 +17,10 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# CI only reads the repo; no write scopes needed.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -82,6 +86,8 @@ jobs:
             patchelf
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -106,5 +112,5 @@ jobs:
         working-directory: cuprum-ui
         run: pnpm build
 
-      - name: Check Tauri backend
-        run: cargo check --manifest-path cuprum-ui/src-tauri/Cargo.toml
+      - name: Clippy Tauri backend
+        run: cargo clippy --manifest-path cuprum-ui/src-tauri/Cargo.toml --all-targets -- -D warnings
