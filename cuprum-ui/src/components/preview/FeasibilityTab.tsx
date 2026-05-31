@@ -20,25 +20,15 @@ function useRenderText() {
   const { t } = useTranslation(["feasibility", "common"]);
   const { fmtLen, fmtLenPair } = useUnitFormat();
 
-  const tr = (text?: I18nText): string => {
+  // Resolve an I18nText to a display string: length params unit-formatted, key-like
+  // string params translated, then the text key translated. `lenOverride`, when
+  // given, replaces the `len` param's value (so a finding's value and limit can be
+  // rendered in one shared unit by the caller).
+  const resolveText = (text?: I18nText, lenOverride?: string): string => {
     if (!text) return "";
     const params: Record<string, string | number> = {};
     for (const [k, v] of Object.entries(text.params ?? {})) {
-      if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
-      else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
-      else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
-      else params[k] = v;
-    }
-    return t(text.key, params);
-  };
-
-  // Resolve an I18nText, but use `lenStr` for its `len` param instead of fmtLen
-  // (so a value and its limit can be formatted in a shared unit by the caller).
-  const trLen = (text: I18nText | undefined, lenStr: string): string => {
-    if (!text) return "";
-    const params: Record<string, string | number> = {};
-    for (const [k, v] of Object.entries(text.params ?? {})) {
-      if (k === "len" && typeof v === "number") params[k] = lenStr;
+      if (k === "len" && lenOverride != null && typeof v === "number") params[k] = lenOverride;
       else if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
       else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
       else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
@@ -46,6 +36,8 @@ function useRenderText() {
     }
     return t(text.key, params);
   };
+  const tr = (text?: I18nText): string => resolveText(text);
+  const trLen = (text: I18nText | undefined, lenStr: string): string => resolveText(text, lenStr);
 
   // Format a finding's measured + limit in a shared unit when both are simple
   // lengths; otherwise resolve each independently.
