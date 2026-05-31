@@ -207,6 +207,11 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
+/// Read a project file from the working dir by its archive-relative path.
+fn read_workdir_file(working_dir: &str, rel: &str) -> Result<Vec<u8>, String> {
+    std::fs::read(Path::new(working_dir).join(rel)).map_err(|e| e.to_string())
+}
+
 /// Base dir holding all per-open working directories (under the OS cache dir).
 fn working_base(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -395,9 +400,8 @@ struct HoleDto {
 }
 
 #[tauri::command]
-fn read_drill(path: String, gerber_rel: String) -> Result<Vec<HoleDto>, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+fn read_drill(working_dir: String, gerber_rel: String) -> Result<Vec<HoleDto>, String> {
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let holes = cuprum_core::drill::parse_drill(&bytes).map_err(|e| e.to_string())?;
     Ok(holes
         .into_iter()
@@ -615,11 +619,10 @@ struct LayerGeometryDto {
 #[tauri::command]
 fn render_gerber_svg(
     app: AppHandle,
-    path: String,
+    working_dir: String,
     gerber_rel: String,
 ) -> Result<LayerGeometryDto, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     render_or_cache_svg(&app, &bytes)
 }
 
@@ -655,12 +658,11 @@ fn polys_to_dtos(polys: Vec<cuprum_core::geometry::Poly>) -> Vec<PolyDto> {
 /// the gerber bytes from the `.cuprum` container like `render_gerber_svg` does.
 #[tauri::command]
 fn layer_polygons(
-    project_path: String,
+    working_dir: String,
     gerber_rel: String,
     holes: Vec<HoleInput>,
 ) -> Result<Vec<PolyDto>, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&project_path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let holes: Vec<cuprum_core::geometry::Hole> = holes
         .into_iter()
         .map(|h| cuprum_core::geometry::Hole {
@@ -676,11 +678,11 @@ fn layer_polygons(
 /// Backwards-compatible alias kept so the original copper wiring keeps working.
 #[tauri::command]
 fn copper_polygons(
-    project_path: String,
+    working_dir: String,
     gerber_rel: String,
     holes: Vec<HoleInput>,
 ) -> Result<Vec<PolyDto>, String> {
-    layer_polygons(project_path, gerber_rel, holes)
+    layer_polygons(working_dir, gerber_rel, holes)
 }
 
 /// Compute the soldermask geometry: the board region MINUS the mask openings.
@@ -688,12 +690,11 @@ fn copper_polygons(
 /// `boardOutline.ts`) and passed in here as absolute-mm rings (Y up).
 #[tauri::command]
 fn mask_polygons(
-    project_path: String,
+    working_dir: String,
     gerber_rel: String,
     outline_rings: Vec<Vec<[f32; 2]>>,
 ) -> Result<Vec<PolyDto>, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&project_path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let rings: Vec<Vec<[f64; 2]>> = outline_rings
         .into_iter()
         .map(|ring| {
@@ -1030,19 +1031,18 @@ struct GerberRef {
 }
 
 /// Build the 3D board mesh for a COMMITTED project: read each gerber from the
-/// container. Keys are the gerber rel path (matches the project view's keys).
+/// working dir. Keys are the gerber rel path (matches the project view's keys).
 #[tauri::command]
 fn project_board_mesh(
     app: AppHandle,
-    project_path: String,
+    working_dir: String,
     gerbers: Vec<GerberRef>,
     // Gerber-rel keys to OMIT (hidden drill layers); see `staged_board_mesh`.
     excluded_keys: Vec<String>,
 ) -> Result<tauri::ipc::Response, String> {
     let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
     for g in &gerbers {
-        let bytes = cuprum_project::container::read_entry(Path::new(&project_path), &g.rel)
-            .map_err(|e| e.to_string())?;
+        let bytes = read_workdir_file(&working_dir, &g.rel)?;
         loaded.push((g.rel.clone(), g.layer_type, bytes));
     }
     let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
