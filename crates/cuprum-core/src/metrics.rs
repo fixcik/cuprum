@@ -665,7 +665,8 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         .filter(|(c, _)| c.neck_mm <= HIGHLIGHT_MAX_W)
         .map(|(c, side)| to_hotspot((c.min, c.max, c.neck_mm), side))
         .collect();
-    thin_trace_conductors.sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(std::cmp::Ordering::Equal));
+    thin_trace_conductors
+        .sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(std::cmp::Ordering::Equal));
     thin_trace_conductors.truncate(HIGHLIGHT_CAP);
     let min_clear = clear_hots
         .iter()
@@ -1061,7 +1062,11 @@ mod tests {
             bytes: CU,
         }];
         let g = geo_metrics(&inputs);
-        assert!(g.trace_count >= 1, "expected a conductor: {}", g.trace_count);
+        assert!(
+            g.trace_count >= 1,
+            "expected a conductor: {}",
+            g.trace_count
+        );
         assert!(
             g.thin_trace_conductors.iter().any(|h| h.v < 0.15),
             "thin conductor expected: {:?}",

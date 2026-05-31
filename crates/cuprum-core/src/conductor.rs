@@ -30,7 +30,10 @@ struct Seg {
 /// Quantize a point to a ~1µm grid so shared endpoints (exact in the gerber,
 /// float-printed by the parser) collide reliably for union-find.
 fn key(p: [f64; 2]) -> (i64, i64) {
-    ((p[0] * 1000.0).round() as i64, (p[1] * 1000.0).round() as i64)
+    (
+        (p[0] * 1000.0).round() as i64,
+        (p[1] * 1000.0).round() as i64,
+    )
 }
 
 /// Collect routed segments (Line/Arc, Add, width>0). An arc keeps its chord for
@@ -42,13 +45,29 @@ fn segments(layer: &GerberLayer) -> Vec<Seg> {
             GerberPrimitive::Line(l) if l.exposure == Exposure::Add && l.width > 0.0 => {
                 let a = [l.start.x, l.start.y];
                 let b = [l.end.x, l.end.y];
-                segs.push(Seg { a, b, width: l.width, length: (b[0] - a[0]).hypot(b[1] - a[1]) });
+                segs.push(Seg {
+                    a,
+                    b,
+                    width: l.width,
+                    length: (b[0] - a[0]).hypot(b[1] - a[1]),
+                });
             }
             GerberPrimitive::Arc(a) if a.exposure == Exposure::Add && a.width > 0.0 => {
-                let start = [a.center.x + a.radius * a.start_angle.cos(), a.center.y + a.radius * a.start_angle.sin()];
+                let start = [
+                    a.center.x + a.radius * a.start_angle.cos(),
+                    a.center.y + a.radius * a.start_angle.sin(),
+                ];
                 let end_ang = a.start_angle + a.sweep_angle;
-                let end = [a.center.x + a.radius * end_ang.cos(), a.center.y + a.radius * end_ang.sin()];
-                segs.push(Seg { a: start, b: end, width: a.width, length: a.radius * a.sweep_angle.abs() });
+                let end = [
+                    a.center.x + a.radius * end_ang.cos(),
+                    a.center.y + a.radius * end_ang.sin(),
+                ];
+                segs.push(Seg {
+                    a: start,
+                    b: end,
+                    width: a.width,
+                    length: a.radius * a.sweep_angle.abs(),
+                });
             }
             _ => {}
         }
@@ -132,7 +151,11 @@ mod tests {
         let cs = conductors(&layer(G));
         assert_eq!(cs.len(), 1, "{cs:?}");
         assert!((cs[0].neck_mm - 0.2).abs() < 1e-6, "neck={}", cs[0].neck_mm);
-        assert!((cs[0].length_mm - 2.0).abs() < 1e-3, "len={}", cs[0].length_mm);
+        assert!(
+            (cs[0].length_mm - 2.0).abs() < 1e-3,
+            "len={}",
+            cs[0].length_mm
+        );
     }
 
     // A right-angle bend is still ONE conductor; neck stays the aperture.

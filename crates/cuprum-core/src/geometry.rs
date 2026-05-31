@@ -228,7 +228,12 @@ fn to_ccw(mut ring: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
 fn contours_for(prim: &GerberPrimitive, out: &mut Vec<Vec<[f64; 2]>>) {
     match prim {
         GerberPrimitive::Circle(c) => {
-            out.push(circle(c.center.x, c.center.y, c.diameter / 2.0, CIRCLE_SEGS));
+            out.push(circle(
+                c.center.x,
+                c.center.y,
+                c.diameter / 2.0,
+                CIRCLE_SEGS,
+            ));
         }
         GerberPrimitive::Rectangle(r) => {
             let (x, y, w, h) = (r.origin.x, r.origin.y, r.width, r.height);
@@ -252,7 +257,10 @@ fn contours_for(prim: &GerberPrimitive, out: &mut Vec<Vec<[f64; 2]>>) {
             for i in 0..=ARC_STEPS {
                 let t = i as f64 / ARC_STEPS as f64;
                 let ang = a.start_angle + a.sweep_angle * t;
-                let pt = (a.center.x + a.radius * ang.cos(), a.center.y + a.radius * ang.sin());
+                let pt = (
+                    a.center.x + a.radius * ang.cos(),
+                    a.center.y + a.radius * ang.sin(),
+                );
                 if let Some((px, py)) = prev {
                     push_stroke(out, px, py, pt.0, pt.1, half);
                 } else {
@@ -1201,9 +1209,15 @@ mod tests {
         let regions = region_polygons(PAD_AND_TRACE, &[]).unwrap();
         let full = layer_polygons(PAD_AND_TRACE, &[]).unwrap();
         let (_c, full_w) = clearance_width_hotspots(&full);
-        assert!(full_w.iter().any(|h| h.2 < 0.15), "trace neck should show in full union: {full_w:?}");
+        assert!(
+            full_w.iter().any(|h| h.2 < 0.15),
+            "trace neck should show in full union: {full_w:?}"
+        );
         let (_c, region_w) = clearance_width_hotspots(&regions);
-        assert!(!region_w.iter().any(|h| h.2 < 0.15), "region set must have no thin neck: {region_w:?}");
+        assert!(
+            !region_w.iter().any(|h| h.2 < 0.15),
+            "region set must have no thin neck: {region_w:?}"
+        );
     }
 
     #[test]
