@@ -36,7 +36,12 @@ export const useSettings = create<SettingsStore>()(
       setLanguage: (language) => set({ language }),
       setUnits: (units) => set({ units }),
       panelPresets: [],
-      addPanelPreset: (preset) => set((s) => ({ panelPresets: [...s.panelPresets, preset] })),
+      addPanelPreset: (preset) =>
+        set((s) => ({
+          panelPresets: s.panelPresets.some((p) => p.id === preset.id)
+            ? s.panelPresets.map((p) => (p.id === preset.id ? preset : p))
+            : [...s.panelPresets, preset],
+        })),
       removePanelPreset: (id) => set((s) => ({ panelPresets: s.panelPresets.filter((p) => p.id !== id) })),
     }),
     {
