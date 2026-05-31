@@ -744,7 +744,7 @@ struct GerberRef {
 /// Build the 3D board mesh for a COMMITTED project: read each gerber from the
 /// working dir. Keys are the gerber rel path (matches the project view's keys).
 #[tauri::command]
-fn project_board_mesh(
+async fn project_board_mesh(
     app: AppHandle,
     working_dir: String,
     gerbers: Vec<GerberRef>,
@@ -753,39 +753,47 @@ fn project_board_mesh(
     // which means re-drilling the substrate, so it's a server-side rebuild.
     excluded_keys: Vec<String>,
 ) -> Result<tauri::ipc::Response, String> {
-    let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
-    for g in &gerbers {
-        let bytes = read_workdir_file(&working_dir, &g.rel)?;
-        loaded.push((g.rel.clone(), g.layer_type, bytes));
-    }
-    let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
-    // Cache key: included layers only (rel-path key + type + bytes).
-    let mut hasher = cuprum_core::diskcache::Hasher::new();
-    hasher.add(b"mesh-v4");
-    for (rel, t, bytes) in &loaded {
-        if excluded.contains(rel) {
-            continue;
+    // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
+    // main thread so concurrent calls (one per design card) don't serialize.
+    let blob = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
+        for g in &gerbers {
+            let bytes = read_workdir_file(&working_dir, &g.rel)?;
+            loaded.push((g.rel.clone(), g.layer_type, bytes));
         }
-        hasher.add(rel.as_bytes());
-        hasher.add(format!("{t:?}").as_bytes());
-        hasher.add(bytes);
-    }
-    let blob = board_mesh_cached(&app, &hasher.finish(), || {
-        let inputs: Vec<cuprum_core::mesh::LayerInput> = loaded
-            .iter()
-            .filter(|(rel, _, _)| !excluded.contains(rel))
-            .map(|(rel, t, bytes)| {
-                let (role, side) = role_side(t);
-                cuprum_core::mesh::LayerInput {
-                    key: rel.clone(),
-                    role,
-                    side,
-                    bytes,
-                }
-            })
-            .collect();
-        pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))
-    });
+        let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
+        // Cache key: included layers only (rel-path key + type + bytes).
+        let mut hasher = cuprum_core::diskcache::Hasher::new();
+        hasher.add(b"mesh-v4");
+        for (rel, t, bytes) in &loaded {
+            if excluded.contains(rel) {
+                continue;
+            }
+            hasher.add(rel.as_bytes());
+            hasher.add(format!("{t:?}").as_bytes());
+            hasher.add(bytes);
+        }
+        let blob = board_mesh_cached(&app, &hasher.finish(), || {
+            let inputs: Vec<cuprum_core::mesh::LayerInput> = loaded
+                .iter()
+                .filter(|(rel, _, _)| !excluded.contains(rel))
+                .map(|(rel, t, bytes)| {
+                    let (role, side) = role_side(t);
+                    cuprum_core::mesh::LayerInput {
+                        key: rel.clone(),
+                        role,
+                        side,
+                        bytes,
+                    }
+                })
+                .collect();
+            pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))
+        });
+        Ok(blob)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    // Response is not Send; build it after the blocking task completes.
     Ok(tauri::ipc::Response::new(blob))
 }
 
@@ -794,59 +802,69 @@ fn project_board_mesh(
 /// content hash (filename + type + bytes) — a pure measurement, so it stays valid
 /// as the user edits capability thresholds (judging is client-side).
 #[tauri::command]
-fn project_board_metrics(
+async fn project_board_metrics(
     app: AppHandle,
     working_dir: String,
     gerbers: Vec<GerberRef>,
 ) -> Result<cuprum_core::metrics::BoardMetrics, String> {
-    let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
-    for g in &gerbers {
-        let bytes = read_workdir_file(&working_dir, &g.rel)?;
-        loaded.push((g.rel.clone(), g.layer_type, bytes));
-    }
-    let mut hasher = cuprum_core::diskcache::Hasher::new();
-    hasher.add(b"metrics-v12");
-    for (rel, t, bytes) in &loaded {
-        hasher.add(format!("{t:?}").as_bytes());
-        hasher.add(rel.to_lowercase().as_bytes()); // plating inferred from the name
-        hasher.add(bytes);
-    }
-    let key = hasher.finish();
-    if let Some(dir) = artifact_cache_dir(&app) {
-        if let Some(blob) = cuprum_core::diskcache::get(&dir, &key, ARTIFACT_CACHE_TTL) {
-            if let Ok(m) = serde_json::from_slice::<cuprum_core::metrics::BoardMetrics>(&blob) {
-                return Ok(m);
+    // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
+    // main thread so concurrent calls (one per design card) don't serialize.
+    tauri::async_runtime::spawn_blocking(
+        move || -> Result<cuprum_core::metrics::BoardMetrics, String> {
+            let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
+            for g in &gerbers {
+                let bytes = read_workdir_file(&working_dir, &g.rel)?;
+                loaded.push((g.rel.clone(), g.layer_type, bytes));
             }
-        }
-    }
-    let inputs: Vec<cuprum_core::metrics::MetricLayerInput> = loaded
-        .iter()
-        .map(|(rel, t, bytes)| {
-            let (role, side) = role_side(t);
-            cuprum_core::metrics::MetricLayerInput {
-                role,
-                side,
-                inner: matches!(t, cuprum_project::LayerType::InnerCopper),
-                // Excellon can't carry plating; NPTH is known only from the filename.
-                plated: role == cuprum_core::mesh::Role::Drill
-                    && !rel.to_lowercase().contains("npth"),
-                bytes,
+            let mut hasher = cuprum_core::diskcache::Hasher::new();
+            hasher.add(b"metrics-v12");
+            for (rel, t, bytes) in &loaded {
+                hasher.add(format!("{t:?}").as_bytes());
+                hasher.add(rel.to_lowercase().as_bytes()); // plating inferred from the name
+                hasher.add(bytes);
             }
-        })
-        .collect();
-    let metrics = cuprum_core::metrics::board_metrics(&inputs);
-    if let Some(dir) = artifact_cache_dir(&app) {
-        if let Ok(blob) = serde_json::to_vec(&metrics) {
-            cuprum_core::diskcache::put(
-                &dir,
-                &key,
-                &blob,
-                ARTIFACT_CACHE_MAX_BYTES,
-                ARTIFACT_CACHE_TTL,
-            );
-        }
-    }
-    Ok(metrics)
+            let key = hasher.finish();
+            if let Some(dir) = artifact_cache_dir(&app) {
+                if let Some(blob) = cuprum_core::diskcache::get(&dir, &key, ARTIFACT_CACHE_TTL) {
+                    if let Ok(m) =
+                        serde_json::from_slice::<cuprum_core::metrics::BoardMetrics>(&blob)
+                    {
+                        return Ok(m);
+                    }
+                }
+            }
+            let inputs: Vec<cuprum_core::metrics::MetricLayerInput> = loaded
+                .iter()
+                .map(|(rel, t, bytes)| {
+                    let (role, side) = role_side(t);
+                    cuprum_core::metrics::MetricLayerInput {
+                        role,
+                        side,
+                        inner: matches!(t, cuprum_project::LayerType::InnerCopper),
+                        // Excellon can't carry plating; NPTH is known only from the filename.
+                        plated: role == cuprum_core::mesh::Role::Drill
+                            && !rel.to_lowercase().contains("npth"),
+                        bytes,
+                    }
+                })
+                .collect();
+            let metrics = cuprum_core::metrics::board_metrics(&inputs);
+            if let Some(dir) = artifact_cache_dir(&app) {
+                if let Ok(blob) = serde_json::to_vec(&metrics) {
+                    cuprum_core::diskcache::put(
+                        &dir,
+                        &key,
+                        &blob,
+                        ARTIFACT_CACHE_MAX_BYTES,
+                        ARTIFACT_CACHE_TTL,
+                    );
+                }
+            }
+            Ok(metrics)
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---- Real display DPI (macOS native, cached once per launch) ----
