@@ -279,6 +279,23 @@ fn update_project_metadata(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn configure_panel(
+    app: AppHandle,
+    path: String,
+    panel: cuprum_project::PanelDoc,
+    stackup: cuprum_project::Stackup,
+) -> Result<cuprum_project::Manifest, String> {
+    let db = catalog_db_path(&app)?;
+    cuprum_project::configure_panel(&db, Path::new(&path), &panel, stackup, now_epoch())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_panel(path: String) -> Result<Option<cuprum_project::PanelDoc>, String> {
+    cuprum_project::read_panel(Path::new(&path)).map_err(|e| e.to_string())
+}
+
 // ---- Staging import (classify + SVG-render, no container write) ----
 
 #[derive(serde::Serialize, Clone)]
@@ -1027,6 +1044,8 @@ fn main() {
             import_zips,
             remove_recent,
             update_project_metadata,
+            configure_panel,
+            read_panel,
             stage_import,
             stage_classify,
             stage_layer_svg,
