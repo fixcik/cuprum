@@ -17,6 +17,7 @@
   "viewer": {
     "zoomOut": "Zoom out",
     "zoomIn": "Zoom in",
-    "fitAll": "Fit"
+    "fitAll": "Fit",
+    "realSize": "Real size"
   }
 }

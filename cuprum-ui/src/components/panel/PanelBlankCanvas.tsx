@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { CadGrid } from "@/components/editor/CadGrid";
 import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
+import { useShell } from "@/shellStore";
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
 
@@ -24,6 +25,7 @@ export function PanelBlankCanvas({
   doubleSided: boolean;
 }) {
   const { t } = useTranslation(["project", "common"]);
+  const pxPerMm = useShell((s) => s.pxPerMm);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
@@ -89,12 +91,13 @@ export function PanelBlankCanvas({
         stage.position(pos);
         stage.batchDraw();
       }
-      setZoomPct(Math.round(s * 100));
+      setZoomPct(Math.round((fit * s / pxPerMm) * 100));
     },
-    [clampPos, fit, size.w, size.h, W, H],
+    [clampPos, fit, size.w, size.h, W, H, pxPerMm],
   );
 
   const fitView = useCallback(() => centerAt(1, true), [centerAt]);
+  const realSize = useCallback(() => centerAt(pxPerMm / fit, true), [centerAt, pxPerMm, fit]);
 
   // Fit the view on first layout and whenever the blank size (or viewport)
   // changes. In the setup wizard width/height are edited live, so re-framing
@@ -124,9 +127,9 @@ export function PanelBlankCanvas({
         stage.position(pos);
         stage.batchDraw();
       }
-      setZoomPct(Math.round(newScale * 100));
+      setZoomPct(Math.round((fit * newScale / pxPerMm) * 100));
     },
-    [clampPos],
+    [clampPos, fit, pxPerMm],
   );
 
   const onWheel = (e: KonvaEventObject<WheelEvent>) => {
@@ -215,9 +218,9 @@ export function PanelBlankCanvas({
         </button>
         <button
           className="min-w-12 rounded px-1.5 py-1 text-center text-[11px] tabular-nums hover:bg-muted/60"
-          aria-label={t("common:viewer.fitAll")}
-          title={t("common:viewer.fitAll")}
-          onClick={fitView}
+          aria-label={t("common:viewer.realSize")}
+          title={t("common:viewer.realSize")}
+          onClick={realSize}
         >
           {zoomPct}%
         </button>
