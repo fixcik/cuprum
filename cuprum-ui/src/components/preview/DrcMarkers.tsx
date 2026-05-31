@@ -72,8 +72,50 @@ export function DrcMarkers({ markers, width, height }: { markers: ProjectedMarke
           .sort((a, b) => (a.shape === "line" ? 0 : 1) - (b.shape === "line" ? 0 : 1))
           .map((m) => {
           const c = SEV_COLOR[m.severity];
-          // "hover" markers are invisible — they only provide a hover hitbox (below).
-          if (m.shape === "hover") return null;
+          if (m.shape === "hover") {
+            if (!m.focused) return null;
+            // Focused cluster: a box (+ width label) so ‹› shows where it landed.
+            const hpad = 6;
+            const hx0 = Math.min(m.ax, m.bx) - hpad;
+            const hy0 = Math.min(m.ay, m.by) - hpad;
+            const hx1 = Math.max(m.ax, m.bx) + hpad;
+            const hy1 = Math.max(m.ay, m.by) + hpad;
+            const hbw = Math.max(hx1 - hx0, 16);
+            const hbh = Math.max(hy1 - hy0, 16);
+            const hcx = (hx0 + hx1) / 2;
+            const hcy = (hy0 + hy1) / 2;
+            const hcol = SEV_COLOR[m.severity];
+            return (
+              <g key={m.key}>
+                <rect
+                  x={hcx - hbw / 2}
+                  y={hcy - hbh / 2}
+                  width={hbw}
+                  height={hbh}
+                  rx={3}
+                  fill="none"
+                  stroke={hcol}
+                  strokeWidth={2}
+                />
+                <text
+                  x={hcx + hbw / 2 + 5}
+                  y={hcy - hbh / 2}
+                  style={{
+                    fill: hcol,
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    paintOrder: "stroke",
+                    stroke: "hsl(var(--background))",
+                    strokeWidth: 3,
+                    strokeLinejoin: "round",
+                  }}
+                >
+                  {m.value}
+                </text>
+              </g>
+            );
+          }
           if (m.shape === "line") {
             // Colour-highlight the failing stroke itself, at its width (min 2px so
             // a hair-thin line still reads). No value label / hitbox — it's a bulk

@@ -236,7 +236,9 @@ export function ImportWizardPage() {
       setTab("preview");
       setMode("2d");
       // Reveal the right face so the focused marker isn't filtered out.
-      const hs = findings.find((x) => x.id === fid)?.hotspots?.[hi]?.side;
+      const f = findings.find((x) => x.id === fid);
+      // For highlightAll findings hi indexes hoverBoxes; otherwise hotspots.
+      const hs = f?.highlightAll ? f.hoverBoxes?.[hi]?.side : f?.hotspots?.[hi]?.side;
       if (hs === "top" || hs === "bottom") setSide(hs);
     },
     [findings],
@@ -284,12 +286,12 @@ export function ImportWizardPage() {
         const hovers = (f.hoverBoxes ?? [])
           .filter((h) => markerVisible(f.category, h.side))
           .map((h, i) => {
-            const m = f.measured?.params?.len;
+            // Each cluster shows ITS OWN width (h.v), in one shared unit with the limit.
             const l = f.limit?.params?.len;
             const [valueStr, limitStr] =
-              typeof m === "number" && typeof l === "number"
-                ? (() => { const [ms, ls] = fmtLenPair([m, l]); return [trLen(f.measured, ms), trLen(f.limit, ls)]; })()
-                : [tr(f.measured), tr(f.limit)];
+              typeof l === "number"
+                ? (() => { const [vs, ls] = fmtLenPair([h.v, l]); return [vs, trLen(f.limit, ls)]; })()
+                : [fmtLen(h.v), tr(f.limit)];
             return {
               key: `${f.id}~hover#${i}`,
               a: h.a,
@@ -299,7 +301,7 @@ export function ImportWizardPage() {
               limit: limitStr,
               detail: tr(f.detail) || undefined,
               severity: f.severity,
-              focused: false,
+              focused: focus?.fid === f.id && focus?.hi === i,
               shape: "hover" as const,
             };
           });
@@ -319,6 +321,16 @@ export function ImportWizardPage() {
         const hs = f.hotspots ?? [];
         if (hs.length === 0) return [];
         if (f.highlightAll) {
+          const boxes = f.hoverBoxes ?? [];
+          // Each cluster (silk line / text-block, copper trace) is its own ‹› stop,
+          // showing its own width — instead of one entry per side.
+          if (boxes.length > 0) {
+            return boxes.flatMap((h, i) =>
+              markerVisible(f.category, h.side)
+                ? [{ fid: f.id, hi: i, label: tr(f.label), value: fmtLen(h.v), severity: f.severity }]
+                : [],
+            );
+          }
           return markerVisible(f.category, hs[0].side)
             ? [{ fid: f.id, hi: 0, label: tr(f.label), value: tr(f.measured), severity: f.severity }]
             : [];
@@ -349,19 +361,32 @@ export function ImportWizardPage() {
     if (!focus) return null;
     const f = findings.find((x) => x.id === focus.fid);
     if (!f) return null;
-    if (f.highlightAll && f.hotspots && f.hotspots.length > 0) {
-      let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-      for (const h of f.hotspots) {
-        for (const p of [h.a, h.b]) {
-          minx = Math.min(minx, p[0]); miny = Math.min(miny, p[1]);
-          maxx = Math.max(maxx, p[0]); maxy = Math.max(maxy, p[1]);
-        }
+    if (f.highlightAll) {
+      // Frame the focused cluster (hoverBox); fall back to the whole set.
+      const box = f.hoverBoxes?.[focus.hi];
+      if (box) {
+        const w = Math.abs(box.b[0] - box.a[0]);
+        const h2 = Math.abs(box.b[1] - box.a[1]);
+        return {
+          p: [(box.a[0] + box.b[0]) / 2, (box.a[1] + box.b[1]) / 2],
+          spanMm: Math.max(w, h2) * 1.6 + 6,
+          nonce: focusNonce.current,
+        };
       }
-      return {
-        p: [(minx + maxx) / 2, (miny + maxy) / 2],
-        spanMm: Math.max(maxx - minx, maxy - miny) * 1.3 + 4,
-        nonce: focusNonce.current,
-      };
+      if (f.hotspots && f.hotspots.length > 0) {
+        let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+        for (const h of f.hotspots) {
+          for (const p of [h.a, h.b]) {
+            minx = Math.min(minx, p[0]); miny = Math.min(miny, p[1]);
+            maxx = Math.max(maxx, p[0]); maxy = Math.max(maxy, p[1]);
+          }
+        }
+        return {
+          p: [(minx + maxx) / 2, (miny + maxy) / 2],
+          spanMm: Math.max(maxx - minx, maxy - miny) * 1.3 + 4,
+          nonce: focusNonce.current,
+        };
+      }
     }
     const h = f.hotspots?.[focus.hi];
     if (!h) return null;
