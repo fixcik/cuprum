@@ -5,6 +5,10 @@ import { TextInput } from "@/components/ui/TextInput";
 import { Select } from "@/components/ui/Select";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Modal } from "@/components/ui/Modal";
+import { Ruler, Layers } from "lucide-react";
+import { SettingsSection } from "@/components/ui/settings/SettingsSection";
+import { SettingRow } from "@/components/ui/settings/SettingRow";
+import { UnitField } from "@/components/ui/settings/UnitField";
 import { PanelBlankCanvas } from "@/components/panel/PanelBlankCanvas";
 import { BUILTIN_PANEL_PRESETS, COPPER_WEIGHTS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
 import { api } from "@/lib/api";
@@ -150,50 +154,21 @@ export function PanelEditor() {
           </div>
         </div>
 
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {t("setup.sectionBlank")}
-        </div>
-        <div className="mb-4 divide-y divide-border/60">
-          <label className="flex items-center justify-between gap-4 py-2">
-            <span className="text-[12px] text-foreground">{t("setup.width")}</span>
-            <div className="flex items-center gap-1.5">
-              <TextInput
-                type="number"
-                step="1"
-                inputMode="decimal"
-                value={String(width)}
-                onChange={(e) => setWidth(parseFloat(e.target.value) || 0)}
-                className="w-24 text-right tabular-nums"
-              />
-              <span className="w-7 text-[11px] text-muted-foreground">mm</span>
-            </div>
-          </label>
-          <label className="flex items-center justify-between gap-4 py-2">
-            <span className="text-[12px] text-foreground">{t("setup.height")}</span>
-            <div className="flex items-center gap-1.5">
-              <TextInput
-                type="number"
-                step="1"
-                inputMode="decimal"
-                value={String(height)}
-                onChange={(e) => setHeight(parseFloat(e.target.value) || 0)}
-                className="w-24 text-right tabular-nums"
-              />
-              <span className="w-7 text-[11px] text-muted-foreground">mm</span>
-            </div>
-          </label>
-        </div>
+        <SettingsSection icon={Ruler} title={t("setup.sectionBlank")}>
+          <SettingRow label={t("setup.width")}>
+            <UnitField value={width} onChange={setWidth} unit="mm" step="1" />
+          </SettingRow>
+          <SettingRow label={t("setup.height")}>
+            <UnitField value={height} onChange={setHeight} unit="mm" step="1" />
+          </SettingRow>
+        </SettingsSection>
 
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {t("setup.sectionStackup")}
-        </div>
-        <div className="divide-y divide-border/60">
-          <label className="flex items-center justify-between gap-4 py-2">
-            <span className="text-[12px] text-foreground">{t("setup.copperWeight")}</span>
+        <SettingsSection icon={Layers} title={t("setup.sectionStackup")}>
+          <SettingRow label={t("setup.copperWeight")}>
             <Select
               value={String(copperWeight)}
               onChange={(e) => setCopperWeight(parseFloat(e.target.value))}
-              className="w-32"
+              className="w-28"
             >
               {COPPER_WEIGHTS.map((w) => (
                 <option key={w} value={w}>
@@ -201,23 +176,11 @@ export function PanelEditor() {
                 </option>
               ))}
             </Select>
-          </label>
-          <label className="flex items-center justify-between gap-4 py-2">
-            <span className="text-[12px] text-foreground">{t("setup.substrate")}</span>
-            <div className="flex items-center gap-1.5">
-              <TextInput
-                type="number"
-                step="0.1"
-                inputMode="decimal"
-                value={String(substrate)}
-                onChange={(e) => setSubstrate(parseFloat(e.target.value) || 0)}
-                className="w-24 text-right tabular-nums"
-              />
-              <span className="w-7 text-[11px] text-muted-foreground">mm</span>
-            </div>
-          </label>
-          <div className="flex items-center justify-between gap-4 py-2">
-            <span className="text-[12px] text-foreground">{t("setup.sides")}</span>
+          </SettingRow>
+          <SettingRow label={t("setup.substrate")}>
+            <UnitField value={substrate} onChange={setSubstrate} unit="mm" step="0.1" />
+          </SettingRow>
+          <SettingRow label={t("setup.sides")}>
             <SegmentedControl<"single" | "double">
               value={doubleSided ? "double" : "single"}
               onChange={(v) => setDoubleSided(v === "double")}
@@ -226,8 +189,8 @@ export function PanelEditor() {
                 { value: "double", label: t("setup.sidesDouble") },
               ]}
             />
-          </div>
-        </div>
+          </SettingRow>
+        </SettingsSection>
 
         {saveError && <div className="mt-3 text-[11px] text-destructive">{saveError}</div>}
       </div>
