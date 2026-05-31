@@ -485,7 +485,10 @@ mod tests {
             &db,
             &save,
             &PanelDoc::new(150.0, 100.0),
-            Stackup { copper_weight_oz: 1.0, substrate_thickness_mm: 1.6 },
+            Stackup {
+                copper_weight_oz: 1.0,
+                substrate_thickness_mm: 1.6,
+            },
             2000,
         )
         .unwrap();
