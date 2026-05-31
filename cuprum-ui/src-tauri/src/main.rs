@@ -207,9 +207,40 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
-/// Read a project file from the working dir by its archive-relative path.
+/// Read a project file from the working dir by its archive-relative path. `rel`
+/// comes from the manifest (via IPC), so reject anything that could escape the
+/// working dir — absolute paths, drive prefixes, or `..` components.
 fn read_workdir_file(working_dir: &str, rel: &str) -> Result<Vec<u8>, String> {
+    let p = Path::new(rel);
+    let unsafe_path = p.is_absolute()
+        || p.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        });
+    if unsafe_path {
+        return Err(format!("unsafe relative path: {rel}"));
+    }
     std::fs::read(Path::new(working_dir).join(rel)).map_err(|e| e.to_string())
+}
+
+/// Resolve a working-dir path from IPC and verify it sits inside the managed
+/// working base, so a spoofed `working_dir` can't make us write/read elsewhere.
+/// Returns the canonical path.
+fn confined_workdir(app: &AppHandle, working_dir: &str) -> Result<PathBuf, String> {
+    let base = working_base(app)?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let wd = Path::new(working_dir)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if !wd.starts_with(&base) {
+        return Err("refusing to operate outside the working base".to_string());
+    }
+    Ok(wd)
 }
 
 /// Base dir holding all per-open working directories (under the OS cache dir).
@@ -330,11 +361,12 @@ fn write_working_manifest(
 /// which repacks the freshly-copied gerbers into the `.cuprum`.
 #[tauri::command]
 fn add_design_from_zip(
+    app: AppHandle,
     working_dir: String,
     zip_path: String,
 ) -> Result<cuprum_project::manifest::Design, String> {
-    cuprum_project::add_design_to_workdir(Path::new(&working_dir), Path::new(&zip_path))
-        .map_err(|e| e.to_string())
+    let wd = confined_workdir(&app, &working_dir)?;
+    cuprum_project::add_design_to_workdir(&wd, Path::new(&zip_path)).map_err(|e| e.to_string())
 }
 
 /// List recoverable (dirty) orphan working dirs left by a previous run.
