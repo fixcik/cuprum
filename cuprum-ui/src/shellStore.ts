@@ -10,6 +10,9 @@ interface ShellStore {
   recents: RecentProject[];
   recentsLoading: boolean;
   currentPath: string | null;
+  /** Temp working dir the open `.cuprum` was extracted into; reads/renders hit
+   *  loose files here. Null when no project is open. */
+  workingDir: string | null;
   currentManifest: Manifest | null;
   error: string | null;
   homeNotice: string | null;
@@ -30,6 +33,9 @@ interface ShellStore {
   updateProjectMetadata: (name: string, description: string) => Promise<void>;
   /** Write the panel blank (stackup -> manifest, dimensions -> panel.json). */
   savePanelConfig: (panel: PanelDoc, stackup: Stackup) => Promise<void>;
+  /** Private: mirror the in-memory manifest into the working dir's loose
+   *  manifest.json after a mutation (basis for crash recovery). */
+  _mirrorManifest: (manifest: Manifest) => Promise<void>;
 
   // Import wizard
   staged: StagedFile[];
@@ -61,6 +67,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   recents: [],
   recentsLoading: false,
   currentPath: null,
+  workingDir: null,
   currentManifest: null,
   error: null,
   homeNotice: null,
@@ -127,9 +134,25 @@ export const useShell = create<ShellStore>((set, get) => ({
 
   openProjectByPath: async (path) => {
     set({ homeNotice: null, error: null });
+    // Clean up any previously-open project's working dir before switching, so
+    // switching projects never leaks a temp working dir.
+    const prevWorkingDir = get().workingDir;
+    if (prevWorkingDir) {
+      try {
+        await api.cleanupWorkdir(prevWorkingDir);
+      } catch {
+        /* best-effort: a stale working dir is GC'd at next startup */
+      }
+    }
     try {
-      const manifest = await api.openProject(path);
-      set({ currentPath: path, currentManifest: manifest, view: "project", error: null });
+      const opened = await api.openProject(path);
+      set({
+        currentPath: path,
+        workingDir: opened.workingDir,
+        currentManifest: opened.manifest,
+        view: "project",
+        error: null,
+      });
       await get().loadRecents();
     } catch (e) {
       if (isProjectNotFound(e)) {
@@ -165,6 +188,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     try {
       const manifest = await api.updateProjectMetadata(path, name, description);
       set({ currentManifest: manifest, error: null });
+      await get()._mirrorManifest(manifest);
       await get().loadRecents();
     } catch (e) {
       if (isProjectNotFound(e)) {
@@ -174,10 +198,20 @@ export const useShell = create<ShellStore>((set, get) => ({
         } catch {
           /* catalog cleanup is best-effort */
         }
+        // The source `.cuprum` vanished underneath us: drop the working dir too.
+        const { workingDir } = get();
+        if (workingDir) {
+          try {
+            await api.cleanupWorkdir(workingDir);
+          } catch {
+            /* best-effort: a stale working dir is GC'd at next startup */
+          }
+        }
         await get().loadRecents();
         set({
           view: "home",
           currentPath: null,
+          workingDir: null,
           currentManifest: null,
           homeNotice: i18n.t("home:notFoundRemoved", { name: displayName }),
           error: null,
@@ -194,10 +228,21 @@ export const useShell = create<ShellStore>((set, get) => ({
     try {
       const manifest = await api.configurePanel(path, panel, stackup);
       set({ currentManifest: manifest, error: null });
+      await get()._mirrorManifest(manifest);
+      const { workingDir } = get();
+      if (workingDir) await api.writeWorkingPanel(workingDir, panel);
     } catch (e) {
       set({ error: String(e) });
       throw e;
     }
+  },
+
+  _mirrorManifest: async (manifest) => {
+    // Keep the working-dir's loose manifest.json in sync with the in-memory
+    // manifest after any mutation (basis for crash recovery; Phase 1 still also
+    // persists to .cuprum via the existing commands).
+    const { workingDir } = get();
+    if (workingDir) await api.writeWorkingManifest(workingDir, manifest);
   },
 
   startImport: async () => {
@@ -285,6 +330,7 @@ export const useShell = create<ShellStore>((set, get) => ({
         importGen: s.importGen + 1,
         view: "project",
       }));
+      await get()._mirrorManifest(manifest);
       await get().loadRecents();
     } catch (e) {
       set({ stagingError: String(e) });
