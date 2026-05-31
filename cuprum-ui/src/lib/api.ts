@@ -181,6 +181,9 @@ export interface BoardMetrics {
     /** Located issues (worst-first) for preview markers. */
     clearanceHotspots: GeoHotspot[];
     copperWidthHotspots: GeoHotspot[];
+    thinTraceConductors: GeoHotspot[];
+    traceCount: number;
+    traceTotalLengthMm: number;
     annularHotspots: GeoHotspot[];
     maskDamHotspots: GeoHotspot[];
     overshootHotspots: GeoHotspot[];

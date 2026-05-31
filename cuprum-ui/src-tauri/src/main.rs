@@ -855,7 +855,7 @@ fn staged_board_metrics(
     // result is a pure measurement, so it stays valid as the user edits profile
     // thresholds (judging happens client-side).
     let mut hasher = cuprum_core::diskcache::Hasher::new();
-    hasher.add(b"metrics-v11");
+    hasher.add(b"metrics-v12");
     for (i, (fname, bytes)) in entries.iter().enumerate() {
         hasher.add(format!("{:?}", layer_types[i]).as_bytes());
         hasher.add(fname.to_lowercase().as_bytes()); // plating is inferred from the name
