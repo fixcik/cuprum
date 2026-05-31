@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LayerStack, type StackLayer } from "@/components/import/LayerStack";
 import { colorFor, sideOf, missingRequired } from "@/lib/layerColors";
@@ -14,6 +14,14 @@ export function DesignCard({ design, onOpen }: { design: ProjectDesign; onOpen: 
   const profile = useSettings((s) => s.profile);
   const [layers, setLayers] = useState<StackLayer[]>([]);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+
+  // Content-based key (path + type per gerber). Effects depend on this string, not
+  // the `design` object, so an unrelated manifest replace (which hands every card
+  // a fresh `design` reference) does not re-fetch this card's SVGs/metrics.
+  const gerbersKey = useMemo(
+    () => design.gerbers.map((g) => `${g.path}:${g.layer_type}`).join(","),
+    [design],
+  );
 
   // 2D thumbnail: render each non-drill gerber's SVG once (top side only — a card
   // is a glance, not the inspector). Reuse the same progressive pattern as the
@@ -45,7 +53,8 @@ export function DesignCard({ design, onOpen }: { design: ProjectDesign; onOpen: 
     return () => {
       cancelled = true;
     };
-  }, [workingDir, design, layerColors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
+  }, [workingDir, gerbersKey, layerColors]);
 
   // DFM verdict badge (lazy, cached on disk). Skipped until the outline is assigned.
   useEffect(() => {
@@ -69,7 +78,8 @@ export function DesignCard({ design, onOpen }: { design: ProjectDesign; onOpen: 
     return () => {
       cancelled = true;
     };
-  }, [workingDir, design, profile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
+  }, [workingDir, gerbersKey, profile]);
 
   const dotClass =
     verdict === "block"
@@ -87,7 +97,7 @@ export function DesignCard({ design, onOpen }: { design: ProjectDesign; onOpen: 
       className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-primary/50"
     >
       <div className="relative aspect-[4/3] w-full bg-muted/30">
-        {layers.length > 0 && <LayerStack layers={layers} side="top" />}
+        {layers.length > 0 && <LayerStack layers={layers} side="top" chrome={false} />}
         <span className={`absolute right-2 top-2 size-2.5 rounded-full ${dotClass}`} aria-hidden />
       </div>
       <div className="flex flex-col gap-0.5 p-3">
