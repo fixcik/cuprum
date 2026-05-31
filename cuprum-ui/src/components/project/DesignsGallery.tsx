@@ -66,6 +66,7 @@ export function DesignsGallery() {
         >
           <Plus className="size-6" />
           <span className="text-[12px] font-medium">{t("designs.addDesign")}</span>
+          <span className="text-[11px] text-muted-foreground/70">{t("designs.dropHintShort")}</span>
         </button>
       </div>
       {manifest.designs.length === 0 && (
