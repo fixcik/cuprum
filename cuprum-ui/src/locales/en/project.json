@@ -19,7 +19,11 @@
     },
     "configure": "Configure",
     "edit": "Edit",
-    "summary": "{{w}} × {{h}} mm"
+    "summary": "{{w}} × {{h}} mm",
+    "canvas": {
+      "copper": "Cu",
+      "noCopper": "no copper"
+    }
   },
   "operations": {
     "placeholder": {
@@ -40,6 +44,15 @@
     "save": "Save",
     "cancel": "Back",
     "sideTop": "Top",
-    "sideBottom": "Bottom"
+    "sideBottom": "Bottom",
+    "sectionBlank": "Blank",
+    "sectionStackup": "Stackup",
+    "sides": "Sides",
+    "sidesSingle": "Single-sided",
+    "sidesDouble": "Double-sided"
+  },
+  "aria": {
+    "projectName": "Project name",
+    "projectDescription": "Project description"
   }
 }

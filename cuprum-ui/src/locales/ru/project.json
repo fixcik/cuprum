@@ -19,7 +19,11 @@
     },
     "configure": "Настроить",
     "edit": "Изменить",
-    "summary": "{{w}} × {{h}} мм"
+    "summary": "{{w}} × {{h}} мм",
+    "canvas": {
+      "copper": "Cu",
+      "noCopper": "нет меди"
+    }
   },
   "operations": {
     "placeholder": {
@@ -40,6 +44,15 @@
     "save": "Сохранить",
     "cancel": "Назад",
     "sideTop": "Верх",
-    "sideBottom": "Низ"
+    "sideBottom": "Низ",
+    "sectionBlank": "Заготовка",
+    "sectionStackup": "Stackup",
+    "sides": "Стороны",
+    "sidesSingle": "Односторонняя",
+    "sidesDouble": "Двухсторонняя"
+  },
+  "aria": {
+    "projectName": "Название проекта",
+    "projectDescription": "Описание проекта"
   }
 }
