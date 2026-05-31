@@ -20,13 +20,13 @@ import { useUnitFormat } from "@/i18n/useUnitFormat";
 const LEN_PARAMS = new Set(["len", "w", "h"]);
 
 /** Findings whose hotspots mark a thin feature (drawn as a box). */
-const BOX_FINDINGS = new Set(["copper.minTrace"]);
+const BOX_FINDINGS = new Set<string>([]);
 /** Findings whose hotspots are holes — drawn as a ring around the bore. */
 const CIRCLE_FINDINGS = new Set(["drill.minHole", "via.plating", "drill.bitSnap"]);
 /** Findings whose hotspots are the actual failing strokes — colour-highlighted as
  *  lines at their width (no per-stroke box/tooltip). Silk is split per side, so
  *  match the `silk.line.*` family by prefix. */
-const isLineFinding = (id: string) => id.startsWith("silk.line");
+const isLineFinding = (id: string) => id.startsWith("silk.line") || id.startsWith("copper.thinTrace");
 
 /** Layer types a finding's hotspots belong to, by category — so a marker is only
  *  drawn while one of those layers is actually visible. `null` = not tied to a
@@ -253,6 +253,7 @@ export function ImportWizardPage() {
             focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
             shape,
             widthMm: shape === "line" ? h.v : undefined,
+            lineColor: shape === "line" && f.category === "copper" ? "hsl(var(--destructive))" : undefined,
           }));
         // Invisible per-cluster hover regions so a tooltip pops on any part of a
         // line-highlighted feature (without one hitbox per stroke).

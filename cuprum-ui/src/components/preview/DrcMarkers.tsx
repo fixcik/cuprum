@@ -25,6 +25,8 @@ export interface ProjectedMarker {
   shape?: "dim" | "box" | "circle" | "line" | "hover";
   /** Stroke width in screen px (for the "line" highlight). */
   widthPx?: number;
+  /** Override for the "line" highlight stroke colour (default = blue silk tint). */
+  lineColor?: string;
 }
 
 /** A DRC marker in board mm (before projection) — what the preview is handed. */
@@ -41,6 +43,8 @@ export interface DrcMarkerInput {
   shape?: "dim" | "box" | "circle" | "line" | "hover";
   /** Stroke width in board mm (for the "line" highlight; projected to px). */
   widthMm?: number;
+  /** Override for the "line" highlight stroke colour (default = blue silk tint). */
+  lineColor?: string;
 }
 
 const SEV_COLOR: Record<Severity, string> = {
@@ -64,7 +68,9 @@ export function DrcMarkers({ markers, width, height }: { markers: ProjectedMarke
   return (
     <div className="pointer-events-none absolute inset-0">
       <svg width={width} height={height} className="absolute inset-0">
-        {markers.map((m) => {
+        {[...markers]
+          .sort((a, b) => (a.shape === "line" ? 0 : 1) - (b.shape === "line" ? 0 : 1))
+          .map((m) => {
           const c = SEV_COLOR[m.severity];
           // "hover" markers are invisible — they only provide a hover hitbox (below).
           if (m.shape === "hover") return null;
@@ -79,7 +85,7 @@ export function DrcMarkers({ markers, width, height }: { markers: ProjectedMarke
                 y1={m.ay}
                 x2={m.bx}
                 y2={m.by}
-                stroke={LINE_HIGHLIGHT}
+                stroke={m.lineColor ?? LINE_HIGHLIGHT}
                 strokeWidth={Math.max(m.widthPx ?? 0, 2.5)}
                 strokeLinecap="round"
               />
