@@ -10,7 +10,7 @@ import { relativeTime } from "@/i18n/relativeTime";
 type ProjectTab = "panel" | "designs" | "operations";
 
 export function ProjectPage() {
-  const { t } = useTranslation("project");
+  const { t, i18n } = useTranslation("project");
   const manifest = useShell((s) => s.currentManifest);
   const [tab, setTab] = useState<ProjectTab>("panel");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -130,8 +130,9 @@ export function ProjectPage() {
                     restorePoints.map((p) => {
                       const rel = relativeTime(p.createdAt);
                       const when = t(rel.key, rel.params);
-                      // Absolute time as a hover tooltip for precision.
-                      const abs = new Date(p.createdAt * 1000).toLocaleString();
+                      // Absolute time as a hover tooltip for precision — in the
+                      // app's locale (i18n), not the browser's.
+                      const abs = new Date(p.createdAt * 1000).toLocaleString(i18n.language);
                       return (
                         <button
                           key={p.id}

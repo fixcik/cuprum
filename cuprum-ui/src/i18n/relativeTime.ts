@@ -5,16 +5,17 @@ export interface RelativeTime {
   params?: { n: number };
 }
 
-/** Format a unix-seconds timestamp relative to `nowSec` (defaults to now). Buckets:
- *  <45s just now · <60m minutes · <24h hours · <48h yesterday · else days. */
+/** Format a unix-seconds timestamp relative to `nowSec` (defaults to now). Buckets
+ *  keyed on the raw diff (not a rounded value, so 23.5–24h can't slip into
+ *  "yesterday"): <45s just now · <1h minutes · <24h hours · <48h yesterday · else
+ *  days. */
 export function relativeTime(tsSec: number, nowSec = Date.now() / 1000): RelativeTime {
   const diff = Math.max(0, nowSec - tsSec);
   if (diff < 45) return { key: "history.relative.justNow" };
-  const min = Math.round(diff / 60);
-  if (min < 60) return { key: "history.relative.minutes", params: { n: min } };
-  const hours = Math.round(diff / 3600);
-  if (hours < 24) return { key: "history.relative.hours", params: { n: hours } };
-  const days = Math.floor(diff / 86400);
-  if (days <= 1) return { key: "history.relative.yesterday" };
-  return { key: "history.relative.days", params: { n: days } };
+  if (diff < 3600)
+    return { key: "history.relative.minutes", params: { n: Math.min(59, Math.round(diff / 60)) } };
+  if (diff < 86400)
+    return { key: "history.relative.hours", params: { n: Math.floor(diff / 3600) } };
+  if (diff < 172800) return { key: "history.relative.yesterday" };
+  return { key: "history.relative.days", params: { n: Math.floor(diff / 86400) } };
 }
