@@ -3,6 +3,7 @@
 //! (no per-layer ZIP extraction) and intermediate edits are cheap.
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 use anyhow::Result;
@@ -156,8 +157,6 @@ pub fn gc_clean(base: &Path, live_pid: u32) -> Result<()> {
     Ok(())
 }
 
-use std::io::Read;
-
 /// Extract every entry of `container` into a fresh `workdir`, then write the
 /// session marker. `workdir` must not already exist.
 pub fn extract(container: &Path, workdir: &Path, marker: &SessionMarker) -> Result<()> {
@@ -193,7 +192,6 @@ pub fn extract(container: &Path, workdir: &Path, marker: &SessionMarker) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     fn scratch(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("cuprum-wd-{tag}-{}", std::process::id()));
