@@ -6,7 +6,11 @@ use std::time::Duration;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, RunEvent};
+use tauri::{AppHandle, Emitter};
+// `RunEvent::Opened` only exists on macOS (Apple-event file open); gate the import
+// so the workspace still compiles on Linux/Windows CI.
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
 
 use cuprum_core::cache;
 use cuprum_core::compose::{self, Placement};
@@ -1066,13 +1070,15 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");
 
-    app.run(|app_handle, event| {
+    app.run(move |_app_handle, _event| {
         // macOS delivers a double-clicked file as an Apple-event → RunEvent::Opened.
-        if let RunEvent::Opened { urls } = event {
+        // The variant only exists on macOS, so gate the whole arm.
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Opened { urls } = _event {
             for url in urls {
                 if let Ok(path) = url.to_file_path() {
                     if is_project_file(&path) {
-                        dispatch_open(app_handle, path.to_string_lossy().into_owned());
+                        dispatch_open(_app_handle, path.to_string_lossy().into_owned());
                     }
                 }
             }
