@@ -11,7 +11,8 @@
     "addDesign": "Add design",
     "layerCount": "{{count}} layers",
     "emptyTitle": "No designs yet",
-    "emptyDesc": "Click «Add design» to import a Gerber package."
+    "emptyDesc": "Click «Add design» to import a Gerber package.",
+    "dropHint": "Drop ZIP fab packages to add"
   },
   "tab": {
     "panel": "Panel",

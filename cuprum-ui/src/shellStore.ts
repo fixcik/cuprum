@@ -67,6 +67,9 @@ interface ShellStore {
   /** Pick source ZIP(s) and add each as a new design to the open project
    *  (copied into the working dir, auto-classified, persisted via autosave). */
   addDesignsFromZips: () => Promise<void>;
+  /** Add designs from already-resolved ZIP paths (e.g. an OS drag-and-drop drop),
+   *  bypassing the file dialog. Same persist/undo path as `addDesignsFromZips`. */
+  addDesignsFromPaths: (paths: string[]) => Promise<void>;
   /** Reassign one gerber's layer type within a design (undoable, persisted). */
   setDesignLayerType: (designId: string, gerberPath: string, type: LayerType) => Promise<void>;
 }
@@ -418,16 +421,21 @@ export const useShell = create<ShellStore>((set, get) => ({
   },
 
   addDesignsFromZips: async () => {
-    const { currentPath, workingDir, currentManifest } = get();
-    if (!currentPath || !workingDir || !currentManifest) return;
     const zips = await api.pickZips();
     if (!zips || zips.length === 0) return;
+    await get().addDesignsFromPaths(zips);
+  },
+
+  addDesignsFromPaths: async (paths) => {
+    const { currentPath, workingDir, currentManifest } = get();
+    if (!currentPath || !workingDir || !currentManifest) return;
+    if (paths.length === 0) return;
     const prev = currentManifest;
     try {
       // Copy each ZIP into the working dir as a new design (sequential: each
       // add derives its id from the gerbers/ dir the previous one just created).
       const added: ProjectDesign[] = [];
-      for (const zip of zips) added.push(await api.addDesignFromZip(workingDir, zip));
+      for (const zip of paths) added.push(await api.addDesignFromZip(workingDir, zip));
       const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
       get()._recordUndo(prev);
       set({ currentManifest: manifest, error: null });
