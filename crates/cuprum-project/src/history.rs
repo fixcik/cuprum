@@ -38,10 +38,17 @@ fn history_dir(workdir: &Path) -> PathBuf {
     workdir.join("history")
 }
 
-/// Reject ids that aren't a bare filename token (no path separators / `..`), so a
-/// restore-point id can never escape the `history/` directory.
+/// Reject ids that aren't a bare filename token (no path separators, `..`, or
+/// `:`) so a restore-point id can never escape the `history/` directory.
+/// The colon check blocks Windows drive-relative forms like `C:foo` for which
+/// `Path::join` would discard the `history/` base entirely.
 fn validate_id(id: &str) -> Result<()> {
-    if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") {
+    if id.is_empty()
+        || id.contains('/')
+        || id.contains('\\')
+        || id.contains(':')
+        || id.contains("..")
+    {
         anyhow::bail!("invalid restore point id: {id:?}");
     }
     Ok(())
@@ -169,6 +176,8 @@ mod tests {
         assert!(write(&wd, "../escape", None, 1).is_err());
         assert!(write(&wd, "a/b", None, 1).is_err());
         assert!(read(&wd, "../escape").is_err());
+        // Windows drive-relative form must also be rejected.
+        assert!(write(&wd, "C:evil", None, 1).is_err());
         // A normal generated-style id still works.
         assert!(write(&wd, "rp-100-0", None, 1).is_ok());
     }
