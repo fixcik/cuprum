@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type PanelDoc, type RecentProject, type StagedFile, type Stackup } from "@/lib/api";
+import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type PanelDoc, type RecentProject, type RestorePointMeta, type StagedFile, type Stackup } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
 export type View = "home" | "project" | "printer" | "settings" | "import";
@@ -16,6 +16,26 @@ interface ShellStore {
   currentManifest: Manifest | null;
   error: string | null;
   homeNotice: string | null;
+
+  /** In-session document history. Snapshots are whole manifests. */
+  undoStack: Manifest[];
+  redoStack: Manifest[];
+  /** Persistent restore points for the open project (newest first). */
+  restorePoints: RestorePointMeta[];
+  /** Bumped on undo/redo/restore so editors with local state (PanelEditor)
+   *  re-sync from the manifest. */
+  docNonce: number;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+  makeRestorePoint: (label?: string) => Promise<void>;
+  restoreTo: (id: string) => Promise<void>;
+  refreshRestorePoints: () => Promise<void>;
+  /** Private: persist a manifest as the new document (working-dir + .cuprum). */
+  _persistManifest: (manifest: Manifest) => Promise<void>;
+  /** Private: push the previous manifest onto the undo stack (caps length). */
+  _recordUndo: (prev: Manifest) => void;
 
   /** CSS px per mm for the host display; defaults to the 96dpi CSS reference. */
   pxPerMm: number;
@@ -71,6 +91,10 @@ export const useShell = create<ShellStore>((set, get) => ({
   currentManifest: null,
   error: null,
   homeNotice: null,
+  undoStack: [],
+  redoStack: [],
+  restorePoints: [],
+  docNonce: 0,
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
   staged: [],
@@ -135,6 +159,13 @@ export const useShell = create<ShellStore>((set, get) => ({
         error: null,
       });
       await get().loadRecents();
+      set({ undoStack: [], redoStack: [] });
+      await get().refreshRestorePoints();
+      try {
+        await get().makeRestorePoint(i18n.t("project:history.autoOpenLabel"));
+      } catch {
+        /* auto restore point is best-effort */
+      }
     } catch (e) {
       set({ error: String(e) });
     }
@@ -173,6 +204,13 @@ export const useShell = create<ShellStore>((set, get) => ({
         error: null,
       });
       await get().loadRecents();
+      set({ undoStack: [], redoStack: [] });
+      await get().refreshRestorePoints();
+      try {
+        await get().makeRestorePoint(i18n.t("project:history.autoOpenLabel"));
+      } catch {
+        /* auto restore point is best-effort */
+      }
     } catch (e) {
       if (isProjectNotFound(e)) {
         const name = projectDisplayName(path, get().recents);
@@ -204,8 +242,10 @@ export const useShell = create<ShellStore>((set, get) => ({
   updateProjectMetadata: async (name, description) => {
     const path = get().currentPath;
     if (!path) return;
+    const prev = get().currentManifest;
     try {
       const manifest = await api.updateProjectMetadata(path, name, description);
+      if (prev) get()._recordUndo(prev);
       set({ currentManifest: manifest, error: null });
       await get()._mirrorManifest(manifest);
       await get().loadRecents();
@@ -245,7 +285,9 @@ export const useShell = create<ShellStore>((set, get) => ({
     const path = get().currentPath;
     if (!path) return;
     try {
+      const prev = get().currentManifest;
       const manifest = await api.configurePanel(path, panel, stackup);
+      if (prev) get()._recordUndo(prev);
       set({ currentManifest: manifest, error: null });
       await get()._mirrorManifest(manifest);
     } catch (e) {
@@ -260,6 +302,75 @@ export const useShell = create<ShellStore>((set, get) => ({
     // persists to .cuprum via the existing commands).
     const { workingDir } = get();
     if (workingDir) await api.writeWorkingManifest(workingDir, manifest);
+  },
+
+  _recordUndo: (prev) =>
+    set((s) => ({ undoStack: [...s.undoStack, prev].slice(-100), redoStack: [] })),
+
+  // Persist a manifest as the live document: working-dir loose file (instant)
+  // + repack the .cuprum (autosave). No-op without an open project.
+  _persistManifest: async (manifest) => {
+    const { workingDir, currentPath } = get();
+    if (!workingDir || !currentPath) return;
+    await api.writeWorkingManifest(workingDir, manifest);
+    await api.saveProject(workingDir, currentPath);
+  },
+
+  canUndo: () => get().undoStack.length > 0,
+  canRedo: () => get().redoStack.length > 0,
+
+  undo: async () => {
+    const { undoStack, currentManifest } = get();
+    if (undoStack.length === 0 || !currentManifest) return;
+    const prev = undoStack[undoStack.length - 1];
+    set((s) => ({
+      undoStack: s.undoStack.slice(0, -1),
+      redoStack: [...s.redoStack, currentManifest],
+      currentManifest: prev,
+      docNonce: s.docNonce + 1,
+    }));
+    await get()._persistManifest(prev);
+  },
+
+  redo: async () => {
+    const { redoStack, currentManifest } = get();
+    if (redoStack.length === 0 || !currentManifest) return;
+    const next = redoStack[redoStack.length - 1];
+    set((s) => ({
+      redoStack: s.redoStack.slice(0, -1),
+      undoStack: [...s.undoStack, currentManifest!],
+      currentManifest: next,
+      docNonce: s.docNonce + 1,
+    }));
+    await get()._persistManifest(next);
+  },
+
+  refreshRestorePoints: async () => {
+    const { workingDir } = get();
+    if (!workingDir) return;
+    try {
+      set({ restorePoints: await api.listRestorePoints(workingDir) });
+    } catch {
+      /* listing is best-effort */
+    }
+  },
+
+  makeRestorePoint: async (label) => {
+    const { workingDir, currentPath } = get();
+    if (!workingDir || !currentPath) return;
+    // Snapshot reads the working-dir manifest, which _mirrorManifest keeps current.
+    await api.makeRestorePoint(workingDir, label);
+    await api.saveProject(workingDir, currentPath); // flush so the .cuprum carries it
+    await get().refreshRestorePoints();
+  },
+
+  restoreTo: async (id) => {
+    const { workingDir, currentManifest } = get();
+    if (!workingDir || !currentManifest) return;
+    const manifest = await api.readRestorePoint(workingDir, id);
+    get()._recordUndo(currentManifest);
+    set((s) => ({ currentManifest: manifest, docNonce: s.docNonce + 1 }));
+    await get()._persistManifest(manifest);
   },
 
   startImport: async () => {
@@ -333,6 +444,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   confirmImport: async () => {
     const { currentPath, staged, stagedZipPaths } = get();
     if (!currentPath) return;
+    const prev = get().currentManifest;
     try {
       // Positional: layer types in staging order, one per staged file.
       const layerTypes = staged.map((f) => f.layerType);
@@ -353,9 +465,14 @@ export const useShell = create<ShellStore>((set, get) => ({
         importGen: s.importGen + 1,
         view: "project",
       }));
+      if (prev) get()._recordUndo(prev);
       if (prevWorkingDir && prevWorkingDir !== reopened.workingDir)
         await api.cleanupWorkdir(prevWorkingDir).catch(() => {});
       await get().loadRecents();
+      // Reset history and resync restore points from the reopened working dir.
+      // No auto point on import — the import itself is the undoable step.
+      set({ undoStack: [], redoStack: [] });
+      await get().refreshRestorePoints();
     } catch (e) {
       set({ stagingError: String(e) });
     }
