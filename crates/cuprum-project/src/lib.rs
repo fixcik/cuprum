@@ -89,24 +89,49 @@ fn unique_name(base: &str, used: &std::collections::HashSet<String>) -> String {
     }
 }
 
-/// Pick the next free `design-N` id by scanning the working dir's `gerbers/`
-/// folder. Filesystem-derived (not manifest-derived) so an undone-then-re-added
-/// design — whose bytes are deliberately kept on disk — never reuses a live id.
-fn next_design_id(workdir: &Path) -> String {
-    let mut max = 0u32;
-    if let Ok(rd) = std::fs::read_dir(workdir.join("gerbers")) {
+/// Atomically reserve a fresh `design-N` directory under the working dir's
+/// `gerbers/` folder: scan for the current max `N`, then `create_dir` (fails if it
+/// already exists) and retry on collision. The create is the reservation, so two
+/// concurrent imports can never pick the same id. Filesystem-derived (not
+/// manifest-derived) so an undone-then-re-added design — whose bytes are kept on
+/// disk — never reuses a live id. Returns the id and its (now-created) dir.
+fn reserve_design_dir(workdir: &Path) -> Result<(String, PathBuf)> {
+    let gerbers_dir = workdir.join("gerbers");
+    std::fs::create_dir_all(&gerbers_dir)?;
+
+    let mut next = 1u32;
+    if let Ok(rd) = std::fs::read_dir(&gerbers_dir) {
         for ent in rd.flatten() {
             if !ent.path().is_dir() {
                 continue;
             }
             let name = ent.file_name();
             let name = name.to_string_lossy();
-            if let Some(n) = name.strip_prefix("design-").and_then(|s| s.parse::<u32>().ok()) {
-                max = max.max(n);
+            if let Some(n) = name
+                .strip_prefix("design-")
+                .and_then(|s| s.parse::<u32>().ok())
+            {
+                let after = n
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("design id overflow"))?;
+                next = next.max(after);
             }
         }
     }
-    format!("design-{}", max.saturating_add(1))
+
+    loop {
+        let id = format!("design-{next}");
+        let dir = gerbers_dir.join(&id);
+        match std::fs::create_dir(&dir) {
+            Ok(()) => return Ok((id, dir)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                next = next
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("design id overflow"))?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
 }
 
 /// Add one source ZIP as a new Design directly inside an open project's working
@@ -119,9 +144,9 @@ pub fn add_design_to_workdir(workdir: &Path, zip_path: &Path) -> Result<manifest
     if imported.gerbers.is_empty() {
         anyhow::bail!("no recognisable Gerber/drill files found in the ZIP");
     }
-    let id = next_design_id(workdir);
-    let design_dir = workdir.join("gerbers").join(&id);
-    std::fs::create_dir_all(&design_dir)?;
+    // Reserve the id by creating its dir atomically (after the empty-zip check, so
+    // a junk ZIP never leaves a stray empty design dir behind).
+    let (id, design_dir) = reserve_design_dir(workdir)?;
 
     let mut gerbers = Vec::new();
     let mut used = std::collections::HashSet::new();
@@ -417,7 +442,8 @@ mod tests {
             use zip::write::SimpleFileOptions;
             let f = std::fs::File::create(&zip).unwrap();
             let mut z = zip::ZipWriter::new(f);
-            z.start_file("readme.txt", SimpleFileOptions::default()).unwrap();
+            z.start_file("readme.txt", SimpleFileOptions::default())
+                .unwrap();
             z.write_all(b"hi").unwrap();
             z.finish().unwrap();
         }
