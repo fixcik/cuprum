@@ -73,6 +73,7 @@ export interface ProjectDesign {
 export interface Stackup {
   copper_weight_oz: number;
   substrate_thickness_mm: number;
+  double_sided: boolean;
 }
 
 export interface PanelDoc {

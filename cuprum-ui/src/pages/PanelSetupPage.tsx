@@ -4,7 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { Select } from "@/components/ui/Select";
-import { PanelBlankPreview } from "@/components/panel/PanelBlankPreview";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { PanelBlankCanvas } from "@/components/panel/PanelBlankCanvas";
 import { BUILTIN_PANEL_PRESETS, COPPER_WEIGHTS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
@@ -23,7 +24,9 @@ export function PanelSetupPage() {
   const [height, setHeight] = useState(100);
   const [copperWeight, setCopperWeight] = useState(DEFAULT_STACKUP.copper_weight_oz);
   const [substrate, setSubstrate] = useState(DEFAULT_STACKUP.substrate_thickness_mm);
+  const [doubleSided, setDoubleSided] = useState(DEFAULT_STACKUP.double_sided);
   const [saving, setSaving] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
 
   // Prefill when re-editing an already-configured blank.
   useEffect(() => {
@@ -33,7 +36,9 @@ export function PanelSetupPage() {
     if (st) {
       setCopperWeight(st.copper_weight_oz);
       setSubstrate(st.substrate_thickness_mm);
+      setDoubleSided(st.double_sided);
     }
+    setReadError(null);
     api
       .readPanel(currentPath)
       .then((p) => {
@@ -41,7 +46,11 @@ export function PanelSetupPage() {
         setWidth(p.width_mm);
         setHeight(p.height_mm);
       })
-      .catch(() => {});
+      .catch((e) => {
+        // Surface a corrupt/incompatible panel.json instead of silently
+        // falling back to defaults (which could overwrite a real config).
+        if (!cancelled) setReadError(String(e));
+      });
     return () => {
       cancelled = true;
     };
@@ -56,6 +65,9 @@ export function PanelSetupPage() {
     setHeight(p.heightMm);
     setCopperWeight(p.stackup.copper_weight_oz);
     setSubstrate(p.stackup.substrate_thickness_mm);
+    // Persisted presets predating `double_sided` (no persist-version bump) lack
+    // the field; default it so the boolean state never becomes undefined.
+    setDoubleSided(p.stackup.double_sided ?? false);
   };
 
   const savePreset = () => {
@@ -66,7 +78,7 @@ export function PanelSetupPage() {
       name: name.trim(),
       widthMm: width,
       heightMm: height,
-      stackup: { copper_weight_oz: copperWeight, substrate_thickness_mm: substrate },
+      stackup: { copper_weight_oz: copperWeight, substrate_thickness_mm: substrate, double_sided: doubleSided },
     });
   };
 
@@ -79,8 +91,11 @@ export function PanelSetupPage() {
       await savePanelConfig(newPanelDoc(width, height), {
         copper_weight_oz: copperWeight,
         substrate_thickness_mm: substrate,
+        double_sided: doubleSided,
       });
-      setView("project");
+      setView("project"); // only navigate on success (savePanelConfig rethrows)
+    } catch {
+      // error is already surfaced via shell store; stay on the wizard
     } finally {
       setSaving(false);
     }
@@ -102,7 +117,13 @@ export function PanelSetupPage() {
 
       <div className="flex min-h-0 flex-1">
         <div className="w-80 shrink-0 overflow-auto border-r border-border p-4">
-          <div className="mb-3">
+          {readError && (
+            <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+              {readError}
+            </div>
+          )}
+
+          <div className="mb-4">
             <label className="mb-1 block text-[11px] text-muted-foreground">{t("setup.preset")}</label>
             <div className="flex gap-2">
               <Select defaultValue="" onChange={(e) => applyPreset(e.target.value)} className="min-w-0 flex-1">
@@ -121,7 +142,10 @@ export function PanelSetupPage() {
             </div>
           </div>
 
-          <div className="divide-y divide-border/60">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("setup.sectionBlank")}
+          </div>
+          <div className="mb-4 divide-y divide-border/60">
             <label className="flex items-center justify-between gap-4 py-2">
               <span className="text-[12px] text-foreground">{t("setup.width")}</span>
               <div className="flex items-center gap-1.5">
@@ -150,6 +174,12 @@ export function PanelSetupPage() {
                 <span className="w-7 text-[11px] text-muted-foreground">mm</span>
               </div>
             </label>
+          </div>
+
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("setup.sectionStackup")}
+          </div>
+          <div className="divide-y divide-border/60">
             <label className="flex items-center justify-between gap-4 py-2">
               <span className="text-[12px] text-foreground">{t("setup.copperWeight")}</span>
               <Select
@@ -178,11 +208,22 @@ export function PanelSetupPage() {
                 <span className="w-7 text-[11px] text-muted-foreground">mm</span>
               </div>
             </label>
+            <div className="flex items-center justify-between gap-4 py-2">
+              <span className="text-[12px] text-foreground">{t("setup.sides")}</span>
+              <SegmentedControl<"single" | "double">
+                value={doubleSided ? "double" : "single"}
+                onChange={(v) => setDoubleSided(v === "double")}
+                options={[
+                  { value: "single", label: t("setup.sidesSingle") },
+                  { value: "double", label: t("setup.sidesDouble") },
+                ]}
+              />
+            </div>
           </div>
         </div>
 
         <div className="min-w-0 flex-1">
-          <PanelBlankPreview widthMm={width || 1} heightMm={height || 1} />
+          <PanelBlankCanvas widthMm={width || 1} heightMm={height || 1} doubleSided={doubleSided} />
         </div>
       </div>
     </div>
