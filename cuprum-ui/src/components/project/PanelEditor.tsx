@@ -35,10 +35,9 @@ export function PanelEditor() {
   const [presetName, setPresetName] = useState("");
 
   // Snapshot of the last-persisted params, so the autosave effect skips writing
-  // the just-prefilled values (and skips no-op rewrites).
-  // Seed with the initial (default) params so the first autosave pass is a no-op
-  // until prefill or a user edit changes something — avoids overwriting stored
-  // dimensions if readPanel resolves slower than the debounce.
+  // the just-prefilled values (and skips no-op rewrites). Seed with the initial
+  // (default) params so the first autosave pass is a no-op until prefill or a user
+  // edit changes something.
   const lastSaved = useRef(
     JSON.stringify({
       w: 100,
