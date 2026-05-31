@@ -469,9 +469,6 @@ export const useShell = create<ShellStore>((set, get) => ({
       if (prevWorkingDir && prevWorkingDir !== reopened.workingDir)
         await api.cleanupWorkdir(prevWorkingDir).catch(() => {});
       await get().loadRecents();
-      // Reset history and resync restore points from the reopened working dir.
-      // No auto point on import — the import itself is the undoable step.
-      set({ undoStack: [], redoStack: [] });
       await get().refreshRestorePoints();
     } catch (e) {
       set({ stagingError: String(e) });
