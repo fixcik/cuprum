@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, type LucideIcon } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, type LucideIcon } from "lucide-react";
 import { DesignsTab } from "@/components/project/DesignsTab";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
@@ -13,6 +13,37 @@ export function ProjectPage() {
   const manifest = useShell((s) => s.currentManifest);
   const [tab, setTab] = useState<ProjectTab>("panel");
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const workingDir = useShell((s) => s.workingDir);
+  const undo = useShell((s) => s.undo);
+  const redo = useShell((s) => s.redo);
+  const canUndo = useShell((s) => s.undoStack.length > 0);
+  const canRedo = useShell((s) => s.redoStack.length > 0);
+  const makeRestorePoint = useShell((s) => s.makeRestorePoint);
+  const restorePoints = useShell((s) => s.restorePoints);
+  const restoreTo = useShell((s) => s.restoreTo);
+  const historyBusy = useShell((s) => s.historyBusy);
+  const [pointsOpen, setPointsOpen] = useState(false);
+
+  // Keyboard shortcuts: ⌘/Ctrl+Z = undo, ⌘/Ctrl+Shift+Z = redo, ⌘/Ctrl+S = save point.
+  useEffect(() => {
+    if (!workingDir) return;
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      if (k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      } else if (k === "s") {
+        e.preventDefault();
+        makeRestorePoint();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [workingDir, undo, redo, makeRestorePoint]);
 
   if (!manifest) {
     return <div className="flex-1 p-6 text-[13px] text-muted-foreground">{t("noProject")}</div>;
@@ -44,15 +75,85 @@ export function ProjectPage() {
             </button>
           );
         })}
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          aria-label={t("aria.settings")}
-          title={t("aria.settings")}
-          className="ml-auto rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <Settings className="size-4" />
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => undo()}
+            disabled={!canUndo || historyBusy}
+            aria-label={t("history.undo")}
+            title={t("history.undo")}
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"
+          >
+            <Undo2 className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => redo()}
+            disabled={!canRedo || historyBusy}
+            aria-label={t("history.redo")}
+            title={t("history.redo")}
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"
+          >
+            <Redo2 className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => makeRestorePoint()}
+            disabled={historyBusy}
+            aria-label={t("history.savePoint")}
+            title={t("history.savePoint")}
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"
+          >
+            <Save className="size-4" />
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setPointsOpen((v) => !v)}
+              aria-label={t("aria.restorePoints")}
+              title={t("history.points")}
+              className="rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <History className="size-4" />
+            </button>
+            {pointsOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPointsOpen(false)} aria-hidden />
+                <div className="absolute right-0 z-20 mt-1 max-h-80 w-64 overflow-auto rounded-lg border border-border bg-card p-1 shadow-lg">
+                  {restorePoints.length === 0 ? (
+                    <div className="px-3 py-2 text-[12px] text-muted-foreground">{t("history.noPoints")}</div>
+                  ) : (
+                    restorePoints.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setPointsOpen(false);
+                          restoreTo(p.id);
+                        }}
+                        className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-1.5 text-left text-[12px] text-foreground transition-colors hover:bg-primary/10"
+                      >
+                        <span className="truncate">{p.label || t("history.autoOpenLabel")}</span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {new Date(p.createdAt * 1000).toLocaleTimeString()}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label={t("aria.settings")}
+            title={t("aria.settings")}
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Settings className="size-4" />
+          </button>
+        </div>
       </div>
 
       {/* Tab content */}
