@@ -291,6 +291,12 @@ export const api = {
     gerbers: { rel: string; layerType: LayerType }[],
     excludedKeys: string[] = [],
   ) => invoke<ArrayBuffer>("project_board_mesh", { workingDir, gerbers, excludedKeys }),
+  /** Measured manufacturing facts (DFM) for a committed design read from the
+   *  working dir; judged client-side against the capability profile. */
+  projectBoardMetrics: (
+    workingDir: string,
+    gerbers: { rel: string; layerType: LayerType }[],
+  ) => invoke<BoardMetrics>("project_board_metrics", { workingDir, gerbers }),
 
   displayPxPerMm: () => invoke<number>("display_px_per_mm"),
 
