@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::container::{self, MANIFEST_NAME, PANEL_NAME};
 use crate::manifest::Manifest;
-use crate::panel::PanelDoc;
 
 /// Marker file at the working-dir root, naming the source container and the
 /// owning process so orphans can be found after a crash.
@@ -53,20 +52,6 @@ pub fn write_manifest(workdir: &Path, manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-/// Read panel.json from the working dir, or `None` if absent.
-pub fn read_panel(workdir: &Path) -> Result<Option<PanelDoc>> {
-    let path = workdir.join(PANEL_NAME);
-    if !path.exists() {
-        return Ok(None);
-    }
-    Ok(Some(serde_json::from_slice(&fs::read(path)?)?))
-}
-
-pub fn write_panel(workdir: &Path, panel: &PanelDoc) -> Result<()> {
-    fs::write(workdir.join(PANEL_NAME), serde_json::to_vec_pretty(panel)?)?;
-    Ok(())
-}
-
 /// Pack the working dir back into `container` atomically: the manifest plus every
 /// file EXCEPT the manifest and the session marker (so panel.json + gerbers are
 /// preserved). Reuses `container::write` (temp-file + atomic rename).
@@ -90,7 +75,7 @@ fn collect_entries(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) ->
             .strip_prefix(root)?
             .to_string_lossy()
             .replace('\\', "/");
-        if rel == MANIFEST_NAME || rel == SESSION_MARKER {
+        if rel == MANIFEST_NAME || rel == SESSION_MARKER || rel == PANEL_NAME {
             continue;
         }
         out.push((rel, fs::read(&path)?));
@@ -132,16 +117,10 @@ pub fn scan_orphans(base: &Path, live_pid: u32) -> Result<Vec<Orphan>> {
             Ok(m) => m,
             Err(_) => continue, // unusable
         };
-        let working_panel = read_panel(&wd).ok().flatten();
         let source = Path::new(&marker.source_path);
-        let dirty = match (
-            container::read_manifest(source),
-            container::read_panel(source),
-        ) {
-            (Ok(saved_manifest), Ok(saved_panel)) => {
-                saved_manifest != working_manifest || saved_panel != working_panel
-            }
-            _ => true, // source missing/corrupt -> treat as recoverable
+        let dirty = match container::read_manifest(source) {
+            Ok(saved) => saved != working_manifest,
+            Err(_) => true, // source missing/corrupt -> treat as recoverable
         };
         out.push(Orphan {
             workdir: wd.to_string_lossy().to_string(),
@@ -230,21 +209,14 @@ mod tests {
     }
 
     #[test]
-    fn manifest_and_panel_round_trip_loose() {
+    fn manifest_round_trips_loose() {
         use crate::manifest::Manifest;
-        use crate::panel::PanelDoc;
         let wd = scratch("loose");
 
         let mut m = Manifest::new("demo");
         m.description = "hi".into();
         write_manifest(&wd, &m).unwrap();
         assert_eq!(read_manifest(&wd).unwrap(), m);
-
-        // No panel.json yet -> None.
-        assert!(read_panel(&wd).unwrap().is_none());
-        let p = PanelDoc::new(120.0, 80.0);
-        write_panel(&wd, &p).unwrap();
-        assert_eq!(read_panel(&wd).unwrap(), Some(p));
 
         std::fs::remove_dir_all(&wd).ok();
     }
@@ -307,10 +279,9 @@ mod tests {
     }
 
     #[test]
-    fn pack_round_trips_and_drops_marker() {
+    fn pack_drops_marker_and_legacy_panel() {
         use crate::layer::LayerType;
         use crate::manifest::{Design, GerberFile, Manifest};
-        use crate::panel::PanelDoc;
         let root = scratch("pack");
         let cuprum = root.join("p.cu");
 
@@ -338,13 +309,12 @@ mod tests {
         };
         extract(&cuprum, &wd, &marker).unwrap();
 
-        // Edit the document in the working dir.
         let mut edited = read_manifest(&wd).unwrap();
         edited.name = "renamed".into();
         write_manifest(&wd, &edited).unwrap();
-        write_panel(&wd, &PanelDoc::new(50.0, 40.0)).unwrap();
+        // Simulate a stray legacy panel.json sitting in the working dir.
+        std::fs::write(wd.join(container::PANEL_NAME), b"{}").unwrap();
 
-        // Pack to a different container path.
         let out = root.join("out.cu");
         pack(&wd, &out).unwrap();
 
@@ -353,9 +323,11 @@ mod tests {
             container::read_entry(&out, "gerbers/design-1/a.gbr").unwrap(),
             b"BYTES"
         );
-        assert_eq!(container::read_panel(&out).unwrap().unwrap().width_mm, 50.0);
-        // Marker must not leak into the container.
         assert!(container::read_entry(&out, SESSION_MARKER).is_err());
+        assert!(
+            container::read_entry(&out, container::PANEL_NAME).is_err(),
+            "legacy panel.json must not be packed"
+        );
 
         std::fs::remove_dir_all(&root).ok();
     }
