@@ -6,6 +6,9 @@
   "descriptionPlaceholder": "Click to edit description.",
   "layersProgress": "Layers {{loaded}}/{{total}}",
   "building3d": "Building 3D model…",
+  "designs": {
+    "back": "Back to designs"
+  },
   "tab": {
     "panel": "Panel",
     "designs": "Designs",

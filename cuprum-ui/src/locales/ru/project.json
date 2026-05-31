@@ -6,6 +6,9 @@
   "descriptionPlaceholder": "Нажмите чтобы отредактировать описание.",
   "layersProgress": "Слои {{loaded}}/{{total}}",
   "building3d": "Построение 3D-модели…",
+  "designs": {
+    "back": "К дизайнам"
+  },
   "tab": {
     "panel": "Панель",
     "designs": "Дизайны",
