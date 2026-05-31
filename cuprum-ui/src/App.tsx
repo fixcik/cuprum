@@ -28,6 +28,22 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Open-by-click: consume a queued path on cold start, then stay subscribed for
+  // relaunch / macOS Opened events. Both route through the shell's open flow.
+  useEffect(() => {
+    const openByPath = useShell.getState().openProjectByPath;
+    api
+      .takePendingOpen()
+      .then((path) => {
+        if (path) void openByPath(path);
+      })
+      .catch(() => {});
+    const pending = api.onOpenFile((path) => void useShell.getState().openProjectByPath(path));
+    return () => {
+      void pending.then((unlisten) => unlisten());
+    };
+  }, []);
+
   // Reflect the open project in the OS window title; reset to the app name
   // elsewhere. Wrapped so a non-Tauri (web) context is a no-op.
   useEffect(() => {

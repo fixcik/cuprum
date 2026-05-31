@@ -305,6 +305,11 @@ export const api = {
     open({ multiple: true, filters: [{ name: "ZIP", extensions: ["zip"] }] }) as Promise<
       string[] | null
     >,
+  /** Take (and clear) the project path a double-click/relaunch queued, if any. */
+  takePendingOpen: () => invoke<string | null>("take_pending_open"),
+  /** Subscribe to live "open this file" events (relaunch / macOS Opened). */
+  onOpenFile: (cb: (path: string) => void): Promise<UnlistenFn> =>
+    listen<string>("open-file", (e) => cb(e.payload)),
   pickProjectFile: () =>
     open({ multiple: false, filters: [{ name: "Cuprum", extensions: ["cu", "cuprum"] }] }) as Promise<
       string | null
