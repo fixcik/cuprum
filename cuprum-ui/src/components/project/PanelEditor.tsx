@@ -48,10 +48,13 @@ export function PanelEditor() {
   const prefilled = useRef<string | null>(null);
 
   // Prefill ONCE per project. Read stackup from the store snapshot (not as a hook
-  // dep) and dimensions from panel.json; set lastSaved to those values.
+  // dep) and dimensions from panel.json; set lastSaved to those values. The
+  // `prefilled` guard is marked done only AFTER apply succeeds (not synchronously
+  // up front) — otherwise React StrictMode's mount→unmount→mount in dev cancels
+  // the first run yet leaves the guard set, so the remount skips prefill and the
+  // editor is stuck on defaults (saved values never load back).
   useEffect(() => {
     if (!currentPath || prefilled.current === currentPath) return;
-    prefilled.current = currentPath;
     const st = useShell.getState().currentManifest?.stackup;
     const cw = st?.copper_weight_oz ?? DEFAULT_STACKUP.copper_weight_oz;
     const sub = st?.substrate_thickness_mm ?? DEFAULT_STACKUP.substrate_thickness_mm;
@@ -65,6 +68,7 @@ export function PanelEditor() {
       setSubstrate(sub);
       setDoubleSided(ds);
       lastSaved.current = JSON.stringify({ w, h, cw, sub, ds });
+      prefilled.current = currentPath;
     };
     api
       .readPanel(currentPath)
