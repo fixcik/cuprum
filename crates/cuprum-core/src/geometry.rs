@@ -790,7 +790,7 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
         .into_iter()
         .filter(|&(pa, pb, d)| {
             let mid = [(pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0];
-            poly_containing(polys, mid).map_or(true, |poly| neck_persists(poly, pa, pb, d))
+            poly_containing(polys, mid).is_none_or(|poly| neck_persists(poly, pa, pb, d))
         })
         .collect();
     (dedup_top(clear), width)
