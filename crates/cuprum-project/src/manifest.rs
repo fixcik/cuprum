@@ -1,12 +1,14 @@
 //! Project manifest — the `manifest.json` inside a `.cuprum` container.
 
 use crate::layer::LayerType;
+use crate::panel::PanelDoc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Bump when the on-disk shape changes incompatibly. v2: gerbers carry a layer
-/// type. v3: `imports` renamed to `designs` (old key still read via serde alias).
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+/// type. v3: `imports` renamed to `designs`. v4: the FR4 blank (`PanelDoc`) moved
+/// from a separate `panel.json` entry into this manifest's `panel` field.
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Manifest {
@@ -31,6 +33,10 @@ pub struct Manifest {
     /// FR4 stackup of the Panel; `None` until the panel blank is configured.
     #[serde(default)]
     pub stackup: Option<Stackup>,
+    /// The FR4 blank (size + panel-space origin); `None` until configured.
+    /// Migrated from the legacy `panel.json` container entry (schema v4).
+    #[serde(default)]
+    pub panel: Option<PanelDoc>,
 }
 
 impl Manifest {
@@ -45,6 +51,7 @@ impl Manifest {
             placements: Vec::new(),
             layer_colors: BTreeMap::new(),
             stackup: None,
+            panel: None,
         }
     }
 }
@@ -129,6 +136,30 @@ pub struct Placement {
     pub x_mm: f32,
     pub y_mm: f32,
     pub rotation_deg: u16,
+}
+
+#[cfg(test)]
+mod manifest_panel_tests {
+    use super::*;
+    use crate::panel::PanelDoc;
+
+    #[test]
+    fn manifest_round_trips_with_panel() {
+        let mut m = Manifest::new("demo");
+        m.panel = Some(PanelDoc::new(150.0, 100.0));
+        let json = serde_json::to_string_pretty(&m).unwrap();
+        let back: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(m, back);
+        assert_eq!(back.panel.unwrap().width_mm, 150.0);
+    }
+
+    #[test]
+    fn panel_defaults_to_none_when_absent() {
+        // A manifest written before the panel field existed (no `panel` key).
+        let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert!(m.panel.is_none());
+    }
 }
 
 #[cfg(test)]
