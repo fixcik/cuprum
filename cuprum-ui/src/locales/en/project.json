@@ -51,7 +51,14 @@
     "savePoint": "Save point",
     "points": "Restore points",
     "noPoints": "No restore points yet.",
-    "restore": "Restore"
+    "restore": "Restore",
+    "relative": {
+      "justNow": "just now",
+      "minutes": "{{n}} min ago",
+      "hours": "{{n}} h ago",
+      "yesterday": "yesterday",
+      "days": "{{n}} d ago"
+    }
   },
   "settings": {
     "title": "Project settings",

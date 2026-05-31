@@ -5,6 +5,7 @@ import { DesignsTab } from "@/components/project/DesignsTab";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
 import { useShell } from "@/shellStore";
+import { relativeTime } from "@/i18n/relativeTime";
 
 type ProjectTab = "panel" | "designs" | "operations";
 
@@ -127,11 +128,10 @@ export function ProjectPage() {
                     <div className="px-3 py-2 text-[12px] text-muted-foreground">{t("history.noPoints")}</div>
                   ) : (
                     restorePoints.map((p) => {
-                      const d = new Date(p.createdAt * 1000);
-                      const isToday = d.toDateString() === new Date().toDateString();
-                      const when = isToday
-                        ? d.toLocaleTimeString()
-                        : `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+                      const rel = relativeTime(p.createdAt);
+                      const when = t(rel.key, rel.params);
+                      // Absolute time as a hover tooltip for precision.
+                      const abs = new Date(p.createdAt * 1000).toLocaleString();
                       return (
                         <button
                           key={p.id}
@@ -140,6 +140,7 @@ export function ProjectPage() {
                             setPointsOpen(false);
                             restoreTo(p.id);
                           }}
+                          title={abs}
                           className="block w-full rounded-md px-3 py-1.5 text-left text-[12px] text-foreground transition-colors hover:bg-primary/10"
                         >
                           {when}
