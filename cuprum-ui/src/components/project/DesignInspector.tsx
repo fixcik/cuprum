@@ -137,8 +137,8 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   );
 
   // Build / refresh the local files model from the manifest design, streaming the
-  // per-gerber 2D SVG (non-drill) and drill holes. Mirrors DesignsTab's progressive
-  // pattern: a slots array + cancelled guard, recomputed on designId + gerber set.
+  // per-gerber 2D SVG (non-drill) and drill holes. Progressive pattern: a slots
+  // array + cancelled guard, recomputed on designId + gerber set.
   useEffect(() => {
     let cancelled = false;
     if (!workingDir || gerbers.length === 0) {

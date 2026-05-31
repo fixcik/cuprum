@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, type LucideIcon } from "lucide-react";
-import { DesignsTab } from "@/components/project/DesignsTab";
+import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
 import { useShell } from "@/shellStore";
@@ -167,7 +167,7 @@ export function ProjectPage() {
       {/* Tab content */}
       <div className="min-h-0 flex-1">
         {tab === "panel" && <PanelEditor />}
-        {tab === "designs" && <DesignsTab />}
+        {tab === "designs" && <DesignsGallery />}
         {tab === "operations" && (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <div className="text-[15px] font-semibold text-foreground">{t("operations.placeholder.title")}</div>

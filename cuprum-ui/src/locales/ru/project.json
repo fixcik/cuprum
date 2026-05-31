@@ -7,7 +7,11 @@
   "layersProgress": "Слои {{loaded}}/{{total}}",
   "building3d": "Построение 3D-модели…",
   "designs": {
-    "back": "К дизайнам"
+    "back": "К дизайнам",
+    "addDesign": "Добавить дизайн",
+    "layerCount": "слоёв: {{count}}",
+    "emptyTitle": "Дизайнов пока нет",
+    "emptyDesc": "Нажмите «Добавить дизайн», чтобы импортировать гербер-пакет."
   },
   "tab": {
     "panel": "Панель",
