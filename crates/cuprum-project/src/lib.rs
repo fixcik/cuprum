@@ -15,7 +15,8 @@ use anyhow::Result;
 
 pub use catalog::RecentProject;
 pub use layer::LayerType;
-pub use manifest::{GerberFile, Manifest};
+pub use manifest::{GerberFile, Manifest, Stackup};
+pub use panel::PanelDoc;
 
 /// Stable error token returned when a `.cuprum` file is missing on disk.
 pub const PROJECT_NOT_FOUND: &str = "PROJECT_NOT_FOUND";
@@ -257,6 +258,32 @@ pub fn update_project_metadata(
     Ok(manifest)
 }
 
+/// Read the panel blank (`panel.json`), or `None` if not yet configured.
+pub fn read_panel(container: &Path) -> Result<Option<PanelDoc>> {
+    ensure_project_exists(container)?;
+    container::read_panel(container)
+}
+
+/// Configure the panel blank: store the `Stackup` on the manifest and write
+/// `panel.json` with the blank dimensions. Bumps `last_opened_at`.
+pub fn configure_panel(
+    db_path: &Path,
+    container: &Path,
+    panel: &PanelDoc,
+    stackup: Stackup,
+    now: i64,
+) -> Result<Manifest> {
+    ensure_project_exists(container)?;
+    let mut manifest = container::read_manifest(container)?;
+    manifest.stackup = Some(stackup);
+    container::update_manifest(container, &manifest)?;
+    container::update_panel(container, panel)?;
+
+    let conn = catalog::open(db_path)?;
+    catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
+    Ok(manifest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,6 +463,37 @@ mod tests {
 
         let err = open_project(&db, &missing, 1000).unwrap_err();
         assert_eq!(err.to_string(), PROJECT_NOT_FOUND);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn configure_panel_sets_stackup_and_panel() {
+        use crate::manifest::Stackup;
+        use crate::panel::PanelDoc;
+        let dir = std::env::temp_dir().join(format!("cuprum-cfgpanel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("catalog.sqlite");
+        let save = dir.join("proj.cuprum");
+        create_project(&db, &save, "proj", &[], 1000).unwrap();
+
+        // Not configured initially.
+        assert!(read_panel(&save).unwrap().is_none());
+        assert!(open_project(&db, &save, 1500).unwrap().stackup.is_none());
+
+        let m = configure_panel(
+            &db,
+            &save,
+            &PanelDoc::new(150.0, 100.0),
+            Stackup { copper_weight_oz: 1.0, substrate_thickness_mm: 1.6 },
+            2000,
+        )
+        .unwrap();
+        assert_eq!(m.stackup.as_ref().unwrap().copper_weight_oz, 1.0);
+        assert_eq!(read_panel(&save).unwrap().unwrap().width_mm, 150.0);
+
+        // Persisted: reopening sees the stackup.
+        assert!(open_project(&db, &save, 2500).unwrap().stackup.is_some());
 
         std::fs::remove_dir_all(&dir).ok();
     }
