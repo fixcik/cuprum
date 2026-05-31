@@ -37,6 +37,35 @@ pub fn read_marker(workdir: &Path) -> Result<SessionMarker> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// Read the live manifest from the working dir.
+pub fn read_manifest(workdir: &Path) -> Result<Manifest> {
+    let bytes = fs::read(workdir.join(MANIFEST_NAME))?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Overwrite the working dir's manifest.json (called on every doc mutation).
+pub fn write_manifest(workdir: &Path, manifest: &Manifest) -> Result<()> {
+    fs::write(
+        workdir.join(MANIFEST_NAME),
+        serde_json::to_vec_pretty(manifest)?,
+    )?;
+    Ok(())
+}
+
+/// Read panel.json from the working dir, or `None` if absent.
+pub fn read_panel(workdir: &Path) -> Result<Option<PanelDoc>> {
+    let path = workdir.join(PANEL_NAME);
+    if !path.exists() {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_slice(&fs::read(path)?)?))
+}
+
+pub fn write_panel(workdir: &Path, panel: &PanelDoc) -> Result<()> {
+    fs::write(workdir.join(PANEL_NAME), serde_json::to_vec_pretty(panel)?)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,6 +88,26 @@ mod tests {
         };
         write_marker(&wd, &m).unwrap();
         assert_eq!(read_marker(&wd).unwrap(), m);
+        std::fs::remove_dir_all(&wd).ok();
+    }
+
+    #[test]
+    fn manifest_and_panel_round_trip_loose() {
+        use crate::manifest::Manifest;
+        use crate::panel::PanelDoc;
+        let wd = scratch("loose");
+
+        let mut m = Manifest::new("demo");
+        m.description = "hi".into();
+        write_manifest(&wd, &m).unwrap();
+        assert_eq!(read_manifest(&wd).unwrap(), m);
+
+        // No panel.json yet -> None.
+        assert!(read_panel(&wd).unwrap().is_none());
+        let p = PanelDoc::new(120.0, 80.0);
+        write_panel(&wd, &p).unwrap();
+        assert_eq!(read_panel(&wd).unwrap(), Some(p));
+
         std::fs::remove_dir_all(&wd).ok();
     }
 }
