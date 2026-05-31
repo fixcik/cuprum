@@ -28,6 +28,16 @@ cuprum-project = { path = "../../crates/cuprum-project" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.24"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSString",
+    "NSURL",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSDocumentController",
+] }
 
 [profile.release]
 opt-level = "s"

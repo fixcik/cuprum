@@ -57,6 +57,29 @@ fn dispatch_open(app: &AppHandle, path: String) {
     }
 }
 
+/// Register `path` with the OS so it shows up in the dock's "Open Recent" menu.
+/// Best-effort: any failure is silently ignored (recents are a nicety, not a
+/// requirement of opening a project).
+#[cfg(target_os = "macos")]
+fn record_recent_document(app: &AppHandle, path: String) {
+    use objc2_app_kit::NSDocumentController;
+    use objc2_foundation::{NSString, NSURL};
+
+    // AppKit's NSDocumentController is main-thread-only; hop onto the main thread.
+    let _ = app.run_on_main_thread(move || {
+        // Safe: `run_on_main_thread` guarantees we are on the main thread here.
+        let Some(mtm) = objc2_foundation::MainThreadMarker::new() else {
+            return;
+        };
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&path));
+        let controller = NSDocumentController::sharedDocumentController(mtm);
+        controller.noteNewRecentDocumentURL(&url);
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn record_recent_document(_app: &AppHandle, _path: String) {}
+
 #[derive(Serialize)]
 struct PrinterInfo {
     name: String,
@@ -367,6 +390,8 @@ fn open_project(app: AppHandle, path: String) -> Result<OpenedProjectDto, String
     };
     cuprum_project::workdir::extract(Path::new(&path), &workdir, &marker)
         .map_err(|e| e.to_string())?;
+    // Best-effort: surface this project in the macOS dock "Open Recent" menu.
+    record_recent_document(&app, path.clone());
     Ok(OpenedProjectDto {
         working_dir: workdir.to_string_lossy().to_string(),
         manifest,
