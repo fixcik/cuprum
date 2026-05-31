@@ -293,6 +293,50 @@ fn open_project(app: AppHandle, path: String) -> Result<OpenedProjectDto, String
     })
 }
 
+/// Pack the working dir back into the `.cuprum` container (Ctrl-S / save-as).
+#[tauri::command]
+fn save_project(working_dir: String, target_path: String) -> Result<(), String> {
+    cuprum_project::workdir::pack(Path::new(&working_dir), Path::new(&target_path))
+        .map_err(|e| e.to_string())
+}
+
+/// Mirror the current manifest into the working dir (called after every mutation
+/// so the loose copy stays the live document; basis for crash recovery).
+#[tauri::command]
+fn write_working_manifest(
+    working_dir: String,
+    manifest: cuprum_project::Manifest,
+) -> Result<(), String> {
+    cuprum_project::workdir::write_manifest(Path::new(&working_dir), &manifest)
+        .map_err(|e| e.to_string())
+}
+
+/// Mirror the panel doc into the working dir.
+#[tauri::command]
+fn write_working_panel(
+    working_dir: String,
+    panel: cuprum_project::PanelDoc,
+) -> Result<(), String> {
+    cuprum_project::workdir::write_panel(Path::new(&working_dir), &panel)
+        .map_err(|e| e.to_string())
+}
+
+/// List recoverable (dirty) orphan working dirs left by a previous run.
+#[tauri::command]
+fn scan_recoverable(app: AppHandle) -> Result<Vec<cuprum_project::Orphan>, String> {
+    let base = working_base(&app)?;
+    let orphans =
+        cuprum_project::workdir::scan_orphans(&base, std::process::id()).map_err(|e| e.to_string())?;
+    Ok(orphans.into_iter().filter(|o| o.dirty).collect())
+}
+
+/// Delete a working dir (clean shutdown / discard / after adopting recovery).
+#[tauri::command]
+fn cleanup_workdir(working_dir: String) -> Result<(), String> {
+    std::fs::remove_dir_all(Path::new(&working_dir)).ok();
+    Ok(())
+}
+
 #[tauri::command]
 fn import_zips(
     app: AppHandle,
@@ -1077,6 +1121,14 @@ fn display_px_per_mm() -> f32 {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // Remove clean (no-unsaved-changes) leftover working dirs from prior runs.
+            let handle = app.handle().clone();
+            if let Ok(base) = working_base(&handle) {
+                let _ = cuprum_project::workdir::gc_clean(&base, std::process::id());
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             discover,
             render_preview,
@@ -1085,6 +1137,11 @@ fn main() {
             list_recent_projects,
             create_project,
             open_project,
+            save_project,
+            write_working_manifest,
+            write_working_panel,
+            scan_recoverable,
+            cleanup_workdir,
             import_zips,
             remove_recent,
             update_project_metadata,
