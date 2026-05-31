@@ -89,6 +89,84 @@ fn unique_name(base: &str, used: &std::collections::HashSet<String>) -> String {
     }
 }
 
+/// Atomically reserve a fresh `design-N` directory under the working dir's
+/// `gerbers/` folder: scan for the current max `N`, then `create_dir` (fails if it
+/// already exists) and retry on collision. The create is the reservation, so two
+/// concurrent imports can never pick the same id. Filesystem-derived (not
+/// manifest-derived) so an undone-then-re-added design — whose bytes are kept on
+/// disk — never reuses a live id. Returns the id and its (now-created) dir.
+fn reserve_design_dir(workdir: &Path) -> Result<(String, PathBuf)> {
+    let gerbers_dir = workdir.join("gerbers");
+    std::fs::create_dir_all(&gerbers_dir)?;
+
+    let mut next = 1u32;
+    if let Ok(rd) = std::fs::read_dir(&gerbers_dir) {
+        for ent in rd.flatten() {
+            if !ent.path().is_dir() {
+                continue;
+            }
+            let name = ent.file_name();
+            let name = name.to_string_lossy();
+            if let Some(n) = name
+                .strip_prefix("design-")
+                .and_then(|s| s.parse::<u32>().ok())
+            {
+                let after = n
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("design id overflow"))?;
+                next = next.max(after);
+            }
+        }
+    }
+
+    loop {
+        let id = format!("design-{next}");
+        let dir = gerbers_dir.join(&id);
+        match std::fs::create_dir(&dir) {
+            Ok(()) => return Ok((id, dir)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                next = next
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("design id overflow"))?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+/// Add one source ZIP as a new Design directly inside an open project's working
+/// dir: copy each gerber to `gerbers/<new-id>/<name>` (deduping basenames),
+/// classify it by filename, and return the [`manifest::Design`] for the caller to
+/// merge into the manifest. Does NOT touch the manifest or the `.cuprum` — the UI
+/// merges the returned design and persists through the normal autosave path.
+pub fn add_design_to_workdir(workdir: &Path, zip_path: &Path) -> Result<manifest::Design> {
+    let imported = import::read_zip_gerbers(zip_path)?;
+    if imported.gerbers.is_empty() {
+        anyhow::bail!("no recognisable Gerber/drill files found in the ZIP");
+    }
+    // Reserve the id by creating its dir atomically (after the empty-zip check, so
+    // a junk ZIP never leaves a stray empty design dir behind).
+    let (id, design_dir) = reserve_design_dir(workdir)?;
+
+    let mut gerbers = Vec::new();
+    let mut used = std::collections::HashSet::new();
+    for (base, bytes) in &imported.gerbers {
+        let name = unique_name(base, &used);
+        used.insert(name.clone());
+        std::fs::write(design_dir.join(&name), bytes)?;
+        let rel = format!("gerbers/{id}/{name}");
+        gerbers.push(manifest::GerberFile {
+            path: rel,
+            layer_type: layer::classify(&name),
+        });
+    }
+    Ok(manifest::Design {
+        id,
+        source_name: imported.source_name,
+        gerbers,
+    })
+}
+
 /// Build container entries (gerbers) + manifest designs from a set of imported
 /// ZIPs. Each gerber is classified by its file name (see [`layer::classify`]).
 /// Shared by create_project and import_zips.
@@ -207,41 +285,6 @@ pub fn import_zips(
     Ok(manifest)
 }
 
-/// Import ZIPs into an existing container, then set the layer type of each
-/// newly-added gerber from `layer_types`, applied POSITIONALLY in staging order
-/// (the i-th value targets the i-th gerber across the imports just added). This
-/// is dedup-stable: the wizard's `stage_import` emits files in the same flat
-/// order `build_entries` walks, and dedup never drops or reorders files.
-/// Already-existing designs keep their layer types (see `import_zips`).
-pub fn commit_import(
-    db_path: &Path,
-    container: &Path,
-    zip_paths: &[PathBuf],
-    layer_types: &[LayerType],
-    now: i64,
-) -> Result<Manifest> {
-    // Number of designs already present, so we only re-type the newly added ones.
-    let existing_count = container::read_manifest(container)
-        .map(|m| m.designs.len())
-        .unwrap_or(0);
-
-    let mut manifest = import_zips(db_path, container, zip_paths, now)?;
-
-    let new_gerbers = manifest
-        .designs
-        .iter_mut()
-        .skip(existing_count)
-        .flat_map(|design| design.gerbers.iter_mut());
-    for (g, lt) in new_gerbers.zip(layer_types.iter()) {
-        g.layer_type = *lt;
-    }
-
-    // import_zips already rewrote the container; rewrite the manifest once more
-    // so the wizard's layer types land on disk.
-    container::update_manifest(container, &manifest)?;
-    Ok(manifest)
-}
-
 /// Update project display name and description in the container manifest.
 pub fn update_project_metadata(
     db_path: &Path,
@@ -332,6 +375,87 @@ mod tests {
     }
 
     #[test]
+    fn add_design_to_workdir_copies_and_classifies() {
+        use crate::layer::LayerType;
+        let dir = std::env::temp_dir().join(format!("cuprum-add-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // A source ZIP with a top-copper and an edge layer.
+        let zip = dir.join("board.zip");
+        {
+            use std::io::Write;
+            use zip::write::SimpleFileOptions;
+            let f = std::fs::File::create(&zip).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            let o = SimpleFileOptions::default();
+            z.start_file("board-F_Cu.gbr", o).unwrap();
+            z.write_all(b"G04 cu*").unwrap();
+            z.start_file("board-Edge_Cuts.gbr", o).unwrap();
+            z.write_all(b"G04 edge*").unwrap();
+            z.finish().unwrap();
+        }
+
+        // An empty working dir with a manifest (as `extract` would leave it).
+        let wd = dir.join("wd");
+        std::fs::create_dir_all(&wd).unwrap();
+        crate::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
+
+        let design = add_design_to_workdir(&wd, &zip).unwrap();
+
+        assert_eq!(design.id, "design-1");
+        assert_eq!(design.source_name, "board.zip");
+        assert_eq!(design.gerbers.len(), 2);
+        // Files landed under gerbers/design-1/ on disk.
+        assert_eq!(
+            std::fs::read(wd.join("gerbers/design-1/board-F_Cu.gbr")).unwrap(),
+            b"G04 cu*"
+        );
+        // Paths are container-relative with forward slashes.
+        assert!(design
+            .gerbers
+            .iter()
+            .any(|g| g.path == "gerbers/design-1/board-F_Cu.gbr"
+                && g.layer_type == LayerType::TopCopper));
+        assert!(design
+            .gerbers
+            .iter()
+            .any(|g| g.layer_type == LayerType::EdgeCuts));
+
+        // A SECOND add gets the next id from the filesystem, even though the manifest
+        // wasn't updated between calls (mirrors the multi-zip loop in the store).
+        let d2 = add_design_to_workdir(&wd, &zip).unwrap();
+        assert_eq!(d2.id, "design-2");
+        assert!(wd.join("gerbers/design-2/board-F_Cu.gbr").exists());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn add_design_to_workdir_rejects_zip_without_gerbers() {
+        let dir = std::env::temp_dir().join(format!("cuprum-add-empty-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip = dir.join("docs.zip");
+        {
+            use std::io::Write;
+            use zip::write::SimpleFileOptions;
+            let f = std::fs::File::create(&zip).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            z.start_file("readme.txt", SimpleFileOptions::default())
+                .unwrap();
+            z.write_all(b"hi").unwrap();
+            z.finish().unwrap();
+        }
+        let wd = dir.join("wd");
+        std::fs::create_dir_all(&wd).unwrap();
+        crate::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
+        assert!(add_design_to_workdir(&wd, &zip).is_err());
+        assert!(!wd.join("gerbers/design-1").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn create_open_import_flow() {
         let dir = std::env::temp_dir().join(format!("cuprum-lib-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -408,77 +532,6 @@ mod tests {
         let both: std::collections::HashSet<Vec<u8>> = [bytes0, bytes1].into_iter().collect();
         assert!(both.contains(b"AAA" as &[u8]), "AAA payload must be stored");
         assert!(both.contains(b"BBB" as &[u8]), "BBB payload must be stored");
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn commit_import_applies_layer_types_positionally() {
-        let dir = std::env::temp_dir().join(format!("cuprum-commit-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        // board.gbr auto-classifies to Other; the wizard overrides it to TopCopper.
-        let zip = make_source_zip(&dir, "pkg.zip"); // contains board.gbr
-        let m = commit_import(&db, &save, &[zip], &[LayerType::TopCopper], 2000).unwrap();
-        assert_eq!(m.designs.len(), 1);
-        assert_eq!(m.designs[0].gerbers[0].path, "gerbers/design-1/board.gbr");
-        assert_eq!(m.designs[0].gerbers[0].layer_type, LayerType::TopCopper);
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn commit_import_positional_survives_dedup() {
-        let dir = std::env::temp_dir().join(format!("cuprum-commit-dup-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        let zip = make_dup_source_zip(&dir, "dup.zip"); // two "top.gbr" (a/, b/)
-        let m = commit_import(
-            &db,
-            &save,
-            &[zip],
-            &[LayerType::TopCopper, LayerType::BottomCopper],
-            2000,
-        )
-        .unwrap();
-
-        let gerbers = &m.designs[0].gerbers;
-        assert_eq!(gerbers.len(), 2);
-        assert_eq!(gerbers[0].layer_type, LayerType::TopCopper);
-        assert_eq!(
-            gerbers[1].layer_type,
-            LayerType::BottomCopper,
-            "2nd choice must land on the deduped file"
-        );
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn reimport_preserves_existing_layer_types() {
-        let dir = std::env::temp_dir().join(format!("cuprum-reimport-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        let zip1 = make_source_zip(&dir, "one.zip");
-        commit_import(&db, &save, &[zip1], &[LayerType::TopCopper], 2000).unwrap();
-
-        let zip2 = make_source_zip(&dir, "two.zip");
-        let m = import_zips(&db, &save, &[zip2], 3000).unwrap();
-        assert_eq!(m.designs.len(), 2);
-        assert_eq!(
-            m.designs[0].gerbers[0].layer_type,
-            LayerType::TopCopper,
-            "existing import's layer type must survive a later import_zips"
-        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

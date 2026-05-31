@@ -6,6 +6,16 @@
   "descriptionPlaceholder": "Нажмите чтобы отредактировать описание.",
   "layersProgress": "Слои {{loaded}}/{{total}}",
   "building3d": "Построение 3D-модели…",
+  "designs": {
+    "back": "К дизайнам",
+    "addDesign": "Добавить дизайн",
+    "layerCount": "слоёв: {{count}}",
+    "emptyTitle": "Дизайнов пока нет",
+    "emptyDesc": "Нажмите «Добавить дизайн», чтобы импортировать гербер-пакет.",
+    "dropHint": "Перетащите ZIP-пакеты, чтобы добавить",
+    "dropHintShort": "или перетащите ZIP сюда",
+    "delete": "Удалить дизайн"
+  },
   "tab": {
     "panel": "Панель",
     "designs": "Дизайны",
@@ -26,6 +36,7 @@
   "setup": {
     "width": "Ширина",
     "height": "Высота",
+    "maxFromSettings": "Макс. {{w}} × {{h}} мм (рабочая зона станка, из Настроек)",
     "copperWeight": "Медь",
     "substrate": "Толщина FR4",
     "preset": "Пресет",
@@ -51,7 +62,14 @@
     "savePoint": "Контрольная точка",
     "points": "Контрольные точки",
     "noPoints": "Пока нет контрольных точек.",
-    "restore": "Восстановить"
+    "restore": "Восстановить",
+    "relative": {
+      "justNow": "только что",
+      "minutes": "{{n}} мин назад",
+      "hours": "{{n}} ч назад",
+      "yesterday": "вчера",
+      "days": "{{n}} дн назад"
+    }
   },
   "settings": {
     "title": "Настройки проекта",

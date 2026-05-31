@@ -1,4 +1,4 @@
-import type { BoardMetrics, GeoHotspot } from "@/lib/api";
+import type { BoardMetrics, GeoHotspot, PanelDoc } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
 /** A finding's severity. `info` is advisory — shown, but never escalates the
@@ -106,16 +106,26 @@ function viaCount(metrics: BoardMetrics, maxDiaMm: number): number {
 }
 
 /** Judge measured board metrics against the machine capability profile. Returns
- *  one Phase-1 finding per applicable check (Phase 2/3 checks are omitted). */
-export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfile): Finding[] {
+ *  one Phase-1 finding per applicable check (Phase 2/3 checks are omitted).
+ *  `panel` is the project's FR4 blank: a design must fit ON the panel, so the
+ *  size check uses the panel's dimensions when one is configured, falling back to
+ *  the machine's max work area (from settings) until a panel is set. */
+export function evaluate(
+  metrics: BoardMetrics | null,
+  profile: CapabilityProfile,
+  panel?: PanelDoc | null,
+): Finding[] {
   if (!metrics) return [];
   const out: Finding[] = [];
   const { board, layers, drill } = metrics;
 
-  // --- Size: fits the max panel (try rotated if allowed) ---
+  // --- Size: fits the panel (or the machine's max work area until a panel is
+  // set), trying rotated if allowed ---
   if (board.hasEdgeLayer) {
     const { widthMm: w, heightMm: h } = board;
-    const { maxPanelWidthMm: mw, maxPanelHeightMm: mh } = profile;
+    const hasPanel = !!panel && panel.width_mm > 0 && panel.height_mm > 0;
+    const mw = hasPanel ? panel!.width_mm : profile.maxPanelWidthMm;
+    const mh = hasPanel ? panel!.height_mm : profile.maxPanelHeightMm;
     const fitsDirect = w <= mw && h <= mh;
     const fitsRotated = h <= mw && w <= mh;
     const label: I18nText = { key: "feasibility:size.label" };

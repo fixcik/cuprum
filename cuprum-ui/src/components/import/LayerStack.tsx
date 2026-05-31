@@ -29,6 +29,9 @@ export interface StackLayer {
 const MIN_SCALE = 0.05;
 const MAX_ZOOM = 150; // cap at 15000% of real size (maxScale = pxPerMm * MAX_ZOOM)
 const DEFAULT_FILL = 0.5; // board fills ~50% of the pane on first frame
+// "Fit all" / thumbnail framing leaves a small gap so the board never sits flush
+// against the rulers/edges.
+const FIT_MARGIN = 0.9;
 const RULER = 20; // px — width/height of the edge rulers
 /** Measure tool accent — white, readable on the green PCB preview. */
 const MEASURE = "rgba(255,255,255,0.92)";
@@ -100,6 +103,7 @@ export function LayerStack({
   onScale,
   markers = [],
   focusTarget = null,
+  chrome = true,
 }: {
   layers: StackLayer[];
   holes?: Hole[];
@@ -110,6 +114,9 @@ export function LayerStack({
   markers?: DrcMarkerInput[];
   /** When set, centre+zoom the view on this board point. */
   focusTarget?: FocusTarget | null;
+  /** Interactive chrome (rulers, zoom toolbar, board-size badge, pan/zoom). When
+   *  false the viewer is a static, fit-to-board thumbnail with none of that. */
+  chrome?: boolean;
 }) {
   const { t } = useTranslation("import");
   const { fmtLen } = useUnitFormat();
@@ -156,12 +163,16 @@ export function LayerStack({
   const [mB, setMB] = useState<[number, number] | null>(null);
   const [hover, setHover] = useState<{ g: [number, number]; snapped: boolean } | null>(null);
 
-  // Fit/centre into the area NOT covered by the rulers (offset by RULER on the
+  // Space reserved for the edge rulers; zero in chrome-less thumbnail mode so the
+  // board centres in the whole pane.
+  const rPad = chrome ? RULER : 0;
+
+  // Fit/centre into the area NOT covered by the rulers (offset by rPad on the
   // top and left edges), so the board never hides under them.
   const fitScale = useCallback(() => {
     if (!box || size.w === 0 || size.h === 0) return 1;
-    return Math.min((size.w - RULER) / w, (size.h - RULER) / h);
-  }, [box, size.w, size.h, w, h]);
+    return Math.min((size.w - rPad) / w, (size.h - rPad) / h);
+  }, [box, size.w, size.h, w, h, rPad]);
 
   const frameAt = useCallback(
     (scale: number) => {
@@ -169,11 +180,11 @@ export function LayerStack({
       const s = Math.min(maxScale, Math.max(MIN_SCALE, scale));
       setView({
         s,
-        tx: (size.w + RULER - s * w) / 2 - s * box.minX,
-        ty: (size.h + RULER - s * h) / 2 - s * box.minY,
+        tx: (size.w + rPad - s * w) / 2 - s * box.minX,
+        ty: (size.h + rPad - s * h) / 2 - s * box.minY,
       });
     },
-    [box, size.w, size.h, w, h, maxScale],
+    [box, size.w, size.h, w, h, maxScale, rPad],
   );
 
   // Frame at the default fill when the board extent or pane size changes — keyed
@@ -184,8 +195,10 @@ export function LayerStack({
     if (!box || size.w === 0) return;
     if (framed.current === frameKey) return;
     framed.current = frameKey;
-    frameAt(fitScale() * DEFAULT_FILL);
-  }, [frameKey, box, size.w, frameAt, fitScale]);
+    // Interactive view opens at the default fill; the static thumbnail fits the
+    // whole board (with a small margin).
+    frameAt(fitScale() * (chrome ? DEFAULT_FILL : FIT_MARGIN));
+  }, [frameKey, box, size.w, frameAt, fitScale, chrome]);
 
   // Programmatic focus: centre the requested board point at the target scale.
   const focusNonce = useRef(-1);
@@ -208,7 +221,7 @@ export function LayerStack({
   // actually stops the page from scrolling (React's onWheel is passive).
   useEffect(() => {
     const el = svgRef.current;
-    if (!el) return;
+    if (!el || !chrome) return; // thumbnail mode is non-interactive
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
@@ -226,7 +239,7 @@ export function LayerStack({
     // `box` is in the deps so the listener (re)attaches once the <svg> actually
     // mounts: on entering a project the layers load async, so the first pass runs
     // with no <svg> yet (the empty-state div is shown) and svgRef is null.
-  }, [maxScale, box]);
+  }, [maxScale, box, chrome]);
 
   // Drag to pan — screen px in, screen px out, so it tracks the cursor exactly.
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
@@ -250,7 +263,7 @@ export function LayerStack({
     setView({ s: ns, tx: cx - wx * ns, ty: cy - wy * ns });
   };
   const realSize = () => frameAt(pxPerMm);
-  const fitFull = () => frameAt(fitScale());
+  const fitFull = () => frameAt(fitScale() * FIT_MARGIN);
   const centerView = () => frameAt(viewRef.current.s); // recenter, keep zoom
 
   // Board outline path (gerber mm) for clipping the soldermask/substrate to the
@@ -370,6 +383,7 @@ export function LayerStack({
   };
 
   const onDown = (e: React.MouseEvent) => {
+    if (!chrome) return; // thumbnail mode: no pan
     if (tool === "measure") {
       if (e.button !== 0) { setMA(null); setMB(null); return; } // right/middle clears
       const rect = svgRef.current!.getBoundingClientRect();
@@ -427,7 +441,7 @@ export function LayerStack({
     <div ref={setContainer} className="relative h-full w-full overflow-hidden bg-pcb-preview">
       <svg
         ref={svgRef}
-        className={`h-full w-full ${tool === "measure" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+        className={`h-full w-full ${!chrome ? "cursor-pointer" : tool === "measure" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
         onMouseDown={onDown}
         onMouseMove={onMove}
         onMouseUp={onUp}
@@ -595,6 +609,7 @@ export function LayerStack({
         {/* Edge rulers — screen space, drawn LAST so they sit on top of every
             layer and the measure overlay; their opaque fill clips content out of
             the ruler band so nothing ever bleeds onto them. */}
+        {chrome && (
         <g style={{ pointerEvents: "none" }}>
           <rect x={0} y={0} width={size.w} height={RULER} style={{ fill: "hsl(var(--card))" }} />
           <rect x={0} y={0} width={RULER} height={size.h} style={{ fill: "hsl(var(--card))" }} />
@@ -657,17 +672,21 @@ export function LayerStack({
           <line x1={RULER} y1={0} x2={RULER} y2={size.h} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
           <line x1={0} y1={RULER} x2={size.w} y2={RULER} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
         </g>
+        )}
       </svg>
 
       <DrcMarkers markers={projectedMarkers} width={size.w} height={size.h} />
 
-      <div
-        className="absolute right-2 top-[26px] rounded-md border border-border bg-card/90 px-2 py-1 text-[11px] tabular-nums text-muted-foreground"
-        title={t("viewer.boardSize")}
-      >
-        {fmtLen(boardW)} × {fmtLen(boardH)}
-      </div>
+      {chrome && (
+        <div
+          className="absolute right-2 top-[26px] rounded-md border border-border bg-card/90 px-2 py-1 text-[11px] tabular-nums text-muted-foreground"
+          title={t("viewer.boardSize")}
+        >
+          {fmtLen(boardW)} × {fmtLen(boardH)}
+        </div>
+      )}
 
+      {chrome && (
       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground">
         <button
           className={`cursor-pointer rounded p-1 hover:bg-muted/60 ${tool === "measure" ? "bg-primary/20 text-primary" : ""}`}
@@ -719,6 +738,7 @@ export function LayerStack({
           <Maximize className="size-4" />
         </button>
       </div>
+      )}
     </div>
   );
 }

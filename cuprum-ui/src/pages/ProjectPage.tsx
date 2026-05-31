@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, type LucideIcon } from "lucide-react";
-import { DesignsTab } from "@/components/project/DesignsTab";
+import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
 import { useShell } from "@/shellStore";
+import { relativeTime } from "@/i18n/relativeTime";
 
 type ProjectTab = "panel" | "designs" | "operations";
 
 export function ProjectPage() {
-  const { t } = useTranslation("project");
+  const { t, i18n } = useTranslation("project");
   const manifest = useShell((s) => s.currentManifest);
   const [tab, setTab] = useState<ProjectTab>("panel");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -127,11 +128,11 @@ export function ProjectPage() {
                     <div className="px-3 py-2 text-[12px] text-muted-foreground">{t("history.noPoints")}</div>
                   ) : (
                     restorePoints.map((p) => {
-                      const d = new Date(p.createdAt * 1000);
-                      const isToday = d.toDateString() === new Date().toDateString();
-                      const when = isToday
-                        ? d.toLocaleTimeString()
-                        : `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+                      const rel = relativeTime(p.createdAt);
+                      const when = t(rel.key, rel.params);
+                      // Absolute time as a hover tooltip for precision — in the
+                      // app's locale (i18n), not the browser's.
+                      const abs = new Date(p.createdAt * 1000).toLocaleString(i18n.language);
                       return (
                         <button
                           key={p.id}
@@ -140,6 +141,7 @@ export function ProjectPage() {
                             setPointsOpen(false);
                             restoreTo(p.id);
                           }}
+                          title={abs}
                           className="block w-full rounded-md px-3 py-1.5 text-left text-[12px] text-foreground transition-colors hover:bg-primary/10"
                         >
                           {when}
@@ -166,7 +168,7 @@ export function ProjectPage() {
       {/* Tab content */}
       <div className="min-h-0 flex-1">
         {tab === "panel" && <PanelEditor />}
-        {tab === "designs" && <DesignsTab />}
+        {tab === "designs" && <DesignsGallery />}
         {tab === "operations" && (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <div className="text-[15px] font-semibold text-foreground">{t("operations.placeholder.title")}</div>

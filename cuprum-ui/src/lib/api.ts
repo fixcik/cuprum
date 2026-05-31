@@ -145,42 +145,6 @@ export interface LayerGeometry {
   snap: [number, number][];
 }
 
-/** Per-file SVG preview load state during progressive staging.
- *  `none` = no SVG for this file (e.g. a drill layer). */
-export type SvgStatus = "pending" | "loaded" | "error" | "none";
-
-export interface StagedFile {
-  sourceZip: string;
-  filename: string;
-  layerType: LayerType;
-  svgBody: string | null;
-  bbox: BBox | null;
-  snap: [number, number][];
-  error: string | null;
-  /** Drill holes parsed from this file (empty for non-drill files). */
-  holes: Hole[];
-  /** Set when a drill file carried coordinates we couldn't parse into holes
-   *  (distinct from a genuinely empty drill file, where this stays null). */
-  drillError: string | null;
-  /** Progressive load state of this file's SVG preview. */
-  svgStatus: SvgStatus;
-}
-
-/** Fast classification result (no SVG yet) from `stage_classify`. */
-export interface StagedClassFile {
-  sourceZip: string;
-  filename: string;
-  layerType: LayerType;
-  holes: Hole[];
-  /** Drill parse error, if the drill body couldn't be understood. */
-  drillError: string | null;
-}
-
-export interface StagedImport {
-  files: StagedFile[];
-  holes: Hole[];
-}
-
 export interface Hole {
   x: number;
   y: number;
@@ -298,22 +262,16 @@ export const api = {
     invoke<RestorePointMeta[]>("list_restore_points", { workingDir }),
   readRestorePoint: (workingDir: string, id: string) =>
     invoke<Manifest>("read_restore_point", { workingDir, id }),
-  importZips: (path: string, zipPaths: string[]) =>
-    invoke<Manifest>("import_zips", { path, zipPaths }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   updateProjectMetadata: (path: string, name: string, description: string) =>
     invoke<Manifest>("update_project_metadata", { path, name, description }),
   configurePanel: (path: string, panel: PanelDoc, stackup: Stackup) =>
     invoke<Manifest>("configure_panel", { path, panel, stackup }),
-  stageImport: (zipPaths: string[]) => invoke<StagedImport>("stage_import", { zipPaths }),
-  /** Fast: classify every gerber (names + types + drill holes), no SVG render. */
-  stageClassify: (zipPaths: string[]) =>
-    invoke<{ files: StagedClassFile[] }>("stage_classify", { zipPaths }),
-  /** Render ONE staged layer's SVG by its staging index (call per-layer). */
-  stageLayerSvg: (zipPaths: string[], index: number) =>
-    invoke<LayerGeometry>("stage_layer_svg", { zipPaths, index }),
-  commitImport: (path: string, zipPaths: string[], layerTypes: LayerType[]) =>
-    invoke<Manifest>("commit_import", { path, zipPaths, layerTypes }),
+  /** Copy a source ZIP into the open project's working dir as a new design
+   *  (auto-classified) and return it; merge into the manifest + persist via the
+   *  autosave path. */
+  addDesignFromZip: (workingDir: string, zipPath: string) =>
+    invoke<ProjectDesign>("add_design_from_zip", { workingDir, zipPath }),
   renderGerberSvg: (workingDir: string, gerberRel: string) =>
     invoke<LayerGeometry>("render_gerber_svg", { workingDir, gerberRel }),
   readDrill: (workingDir: string, gerberRel: string) =>
@@ -326,17 +284,6 @@ export const api = {
   /** Soldermask = board outline rings MINUS the mask openings. */
   maskPolygons: (workingDir: string, gerberRel: string, outlineRings: [number, number][][]) =>
     invoke<Poly[]>("mask_polygons", { workingDir, gerberRel, outlineRings }),
-  /** Full triangulated 3D board mesh for STAGED gerbers (import wizard), as a
-   *  binary blob (see lib/boardMesh.ts). `layerTypes` are positional, in staging
-   *  order. `excludedKeys` (staging-index strings) drop hidden drill layers so
-   *  their holes are removed from the board too. */
-  stagedBoardMesh: (zipPaths: string[], layerTypes: LayerType[], excludedKeys: string[] = []) =>
-    invoke<ArrayBuffer>("staged_board_mesh", { zipPaths, layerTypes, excludedKeys }),
-  /** Measured manufacturing facts (board size, layer inventory, min trace, drill
-   *  stats) for STAGED gerbers under the current per-file `layerTypes` (positional,
-   *  staging order). The frontend judges these against the capability profile. */
-  stagedBoardMetrics: (zipPaths: string[], layerTypes: LayerType[]) =>
-    invoke<BoardMetrics>("staged_board_metrics", { zipPaths, layerTypes }),
   /** Full triangulated 3D board mesh for a COMMITTED project, as a binary blob.
    *  `excludedKeys` (gerber-rel strings) drop hidden drill layers. */
   projectBoardMesh: (
@@ -344,6 +291,12 @@ export const api = {
     gerbers: { rel: string; layerType: LayerType }[],
     excludedKeys: string[] = [],
   ) => invoke<ArrayBuffer>("project_board_mesh", { workingDir, gerbers, excludedKeys }),
+  /** Measured manufacturing facts (DFM) for a committed design read from the
+   *  working dir; judged client-side against the capability profile. */
+  projectBoardMetrics: (
+    workingDir: string,
+    gerbers: { rel: string; layerType: LayerType }[],
+  ) => invoke<BoardMetrics>("project_board_metrics", { workingDir, gerbers }),
 
   displayPxPerMm: () => invoke<number>("display_px_per_mm"),
 

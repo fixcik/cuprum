@@ -25,6 +25,11 @@ export function PanelEditor() {
   const docNonce = useShell((s) => s.docNonce);
   const userPresets = useSettings((s) => s.panelPresets);
   const addPanelPreset = useSettings((s) => s.addPanelPreset);
+  // The panel is bounded by the machine's work area (from Settings): you can't
+  // make a blank larger than the machine can expose/process.
+  const profile = useSettings((s) => s.profile);
+  const maxW = profile.maxPanelWidthMm;
+  const maxH = profile.maxPanelHeightMm;
 
   const [width, setWidth] = useState(100);
   const [height, setHeight] = useState(100);
@@ -145,11 +150,14 @@ export function PanelEditor() {
 
         <SettingsSection icon={Ruler} title={t("setup.sectionBlank")}>
           <SettingRow label={t("setup.width")}>
-            <UnitField value={width} onChange={setWidth} unit="mm" step="1" />
+            <UnitField value={width} onChange={(v) => setWidth(Math.min(v, maxW))} unit="mm" step="1" />
           </SettingRow>
           <SettingRow label={t("setup.height")}>
-            <UnitField value={height} onChange={setHeight} unit="mm" step="1" />
+            <UnitField value={height} onChange={(v) => setHeight(Math.min(v, maxH))} unit="mm" step="1" />
           </SettingRow>
+          <p className="px-1 text-[11px] text-muted-foreground">
+            {t("setup.maxFromSettings", { w: maxW, h: maxH })}
+          </p>
         </SettingsSection>
 
         <SettingsSection icon={Layers} title={t("setup.sectionStackup")}>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, FileX2, Layers } from "lucide-react";
+import { Loader2, Layers, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LayerPanel, type PanelRow } from "@/components/import/LayerPanel";
 import { type StackLayer, type FocusTarget } from "@/components/import/LayerStack";
@@ -8,7 +8,7 @@ import { type DrcMarkerInput } from "@/components/preview/DrcMarkers";
 import { PreviewPane, type PreviewMode, type PreviewTab } from "@/components/preview/PreviewPane";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { colorFor, sideOf, stackOrder, missingRequired } from "@/lib/layerColors";
-import { api, type BoardMetrics, type LayerType } from "@/lib/api";
+import { api, type BBox, type BoardMetrics, type Hole, type LayerType } from "@/lib/api";
 import type { FindingCategory, I18nText } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { evaluate, overallVerdict, VERDICT_KEY } from "@/lib/feasibility";
@@ -39,19 +39,40 @@ const FINDING_LAYER_TYPES: Partial<Record<FindingCategory, LayerType[]>> = {
   via: ["drill"],
 };
 
-// Identity is the staged INDEX (not name): files can share a basename, and the
-// commit applies layer types positionally in staging order.
-export function ImportWizardPage() {
-  const staged = useShell((s) => s.staged);
-  const staging = useShell((s) => s.staging);
-  const stagedZipPaths = useShell((s) => s.stagedZipPaths);
-  const setLayerType = useShell((s) => s.setLayerType);
-  const confirmImport = useShell((s) => s.confirmImport);
-  const cancelImport = useShell((s) => s.cancelImport);
-  const stagingError = useShell((s) => s.stagingError);
-  const manifest = useShell((s) => s.currentManifest);
+/** Per-gerber render status for the streaming 2D preview. */
+type SvgStatus = "none" | "pending" | "loaded" | "error";
 
-  const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers"]);
+/** Local, UI-only model of one gerber in this design. Layer type is NOT stored
+ *  here — the manifest design is the source of truth; this carries only the
+ *  derived 2D/drill render state, keyed by position in `gerbers[]`. */
+interface InspectorFile {
+  path: string;
+  filename: string;
+  svgBody?: string;
+  bbox?: BBox;
+  snap?: [number, number][];
+  holes: Hole[];
+  drillError: string | null;
+  svgStatus: SvgStatus;
+}
+
+interface DesignInspectorProps {
+  designId: string;
+  onBack: () => void;
+}
+
+// Identity is the gerber REL-PATH (g.path), matching project_board_mesh /
+// project_board_metrics. LayerPanel keeps its numeric `index` = position in this
+// design's gerbers[]; the inspector maps index -> gerbers[index].path at every
+// call site that crosses into the store or a rel-path key set.
+export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
+  const manifest = useShell((s) => s.currentManifest);
+  const workingDir = useShell((s) => s.workingDir);
+  const setDesignLayerType = useShell((s) => s.setDesignLayerType);
+  const design = manifest?.designs.find((d) => d.id === designId) ?? null;
+  const gerbers = useMemo(() => design?.gerbers ?? [], [design]);
+
+  const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers", "project"]);
   const { fmtLen, fmtLenPair } = useUnitFormat();
   // Resolve an I18nText to a display string: length params unit-formatted, key-like
   // string params translated, then the text key translated. `lenOverride`, when
@@ -94,49 +115,116 @@ export function ImportWizardPage() {
   // Measured manufacturing facts (DFM) + their loading state.
   const [metrics, setMetrics] = useState<BoardMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
-  // Per-file MANUAL hide toggles by staged INDEX (UI-only, not persisted).
-  const [hidden, setHidden] = useState<Set<number>>(new Set());
+  // Per-gerber MANUAL hide toggles by REL-PATH (UI-only, not persisted).
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  // Streaming 2D/drill render state, indexed by position in gerbers[].
+  const [files, setFiles] = useState<InspectorFile[]>([]);
   const overrides = manifest?.layer_colors;
   const profile = useSettings((s) => s.profile);
 
   // Required layers (the board outline) that must be assigned for a valid,
   // previewable board. While any are missing we skip the (expensive) mesh build
   // and prompt the user to assign them instead of rendering.
-  const missing = useMemo(() => missingRequired(staged.map((f) => f.layerType)), [staged]);
+  const missing = useMemo(() => missingRequired(gerbers.map((g) => g.layer_type)), [gerbers]);
   const hasRequired = missing.length === 0;
 
+  // Stable key over the design's gerber set (rel-path + type). Drives the 2D/3D/
+  // metrics recompute: changing a layer type mutates the manifest -> gerbers ->
+  // this key, so everything downstream refreshes.
+  const gerbersKey = useMemo(
+    () => gerbers.map((g) => `${g.path}:${g.layer_type}`).join(","),
+    [gerbers],
+  );
+
+  // Build / refresh the local files model from the manifest design, streaming the
+  // per-gerber 2D SVG (non-drill) and drill holes. Progressive pattern: a slots
+  // array + cancelled guard, recomputed on designId + gerber set.
+  useEffect(() => {
+    let cancelled = false;
+    if (!workingDir || gerbers.length === 0) {
+      setFiles([]);
+      return;
+    }
+    const base: InspectorFile[] = gerbers.map((g) => ({
+      path: g.path,
+      filename: g.path.split("/").pop() ?? g.path,
+      holes: [],
+      drillError: null,
+      svgStatus: g.layer_type === "drill" ? "none" : "pending",
+    }));
+    const slots = base.slice();
+    setFiles(base.map((f) => ({ ...f })));
+    const flush = () => {
+      if (!cancelled) setFiles(slots.map((f) => ({ ...f })));
+    };
+    gerbers.forEach((g, i) => {
+      if (g.layer_type === "drill") {
+        api
+          .readDrill(workingDir, g.path)
+          .then((holes) => {
+            if (cancelled) return;
+            slots[i] = { ...slots[i], holes };
+            flush();
+          })
+          .catch((e) => {
+            if (cancelled) return;
+            slots[i] = { ...slots[i], drillError: String(e) };
+            flush();
+          });
+      } else {
+        api
+          .renderGerberSvg(workingDir, g.path)
+          .then((geo) => {
+            if (cancelled) return;
+            slots[i] = {
+              ...slots[i],
+              svgBody: geo.svgBody,
+              bbox: geo.bbox,
+              snap: geo.snap,
+              svgStatus: "loaded",
+            };
+            flush();
+          })
+          .catch(() => {
+            if (cancelled) return;
+            slots[i] = { ...slots[i], svgStatus: "error" };
+            flush();
+          });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workingDir, designId, gerbersKey]);
+
   // Build the full 3D board mesh in the Rust core (off the UI thread) from the
-  // STAGED ZIP bytes — same path as the project view, so the import wizard no
-  // longer freezes building geometry in JS and the silk is cut at drill holes.
-  // Recomputes only when the file set or a layer-type assignment changes (NOT on
-  // visibility toggles — those are a client-side show/hide in Board3D).
-  // Hidden DRILL layers are dropped from the 3D mesh entirely (so their holes
-  // leave the board, not just the barrels) — a server-side rebuild. Non-drill
-  // layers toggle client-side via visibleKeys (instant, no refetch).
+  // working-dir loose files keyed by rel-path. Recomputes only when the gerber set
+  // / a layer-type assignment changes, or when a drill layer's visibility flips
+  // (hidden drill layers are dropped from the mesh entirely — a server-side
+  // rebuild). Non-drill layers toggle client-side via visibleKeys (instant).
   const excludedDrillKeys = useMemo(
     () =>
-      staged
-        .map((f, i) => ({ f, i }))
-        .filter(({ f, i }) => f.layerType === "drill" && hidden.has(i))
-        .map(({ i }) => String(i)),
-    [staged, hidden],
+      gerbers
+        .filter((g) => g.layer_type === "drill" && hidden.has(g.path))
+        .map((g) => g.path),
+    [gerbers, hidden],
   );
-  const layerTypesKey = staged.map((f) => f.layerType).join(",");
   const excludedKey = excludedDrillKeys.join(",");
   useEffect(() => {
     let cancelled = false;
     // No outline assigned → nothing valid to build; don't spend time on the mesh.
-    if (staged.length === 0 || stagedZipPaths.length === 0 || !hasRequired) {
+    if (!workingDir || gerbers.length === 0 || !hasRequired) {
       setMesh(null);
       return;
     }
-    const layerTypes = staged.map((f) => f.layerType);
+    const refs = gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type }));
     // Keep the previous mesh visible while recomputing (drill/type change) so the
     // 3D Canvas isn't torn down — that preserves the camera and avoids replaying
-    // the intro animation. Only a genuinely empty staging clears it (above).
+    // the intro animation. Only a genuinely empty design clears it (above).
     (async () => {
       try {
-        const buf = await api.stagedBoardMesh(stagedZipPaths, layerTypes, excludedDrillKeys);
+        const buf = await api.projectBoardMesh(workingDir, refs, excludedDrillKeys);
         if (!cancelled) setMesh(parseBoardMesh(buf));
       } catch {
         if (!cancelled) setMesh(null);
@@ -146,23 +234,23 @@ export function ImportWizardPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stagedZipPaths, layerTypesKey, excludedKey]);
+  }, [workingDir, gerbersKey, excludedKey, hasRequired]);
 
-  // Measure manufacturing facts (cheap, off-thread) whenever the file set or a
+  // Measure manufacturing facts (cheap, off-thread) whenever the gerber set or a
   // layer-type assignment changes, but only once the required outline is present
   // (same gate as the mesh — nothing to measure without it).
   useEffect(() => {
     let cancelled = false;
-    if (staged.length === 0 || stagedZipPaths.length === 0 || !hasRequired) {
+    if (!workingDir || gerbers.length === 0 || !hasRequired) {
       setMetrics(null);
       setMetricsLoading(false);
       return;
     }
-    const layerTypes = staged.map((f) => f.layerType);
+    const refs = gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type }));
     setMetricsLoading(true);
     (async () => {
       try {
-        const m = await api.stagedBoardMetrics(stagedZipPaths, layerTypes);
+        const m = await api.projectBoardMetrics(workingDir, refs);
         if (!cancelled) setMetrics(m);
       } catch {
         if (!cancelled) setMetrics(null);
@@ -174,18 +262,22 @@ export function ImportWizardPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stagedZipPaths, layerTypesKey, hasRequired]);
+  }, [workingDir, gerbersKey, hasRequired]);
 
   // Judge measured facts against the capability profile (instant, client-side —
-  // re-runs when the profile thresholds change too).
-  const findings = useMemo(() => evaluate(metrics, profile), [metrics, profile]);
+  // re-runs when the profile thresholds change too). The size check is against
+  // the project panel (the design must fit on it); falls back to the machine max.
+  const findings = useMemo(
+    () => evaluate(metrics, profile, manifest?.panel),
+    [metrics, profile, manifest?.panel],
+  );
   const verdict = overallVerdict(findings);
 
   // Effective visibility: 3D shows every side by default; 2D shows only the
   // selected side (+ shared layers). Manual hides apply in both modes.
   const isVisible = useCallback(
-    (type: LayerType, i: number): boolean => {
-      if (hidden.has(i)) return false;
+    (type: LayerType, path: string): boolean => {
+      if (hidden.has(path)) return false;
       if (mode === "3d") return true;
       const s = sideOf(type);
       return s === side || s === "both";
@@ -201,14 +293,14 @@ export function ImportWizardPage() {
       if (category === "size") return hside === "both" || hside === side; // overshoot — by side only
       const types = FINDING_LAYER_TYPES[category];
       if (!types) return true;
-      return staged.some(
-        (f, i) =>
-          types.includes(f.layerType) &&
-          isVisible(f.layerType, i) &&
-          (hside === "both" || sideOf(f.layerType) === hside),
+      return gerbers.some(
+        (g) =>
+          types.includes(g.layer_type) &&
+          isVisible(g.layer_type, g.path) &&
+          (hside === "both" || sideOf(g.layer_type) === hside),
       );
     },
-    [staged, isVisible, side],
+    [gerbers, isVisible, side],
   );
 
   // DRC overlay on the preview is OFF by default (clean preview); it turns on
@@ -383,48 +475,51 @@ export function ImportWizardPage() {
     return { p: [(h.a[0] + h.b[0]) / 2, (h.a[1] + h.b[1]) / 2], spanMm: 18, nonce: focusNonce.current };
   }, [focus, findings]);
 
-  // Layers/drills visible in 3D = those not manually hidden (keyed by staging
-  // index, matching the Rust mesh keys). Pure client-side filter — instant.
+  // Layers/drills visible in 3D = those not manually hidden (keyed by rel-path,
+  // matching the Rust mesh keys). Pure client-side filter — instant.
   const visibleKeys = useMemo(
-    () => new Set(staged.map((_, i) => i).filter((i) => !hidden.has(i)).map(String)),
-    [staged, hidden],
+    () => new Set(gerbers.filter((g) => !hidden.has(g.path)).map((g) => g.path)),
+    [gerbers, hidden],
   );
-  // Colour by staging index, for "other" 3D surface layers.
+  // Colour by rel-path, for "other" 3D surface layers.
   const layerColors = useMemo(() => {
     const m: Record<string, string> = {};
-    staged.forEach((f, i) => {
-      m[String(i)] = colorFor(f.layerType, overrides);
+    gerbers.forEach((g) => {
+      m[g.path] = colorFor(g.layer_type, overrides);
     });
     return m;
-  }, [staged, overrides]);
+  }, [gerbers, overrides]);
 
   // A drill layer has no SVG preview but DOES have holes to show/hide — treat it
-  // as toggleable content just like the other layers.
+  // as toggleable content just like the other layers. `index` = position in
+  // gerbers[]; key/identity is the rel-path.
   const rows: PanelRow[] = useMemo(
     () =>
-      staged
-        .map((f, i) => {
-          const loading = f.svgStatus === "pending";
-          const hasContent = f.svgStatus === "loaded" || (f.layerType === "drill" && f.holes.length > 0);
+      gerbers
+        .map((g, i) => {
+          const f = files[i];
+          const loading = f?.svgStatus === "pending";
+          const hasContent =
+            f?.svgStatus === "loaded" || (g.layer_type === "drill" && (f?.holes.length ?? 0) > 0);
           return {
-            key: String(i),
+            key: g.path,
             index: i,
-            filename: f.filename,
-            type: f.layerType,
-            color: colorFor(f.layerType, overrides),
-            visible: hasContent && isVisible(f.layerType, i),
+            filename: f?.filename ?? (g.path.split("/").pop() ?? g.path),
+            type: g.layer_type,
+            color: colorFor(g.layer_type, overrides),
+            visible: hasContent && isVisible(g.layer_type, g.path),
             hasPreview: hasContent,
             loading,
-            drillError: f.drillError,
+            drillError: f?.drillError,
           };
         })
         // In 2D only list the selected side's layers (+ shared ones: contour,
         // drill, inner, other = side "both"); 3D lists everything.
         .filter((r) => mode === "3d" || sideOf(r.type) === side || sideOf(r.type) === "both")
-        // Sort by physical stack (bottom → top); ties keep staging order.
+        // Sort by physical stack (bottom → top); ties keep gerber order.
         .sort((a, b) => stackOrder(a.type) - stackOrder(b.type) || a.index - b.index),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [staged, hidden, overrides, mode, side],
+    [gerbers, files, hidden, overrides, mode, side],
   );
 
   // Progress badge while per-layer SVGs stream in (2D only — 3D has its own
@@ -433,48 +528,65 @@ export function ImportWizardPage() {
   // when loaded. An empty gerber (e.g. a single-sided board's blank B_Silkscreen,
   // header + M02 with no geometry) legitimately errors ("no drawable geometry");
   // counting it as still-pending froze the badge at N-1/N forever.
-  const svgTotal = staged.filter((f) => f.svgStatus !== "none").length;
-  const svgSettled = staged.filter((f) => f.svgStatus === "loaded" || f.svgStatus === "error").length;
+  const svgTotal = files.filter((f) => f.svgStatus !== "none").length;
+  const svgSettled = files.filter((f) => f.svgStatus === "loaded" || f.svgStatus === "error").length;
   const previewNotice = mode === "2d" && svgTotal > 0 && svgSettled < svgTotal ? t("metrics:layersProgress", { done: svgSettled, total: svgTotal }) : undefined;
 
   // Holes from the currently-visible drill layers (each drill file toggles its own).
   const visibleHoles = useMemo(
-    () => staged.flatMap((f, i) => (f.layerType === "drill" && isVisible(f.layerType, i) ? f.holes : [])),
+    () =>
+      gerbers.flatMap((g, i) =>
+        g.layer_type === "drill" && isVisible(g.layer_type, g.path) ? files[i]?.holes ?? [] : [],
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [staged, hidden, mode, side],
+    [gerbers, files, hidden, mode, side],
   );
 
   const layers: StackLayer[] = useMemo(
     () =>
-      staged
-        .map((f, i) => ({ f, i }))
-        .filter(({ f }) => f.svgBody && f.bbox)
-        .map(({ f, i }) => ({
-          key: String(i),
-          svgBody: f.svgBody as string,
-          bbox: f.bbox!,
-          color: colorFor(f.layerType, overrides),
-          visible: isVisible(f.layerType, i),
-          type: f.layerType,
-          snap: f.snap,
+      gerbers
+        .map((g, i) => ({ g, f: files[i] }))
+        .filter(({ f }) => f?.svgBody && f?.bbox)
+        .map(({ g, f }) => ({
+          key: g.path,
+          svgBody: f!.svgBody as string,
+          bbox: f!.bbox!,
+          color: colorFor(g.layer_type, overrides),
+          visible: isVisible(g.layer_type, g.path),
+          type: g.layer_type,
+          snap: f!.snap ?? [],
         })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [staged, hidden, overrides, mode, side],
+    [gerbers, files, hidden, overrides, mode, side],
   );
 
-  const toggle = (index: number, visible: boolean) =>
+  // index = position in gerbers[]; map to the rel-path before touching the store
+  // (layer-type edit, persisted + undoable) or the UI-only hidden rel-path set.
+  const onType = (index: number, type: LayerType) => {
+    const g = gerbers[index];
+    if (g) void setDesignLayerType(designId, g.path, type);
+  };
+  const toggle = (index: number, visible: boolean) => {
+    const g = gerbers[index];
+    if (!g) return;
     setHidden((prev) => {
       const next = new Set(prev);
-      if (visible) next.delete(index);
-      else next.add(index);
+      if (visible) next.delete(g.path);
+      else next.add(g.path);
       return next;
     });
+  };
+
+  if (!design) return null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
-        <div className="flex items-center gap-4">
-          <h1 className="text-[13px] font-semibold text-foreground">{t("import:heading")}</h1>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ChevronLeft className="size-4" /> {t("project:designs.back")}
+          </Button>
+          <h1 className="truncate text-[13px] font-semibold text-foreground">{design.source_name}</h1>
           {hasRequired && (
             <SegmentedControl
               value={tab}
@@ -552,82 +664,52 @@ export function ImportWizardPage() {
               )}
             </button>
           )}
-          <Button variant="ghost" onClick={cancelImport}>
-            {t("import:action.cancel")}
-          </Button>
-          <Button onClick={confirmImport} disabled={staged.length === 0 || !hasRequired}>
-            {t("import:action.confirm")}
-          </Button>
         </div>
       </div>
-      {stagingError && (
-        <p className="border-b border-border px-4 py-2 text-[12px] text-destructive">{stagingError}</p>
-      )}
-      {staging ? (
-        <div className="flex min-h-0 flex-1">
-          <LayerPanel rows={[]} loading onType={setLayerType} onToggle={toggle} />
-          <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
-            <Loader2 className="size-6 animate-spin text-primary" />
-            {t("import:state.reading")}
-          </div>
+      <div className="flex min-h-0 flex-1">
+        <LayerPanel rows={rows} onType={onType} onToggle={toggle} />
+        <div className="min-w-0 flex-1">
+          {hasRequired ? (
+            <PreviewPane
+              layers={layers}
+              holes={visibleHoles}
+              mesh={mesh}
+              visibleKeys={visibleKeys}
+              layerColors={layerColors}
+              side={side}
+              onSideChange={pickSide}
+              facing={facing}
+              onFacingChange={setFacing}
+              snapNonce={snapNonce}
+              mode={mode}
+              onModeChange={setMode}
+              notice={previewNotice}
+              tab={tab}
+              metrics={metrics}
+              metricsLoading={metricsLoading}
+              findings={findings}
+              markers={markers}
+              focusTarget={focusTarget}
+              focus={focus}
+              onFocus={onFocus}
+              showDrc={showDrc}
+              onShowDrcChange={onShowDrcChange}
+              issues={issues}
+              issueIndex={issueIndex}
+            />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <Layers className="size-12 text-muted-foreground/50" />
+              <div className="text-[15px] font-semibold text-foreground">{t("import:missing.title")}</div>
+              <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
+                {t("import:missing.descriptionPrefix")}{" "}
+                <span className="text-foreground">{missing.map((lt) => t(`layers:${lt}`)).join(", ")}</span>.{" "}
+                {t("import:missing.descriptionSuffix")}
+              </p>
+            </div>
+          )}
         </div>
-      ) : staged.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <FileX2 className="size-12 text-muted-foreground/50" />
-          <div className="text-[15px] font-semibold text-foreground">{t("import:empty.title")}</div>
-          <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-            {t("import:empty.description")}
-          </p>
-          <Button variant="ghost" onClick={cancelImport}>
-            {t("import:action.back")}
-          </Button>
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1">
-          <LayerPanel rows={rows} onType={setLayerType} onToggle={toggle} />
-          <div className="min-w-0 flex-1">
-            {hasRequired ? (
-              <PreviewPane
-                layers={layers}
-                holes={visibleHoles}
-                mesh={mesh}
-                visibleKeys={visibleKeys}
-                layerColors={layerColors}
-                side={side}
-                onSideChange={pickSide}
-                facing={facing}
-                onFacingChange={setFacing}
-                snapNonce={snapNonce}
-                mode={mode}
-                onModeChange={setMode}
-                notice={previewNotice}
-                tab={tab}
-                metrics={metrics}
-                metricsLoading={metricsLoading}
-                findings={findings}
-                markers={markers}
-                focusTarget={focusTarget}
-                focus={focus}
-                onFocus={onFocus}
-                showDrc={showDrc}
-                onShowDrcChange={onShowDrcChange}
-                issues={issues}
-                issueIndex={issueIndex}
-              />
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-                <Layers className="size-12 text-muted-foreground/50" />
-                <div className="text-[15px] font-semibold text-foreground">{t("import:missing.title")}</div>
-                <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-                  {t("import:missing.descriptionPrefix")}{" "}
-                  <span className="text-foreground">{missing.map((lt) => t(`layers:${lt}`)).join(", ")}</span>.{" "}
-                  {t("import:missing.descriptionSuffix")}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

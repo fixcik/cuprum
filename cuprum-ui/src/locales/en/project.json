@@ -6,6 +6,16 @@
   "descriptionPlaceholder": "Click to edit description.",
   "layersProgress": "Layers {{loaded}}/{{total}}",
   "building3d": "Building 3D model…",
+  "designs": {
+    "back": "Back to designs",
+    "addDesign": "Add design",
+    "layerCount": "{{count}} layers",
+    "emptyTitle": "No designs yet",
+    "emptyDesc": "Click «Add design» to import a Gerber package.",
+    "dropHint": "Drop ZIP fab packages to add",
+    "dropHintShort": "or drop a ZIP here",
+    "delete": "Remove design"
+  },
   "tab": {
     "panel": "Panel",
     "designs": "Designs",
@@ -26,6 +36,7 @@
   "setup": {
     "width": "Width",
     "height": "Height",
+    "maxFromSettings": "Max {{w}} × {{h}} mm (machine work area, set in Settings)",
     "copperWeight": "Copper",
     "substrate": "FR4 thickness",
     "preset": "Preset",
@@ -51,7 +62,14 @@
     "savePoint": "Save point",
     "points": "Restore points",
     "noPoints": "No restore points yet.",
-    "restore": "Restore"
+    "restore": "Restore",
+    "relative": {
+      "justNow": "just now",
+      "minutes": "{{n}} min ago",
+      "hours": "{{n}} h ago",
+      "yesterday": "yesterday",
+      "days": "{{n}} d ago"
+    }
   },
   "settings": {
     "title": "Project settings",

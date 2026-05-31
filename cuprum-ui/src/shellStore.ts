@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type PanelDoc, type RecentProject, type RestorePointMeta, type StagedFile, type Stackup } from "@/lib/api";
+import { api, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
-export type View = "home" | "project" | "printer" | "settings" | "import";
+export type View = "home" | "project" | "printer" | "settings";
 
 interface ShellStore {
   view: View;
@@ -64,23 +64,17 @@ interface ShellStore {
    *  manifest.json after a mutation (basis for crash recovery). */
   _mirrorManifest: (manifest: Manifest) => Promise<void>;
 
-  // Import wizard
-  staged: StagedFile[];
-  stagedHoles: Hole[];
-  stagedZipPaths: string[];
-  stagingError: string | null;
-  /** True while the initial fast classify is in flight (before the layer list). */
-  staging: boolean;
-  /** Bumped on every start/cancel/confirm so late per-layer SVG callbacks from a
-   *  superseded import are ignored. */
-  importGen: number;
-  startImport: () => Promise<void>;
-  setLayerType: (index: number, type: LayerType) => void;
-  confirmImport: () => Promise<void>;
-  cancelImport: () => void;
-  /** Private: fill in one staged file's rendered SVG (progressive). */
-  _setStagedSvg: (gen: number, index: number, geo: LayerGeometry) => void;
-  _setStagedSvgError: (gen: number, index: number, error: string) => void;
+  /** Pick source ZIP(s) and add each as a new design to the open project
+   *  (copied into the working dir, auto-classified, persisted via autosave). */
+  addDesignsFromZips: () => Promise<void>;
+  /** Add designs from already-resolved ZIP paths (e.g. an OS drag-and-drop drop),
+   *  bypassing the file dialog. Same persist/undo path as `addDesignsFromZips`. */
+  addDesignsFromPaths: (paths: string[]) => Promise<void>;
+  /** Reassign one gerber's layer type within a design (undoable, persisted). */
+  setDesignLayerType: (designId: string, gerberPath: string, type: LayerType) => Promise<void>;
+  /** Remove a design from the project (undoable). Only the manifest reference is
+   *  dropped; the gerber bytes stay on disk so undo/restore points stay valid. */
+  removeDesign: (designId: string) => Promise<void>;
 }
 
 /** Strip directory + .cuprum extension to a display/default name. */
@@ -105,12 +99,6 @@ export const useShell = create<ShellStore>((set, get) => ({
   historyBusy: false,
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
-  staged: [],
-  stagedHoles: [],
-  stagedZipPaths: [],
-  stagingError: null,
-  staging: false,
-  importGen: 0,
 
   loadDisplayScale: async () => {
     // Cache once per launch; the native value never changes mid-session.
@@ -435,116 +423,83 @@ export const useShell = create<ShellStore>((set, get) => ({
     }
   },
 
-  startImport: async () => {
+  addDesignsFromZips: async () => {
     const zips = await api.pickZips();
     if (!zips || zips.length === 0) return;
-    const gen = get().importGen + 1;
-    // Open the wizard immediately and show the staging state; the layer list and
-    // previews stream in below.
-    set({
-      importGen: gen,
-      staging: true,
-      stagingError: null,
-      staged: [],
-      stagedHoles: [],
-      stagedZipPaths: zips,
-      view: "import",
-    });
-    try {
-      const cls = await api.stageClassify(zips);
-      if (get().importGen !== gen) return; // superseded (cancelled / re-imported)
-      const files: StagedFile[] = cls.files.map((f) => ({
-        sourceZip: f.sourceZip,
-        filename: f.filename,
-        layerType: f.layerType,
-        svgBody: null,
-        bbox: null,
-        snap: [],
-        error: null,
-        holes: f.holes,
-        drillError: f.drillError ?? null,
-        svgStatus: f.layerType === "drill" ? "none" : "pending",
-      }));
-      set({ staged: files, stagedHoles: files.flatMap((f) => f.holes), staging: false });
-      // Render each layer's SVG in parallel; fill previews in as they resolve.
-      files.forEach((f, i) => {
-        if (f.svgStatus !== "pending") return;
-        api
-          .stageLayerSvg(zips, i)
-          .then((geo) => get()._setStagedSvg(gen, i, geo))
-          .catch((e) => get()._setStagedSvgError(gen, i, String(e)));
-      });
-    } catch (e) {
-      if (get().importGen !== gen) return;
-      set({ stagingError: String(e), staging: false });
-    }
+    await get().addDesignsFromPaths(zips);
   },
 
-  _setStagedSvg: (gen, index, geo) =>
-    set((s) => {
-      if (s.importGen !== gen) return s;
-      return {
-        staged: s.staged.map((f, i) =>
-          i === index ? { ...f, svgBody: geo.svgBody, bbox: geo.bbox, snap: geo.snap, svgStatus: "loaded" } : f,
-        ),
-      };
-    }),
+  addDesignsFromPaths: async (paths) => {
+    const { currentPath, workingDir, currentManifest } = get();
+    if (!currentPath || !workingDir || !currentManifest) return;
+    if (paths.length === 0) return;
+    const prev = currentManifest;
+    // Copy each ZIP into the working dir as a new design (sequential: each add
+    // reserves its id from the gerbers/ dir the previous one just created).
+    // Collect successes; if one fails, still commit the ones that succeeded so
+    // their already-on-disk gerbers aren't orphaned, then surface the error.
+    const added: ProjectDesign[] = [];
+    let failure: unknown = null;
+    for (const zip of paths) {
+      try {
+        added.push(await api.addDesignFromZip(workingDir, zip));
+      } catch (e) {
+        failure = e;
+        break;
+      }
+    }
+    try {
+      if (added.length > 0) {
+        const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
+        get()._recordUndo(prev);
+        set({ currentManifest: manifest, error: null });
+        // Persist: write the loose manifest then repack the .cuprum so the freshly
+        // copied gerbers land in the container too.
+        await get()._persistManifest(manifest);
+      }
+    } catch (e) {
+      failure = failure ?? e;
+    }
+    if (failure) set({ error: String(failure) });
+  },
 
-  _setStagedSvgError: (gen, index, error) =>
-    set((s) => {
-      if (s.importGen !== gen) return s;
-      return {
-        staged: s.staged.map((f, i) => (i === index ? { ...f, error, svgStatus: "error" } : f)),
-      };
-    }),
-
-  setLayerType: (index, type) =>
-    set((s) => ({
-      staged: s.staged.map((f, i) => (i === index ? { ...f, layerType: type } : f)),
-    })),
-
-  confirmImport: async () => {
-    const { currentPath, staged, stagedZipPaths } = get();
-    if (!currentPath) return;
+  setDesignLayerType: async (designId, gerberPath, type) => {
     const prev = get().currentManifest;
+    if (!prev) return;
+    const designs = prev.designs.map((d) =>
+      d.id !== designId
+        ? d
+        : {
+            ...d,
+            gerbers: d.gerbers.map((g) =>
+              g.path === gerberPath ? { ...g, layer_type: type } : g,
+            ),
+          },
+    );
+    const manifest: Manifest = { ...prev, designs };
     try {
-      // Positional: layer types in staging order, one per staged file.
-      const layerTypes = staged.map((f) => f.layerType);
-      await api.commitImport(currentPath, stagedZipPaths, layerTypes);
-      // commitImport sewed the new gerbers into the .cuprum container but left
-      // the working-dir untouched. Re-extract a fresh working-dir from the
-      // updated container so the new gerber files are present for rendering.
-      const prevWorkingDir = get().workingDir;
-      const reopened = await api.openProject(currentPath);
-      set((s) => ({
-        currentManifest: reopened.manifest,
-        workingDir: reopened.workingDir,
-        staged: [],
-        stagedHoles: [],
-        stagedZipPaths: [],
-        stagingError: null,
-        staging: false,
-        importGen: s.importGen + 1,
-        view: "project",
-      }));
-      if (prev) get()._recordUndo(prev);
-      if (prevWorkingDir && prevWorkingDir !== reopened.workingDir)
-        await api.cleanupWorkdir(prevWorkingDir).catch(() => {});
-      await get().loadRecents();
-      await get().refreshRestorePoints();
+      get()._recordUndo(prev);
+      set({ currentManifest: manifest, error: null });
+      await get()._persistManifest(manifest);
     } catch (e) {
-      set({ stagingError: String(e) });
+      set({ error: String(e) });
     }
   },
 
-  cancelImport: () =>
-    set((s) => ({
-      staged: [],
-      stagedHoles: [],
-      stagedZipPaths: [],
-      stagingError: null,
-      staging: false,
-      importGen: s.importGen + 1,
-      view: "project",
-    })),
+  removeDesign: async (designId) => {
+    const prev = get().currentManifest;
+    if (!prev) return;
+    const designs = prev.designs.filter((d) => d.id !== designId);
+    if (designs.length === prev.designs.length) return; // unknown id — nothing to do
+    // Drop only the manifest reference; the gerber bytes stay in the working dir
+    // (and the repacked .cuprum), so undo and restore points remain valid.
+    const manifest: Manifest = { ...prev, designs };
+    try {
+      get()._recordUndo(prev);
+      set({ currentManifest: manifest, error: null });
+      await get()._persistManifest(manifest);
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
 }));
