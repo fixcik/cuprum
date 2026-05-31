@@ -207,6 +207,34 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
+/// Read a project file from the working dir by its archive-relative path.
+fn read_workdir_file(working_dir: &str, rel: &str) -> Result<Vec<u8>, String> {
+    std::fs::read(Path::new(working_dir).join(rel)).map_err(|e| e.to_string())
+}
+
+/// Base dir holding all per-open working directories (under the OS cache dir).
+fn working_base(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("working");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// A freshly chosen, not-yet-existing working-dir path for one open project.
+/// Unique by pid + epoch + a process-local monotonic counter, so repeated
+/// opens of the same project within one wall-clock second never collide.
+fn new_workdir(app: &AppHandle) -> Result<PathBuf, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let base = working_base(app)?;
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = format!("{}-{}-{}", std::process::id(), now_epoch(), n);
+    Ok(base.join(name))
+}
+
 #[derive(Serialize)]
 struct RecentProjectDto {
     path: String,
@@ -243,10 +271,87 @@ fn create_project(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenedProjectDto {
+    working_dir: String,
+    manifest: cuprum_project::Manifest,
+    panel: Option<cuprum_project::PanelDoc>,
+}
+
 #[tauri::command]
-fn open_project(app: AppHandle, path: String) -> Result<cuprum_project::Manifest, String> {
+fn open_project(app: AppHandle, path: String) -> Result<OpenedProjectDto, String> {
     let db = catalog_db_path(&app)?;
-    cuprum_project::open_project(&db, Path::new(&path), now_epoch()).map_err(|e| e.to_string())
+    // Reads the manifest, validates existence, and records the recent entry.
+    let manifest = cuprum_project::open_project(&db, Path::new(&path), now_epoch())
+        .map_err(|e| e.to_string())?;
+    let workdir = new_workdir(&app)?;
+    let marker = cuprum_project::SessionMarker {
+        source_path: path.clone(),
+        pid: std::process::id(),
+        opened_at: now_epoch(),
+    };
+    cuprum_project::workdir::extract(Path::new(&path), &workdir, &marker)
+        .map_err(|e| e.to_string())?;
+    let panel = cuprum_project::workdir::read_panel(&workdir).map_err(|e| e.to_string())?;
+    Ok(OpenedProjectDto {
+        working_dir: workdir.to_string_lossy().to_string(),
+        manifest,
+        panel,
+    })
+}
+
+/// Pack the working dir back into the `.cuprum` container (Ctrl-S / save-as).
+#[tauri::command]
+fn save_project(working_dir: String, target_path: String) -> Result<(), String> {
+    cuprum_project::workdir::pack(Path::new(&working_dir), Path::new(&target_path))
+        .map_err(|e| e.to_string())
+}
+
+/// Mirror the current manifest into the working dir (called after every mutation
+/// so the loose copy stays the live document; basis for crash recovery).
+#[tauri::command]
+fn write_working_manifest(
+    working_dir: String,
+    manifest: cuprum_project::Manifest,
+) -> Result<(), String> {
+    cuprum_project::workdir::write_manifest(Path::new(&working_dir), &manifest)
+        .map_err(|e| e.to_string())
+}
+
+/// Mirror the panel doc into the working dir.
+#[tauri::command]
+fn write_working_panel(working_dir: String, panel: cuprum_project::PanelDoc) -> Result<(), String> {
+    cuprum_project::workdir::write_panel(Path::new(&working_dir), &panel).map_err(|e| e.to_string())
+}
+
+/// List recoverable (dirty) orphan working dirs left by a previous run.
+#[tauri::command]
+fn scan_recoverable(app: AppHandle) -> Result<Vec<cuprum_project::Orphan>, String> {
+    let base = working_base(&app)?;
+    let orphans = cuprum_project::workdir::scan_orphans(&base, std::process::id())
+        .map_err(|e| e.to_string())?;
+    Ok(orphans.into_iter().filter(|o| o.dirty).collect())
+}
+
+/// Delete a working dir (clean shutdown / discard / after adopting recovery).
+/// Confines deletion to the working base so an IPC caller cannot remove arbitrary
+/// paths on the filesystem.
+#[tauri::command]
+fn cleanup_workdir(app: AppHandle, working_dir: String) -> Result<(), String> {
+    let base = working_base(&app)?;
+    let path = Path::new(&working_dir);
+    // Resolve `..`/symlinks before the containment check. A path that no longer
+    // exists (already cleaned) canonicalizes to Err -> nothing to do.
+    match (path.canonicalize(), base.canonicalize()) {
+        (Ok(canonical), Ok(base_canonical)) => {
+            if !canonical.starts_with(&base_canonical) {
+                return Err("refusing to remove path outside the working base".to_string());
+            }
+            std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())
+        }
+        _ => Ok(()),
+    }
 }
 
 #[tauri::command]
@@ -307,9 +412,8 @@ struct HoleDto {
 }
 
 #[tauri::command]
-fn read_drill(path: String, gerber_rel: String) -> Result<Vec<HoleDto>, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+fn read_drill(working_dir: String, gerber_rel: String) -> Result<Vec<HoleDto>, String> {
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let holes = cuprum_core::drill::parse_drill(&bytes).map_err(|e| e.to_string())?;
     Ok(holes
         .into_iter()
@@ -527,11 +631,10 @@ struct LayerGeometryDto {
 #[tauri::command]
 fn render_gerber_svg(
     app: AppHandle,
-    path: String,
+    working_dir: String,
     gerber_rel: String,
 ) -> Result<LayerGeometryDto, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     render_or_cache_svg(&app, &bytes)
 }
 
@@ -567,12 +670,11 @@ fn polys_to_dtos(polys: Vec<cuprum_core::geometry::Poly>) -> Vec<PolyDto> {
 /// the gerber bytes from the `.cuprum` container like `render_gerber_svg` does.
 #[tauri::command]
 fn layer_polygons(
-    project_path: String,
+    working_dir: String,
     gerber_rel: String,
     holes: Vec<HoleInput>,
 ) -> Result<Vec<PolyDto>, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&project_path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let holes: Vec<cuprum_core::geometry::Hole> = holes
         .into_iter()
         .map(|h| cuprum_core::geometry::Hole {
@@ -588,11 +690,11 @@ fn layer_polygons(
 /// Backwards-compatible alias kept so the original copper wiring keeps working.
 #[tauri::command]
 fn copper_polygons(
-    project_path: String,
+    working_dir: String,
     gerber_rel: String,
     holes: Vec<HoleInput>,
 ) -> Result<Vec<PolyDto>, String> {
-    layer_polygons(project_path, gerber_rel, holes)
+    layer_polygons(working_dir, gerber_rel, holes)
 }
 
 /// Compute the soldermask geometry: the board region MINUS the mask openings.
@@ -600,12 +702,11 @@ fn copper_polygons(
 /// `boardOutline.ts`) and passed in here as absolute-mm rings (Y up).
 #[tauri::command]
 fn mask_polygons(
-    project_path: String,
+    working_dir: String,
     gerber_rel: String,
     outline_rings: Vec<Vec<[f32; 2]>>,
 ) -> Result<Vec<PolyDto>, String> {
-    let bytes = cuprum_project::container::read_entry(Path::new(&project_path), &gerber_rel)
-        .map_err(|e| e.to_string())?;
+    let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let rings: Vec<Vec<[f64; 2]>> = outline_rings
         .into_iter()
         .map(|ring| {
@@ -942,19 +1043,18 @@ struct GerberRef {
 }
 
 /// Build the 3D board mesh for a COMMITTED project: read each gerber from the
-/// container. Keys are the gerber rel path (matches the project view's keys).
+/// working dir. Keys are the gerber rel path (matches the project view's keys).
 #[tauri::command]
 fn project_board_mesh(
     app: AppHandle,
-    project_path: String,
+    working_dir: String,
     gerbers: Vec<GerberRef>,
     // Gerber-rel keys to OMIT (hidden drill layers); see `staged_board_mesh`.
     excluded_keys: Vec<String>,
 ) -> Result<tauri::ipc::Response, String> {
     let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
     for g in &gerbers {
-        let bytes = cuprum_project::container::read_entry(Path::new(&project_path), &g.rel)
-            .map_err(|e| e.to_string())?;
+        let bytes = read_workdir_file(&working_dir, &g.rel)?;
         loaded.push((g.rel.clone(), g.layer_type, bytes));
     }
     let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
@@ -1033,6 +1133,14 @@ fn display_px_per_mm() -> f32 {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // Remove clean (no-unsaved-changes) leftover working dirs from prior runs.
+            let handle = app.handle().clone();
+            if let Ok(base) = working_base(&handle) {
+                let _ = cuprum_project::workdir::gc_clean(&base, std::process::id());
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             discover,
             render_preview,
@@ -1041,6 +1149,11 @@ fn main() {
             list_recent_projects,
             create_project,
             open_project,
+            save_project,
+            write_working_manifest,
+            write_working_panel,
+            scan_recoverable,
+            cleanup_workdir,
             import_zips,
             remove_recent,
             update_project_metadata,

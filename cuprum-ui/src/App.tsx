@@ -6,6 +6,7 @@ import { ProjectPage } from "@/pages/ProjectPage";
 import { PrinterPage } from "@/pages/PrinterPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ImportWizardPage } from "@/pages/ImportWizardPage";
+import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 
 export default function App() {
@@ -16,6 +17,17 @@ export default function App() {
   useEffect(() => {
     loadDisplayScale();
   }, [loadDisplayScale]);
+
+  // Surface working dirs left dirty by a prior crash. Phase 2 wires a proper
+  // adopt/discard dialog; for now just make them visible in the console.
+  useEffect(() => {
+    api
+      .scanRecoverable()
+      .then((orphans) => {
+        if (orphans.length > 0) console.warn("Recoverable unsaved projects:", orphans);
+      })
+      .catch(() => {});
+  }, []);
 
   // Reflect the open project in the OS window title; reset to the app name
   // elsewhere. Wrapped so a non-Tauri (web) context is a no-op.

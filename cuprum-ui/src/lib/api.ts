@@ -114,6 +114,18 @@ export interface Manifest {
   stackup: Stackup | null;
 }
 
+export interface OpenedProject {
+  workingDir: string;
+  manifest: Manifest;
+  panel: PanelDoc | null;
+}
+
+export interface Orphan {
+  workdir: string;
+  sourcePath: string;
+  dirty: boolean;
+}
+
 export interface BBox {
   minX: number;
   minY: number;
@@ -267,7 +279,15 @@ export const api = {
   listRecentProjects: () => invoke<RecentProject[]>("list_recent_projects"),
   createProject: (savePath: string, name: string, zipPaths: string[]) =>
     invoke<Manifest>("create_project", { savePath, name, zipPaths }),
-  openProject: (path: string) => invoke<Manifest>("open_project", { path }),
+  openProject: (path: string) => invoke<OpenedProject>("open_project", { path }),
+  saveProject: (workingDir: string, targetPath: string) =>
+    invoke<void>("save_project", { workingDir, targetPath }),
+  writeWorkingManifest: (workingDir: string, manifest: Manifest) =>
+    invoke<void>("write_working_manifest", { workingDir, manifest }),
+  writeWorkingPanel: (workingDir: string, panel: PanelDoc) =>
+    invoke<void>("write_working_panel", { workingDir, panel }),
+  scanRecoverable: () => invoke<Orphan[]>("scan_recoverable", {}),
+  cleanupWorkdir: (workingDir: string) => invoke<void>("cleanup_workdir", { workingDir }),
   importZips: (path: string, zipPaths: string[]) =>
     invoke<Manifest>("import_zips", { path, zipPaths }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
@@ -285,18 +305,18 @@ export const api = {
     invoke<LayerGeometry>("stage_layer_svg", { zipPaths, index }),
   commitImport: (path: string, zipPaths: string[], layerTypes: LayerType[]) =>
     invoke<Manifest>("commit_import", { path, zipPaths, layerTypes }),
-  renderGerberSvg: (path: string, gerberRel: string) =>
-    invoke<LayerGeometry>("render_gerber_svg", { path, gerberRel }),
-  readDrill: (path: string, gerberRel: string) =>
-    invoke<Hole[]>("read_drill", { path, gerberRel }),
-  copperPolygons: (path: string, gerberRel: string, holes: Hole[]) =>
-    invoke<Poly[]>("copper_polygons", { projectPath: path, gerberRel, holes }),
+  renderGerberSvg: (workingDir: string, gerberRel: string) =>
+    invoke<LayerGeometry>("render_gerber_svg", { workingDir, gerberRel }),
+  readDrill: (workingDir: string, gerberRel: string) =>
+    invoke<Hole[]>("read_drill", { workingDir, gerberRel }),
+  copperPolygons: (workingDir: string, gerberRel: string, holes: Hole[]) =>
+    invoke<Poly[]>("copper_polygons", { workingDir, gerberRel, holes }),
   /** Generic fill layer (copper/silk/paste/other) polygons with drills subtracted. */
-  layerPolygons: (path: string, gerberRel: string, holes: Hole[]) =>
-    invoke<Poly[]>("layer_polygons", { projectPath: path, gerberRel, holes }),
+  layerPolygons: (workingDir: string, gerberRel: string, holes: Hole[]) =>
+    invoke<Poly[]>("layer_polygons", { workingDir, gerberRel, holes }),
   /** Soldermask = board outline rings MINUS the mask openings. */
-  maskPolygons: (path: string, gerberRel: string, outlineRings: [number, number][][]) =>
-    invoke<Poly[]>("mask_polygons", { projectPath: path, gerberRel, outlineRings }),
+  maskPolygons: (workingDir: string, gerberRel: string, outlineRings: [number, number][][]) =>
+    invoke<Poly[]>("mask_polygons", { workingDir, gerberRel, outlineRings }),
   /** Full triangulated 3D board mesh for STAGED gerbers (import wizard), as a
    *  binary blob (see lib/boardMesh.ts). `layerTypes` are positional, in staging
    *  order. `excludedKeys` (staging-index strings) drop hidden drill layers so
@@ -311,10 +331,10 @@ export const api = {
   /** Full triangulated 3D board mesh for a COMMITTED project, as a binary blob.
    *  `excludedKeys` (gerber-rel strings) drop hidden drill layers. */
   projectBoardMesh: (
-    path: string,
+    workingDir: string,
     gerbers: { rel: string; layerType: LayerType }[],
     excludedKeys: string[] = [],
-  ) => invoke<ArrayBuffer>("project_board_mesh", { projectPath: path, gerbers, excludedKeys }),
+  ) => invoke<ArrayBuffer>("project_board_mesh", { workingDir, gerbers, excludedKeys }),
 
   displayPxPerMm: () => invoke<number>("display_px_per_mm"),
 

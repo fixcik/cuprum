@@ -8,6 +8,7 @@ pub mod import;
 pub mod layer;
 pub mod manifest;
 pub mod panel;
+pub mod workdir;
 
 use std::path::{Path, PathBuf};
 
@@ -17,6 +18,7 @@ pub use catalog::RecentProject;
 pub use layer::LayerType;
 pub use manifest::{GerberFile, Manifest, Stackup};
 pub use panel::PanelDoc;
+pub use workdir::{Orphan, SessionMarker};
 
 /// Stable error token returned when a `.cuprum` file is missing on disk.
 pub const PROJECT_NOT_FOUND: &str = "PROJECT_NOT_FOUND";
