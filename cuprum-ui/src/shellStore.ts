@@ -196,6 +196,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       set({ currentManifest: manifest, error: null });
     } catch (e) {
       set({ error: String(e) });
+      throw e;
     }
   },
 
