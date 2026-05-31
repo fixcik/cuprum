@@ -11,15 +11,7 @@
     "designs": "Designs",
     "operations": "Operations"
   },
-  "tabLocked": "Configure the panel blank first.",
   "panel": {
-    "notConfigured": {
-      "title": "Panel not configured",
-      "desc": "Set the FR4 blank size and stackup to continue."
-    },
-    "configure": "Configure",
-    "edit": "Edit",
-    "summary": "{{w}} × {{h}} mm",
     "canvas": {
       "copper": "Cu",
       "noCopper": "no copper"
@@ -32,7 +24,6 @@
     }
   },
   "setup": {
-    "title": "Panel setup",
     "width": "Width",
     "height": "Height",
     "copperWeight": "Copper",
@@ -40,11 +31,8 @@
     "preset": "Preset",
     "loadPreset": "Load preset…",
     "savePreset": "Save",
-    "presetNamePrompt": "Preset name:",
     "presetModalTitle": "Save preset",
     "presetNamePlaceholder": "Preset name",
-    "save": "Save",
-    "cancel": "Back",
     "sideTop": "Top",
     "sideBottom": "Bottom",
     "sectionBlank": "Size",
@@ -54,8 +42,6 @@
     "sidesDouble": "Double-sided"
   },
   "aria": {
-    "projectName": "Project name",
-    "projectDescription": "Project description",
     "settings": "Project settings"
   },
   "settings": {

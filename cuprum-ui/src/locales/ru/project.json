@@ -11,15 +11,7 @@
     "designs": "Дизайны",
     "operations": "Операции"
   },
-  "tabLocked": "Сначала настройте заготовку панели.",
   "panel": {
-    "notConfigured": {
-      "title": "Панель не настроена",
-      "desc": "Задайте размер заготовки FR4 и stackup, чтобы продолжить."
-    },
-    "configure": "Настроить",
-    "edit": "Изменить",
-    "summary": "{{w}} × {{h}} мм",
     "canvas": {
       "copper": "Cu",
       "noCopper": "нет меди"
@@ -32,7 +24,6 @@
     }
   },
   "setup": {
-    "title": "Настройка заготовки",
     "width": "Ширина",
     "height": "Высота",
     "copperWeight": "Медь",
@@ -40,11 +31,8 @@
     "preset": "Пресет",
     "loadPreset": "Выбрать пресет…",
     "savePreset": "Сохранить",
-    "presetNamePrompt": "Название пресета:",
     "presetModalTitle": "Сохранить пресет",
     "presetNamePlaceholder": "Название пресета",
-    "save": "Сохранить",
-    "cancel": "Назад",
     "sideTop": "Верх",
     "sideBottom": "Низ",
     "sectionBlank": "Размер",
@@ -54,8 +42,6 @@
     "sidesDouble": "Двухсторонняя"
   },
   "aria": {
-    "projectName": "Название проекта",
-    "projectDescription": "Описание проекта",
     "settings": "Настройки проекта"
   },
   "settings": {
