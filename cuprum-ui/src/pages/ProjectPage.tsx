@@ -126,22 +126,26 @@ export function ProjectPage() {
                   {restorePoints.length === 0 ? (
                     <div className="px-3 py-2 text-[12px] text-muted-foreground">{t("history.noPoints")}</div>
                   ) : (
-                    restorePoints.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => {
-                          setPointsOpen(false);
-                          restoreTo(p.id);
-                        }}
-                        className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-1.5 text-left text-[12px] text-foreground transition-colors hover:bg-primary/10"
-                      >
-                        <span className="truncate">{p.label || t("history.autoOpenLabel")}</span>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {new Date(p.createdAt * 1000).toLocaleTimeString()}
-                        </span>
-                      </button>
-                    ))
+                    restorePoints.map((p) => {
+                      const d = new Date(p.createdAt * 1000);
+                      const isToday = d.toDateString() === new Date().toDateString();
+                      const when = isToday
+                        ? d.toLocaleTimeString()
+                        : `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setPointsOpen(false);
+                            restoreTo(p.id);
+                          }}
+                          className="block w-full rounded-md px-3 py-1.5 text-left text-[12px] text-foreground transition-colors hover:bg-primary/10"
+                        >
+                          {when}
+                        </button>
+                      );
+                    })
                   )}
                 </div>
               </>

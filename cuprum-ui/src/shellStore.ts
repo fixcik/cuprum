@@ -322,7 +322,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       }
     }
     try {
-      await get().makeRestorePoint(i18n.t("project:history.autoOpenLabel"));
+      await get().makeRestorePoint();
     } catch {
       /* auto restore point is best-effort */
     }
