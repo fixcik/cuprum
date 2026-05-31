@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { type CapabilityProfile, DEFAULT_PROFILE } from "@/lib/capabilityProfile";
+import { type PanelPreset } from "@/lib/panel";
 
 export type Language = "auto" | "en" | "ru";
 export type Units = "mm" | "imperial";
@@ -18,6 +19,10 @@ interface SettingsStore {
   resetProfile: () => void;
   setLanguage: (language: Language) => void;
   setUnits: (units: Units) => void;
+  /** User-saved panel-blank presets (size + stackup), reusable across projects. */
+  panelPresets: PanelPreset[];
+  addPanelPreset: (preset: PanelPreset) => void;
+  removePanelPreset: (id: string) => void;
 }
 
 export const useSettings = create<SettingsStore>()(
@@ -30,10 +35,13 @@ export const useSettings = create<SettingsStore>()(
       resetProfile: () => set({ profile: DEFAULT_PROFILE }),
       setLanguage: (language) => set({ language }),
       setUnits: (units) => set({ units }),
+      panelPresets: [],
+      addPanelPreset: (preset) => set((s) => ({ panelPresets: [...s.panelPresets, preset] })),
+      removePanelPreset: (id) => set((s) => ({ panelPresets: s.panelPresets.filter((p) => p.id !== id) })),
     }),
     {
       name: "cuprum-settings",
-      version: 2,
+      version: 3,
       // Merge persisted values onto current defaults so fields added in later
       // versions (language, units, new profile fields) get their default.
       merge: (persisted, current) => {
@@ -44,6 +52,7 @@ export const useSettings = create<SettingsStore>()(
           profile: { ...DEFAULT_PROFILE, ...(p?.profile ?? {}) },
           language: p?.language ?? "auto",
           units: p?.units ?? "mm",
+          panelPresets: p?.panelPresets ?? [],
         };
       },
     },
