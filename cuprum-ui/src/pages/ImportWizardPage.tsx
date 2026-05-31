@@ -381,9 +381,13 @@ export function ImportWizardPage() {
 
   // Progress badge while per-layer SVGs stream in (2D only — 3D has its own
   // spinner until the mesh is ready).
+  // A layer is "done" once its render has SETTLED — loaded OR errored — not only
+  // when loaded. An empty gerber (e.g. a single-sided board's blank B_Silkscreen,
+  // header + M02 with no geometry) legitimately errors ("no drawable geometry");
+  // counting it as still-pending froze the badge at N-1/N forever.
   const svgTotal = staged.filter((f) => f.svgStatus !== "none").length;
-  const svgLoaded = staged.filter((f) => f.svgStatus === "loaded").length;
-  const previewNotice = mode === "2d" && svgTotal > 0 && svgLoaded < svgTotal ? t("metrics:layersProgress", { done: svgLoaded, total: svgTotal }) : undefined;
+  const svgSettled = staged.filter((f) => f.svgStatus === "loaded" || f.svgStatus === "error").length;
+  const previewNotice = mode === "2d" && svgTotal > 0 && svgSettled < svgTotal ? t("metrics:layersProgress", { done: svgSettled, total: svgTotal }) : undefined;
 
   // Holes from the currently-visible drill layers (each drill file toggles its own).
   const visibleHoles = useMemo(

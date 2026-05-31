@@ -19,6 +19,10 @@ export function ProjectPage() {
   const error = useShell((s) => s.error);
 
   const [layers, setLayers] = useState<StackLayer[]>([]);
+  // How many gerber renders have SETTLED (resolved or rejected) this load — drives
+  // the progress badge. An errored layer (e.g. an empty silkscreen) never lands in
+  // `layers`, so gating the badge on `layers.length` alone would freeze it forever.
+  const [settled, setSettled] = useState(0);
   const [holes, setHoles] = useState<Hole[]>([]);
   const [mesh, setMesh] = useState<BoardMeshData | null>(null);
   const [mode, setMode] = useState<PreviewMode>("2d");
@@ -58,6 +62,10 @@ export function ProjectPage() {
     const gerbers = manifest.imports.flatMap((imp) => imp.gerbers);
     const slots: (StackLayer | null)[] = gerbers.map(() => null);
     setLayers([]);
+    setSettled(0);
+    const markSettled = () => {
+      if (!cancelled) setSettled((n) => n + 1);
+    };
     gerbers.forEach((g, idx) => {
       api
         .renderGerberSvg(currentPath, g.path)
@@ -75,15 +83,17 @@ export function ProjectPage() {
           setLayers(slots.filter(Boolean) as StackLayer[]);
         })
         .catch(() => {
-          // Non-renderable (e.g. drill) — skip in the 2D preview.
-        });
+          // Non-renderable (drill) or empty (a blank silkscreen errors with "no
+          // drawable geometry") — no preview, but the attempt has still settled.
+        })
+        .finally(markSettled);
     });
     return () => {
       cancelled = true;
     };
   }, [manifest, currentPath]);
 
-  // Renderable gerbers (everything but drills) — for the 2D load-progress badge.
+  // Renderable gerbers (everything but drills) — the badge's displayed total.
   const renderableTotal = useMemo(
     () =>
       manifest
@@ -94,8 +104,14 @@ export function ProjectPage() {
         : 0,
     [manifest],
   );
+  // Total render attempts (incl. drills) — the badge hides once ALL have settled,
+  // even if some errored (empty/blank layers), so it can't hang on a missing preview.
+  const totalGerbers = useMemo(
+    () => (manifest ? manifest.imports.reduce((n, imp) => n + imp.gerbers.length, 0) : 0),
+    [manifest],
+  );
   const previewNotice =
-    mode === "2d" && renderableTotal > 0 && layers.length < renderableTotal
+    mode === "2d" && renderableTotal > 0 && settled < totalGerbers
       ? t("layersProgress", { loaded: layers.length, total: renderableTotal })
       : undefined;
 
