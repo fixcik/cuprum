@@ -163,7 +163,13 @@ export function SettingsPage() {
   // pipeline and read back at runtime.
   const [version, setVersion] = React.useState<string | null>(null);
   React.useEffect(() => {
-    getVersion().then(setVersion).catch(() => setVersion(null));
+    let mounted = true;
+    getVersion()
+      .then((v) => mounted && setVersion(v))
+      .catch(() => mounted && setVersion(null));
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   return (
