@@ -87,41 +87,45 @@ body {
   user-select: none;
 }
 
-/* Overlay scrollbars: invisible at rest, fading in on hover or while scrolling.
-   A floating rounded "pill" (the transparent border + padding-box clip insets it
-   off the edge). Global — every scroll area gets it. `html.scrolling` is toggled
-   by a short-lived class on scroll (see main.tsx) so the bar shows during wheel/
-   trackpad scrolling even without a hover. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
+/* Custom slim scrollbars, in the Cuprum palette. A floating rounded "pill" —
+   the transparent border + `background-clip: padding-box` insets the thumb off
+   the edge so it never touches the track. Global: every scroll area gets it.
+
+   NOTE: we deliberately do NOT set the standard `scrollbar-width` /
+   `scrollbar-color`. In current WebKit (Tauri's WKWebView on macOS) declaring
+   `scrollbar-width` makes the engine fall back to the NATIVE system scrollbar
+   and ignore `::-webkit-scrollbar` entirely — which is the fat light-grey bar
+   we're replacing. Pseudo-elements alone keep us in full control.
+
+   The thumb is faintly visible at rest, brightens on hover, and takes the
+   copper accent while grabbed. `html.scrolling` (toggled on wheel/trackpad
+   scroll in main.tsx) nudges it brighter during active scrolling. */
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 *::-webkit-scrollbar-track,
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: transparent;
+  background: hsl(var(--muted-foreground) / 0.28);
   border-radius: 9999px;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   background-clip: padding-box;
   transition: background-color 0.18s ease;
 }
-/* Reveal ONLY while actively scrolling (not on plain hover — the cursor sits
-   over scroll areas most of the time). Brightens when the thumb itself is
-   grabbed. */
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.55);
+  background-clip: padding-box;
+}
+/* Copper accent while the thumb is actively dragged. */
+*::-webkit-scrollbar-thumb:active {
+  background: hsl(var(--primary) / 0.8);
+  background-clip: padding-box;
+}
+/* Brighten a touch during wheel/trackpad scrolling even without a hover. */
 html.scrolling *::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.45);
+  background: hsl(var(--muted-foreground) / 0.5);
   background-clip: padding-box;
-}
-html.scrolling *::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.7);
-  background-clip: padding-box;
-}
-html.scrolling * {
-  scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
 }

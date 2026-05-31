@@ -13,8 +13,8 @@ useSettings.subscribe((state) => {
   if (i18n.language !== lng) i18n.changeLanguage(lng);
 });
 
-// Reveal overlay scrollbars while actively scrolling (capture phase — `scroll`
-// doesn't bubble), then fade them out shortly after scrolling stops.
+// Brighten the slim scrollbars while actively scrolling (capture phase —
+// `scroll` doesn't bubble), then dim them back shortly after scrolling stops.
 let scrollTimer: number | undefined;
 window.addEventListener(
   "scroll",
