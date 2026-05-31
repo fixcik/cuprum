@@ -821,8 +821,13 @@ flowchart LR
 ## Миграция от текущего кода
 
 > Часть уже сделана: ✅ `imports[]` → `designs[]`, ✅ `Stackup` в манифесте,
-> ✅ FR4-бланк (`manifest.panel`, схема v4). Остальное — впереди (см. Phase 1 в
-> [`ROADMAP.md`](ROADMAP.md)).
+> ✅ FR4-бланк (`manifest.panel`, схема v4). Импорт схлопнут в один приём
+> (✅ `add_design_from_zip` копирует ZIP прямо в working-dir + авто-классификация;
+> staging-визард удалён), есть библиотека-галерея Design'ов с per-Design
+> инспектором (2D/3D + DFM + редактируемые типы слоёв) и удалением. DFM-проверка
+> размера дизайна — против **размера Panel** (фолбэк на макс. рабочей зоны станка
+> из настроек, пока Panel не задан); размер Panel клампится по настройкам.
+> Остальное — впереди (см. Phase 1 в [`ROADMAP.md`](ROADMAP.md)).
 
 | Сейчас | Целевое |
 |---|---|
@@ -830,8 +835,8 @@ flowchart LR
 | ✅ `manifest.imports[]` | Переименовано в `manifest.designs[]` (сущность = Design) |
 | `manifest::Panel` (w/h/x/y) | Заменить полноценной схемой в `manifest.panel` (instances + tooling_holes) |
 | `store.ts` — раскладка на LCD | Panel editor в Panel space; compose — только на export |
-| `ProjectPage` — превью всех gerber import | Превью одного Design **или** Panel (два режима) |
-| DFM «fits panel» vs board size | BoardInstance bbox на Panel + размер Panel |
+| ✅ `ProjectPage` — превью всех gerber import | Реализован per-Design инспектор (галерея → один Design); общий Panel-превью — впереди |
+| ~ DFM «fits panel» vs board size | Сделано: размер Design vs размер Panel. Впереди: bbox **BoardInstance** на Panel |
 | `capabilityProfile` | Расширить до `MachineProfile` (UV-LCD + CNC варианты) |
 | — | ✅ `Stackup` в манифесте (`copper_weight_oz`, `substrate_thickness_mm`, `double_sided`) |
 | — | `ToolLibrary` в `settingsStore` |
