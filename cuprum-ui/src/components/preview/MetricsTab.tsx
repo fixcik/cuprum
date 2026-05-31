@@ -127,6 +127,12 @@ export function MetricsTab({ metrics, loading }: { metrics: BoardMetrics | null;
         value={geo.copperCoveragePct != null ? `${+geo.copperCoveragePct.toFixed(2)} %` : t("common:dash")}
         muted={geo.copperCoveragePct == null}
       />
+      <Row label={t("metrics:row.traceCount")} value={`${geo.traceCount}`} muted={geo.traceCount === 0} />
+      <Row
+        label={t("metrics:row.traceLength")}
+        value={geo.traceCount > 0 ? fmtLen(geo.traceTotalLengthMm) : t("common:dash")}
+        muted={geo.traceCount === 0}
+      />
 
       <SectionTitle>{t("metrics:section.drill")}</SectionTitle>
       <Row label={t("metrics:row.totalHoles")} value={`${drill.totalHoles}`} />

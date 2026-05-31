@@ -29,7 +29,9 @@
     "slots": "Slots (routing)",
     "maskDam": "Mask dam",
     "minSilkLine": "Min. silk line",
-    "layerOvershoot": "Layer overshoot"
+    "layerOvershoot": "Layer overshoot",
+    "traceCount": "Traces",
+    "traceLength": "Routed length"
   },
   "side": {
     "top": "top",
