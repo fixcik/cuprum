@@ -30,11 +30,11 @@
 Panel-модель ниже. Ведётся инкрементальными PR (см. «Рабочий процесс» в
 `CLAUDE.md`). Спека: `docs/superpowers/specs/2026-05-31-project-working-dir-designs-design.md`.
 
-- [x] **Фаза 1 — working-dir** (PR #5): открытие распаковывает `.cuprum` в temp,
+- [x] **Фаза 1 — working-dir** (✅ 2026-05-31, PR #5): открытие распаковывает `.cuprum` в temp,
       чтение/рендер по loose-файлам, recovery + GC осиротевших папок.
-- [x] **(рефактор) panel → manifest** (PR #6): `panel.json` свёрнут в манифест
+- [x] **(рефактор) panel → manifest** (✅ 2026-05-31, PR #6): `panel.json` свёрнут в манифест
       (схема v4 + миграция легаси) — документ стал одним файлом.
-- [x] **Фаза 2 — автосейв + undo/redo + restore points** (PR #7): снимки манифеста
+- [x] **Фаза 2 — автосейв + undo/redo + restore points** (✅ 2026-06-01, PR #7): снимки манифеста
       для undo/redo, контрольные точки в `history/` (ручная кнопка 💾 + авто на
       открытии с дедупом), тулбар ◀/▶/💾 + хоткеи; импорт отменяем.
 - [ ] **Фаза 3 — схлопывание импорта**: `addDesignFromZip` (копирование в
@@ -54,11 +54,13 @@ Panel-модель ниже. Ведётся инкрементальными PR 
 обходных путях.
 
 - [ ] Schema migration: `placements[]` → `Panel + BoardInstance[] + ToolingHole[]`
-- [x] Переименование `manifest.imports[]` → `manifest.designs[]`
-- [x] `Stackup` в манифесте: `copper_weight_oz`, `substrate_thickness_mm` (+ `panel` в манифесте, схема v4)
+- [x] Переименование `manifest.imports[]` → `manifest.designs[]` (✅ 2026-05-31, PR #4)
+- [x] `Stackup` в манифесте: `copper_weight_oz`, `substrate_thickness_mm`, `double_sided` (+ `panel` в манифесте, схема v4) (✅ 2026-05-31, PR #4)
 - [ ] Panel editor UI: холст в Panel space, drag BoardInstance, инструмент «ToolingHole»
       (сейчас есть только редактор FR4-бланка: размер + stackup)
-- [ ] `compose` рефактор: Panel space → Machine space (UV-пиксели)
+- [ ] `compose` рефактор: Panel space → Machine space (UV-пиксели); поворот
+      инстансов 90/270 требует анизотропно-корректного ре-рендера в
+      `compose::compose_layout` (там TODO — пиксели 14×19 мкм)
 - [ ] Backward compat: открытие старых `.cuprum` мигрирует автоматически
 
 **Milestone:** старый проект открывается, виден Panel вместо LCD,
