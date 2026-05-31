@@ -4,8 +4,9 @@ use crate::layer::LayerType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Bump when the on-disk shape changes incompatibly. v2: gerbers carry a layer type.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+/// Bump when the on-disk shape changes incompatibly. v2: gerbers carry a layer
+/// type. v3: `imports` renamed to `designs` (old key still read via serde alias).
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Manifest {
@@ -14,9 +15,9 @@ pub struct Manifest {
     /// User-facing project notes shown on the project page.
     #[serde(default)]
     pub description: String,
-    /// Imported Gerber packages (one per source ZIP).
-    #[serde(default)]
-    pub imports: Vec<Import>,
+    /// Designs in the project: one imported Gerber package (board) per source ZIP.
+    #[serde(default, alias = "imports")]
+    pub designs: Vec<Design>,
     /// Exposure settings — filled when the editor is wired in. Optional now.
     #[serde(default)]
     pub exposure: Option<Exposure>,
@@ -27,6 +28,9 @@ pub struct Manifest {
     /// the UI's default palette. Visibility is UI-only and not persisted.
     #[serde(default)]
     pub layer_colors: BTreeMap<LayerType, String>,
+    /// FR4 stackup of the Panel; `None` until the panel blank is configured.
+    #[serde(default)]
+    pub stackup: Option<Stackup>,
 }
 
 impl Manifest {
@@ -36,28 +40,30 @@ impl Manifest {
             schema_version: CURRENT_SCHEMA_VERSION,
             name: name.into(),
             description: String::new(),
-            imports: Vec::new(),
+            designs: Vec::new(),
             exposure: None,
             placements: Vec::new(),
             layer_colors: BTreeMap::new(),
+            stackup: None,
         }
     }
 }
 
+/// A Design: one imported Gerber package (board) inside the container.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Import {
-    /// Stable id within the container, e.g. "import-1".
+pub struct Design {
+    /// Stable id within the container, e.g. "design-1".
     pub id: String,
     /// Original ZIP file name (for display).
     pub source_name: String,
-    /// Gerber files in this import, with their classified layer type.
+    /// Gerber files in this design, with their classified layer type.
     pub gerbers: Vec<GerberFile>,
 }
 
 /// One gerber file inside the container plus its layer classification.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct GerberFile {
-    /// Relative path inside the container, e.g. "gerbers/import-1/top.gbr".
+    /// Relative path inside the container, e.g. "gerbers/design-1/top.gbr".
     pub path: String,
     pub layer_type: LayerType,
 }
@@ -86,6 +92,18 @@ impl<'de> Deserialize<'de> for GerberFile {
             Compat::Full { path, layer_type } => GerberFile { path, layer_type },
         })
     }
+}
+
+/// The FR4 stackup of the project's Panel — depends on the physical blank.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Stackup {
+    /// Copper weight in ounces (0.5 / 1 / 2).
+    pub copper_weight_oz: f32,
+    /// FR4 substrate thickness in millimetres.
+    pub substrate_thickness_mm: f32,
+    /// Whether the blank is copper-clad on both sides (vs single-sided).
+    #[serde(default)]
+    pub double_sided: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -120,11 +138,11 @@ mod tests {
     #[test]
     fn manifest_json_round_trip() {
         let mut m = Manifest::new("buck-converter");
-        m.imports.push(Import {
-            id: "import-1".into(),
+        m.designs.push(Design {
+            id: "design-1".into(),
             source_name: "buck.zip".into(),
             gerbers: vec![GerberFile {
-                path: "gerbers/import-1/top.gbr".into(),
+                path: "gerbers/design-1/top.gbr".into(),
                 layer_type: crate::layer::LayerType::TopCopper,
             }],
         });
@@ -144,15 +162,16 @@ mod tests {
 
     #[test]
     fn reads_v1_gerbers_as_strings() {
-        // v1 stored gerbers as a bare string array; they must migrate to Other.
+        // v1 stored gerbers as a bare string array (they must migrate to Other)
+        // under the legacy `imports` key (now read via serde alias -> `designs`).
         let json = r#"{"schema_version":1,"name":"x","imports":[
             {"id":"import-1","source_name":"a.zip","gerbers":["gerbers/import-1/a.gbr"]}
         ]}"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(m.imports[0].gerbers.len(), 1);
-        assert_eq!(m.imports[0].gerbers[0].path, "gerbers/import-1/a.gbr");
+        assert_eq!(m.designs[0].gerbers.len(), 1);
+        assert_eq!(m.designs[0].gerbers[0].path, "gerbers/import-1/a.gbr");
         assert_eq!(
-            m.imports[0].gerbers[0].layer_type,
+            m.designs[0].gerbers[0].layer_type,
             crate::layer::LayerType::Other
         );
         assert!(m.layer_colors.is_empty());
@@ -160,11 +179,35 @@ mod tests {
 
     #[test]
     fn missing_optional_fields_default() {
-        let json = r#"{"schema_version":1,"name":"x","imports":[]}"#;
+        let json = r#"{"schema_version":1,"name":"x","designs":[]}"#;
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert!(m.description.is_empty());
         assert!(m.exposure.is_none());
         assert!(m.placements.is_empty());
         assert!(m.layer_colors.is_empty());
+    }
+
+    #[test]
+    fn manifest_stackup_round_trips_and_defaults_none() {
+        // Old files without `stackup` deserialize to None.
+        let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert!(m.stackup.is_none());
+
+        // A stackup without `double_sided` (older shape) defaults to single-sided.
+        let s: Stackup =
+            serde_json::from_str(r#"{"copper_weight_oz":1.0,"substrate_thickness_mm":1.6}"#)
+                .unwrap();
+        assert!(!s.double_sided);
+
+        // A set stackup survives a round-trip.
+        let mut m2 = Manifest::new("y");
+        m2.stackup = Some(Stackup {
+            copper_weight_oz: 1.0,
+            substrate_thickness_mm: 1.6,
+            double_sided: true,
+        });
+        let back: Manifest = serde_json::from_str(&serde_json::to_string(&m2).unwrap()).unwrap();
+        assert_eq!(m2, back);
     }
 }

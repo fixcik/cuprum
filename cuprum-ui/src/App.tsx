@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { NavRail } from "@/components/nav/NavRail";
 import { HomePage } from "@/pages/HomePage";
 import { ProjectPage } from "@/pages/ProjectPage";
@@ -9,11 +10,21 @@ import { useShell } from "@/shellStore";
 
 export default function App() {
   const view = useShell((s) => s.view);
+  const manifestName = useShell((s) => s.currentManifest?.name ?? null);
   const loadDisplayScale = useShell((s) => s.loadDisplayScale);
 
   useEffect(() => {
     loadDisplayScale();
   }, [loadDisplayScale]);
+
+  // Reflect the open project in the OS window title; reset to the app name
+  // elsewhere. Wrapped so a non-Tauri (web) context is a no-op.
+  useEffect(() => {
+    const title = view === "project" && manifestName ? `Cuprum CAM: ${manifestName}` : "Cuprum CAM";
+    getCurrentWindow()
+      .setTitle(title)
+      .catch(() => {});
+  }, [view, manifestName]);
 
   return (
     <div className="flex h-screen w-screen">

@@ -1,6 +1,25 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
+
+/** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
+ *  appear in the browser Network tab — in dev builds we log every command (args,
+ *  result/error, timing) to the console instead. Production is a passthrough.
+ *  Filter the console by "[ipc]" to see all backend round-trips. */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!import.meta.env.DEV) return rawInvoke<T>(cmd, args);
+  const t0 = performance.now();
+  return rawInvoke<T>(cmd, args).then(
+    (result) => {
+      console.log(`[ipc] ${cmd}  ${(performance.now() - t0).toFixed(0)}ms`, { args, result });
+      return result;
+    },
+    (error) => {
+      console.error(`[ipc] ${cmd}  FAILED ${(performance.now() - t0).toFixed(0)}ms`, { args, error });
+      throw error;
+    },
+  );
+}
 
 // Physical exposure screen, from cuprum-core (14×19 µm pitch → 211.68 × 118.37 mm).
 export const SCREEN_W_MM = 211.68;
@@ -64,20 +83,35 @@ export interface GerberFile {
   layer_type: LayerType;
 }
 
-export interface ProjectImport {
+export interface ProjectDesign {
   id: string;
   source_name: string;
   gerbers: GerberFile[];
+}
+
+export interface Stackup {
+  copper_weight_oz: number;
+  substrate_thickness_mm: number;
+  double_sided: boolean;
+}
+
+export interface PanelDoc {
+  schema_version: number;
+  width_mm: number;
+  height_mm: number;
+  origin_x_mm: number;
+  origin_y_mm: number;
 }
 
 export interface Manifest {
   schema_version: number;
   name: string;
   description: string;
-  imports: ProjectImport[];
+  designs: ProjectDesign[];
   exposure: unknown | null;
   placements: unknown[];
   layer_colors: Record<string, string>;
+  stackup: Stackup | null;
 }
 
 export interface BBox {
@@ -239,6 +273,9 @@ export const api = {
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   updateProjectMetadata: (path: string, name: string, description: string) =>
     invoke<Manifest>("update_project_metadata", { path, name, description }),
+  configurePanel: (path: string, panel: PanelDoc, stackup: Stackup) =>
+    invoke<Manifest>("configure_panel", { path, panel, stackup }),
+  readPanel: (path: string) => invoke<PanelDoc | null>("read_panel", { path }),
   stageImport: (zipPaths: string[]) => invoke<StagedImport>("stage_import", { zipPaths }),
   /** Fast: classify every gerber (names + types + drill holes), no SVG render. */
   stageClassify: (zipPaths: string[]) =>

@@ -13,5 +13,11 @@
     "stepperIssues": "Issues: {{count}} · ◂ ▸ to navigate",
     "prevIssue": "Previous issue",
     "nextIssue": "Next issue"
+  },
+  "viewer": {
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "fitAll": "Fit",
+    "realSize": "Real size"
   }
 }

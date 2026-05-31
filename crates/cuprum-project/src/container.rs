@@ -9,6 +9,7 @@ use anyhow::{anyhow, Result};
 use zip::write::SimpleFileOptions;
 
 use crate::manifest::Manifest;
+use crate::panel::PanelDoc;
 
 pub const MANIFEST_NAME: &str = "manifest.json";
 
@@ -88,11 +89,75 @@ pub fn update_manifest(path: &Path, manifest: &Manifest) -> Result<()> {
     write(path, manifest, &entries)
 }
 
+/// Read and parse `panel.json`. Returns `None` if the blank isn't configured
+/// yet (entry absent); a present-but-corrupt entry is an error.
+pub fn read_panel(path: &Path) -> Result<Option<PanelDoc>> {
+    let file = File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let buf = match archive.by_name(PANEL_NAME) {
+        Ok(mut entry) => {
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf)?;
+            buf
+        }
+        Err(zip::result::ZipError::FileNotFound) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    Ok(Some(serde_json::from_slice(&buf)?))
+}
+
+/// Write/replace `panel.json` while preserving the manifest and every other
+/// ZIP entry.
+pub fn update_panel(path: &Path, panel: &PanelDoc) -> Result<()> {
+    let file = File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let mut manifest_bytes: Option<Vec<u8>> = None;
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+        if name == MANIFEST_NAME {
+            manifest_bytes = Some(buf);
+        } else if name == PANEL_NAME {
+            // drop the old panel.json; we re-add the new one below
+        } else {
+            entries.push((name, buf));
+        }
+    }
+    let manifest: Manifest =
+        serde_json::from_slice(&manifest_bytes.ok_or_else(|| anyhow!("manifest.json missing"))?)?;
+    entries.push((PANEL_NAME.to_string(), serde_json::to_vec_pretty(panel)?));
+    write(path, &manifest, &entries)
+}
+
+/// Atomically replace BOTH `manifest.json` and `panel.json` in a single
+/// container rewrite, preserving every other entry. Avoids the inconsistent
+/// state where the manifest's stackup is set but `panel.json` is stale.
+pub fn update_manifest_and_panel(path: &Path, manifest: &Manifest, panel: &PanelDoc) -> Result<()> {
+    let file = File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+        if name == MANIFEST_NAME || name == PANEL_NAME {
+            continue;
+        }
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+        entries.push((name, buf));
+    }
+    entries.push((PANEL_NAME.to_string(), serde_json::to_vec_pretty(panel)?));
+    write(path, manifest, &entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::layer::LayerType;
-    use crate::manifest::{GerberFile, Import, Manifest};
+    use crate::manifest::{Design, GerberFile, Manifest};
 
     #[test]
     fn write_then_read_round_trip() {
@@ -101,20 +166,20 @@ mod tests {
         let path = dir.join("p.cuprum");
 
         let mut m = Manifest::new("demo");
-        m.imports.push(Import {
-            id: "import-1".into(),
+        m.designs.push(Design {
+            id: "design-1".into(),
             source_name: "demo.zip".into(),
             gerbers: vec![GerberFile {
-                path: "gerbers/import-1/a.gbr".into(),
+                path: "gerbers/design-1/a.gbr".into(),
                 layer_type: LayerType::Other,
             }],
         });
-        let entries = vec![("gerbers/import-1/a.gbr".to_string(), b"G04 hi*".to_vec())];
+        let entries = vec![("gerbers/design-1/a.gbr".to_string(), b"G04 hi*".to_vec())];
         write(&path, &m, &entries).unwrap();
 
         assert_eq!(read_manifest(&path).unwrap(), m);
         assert_eq!(
-            read_entry(&path, "gerbers/import-1/a.gbr").unwrap(),
+            read_entry(&path, "gerbers/design-1/a.gbr").unwrap(),
             b"G04 hi*"
         );
 
@@ -138,16 +203,16 @@ mod tests {
         let path = dir.join("atomic.cuprum");
 
         let mut m = Manifest::new("atomic-test");
-        m.imports.push(Import {
-            id: "import-1".into(),
+        m.designs.push(Design {
+            id: "design-1".into(),
             source_name: "src.zip".into(),
             gerbers: vec![GerberFile {
-                path: "gerbers/import-1/a.gbr".into(),
+                path: "gerbers/design-1/a.gbr".into(),
                 layer_type: LayerType::Other,
             }],
         });
         let entries = vec![(
-            "gerbers/import-1/a.gbr".to_string(),
+            "gerbers/design-1/a.gbr".to_string(),
             b"G04 atomic*".to_vec(),
         )];
         write(&path, &m, &entries).unwrap();
@@ -162,9 +227,29 @@ mod tests {
         // Content round-trips correctly.
         assert_eq!(read_manifest(&path).unwrap(), m);
         assert_eq!(
-            read_entry(&path, "gerbers/import-1/a.gbr").unwrap(),
+            read_entry(&path, "gerbers/design-1/a.gbr").unwrap(),
             b"G04 atomic*"
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn panel_missing_then_written() {
+        use crate::panel::PanelDoc;
+        let dir = std::env::temp_dir().join(format!("cuprum-panel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.cuprum");
+        write(&path, &Manifest::new("demo"), &[]).unwrap();
+
+        // No panel.json yet -> None.
+        assert!(read_panel(&path).unwrap().is_none());
+
+        // Writing one is readable, and the manifest survives.
+        let p = PanelDoc::new(120.0, 80.0);
+        update_panel(&path, &p).unwrap();
+        assert_eq!(read_panel(&path).unwrap(), Some(p));
+        assert_eq!(read_manifest(&path).unwrap().name, "demo");
 
         std::fs::remove_dir_all(&dir).ok();
     }

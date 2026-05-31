@@ -5,5 +5,50 @@
   "noPackages": "Пакетов пока нет. Нажмите «Импорт ZIP».",
   "descriptionPlaceholder": "Нажмите чтобы отредактировать описание.",
   "layersProgress": "Слои {{loaded}}/{{total}}",
-  "building3d": "Построение 3D-модели…"
+  "building3d": "Построение 3D-модели…",
+  "tab": {
+    "panel": "Панель",
+    "designs": "Дизайны",
+    "operations": "Операции"
+  },
+  "panel": {
+    "canvas": {
+      "copper": "Cu",
+      "noCopper": "нет меди"
+    }
+  },
+  "operations": {
+    "placeholder": {
+      "title": "Операции",
+      "desc": "Редактор производственных шагов появится позже."
+    }
+  },
+  "setup": {
+    "width": "Ширина",
+    "height": "Высота",
+    "copperWeight": "Медь",
+    "substrate": "Толщина FR4",
+    "preset": "Пресет",
+    "loadPreset": "Выбрать пресет…",
+    "savePreset": "Сохранить",
+    "presetModalTitle": "Сохранить пресет",
+    "presetNamePlaceholder": "Название пресета",
+    "sideTop": "Верх",
+    "sideBottom": "Низ",
+    "sectionBlank": "Размер",
+    "sectionStackup": "Параметры заготовки",
+    "sides": "Стороны",
+    "sidesSingle": "Односторонняя",
+    "sidesDouble": "Двухсторонняя"
+  },
+  "aria": {
+    "settings": "Настройки проекта"
+  },
+  "settings": {
+    "title": "Настройки проекта",
+    "name": "Имя",
+    "description": "Описание",
+    "save": "Сохранить",
+    "cancel": "Отмена"
+  }
 }

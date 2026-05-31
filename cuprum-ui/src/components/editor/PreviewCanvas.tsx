@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Group, Line, Shape, Image as KImage } from "react-konva";
+import { Stage, Layer, Rect, Group, Line, Image as KImage } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus, Loader2 } from "lucide-react";
 import { SCREEN_W_MM, SCREEN_H_MM } from "@/lib/api";
 import { useStore, type Placement } from "@/store";
 import { CanvasToolbar } from "@/components/editor/CanvasToolbar";
+import { CadGrid } from "@/components/editor/CadGrid";
+import { MIN_SCALE, MAX_SCALE } from "@/components/editor/canvasStyle";
 
 /** Build an inverted (RGB) copy of a loaded image via an offscreen canvas. */
 function invertImage(im: HTMLImageElement): HTMLImageElement {
@@ -98,45 +100,8 @@ function GerberImage({
   );
 }
 
-const MIN_SCALE = 0.15;
-const MAX_SCALE = 14;
 const EDGE_KEEP = 64; // px of the screen that must stay on-canvas while panning
-const GRID_MINOR = 5; // mm
-const GRID_MAJOR = 50; // mm
 const SNAP_PX = 6; // snap distance in screen pixels
-
-/** CAD-style millimeter grid over the screen bed. One Shape, lines kept ~1px
- *  crisp at any zoom by dividing the line width by the absolute scale. */
-function Grid() {
-  return (
-    <Shape
-      listening={false}
-      sceneFunc={(ctx, shape) => {
-        const scale = Math.abs(shape.getAbsoluteScale().x) || 1;
-        const lw = 1 / scale;
-        const line = (step: number) => {
-          ctx.beginPath();
-          for (let x = 0; x <= SCREEN_W_MM + 1e-3; x += step) {
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, SCREEN_H_MM);
-          }
-          for (let y = 0; y <= SCREEN_H_MM + 1e-3; y += step) {
-            ctx.moveTo(0, y);
-            ctx.lineTo(SCREEN_W_MM, y);
-          }
-        };
-        ctx.strokeStyle = "#191e27";
-        ctx.lineWidth = lw;
-        line(GRID_MINOR);
-        ctx.stroke();
-        ctx.strokeStyle = "#283140";
-        ctx.lineWidth = lw * 1.4;
-        line(GRID_MAJOR);
-        ctx.stroke();
-      }}
-    />
-  );
-}
 
 export function PreviewCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -488,7 +453,7 @@ export function PreviewCanvas() {
               strokeScaleEnabled={false}
               cornerRadius={0.5}
             />
-            <Grid />
+            <CadGrid widthMm={SCREEN_W_MM} heightMm={SCREEN_H_MM} />
             {/* copper board reference frame — non-interactive (position via the
                 X/Y fields); listening off so clicks fall through to the bed */}
             <Rect

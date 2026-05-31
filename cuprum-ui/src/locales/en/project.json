@@ -5,5 +5,50 @@
   "noPackages": "No packages yet. Click «Import ZIP».",
   "descriptionPlaceholder": "Click to edit description.",
   "layersProgress": "Layers {{loaded}}/{{total}}",
-  "building3d": "Building 3D model…"
+  "building3d": "Building 3D model…",
+  "tab": {
+    "panel": "Panel",
+    "designs": "Designs",
+    "operations": "Operations"
+  },
+  "panel": {
+    "canvas": {
+      "copper": "Cu",
+      "noCopper": "no copper"
+    }
+  },
+  "operations": {
+    "placeholder": {
+      "title": "Operations",
+      "desc": "The process-step editor lands later."
+    }
+  },
+  "setup": {
+    "width": "Width",
+    "height": "Height",
+    "copperWeight": "Copper",
+    "substrate": "FR4 thickness",
+    "preset": "Preset",
+    "loadPreset": "Load preset…",
+    "savePreset": "Save",
+    "presetModalTitle": "Save preset",
+    "presetNamePlaceholder": "Preset name",
+    "sideTop": "Top",
+    "sideBottom": "Bottom",
+    "sectionBlank": "Size",
+    "sectionStackup": "Stackup",
+    "sides": "Sides",
+    "sidesSingle": "Single-sided",
+    "sidesDouble": "Double-sided"
+  },
+  "aria": {
+    "settings": "Project settings"
+  },
+  "settings": {
+    "title": "Project settings",
+    "name": "Name",
+    "description": "Description",
+    "save": "Save",
+    "cancel": "Cancel"
+  }
 }

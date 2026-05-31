@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type RecentProject, type StagedFile } from "@/lib/api";
+import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type PanelDoc, type RecentProject, type StagedFile, type Stackup } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
 export type View = "home" | "project" | "printer" | "settings" | "import";
@@ -28,6 +28,8 @@ interface ShellStore {
   openProjectByPath: (path: string) => Promise<void>;
   removeRecent: (path: string) => Promise<void>;
   updateProjectMetadata: (name: string, description: string) => Promise<void>;
+  /** Write the panel blank (stackup -> manifest, dimensions -> panel.json). */
+  savePanelConfig: (panel: PanelDoc, stackup: Stackup) => Promise<void>;
 
   // Import wizard
   staged: StagedFile[];
@@ -183,6 +185,18 @@ export const useShell = create<ShellStore>((set, get) => ({
         return;
       }
       set({ error: String(e) });
+    }
+  },
+
+  savePanelConfig: async (panel, stackup) => {
+    const path = get().currentPath;
+    if (!path) return;
+    try {
+      const manifest = await api.configurePanel(path, panel, stackup);
+      set({ currentManifest: manifest, error: null });
+    } catch (e) {
+      set({ error: String(e) });
+      throw e;
     }
   },
 
