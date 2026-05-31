@@ -175,6 +175,7 @@ pub fn import_zips(
     manifest.designs = manifest_designs;
     manifest.exposure = existing.exposure;
     manifest.placements = existing.placements;
+    manifest.stackup = existing.stackup.clone();
 
     // Preserve layer types the user assigned to already-imported files; the
     // rebuild above re-classified them by filename, which would wipe overrides.
@@ -498,6 +499,35 @@ mod tests {
 
         // Persisted: reopening sees the stackup.
         assert!(open_project(&db, &save, 2500).unwrap().stackup.is_some());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reimport_preserves_stackup() {
+        use crate::manifest::Stackup;
+        use crate::panel::PanelDoc;
+        let dir = std::env::temp_dir().join(format!("cuprum-reimp-stk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("catalog.sqlite");
+        let save = dir.join("proj.cuprum");
+        create_project(&db, &save, "proj", &[], 1000).unwrap();
+        configure_panel(
+            &db,
+            &save,
+            &PanelDoc::new(150.0, 100.0),
+            Stackup {
+                copper_weight_oz: 1.0,
+                substrate_thickness_mm: 1.6,
+                double_sided: true,
+            },
+            2000,
+        )
+        .unwrap();
+
+        // A reimport (here: zero new zips) must not wipe the stackup.
+        let m = import_zips(&db, &save, &[], 3000).unwrap();
+        assert!(m.stackup.as_ref().unwrap().double_sided);
 
         std::fs::remove_dir_all(&dir).ok();
     }
