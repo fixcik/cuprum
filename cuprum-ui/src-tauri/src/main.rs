@@ -789,6 +789,66 @@ fn project_board_mesh(
     Ok(tauri::ipc::Response::new(blob))
 }
 
+/// Measure manufacturing facts (DFM) for a COMMITTED design: read each gerber
+/// from the working dir under its current layer-type assignment. Cached by
+/// content hash (filename + type + bytes) — a pure measurement, so it stays valid
+/// as the user edits capability thresholds (judging is client-side).
+#[tauri::command]
+fn project_board_metrics(
+    app: AppHandle,
+    working_dir: String,
+    gerbers: Vec<GerberRef>,
+) -> Result<cuprum_core::metrics::BoardMetrics, String> {
+    let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
+    for g in &gerbers {
+        let bytes = read_workdir_file(&working_dir, &g.rel)?;
+        loaded.push((g.rel.clone(), g.layer_type, bytes));
+    }
+    let mut hasher = cuprum_core::diskcache::Hasher::new();
+    hasher.add(b"metrics-v12");
+    for (rel, t, bytes) in &loaded {
+        hasher.add(format!("{t:?}").as_bytes());
+        hasher.add(rel.to_lowercase().as_bytes()); // plating inferred from the name
+        hasher.add(bytes);
+    }
+    let key = hasher.finish();
+    if let Some(dir) = artifact_cache_dir(&app) {
+        if let Some(blob) = cuprum_core::diskcache::get(&dir, &key, ARTIFACT_CACHE_TTL) {
+            if let Ok(m) = serde_json::from_slice::<cuprum_core::metrics::BoardMetrics>(&blob) {
+                return Ok(m);
+            }
+        }
+    }
+    let inputs: Vec<cuprum_core::metrics::MetricLayerInput> = loaded
+        .iter()
+        .map(|(rel, t, bytes)| {
+            let (role, side) = role_side(t);
+            cuprum_core::metrics::MetricLayerInput {
+                role,
+                side,
+                inner: matches!(t, cuprum_project::LayerType::InnerCopper),
+                // Excellon can't carry plating; NPTH is known only from the filename.
+                plated: role == cuprum_core::mesh::Role::Drill
+                    && !rel.to_lowercase().contains("npth"),
+                bytes,
+            }
+        })
+        .collect();
+    let metrics = cuprum_core::metrics::board_metrics(&inputs);
+    if let Some(dir) = artifact_cache_dir(&app) {
+        if let Ok(blob) = serde_json::to_vec(&metrics) {
+            cuprum_core::diskcache::put(
+                &dir,
+                &key,
+                &blob,
+                ARTIFACT_CACHE_MAX_BYTES,
+                ARTIFACT_CACHE_TTL,
+            );
+        }
+    }
+    Ok(metrics)
+}
+
 // ---- Real display DPI (macOS native, cached once per launch) ----
 
 /// CSS reference: 96 CSS px == 1 inch == 25.4 mm.
@@ -866,6 +926,7 @@ fn main() {
             layer_polygons,
             mask_polygons,
             project_board_mesh,
+            project_board_metrics,
             read_drill,
             display_px_per_mm
         ])
