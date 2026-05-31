@@ -7,6 +7,7 @@ pub mod container;
 pub mod import;
 pub mod layer;
 pub mod manifest;
+pub mod panel;
 
 use std::path::{Path, PathBuf};
 
