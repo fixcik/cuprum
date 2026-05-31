@@ -11,7 +11,6 @@ import { SettingRow } from "@/components/ui/settings/SettingRow";
 import { UnitField } from "@/components/ui/settings/UnitField";
 import { PanelBlankCanvas } from "@/components/panel/PanelBlankCanvas";
 import { BUILTIN_PANEL_PRESETS, COPPER_WEIGHTS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
-import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 
@@ -51,36 +50,26 @@ export function PanelEditor() {
   );
   const prefilled = useRef<string | null>(null);
 
-  // Prefill ONCE per project. Read stackup from the store snapshot (not as a hook
-  // dep) and dimensions from panel.json; set lastSaved to those values. The
-  // `prefilled` guard is marked done only AFTER apply succeeds (not synchronously
-  // up front) — otherwise React StrictMode's mount→unmount→mount in dev cancels
-  // the first run yet leaves the guard set, so the remount skips prefill and the
-  // editor is stuck on defaults (saved values never load back).
+  // Prefill ONCE per project. Read panel and stackup from the in-store manifest
+  // snapshot (synchronous — no round-trip needed; panel now lives in the manifest).
+  // The `prefilled` guard is marked done only AFTER apply so React StrictMode's
+  // mount→unmount→mount in dev doesn't leave the guard set before values land.
   useEffect(() => {
     if (!currentPath || prefilled.current === currentPath) return;
-    const st = useShell.getState().currentManifest?.stackup;
+    const m = useShell.getState().currentManifest;
+    const st = m?.stackup;
     const cw = st?.copper_weight_oz ?? DEFAULT_STACKUP.copper_weight_oz;
     const sub = st?.substrate_thickness_mm ?? DEFAULT_STACKUP.substrate_thickness_mm;
     const ds = st?.double_sided ?? DEFAULT_STACKUP.double_sided;
-    let cancelled = false;
-    const apply = (w: number, h: number) => {
-      if (cancelled) return;
-      setWidth(w);
-      setHeight(h);
-      setCopperWeight(cw);
-      setSubstrate(sub);
-      setDoubleSided(ds);
-      lastSaved.current = JSON.stringify({ w, h, cw, sub, ds });
-      prefilled.current = currentPath;
-    };
-    api
-      .readPanel(currentPath)
-      .then((p) => apply(p?.width_mm ?? 100, p?.height_mm ?? 100))
-      .catch(() => apply(100, 100));
-    return () => {
-      cancelled = true;
-    };
+    const w = m?.panel?.width_mm ?? 100;
+    const h = m?.panel?.height_mm ?? 100;
+    setWidth(w);
+    setHeight(h);
+    setCopperWeight(cw);
+    setSubstrate(sub);
+    setDoubleSided(ds);
+    lastSaved.current = JSON.stringify({ w, h, cw, sub, ds });
+    prefilled.current = currentPath;
   }, [currentPath]);
 
   const valid = width > 0 && height > 0 && substrate > 0;
