@@ -101,6 +101,9 @@ pub struct Stackup {
     pub copper_weight_oz: f32,
     /// FR4 substrate thickness in millimetres.
     pub substrate_thickness_mm: f32,
+    /// Whether the blank is copper-clad on both sides (vs single-sided).
+    #[serde(default)]
+    pub double_sided: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -191,11 +194,18 @@ mod tests {
         let m: Manifest = serde_json::from_str(json).unwrap();
         assert!(m.stackup.is_none());
 
+        // A stackup without `double_sided` (older shape) defaults to single-sided.
+        let s: Stackup =
+            serde_json::from_str(r#"{"copper_weight_oz":1.0,"substrate_thickness_mm":1.6}"#)
+                .unwrap();
+        assert!(!s.double_sided);
+
         // A set stackup survives a round-trip.
         let mut m2 = Manifest::new("y");
         m2.stackup = Some(Stackup {
             copper_weight_oz: 1.0,
             substrate_thickness_mm: 1.6,
+            double_sided: true,
         });
         let back: Manifest = serde_json::from_str(&serde_json::to_string(&m2).unwrap()).unwrap();
         assert_eq!(m2, back);

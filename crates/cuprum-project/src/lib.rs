@@ -488,6 +488,7 @@ mod tests {
             Stackup {
                 copper_weight_oz: 1.0,
                 substrate_thickness_mm: 1.6,
+                double_sided: false,
             },
             2000,
         )
