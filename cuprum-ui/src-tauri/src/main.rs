@@ -207,6 +207,26 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
+/// Base dir holding all per-open working directories (under the OS cache dir).
+fn working_base(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("working");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// A freshly chosen, not-yet-existing working-dir path for one open project.
+/// Unique by pid + epoch (collisions within the same second are vanishingly
+/// unlikely for a desktop app opening one project at a time).
+fn new_workdir(app: &AppHandle) -> Result<PathBuf, String> {
+    let base = working_base(app)?;
+    let name = format!("{}-{}", std::process::id(), now_epoch());
+    Ok(base.join(name))
+}
+
 #[derive(Serialize)]
 struct RecentProjectDto {
     path: String,
@@ -243,10 +263,34 @@ fn create_project(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenedProjectDto {
+    working_dir: String,
+    manifest: cuprum_project::Manifest,
+    panel: Option<cuprum_project::PanelDoc>,
+}
+
 #[tauri::command]
-fn open_project(app: AppHandle, path: String) -> Result<cuprum_project::Manifest, String> {
+fn open_project(app: AppHandle, path: String) -> Result<OpenedProjectDto, String> {
     let db = catalog_db_path(&app)?;
-    cuprum_project::open_project(&db, Path::new(&path), now_epoch()).map_err(|e| e.to_string())
+    // Reads the manifest, validates existence, and records the recent entry.
+    let manifest = cuprum_project::open_project(&db, Path::new(&path), now_epoch())
+        .map_err(|e| e.to_string())?;
+    let workdir = new_workdir(&app)?;
+    let marker = cuprum_project::SessionMarker {
+        source_path: path.clone(),
+        pid: std::process::id(),
+        opened_at: now_epoch(),
+    };
+    cuprum_project::workdir::extract(Path::new(&path), &workdir, &marker)
+        .map_err(|e| e.to_string())?;
+    let panel = cuprum_project::workdir::read_panel(&workdir).map_err(|e| e.to_string())?;
+    Ok(OpenedProjectDto {
+        working_dir: workdir.to_string_lossy().to_string(),
+        manifest,
+        panel,
+    })
 }
 
 #[tauri::command]
