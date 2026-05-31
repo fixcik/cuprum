@@ -392,18 +392,6 @@ fn read_restore_point(working_dir: String, id: String) -> Result<cuprum_project:
 }
 
 #[tauri::command]
-fn import_zips(
-    app: AppHandle,
-    path: String,
-    zip_paths: Vec<String>,
-) -> Result<cuprum_project::Manifest, String> {
-    let db = catalog_db_path(&app)?;
-    let zips: Vec<PathBuf> = zip_paths.into_iter().map(PathBuf::from).collect();
-    cuprum_project::import_zips(&db, Path::new(&path), &zips, now_epoch())
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn remove_recent(app: AppHandle, path: String) -> Result<(), String> {
     let db = catalog_db_path(&app)?;
     cuprum_project::remove_recent(&db, &path).map_err(|e| e.to_string())
@@ -869,7 +857,6 @@ fn main() {
             make_restore_point,
             list_restore_points,
             read_restore_point,
-            import_zips,
             remove_recent,
             update_project_metadata,
             configure_panel,

@@ -10,8 +10,8 @@ import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { useShell } from "@/shellStore";
 
 /** Reference library of imported Designs: composite 2D/3D gerber preview plus a
- *  per-Design file list. Designs are added from the panel editor (Phase 2); this
- *  tab is read-only reference. */
+ *  per-Design file list. Designs are imported via the Upload button on this tab
+ *  (`addDesignsFromZips`); per-design inspection/editing arrives in Phase 4. */
 export function DesignsTab() {
   const { t } = useTranslation(["project", "layers"]);
   const manifest = useShell((s) => s.currentManifest);

@@ -262,8 +262,6 @@ export const api = {
     invoke<RestorePointMeta[]>("list_restore_points", { workingDir }),
   readRestorePoint: (workingDir: string, id: string) =>
     invoke<Manifest>("read_restore_point", { workingDir, id }),
-  importZips: (path: string, zipPaths: string[]) =>
-    invoke<Manifest>("import_zips", { path, zipPaths }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   updateProjectMetadata: (path: string, name: string, description: string) =>
     invoke<Manifest>("update_project_metadata", { path, name, description }),
