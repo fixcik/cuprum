@@ -248,8 +248,6 @@ export const useShell = create<ShellStore>((set, get) => ({
       const manifest = await api.configurePanel(path, panel, stackup);
       set({ currentManifest: manifest, error: null });
       await get()._mirrorManifest(manifest);
-      const { workingDir } = get();
-      if (workingDir) await api.writeWorkingPanel(workingDir, panel);
     } catch (e) {
       set({ error: String(e) });
       throw e;

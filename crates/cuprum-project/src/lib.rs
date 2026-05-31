@@ -43,16 +43,25 @@ pub fn remove_recent(db_path: &Path, path: &str) -> Result<()> {
     catalog::remove(&conn, path)
 }
 
-/// Open an existing `.cuprum`: parse its manifest and record it as recently opened.
+/// Open an existing `.cuprum`: parse its manifest, migrate any legacy
+/// `panel.json`, and record it as recently opened.
 pub fn open_project(db_path: &Path, container: &Path, now: i64) -> Result<Manifest> {
     ensure_project_exists(container)?;
-    let manifest = container::read_manifest(container).map_err(|e| {
+    let mut manifest = container::read_manifest(container).map_err(|e| {
         if !container.exists() {
             anyhow::anyhow!(PROJECT_NOT_FOUND)
         } else {
             e
         }
     })?;
+    // Migration (schema v4): fold a legacy `panel.json` into the manifest, then
+    // rewrite so the container is upgraded and the stray entry can be dropped.
+    if manifest.panel.is_none() {
+        if let Ok(Some(legacy)) = container::read_legacy_panel(container) {
+            manifest.panel = Some(legacy);
+            let _ = container::update_manifest(container, &manifest);
+        }
+    }
     let conn = catalog::open(db_path)?;
     catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
     Ok(manifest)
@@ -178,6 +187,7 @@ pub fn import_zips(
     manifest.exposure = existing.exposure;
     manifest.placements = existing.placements;
     manifest.stackup = existing.stackup.clone();
+    manifest.panel = existing.panel.clone();
 
     // Preserve layer types the user assigned to already-imported files; the
     // rebuild above re-classified them by filename, which would wipe overrides.
@@ -261,14 +271,14 @@ pub fn update_project_metadata(
     Ok(manifest)
 }
 
-/// Read the panel blank (`panel.json`), or `None` if not yet configured.
+/// Read the panel blank from the manifest, or `None` if not yet configured.
 pub fn read_panel(container: &Path) -> Result<Option<PanelDoc>> {
     ensure_project_exists(container)?;
-    container::read_panel(container)
+    Ok(container::read_manifest(container)?.panel)
 }
 
-/// Configure the panel blank: store the `Stackup` on the manifest and write
-/// `panel.json` with the blank dimensions. Bumps `last_opened_at`.
+/// Configure the panel blank: store the `Stackup` and `PanelDoc` on the
+/// manifest. Bumps `last_opened_at`.
 pub fn configure_panel(
     db_path: &Path,
     container: &Path,
@@ -293,7 +303,8 @@ pub fn configure_panel(
     }
     let mut manifest = container::read_manifest(container)?;
     manifest.stackup = Some(stackup);
-    container::update_manifest_and_panel(container, &manifest, panel)?;
+    manifest.panel = Some(panel.clone());
+    container::update_manifest(container, &manifest)?;
 
     let conn = catalog::open(db_path)?;
     catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
@@ -494,7 +505,7 @@ mod tests {
         create_project(&db, &save, "proj", &[], 1000).unwrap();
 
         // Not configured initially.
-        assert!(read_panel(&save).unwrap().is_none());
+        assert!(open_project(&db, &save, 1500).unwrap().panel.is_none());
         assert!(open_project(&db, &save, 1500).unwrap().stackup.is_none());
 
         let m = configure_panel(
@@ -510,10 +521,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(m.stackup.as_ref().unwrap().copper_weight_oz, 1.0);
-        assert_eq!(read_panel(&save).unwrap().unwrap().width_mm, 150.0);
+        assert_eq!(m.panel.as_ref().unwrap().width_mm, 150.0);
 
-        // Persisted: reopening sees the stackup.
-        assert!(open_project(&db, &save, 2500).unwrap().stackup.is_some());
+        // Persisted: reopening sees both.
+        let re = open_project(&db, &save, 2500).unwrap();
+        assert!(re.stackup.is_some());
+        assert_eq!(re.panel.unwrap().width_mm, 150.0);
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -535,7 +548,7 @@ mod tests {
         };
         // Non-positive dimension is rejected, and nothing is written.
         assert!(configure_panel(&db, &save, &PanelDoc::new(0.0, 100.0), ok.clone(), 2000).is_err());
-        assert!(read_panel(&save).unwrap().is_none());
+        assert!(open_project(&db, &save, 1500).unwrap().panel.is_none());
         // Non-positive stackup value is rejected too.
         let bad = Stackup {
             copper_weight_oz: 0.0,
@@ -543,6 +556,7 @@ mod tests {
             double_sided: false,
         };
         assert!(configure_panel(&db, &save, &PanelDoc::new(150.0, 100.0), bad, 2000).is_err());
+        assert!(open_project(&db, &save, 1600).unwrap().panel.is_none());
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -572,6 +586,31 @@ mod tests {
         // A reimport (here: zero new zips) must not wipe the stackup.
         let m = import_zips(&db, &save, &[], 3000).unwrap();
         assert!(m.stackup.as_ref().unwrap().double_sided);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn open_migrates_legacy_panel_json() {
+        use crate::panel::PanelDoc;
+        let dir = std::env::temp_dir().join(format!("cuprum-migrate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("catalog.sqlite");
+        let save = dir.join("legacy.cuprum");
+
+        // Hand-build a v3-style container: manifest without `panel`, plus a
+        // separate panel.json entry.
+        let m = Manifest::new("legacy");
+        let p = PanelDoc::new(99.0, 55.0);
+        let entries = vec![(
+            container::PANEL_NAME.to_string(),
+            serde_json::to_vec_pretty(&p).unwrap(),
+        )];
+        container::write(&save, &m, &entries).unwrap();
+
+        // Opening folds the legacy panel into the manifest.
+        let opened = open_project(&db, &save, 1000).unwrap();
+        assert_eq!(opened.panel.unwrap().width_mm, 99.0);
 
         std::fs::remove_dir_all(&dir).ok();
     }

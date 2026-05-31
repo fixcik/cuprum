@@ -89,9 +89,9 @@ pub fn update_manifest(path: &Path, manifest: &Manifest) -> Result<()> {
     write(path, manifest, &entries)
 }
 
-/// Read and parse `panel.json`. Returns `None` if the blank isn't configured
-/// yet (entry absent); a present-but-corrupt entry is an error.
-pub fn read_panel(path: &Path) -> Result<Option<PanelDoc>> {
+/// Read a legacy `panel.json` entry (schema ≤ v3). Returns None when absent.
+/// Used only to migrate the blank into the manifest on open.
+pub fn read_legacy_panel(path: &Path) -> Result<Option<PanelDoc>> {
     let file = File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)?;
     let buf = match archive.by_name(PANEL_NAME) {
@@ -104,53 +104,6 @@ pub fn read_panel(path: &Path) -> Result<Option<PanelDoc>> {
         Err(e) => return Err(e.into()),
     };
     Ok(Some(serde_json::from_slice(&buf)?))
-}
-
-/// Write/replace `panel.json` while preserving the manifest and every other
-/// ZIP entry.
-pub fn update_panel(path: &Path, panel: &PanelDoc) -> Result<()> {
-    let file = File::open(path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    let mut manifest_bytes: Option<Vec<u8>> = None;
-    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
-        let name = entry.name().to_string();
-        let mut buf = Vec::new();
-        entry.read_to_end(&mut buf)?;
-        if name == MANIFEST_NAME {
-            manifest_bytes = Some(buf);
-        } else if name == PANEL_NAME {
-            // drop the old panel.json; we re-add the new one below
-        } else {
-            entries.push((name, buf));
-        }
-    }
-    let manifest: Manifest =
-        serde_json::from_slice(&manifest_bytes.ok_or_else(|| anyhow!("manifest.json missing"))?)?;
-    entries.push((PANEL_NAME.to_string(), serde_json::to_vec_pretty(panel)?));
-    write(path, &manifest, &entries)
-}
-
-/// Atomically replace BOTH `manifest.json` and `panel.json` in a single
-/// container rewrite, preserving every other entry. Avoids the inconsistent
-/// state where the manifest's stackup is set but `panel.json` is stale.
-pub fn update_manifest_and_panel(path: &Path, manifest: &Manifest, panel: &PanelDoc) -> Result<()> {
-    let file = File::open(path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
-        let name = entry.name().to_string();
-        if name == MANIFEST_NAME || name == PANEL_NAME {
-            continue;
-        }
-        let mut buf = Vec::new();
-        entry.read_to_end(&mut buf)?;
-        entries.push((name, buf));
-    }
-    entries.push((PANEL_NAME.to_string(), serde_json::to_vec_pretty(panel)?));
-    write(path, manifest, &entries)
 }
 
 #[cfg(test)]
@@ -235,21 +188,24 @@ mod tests {
     }
 
     #[test]
-    fn panel_missing_then_written() {
+    fn legacy_panel_read() {
         use crate::panel::PanelDoc;
-        let dir = std::env::temp_dir().join(format!("cuprum-panel-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("cuprum-legacy-panel-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.cuprum");
+
+        // Container with no panel.json -> None.
         write(&path, &Manifest::new("demo"), &[]).unwrap();
+        assert!(read_legacy_panel(&path).unwrap().is_none());
 
-        // No panel.json yet -> None.
-        assert!(read_panel(&path).unwrap().is_none());
-
-        // Writing one is readable, and the manifest survives.
+        // Container carrying a legacy panel.json entry -> Some.
         let p = PanelDoc::new(120.0, 80.0);
-        update_panel(&path, &p).unwrap();
-        assert_eq!(read_panel(&path).unwrap(), Some(p));
-        assert_eq!(read_manifest(&path).unwrap().name, "demo");
+        let entries = vec![(
+            PANEL_NAME.to_string(),
+            serde_json::to_vec_pretty(&p).unwrap(),
+        )];
+        write(&path, &Manifest::new("demo"), &entries).unwrap();
+        assert_eq!(read_legacy_panel(&path).unwrap(), Some(p));
 
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -112,12 +112,12 @@ export interface Manifest {
   placements: unknown[];
   layer_colors: Record<string, string>;
   stackup: Stackup | null;
+  panel: PanelDoc | null;
 }
 
 export interface OpenedProject {
   workingDir: string;
   manifest: Manifest;
-  panel: PanelDoc | null;
 }
 
 export interface Orphan {
@@ -284,8 +284,6 @@ export const api = {
     invoke<void>("save_project", { workingDir, targetPath }),
   writeWorkingManifest: (workingDir: string, manifest: Manifest) =>
     invoke<void>("write_working_manifest", { workingDir, manifest }),
-  writeWorkingPanel: (workingDir: string, panel: PanelDoc) =>
-    invoke<void>("write_working_panel", { workingDir, panel }),
   scanRecoverable: () => invoke<Orphan[]>("scan_recoverable", {}),
   cleanupWorkdir: (workingDir: string) => invoke<void>("cleanup_workdir", { workingDir }),
   importZips: (path: string, zipPaths: string[]) =>
@@ -295,7 +293,6 @@ export const api = {
     invoke<Manifest>("update_project_metadata", { path, name, description }),
   configurePanel: (path: string, panel: PanelDoc, stackup: Stackup) =>
     invoke<Manifest>("configure_panel", { path, panel, stackup }),
-  readPanel: (path: string) => invoke<PanelDoc | null>("read_panel", { path }),
   stageImport: (zipPaths: string[]) => invoke<StagedImport>("stage_import", { zipPaths }),
   /** Fast: classify every gerber (names + types + drill holes), no SVG render. */
   stageClassify: (zipPaths: string[]) =>

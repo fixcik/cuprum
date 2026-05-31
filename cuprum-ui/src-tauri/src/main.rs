@@ -276,7 +276,6 @@ fn create_project(
 struct OpenedProjectDto {
     working_dir: String,
     manifest: cuprum_project::Manifest,
-    panel: Option<cuprum_project::PanelDoc>,
 }
 
 #[tauri::command]
@@ -293,11 +292,9 @@ fn open_project(app: AppHandle, path: String) -> Result<OpenedProjectDto, String
     };
     cuprum_project::workdir::extract(Path::new(&path), &workdir, &marker)
         .map_err(|e| e.to_string())?;
-    let panel = cuprum_project::workdir::read_panel(&workdir).map_err(|e| e.to_string())?;
     Ok(OpenedProjectDto {
         working_dir: workdir.to_string_lossy().to_string(),
         manifest,
-        panel,
     })
 }
 
@@ -317,12 +314,6 @@ fn write_working_manifest(
 ) -> Result<(), String> {
     cuprum_project::workdir::write_manifest(Path::new(&working_dir), &manifest)
         .map_err(|e| e.to_string())
-}
-
-/// Mirror the panel doc into the working dir.
-#[tauri::command]
-fn write_working_panel(working_dir: String, panel: cuprum_project::PanelDoc) -> Result<(), String> {
-    cuprum_project::workdir::write_panel(Path::new(&working_dir), &panel).map_err(|e| e.to_string())
 }
 
 /// List recoverable (dirty) orphan working dirs left by a previous run.
@@ -394,11 +385,6 @@ fn configure_panel(
     let db = catalog_db_path(&app)?;
     cuprum_project::configure_panel(&db, Path::new(&path), &panel, stackup, now_epoch())
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn read_panel(path: String) -> Result<Option<cuprum_project::PanelDoc>, String> {
-    cuprum_project::read_panel(Path::new(&path)).map_err(|e| e.to_string())
 }
 
 // ---- Staging import (classify + SVG-render, no container write) ----
@@ -1151,14 +1137,12 @@ fn main() {
             open_project,
             save_project,
             write_working_manifest,
-            write_working_panel,
             scan_recoverable,
             cleanup_workdir,
             import_zips,
             remove_recent,
             update_project_metadata,
             configure_panel,
-            read_panel,
             stage_import,
             stage_classify,
             stage_layer_svg,
