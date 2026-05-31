@@ -175,6 +175,13 @@ export const useShell = create<ShellStore>((set, get) => ({
   },
 
   openProjectByPath: async (path) => {
+    // Already on this project (e.g. re-clicked a recent, or an open-by-click both
+    // parked a pending path AND emitted open-file for the same file) → just show
+    // it, don't re-extract a fresh working dir.
+    if (get().currentPath === path) {
+      set({ view: "project", homeNotice: null, error: null });
+      return;
+    }
     set({ homeNotice: null, error: null });
     // Clean up any previously-open project's working dir before switching, so
     // switching projects never leaks a temp working dir.
