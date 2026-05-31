@@ -97,6 +97,65 @@ fn collect_entries(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) ->
     Ok(())
 }
 
+/// An abandoned working dir found at startup: its source container and whether
+/// it holds unsaved changes worth recovering.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Orphan {
+    pub workdir: String,
+    pub source_path: String,
+    pub dirty: bool,
+}
+
+/// Scan `base` for child working dirs (each carrying a session marker) NOT owned
+/// by `live_pid`. `dirty` is true when the loose manifest differs from the source
+/// container's manifest (or the source is gone/corrupt) — i.e. recoverable.
+pub fn scan_orphans(base: &Path, live_pid: u32) -> Result<Vec<Orphan>> {
+    let mut out = Vec::new();
+    if !base.exists() {
+        return Ok(out);
+    }
+    for ent in fs::read_dir(base)? {
+        let wd = ent?.path();
+        if !wd.is_dir() {
+            continue;
+        }
+        let marker = match read_marker(&wd) {
+            Ok(m) => m,
+            Err(_) => continue, // not a working dir
+        };
+        if marker.pid == live_pid {
+            continue;
+        }
+        let working = match read_manifest(&wd) {
+            Ok(m) => m,
+            Err(_) => continue, // unusable
+        };
+        let source = Path::new(&marker.source_path);
+        let dirty = match container::read_manifest(source) {
+            Ok(saved) => saved != working,
+            Err(_) => true,
+        };
+        out.push(Orphan {
+            workdir: wd.to_string_lossy().to_string(),
+            source_path: marker.source_path.clone(),
+            dirty,
+        });
+    }
+    Ok(out)
+}
+
+/// Delete every orphan working dir under `base` that is NOT dirty (no unsaved
+/// changes) and not owned by `live_pid`. Dirty ones are left for recovery.
+pub fn gc_clean(base: &Path, live_pid: u32) -> Result<()> {
+    for o in scan_orphans(base, live_pid)? {
+        if !o.dirty {
+            fs::remove_dir_all(&o.workdir).ok();
+        }
+    }
+    Ok(())
+}
+
 use std::io::Read;
 
 /// Extract every entry of `container` into a fresh `workdir`, then write the
@@ -263,6 +322,48 @@ mod tests {
         assert_eq!(container::read_panel(&out).unwrap().unwrap().width_mm, 50.0);
         // Marker must not leak into the container.
         assert!(container::read_entry(&out, SESSION_MARKER).is_err());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn scan_flags_dirty_and_gc_removes_clean() {
+        use crate::manifest::Manifest;
+        let root = scratch("orphan");
+        let base = root.join("base");
+        std::fs::create_dir_all(&base).unwrap();
+
+        // Two saved containers.
+        let cu_clean = root.join("clean.cu");
+        let cu_dirty = root.join("dirty.cu");
+        container::write(&cu_clean, &Manifest::new("clean"), &[]).unwrap();
+        container::write(&cu_dirty, &Manifest::new("dirty"), &[]).unwrap();
+
+        // Working dirs owned by a DEAD pid (9999).
+        let wd_clean = base.join("a");
+        let wd_dirty = base.join("b");
+        extract(&cu_clean, &wd_clean, &SessionMarker { source_path: cu_clean.to_string_lossy().into(), pid: 9999, opened_at: 0 }).unwrap();
+        extract(&cu_dirty, &wd_dirty, &SessionMarker { source_path: cu_dirty.to_string_lossy().into(), pid: 9999, opened_at: 0 }).unwrap();
+
+        // Make wd_dirty actually differ from its source.
+        let mut edited = read_manifest(&wd_dirty).unwrap();
+        edited.name = "dirty-edited".into();
+        write_manifest(&wd_dirty, &edited).unwrap();
+
+        // Live pid 9999 -> excluded entirely.
+        assert!(scan_orphans(&base, 9999).unwrap().is_empty());
+
+        // From a different pid, both are orphans; only the dirty one is recoverable.
+        let orphans = scan_orphans(&base, 1).unwrap();
+        assert_eq!(orphans.len(), 2);
+        let dirty: Vec<_> = orphans.iter().filter(|o| o.dirty).collect();
+        assert_eq!(dirty.len(), 1);
+        assert_eq!(dirty[0].source_path, cu_dirty.to_string_lossy());
+
+        // GC removes clean orphans, keeps dirty ones.
+        gc_clean(&base, 1).unwrap();
+        assert!(!wd_clean.exists());
+        assert!(wd_dirty.exists());
 
         std::fs::remove_dir_all(&root).ok();
     }
