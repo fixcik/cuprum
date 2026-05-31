@@ -41,11 +41,13 @@
     "loadPreset": "Load preset…",
     "savePreset": "Save",
     "presetNamePrompt": "Preset name:",
+    "presetModalTitle": "Save preset",
+    "presetNamePlaceholder": "Preset name",
     "save": "Save",
     "cancel": "Back",
     "sideTop": "Top",
     "sideBottom": "Bottom",
-    "sectionBlank": "Blank",
+    "sectionBlank": "Size",
     "sectionStackup": "Stackup",
     "sides": "Sides",
     "sidesSingle": "Single-sided",
@@ -53,6 +55,14 @@
   },
   "aria": {
     "projectName": "Project name",
-    "projectDescription": "Project description"
+    "projectDescription": "Project description",
+    "settings": "Project settings"
+  },
+  "settings": {
+    "title": "Project settings",
+    "name": "Name",
+    "description": "Description",
+    "save": "Save",
+    "cancel": "Cancel"
   }
 }
