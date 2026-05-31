@@ -1,11 +1,12 @@
 // Prevent a console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::Mutex;
 use std::time::Duration;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, RunEvent};
 
 use cuprum_core::cache;
 use cuprum_core::compose::{self, Placement};
@@ -20,6 +21,41 @@ use tauri::Manager;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(4);
 const PRINT_FILENAME: &str = "cuprum-ui.goo";
+
+/// Path of a project a double-click / second-launch asked us to open, parked until
+/// the frontend is ready to consume it (it calls `take_pending_open` on mount).
+#[derive(Default)]
+struct PendingOpen(Mutex<Option<String>>);
+
+/// True if `p` looks like a Cuprum project file by extension.
+fn is_project_file(p: &Path) -> bool {
+    matches!(
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("cu") | Some("cuprum")
+    )
+}
+
+/// First existing `.cu`/`.cuprum` path among CLI args (skips argv[0]).
+fn project_path_from_args(args: &[String]) -> Option<String> {
+    args.iter().skip(1).find_map(|a| {
+        let p = Path::new(a);
+        (is_project_file(p) && p.exists()).then(|| a.clone())
+    })
+}
+
+/// Park `path` as the pending open and notify the frontend (if it's already up).
+fn dispatch_open(app: &AppHandle, path: String) {
+    if let Some(state) = app.try_state::<PendingOpen>() {
+        *state.0.lock().unwrap() = Some(path.clone());
+    }
+    let _ = app.emit("open-file", path);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_focus();
+    }
+}
 
 #[derive(Serialize)]
 struct PrinterInfo {
@@ -941,14 +977,35 @@ fn display_px_per_mm() -> f32 {
     *CACHE.get_or_init(compute_px_per_mm)
 }
 
+/// Hand the frontend the project path a double-click/relaunch queued (and clear
+/// it), so a cold start opens the file. Returns null when there's nothing pending.
+#[tauri::command]
+fn take_pending_open(state: tauri::State<PendingOpen>) -> Option<String> {
+    state.0.lock().unwrap().take()
+}
+
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .manage(PendingOpen::default())
         .plugin(tauri_plugin_dialog::init())
+        // Single-instance: a second launch (Win/Linux file double-click passes the
+        // path in argv) forwards its args here instead of opening a new window.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(path) = project_path_from_args(&argv) {
+                dispatch_open(app, path);
+            }
+        }))
         .setup(|app| {
             // Remove clean (no-unsaved-changes) leftover working dirs from prior runs.
             let handle = app.handle().clone();
             if let Ok(base) = working_base(&handle) {
                 let _ = cuprum_project::workdir::gc_clean(&base, std::process::id());
+            }
+            // Cold start: this process was launched with a project path in argv.
+            if let Some(path) = project_path_from_args(&std::env::args().collect::<Vec<_>>()) {
+                if let Some(state) = app.try_state::<PendingOpen>() {
+                    *state.0.lock().unwrap() = Some(path);
+                }
             }
             Ok(())
         })
@@ -978,8 +1035,22 @@ fn main() {
             project_board_mesh,
             project_board_metrics,
             read_drill,
-            display_px_per_mm
+            display_px_per_mm,
+            take_pending_open
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Cuprum");
+        .build(tauri::generate_context!())
+        .expect("error while building Cuprum");
+
+    app.run(|app_handle, event| {
+        // macOS delivers a double-clicked file as an Apple-event → RunEvent::Opened.
+        if let RunEvent::Opened { urls } = event {
+            for url in urls {
+                if let Ok(path) = url.to_file_path() {
+                    if is_project_file(&path) {
+                        dispatch_open(app_handle, path.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+    });
 }
