@@ -106,7 +106,7 @@ fn next_design_id(workdir: &Path) -> String {
             }
         }
     }
-    format!("design-{}", max + 1)
+    format!("design-{}", max.saturating_add(1))
 }
 
 /// Add one source ZIP as a new Design directly inside an open project's working
@@ -116,6 +116,9 @@ fn next_design_id(workdir: &Path) -> String {
 /// merges the returned design and persists through the normal autosave path.
 pub fn add_design_to_workdir(workdir: &Path, zip_path: &Path) -> Result<manifest::Design> {
     let imported = import::read_zip_gerbers(zip_path)?;
+    if imported.gerbers.is_empty() {
+        anyhow::bail!("no recognisable Gerber/drill files found in the ZIP");
+    }
     let id = next_design_id(workdir);
     let design_dir = workdir.join("gerbers").join(&id);
     std::fs::create_dir_all(&design_dir)?;
@@ -400,6 +403,29 @@ mod tests {
         assert_eq!(d2.id, "design-2");
         assert!(wd.join("gerbers/design-2/board-F_Cu.gbr").exists());
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn add_design_to_workdir_rejects_zip_without_gerbers() {
+        let dir = std::env::temp_dir().join(format!("cuprum-add-empty-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip = dir.join("docs.zip");
+        {
+            use std::io::Write;
+            use zip::write::SimpleFileOptions;
+            let f = std::fs::File::create(&zip).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            z.start_file("readme.txt", SimpleFileOptions::default()).unwrap();
+            z.write_all(b"hi").unwrap();
+            z.finish().unwrap();
+        }
+        let wd = dir.join("wd");
+        std::fs::create_dir_all(&wd).unwrap();
+        crate::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
+        assert!(add_design_to_workdir(&wd, &zip).is_err());
+        assert!(!wd.join("gerbers/design-1").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
