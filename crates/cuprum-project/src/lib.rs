@@ -257,41 +257,6 @@ pub fn import_zips(
     Ok(manifest)
 }
 
-/// Import ZIPs into an existing container, then set the layer type of each
-/// newly-added gerber from `layer_types`, applied POSITIONALLY in staging order
-/// (the i-th value targets the i-th gerber across the imports just added). This
-/// is dedup-stable: the wizard's `stage_import` emits files in the same flat
-/// order `build_entries` walks, and dedup never drops or reorders files.
-/// Already-existing designs keep their layer types (see `import_zips`).
-pub fn commit_import(
-    db_path: &Path,
-    container: &Path,
-    zip_paths: &[PathBuf],
-    layer_types: &[LayerType],
-    now: i64,
-) -> Result<Manifest> {
-    // Number of designs already present, so we only re-type the newly added ones.
-    let existing_count = container::read_manifest(container)
-        .map(|m| m.designs.len())
-        .unwrap_or(0);
-
-    let mut manifest = import_zips(db_path, container, zip_paths, now)?;
-
-    let new_gerbers = manifest
-        .designs
-        .iter_mut()
-        .skip(existing_count)
-        .flat_map(|design| design.gerbers.iter_mut());
-    for (g, lt) in new_gerbers.zip(layer_types.iter()) {
-        g.layer_type = *lt;
-    }
-
-    // import_zips already rewrote the container; rewrite the manifest once more
-    // so the wizard's layer types land on disk.
-    container::update_manifest(container, &manifest)?;
-    Ok(manifest)
-}
-
 /// Update project display name and description in the container manifest.
 pub fn update_project_metadata(
     db_path: &Path,
@@ -515,77 +480,6 @@ mod tests {
         let both: std::collections::HashSet<Vec<u8>> = [bytes0, bytes1].into_iter().collect();
         assert!(both.contains(b"AAA" as &[u8]), "AAA payload must be stored");
         assert!(both.contains(b"BBB" as &[u8]), "BBB payload must be stored");
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn commit_import_applies_layer_types_positionally() {
-        let dir = std::env::temp_dir().join(format!("cuprum-commit-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        // board.gbr auto-classifies to Other; the wizard overrides it to TopCopper.
-        let zip = make_source_zip(&dir, "pkg.zip"); // contains board.gbr
-        let m = commit_import(&db, &save, &[zip], &[LayerType::TopCopper], 2000).unwrap();
-        assert_eq!(m.designs.len(), 1);
-        assert_eq!(m.designs[0].gerbers[0].path, "gerbers/design-1/board.gbr");
-        assert_eq!(m.designs[0].gerbers[0].layer_type, LayerType::TopCopper);
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn commit_import_positional_survives_dedup() {
-        let dir = std::env::temp_dir().join(format!("cuprum-commit-dup-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        let zip = make_dup_source_zip(&dir, "dup.zip"); // two "top.gbr" (a/, b/)
-        let m = commit_import(
-            &db,
-            &save,
-            &[zip],
-            &[LayerType::TopCopper, LayerType::BottomCopper],
-            2000,
-        )
-        .unwrap();
-
-        let gerbers = &m.designs[0].gerbers;
-        assert_eq!(gerbers.len(), 2);
-        assert_eq!(gerbers[0].layer_type, LayerType::TopCopper);
-        assert_eq!(
-            gerbers[1].layer_type,
-            LayerType::BottomCopper,
-            "2nd choice must land on the deduped file"
-        );
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn reimport_preserves_existing_layer_types() {
-        let dir = std::env::temp_dir().join(format!("cuprum-reimport-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        let zip1 = make_source_zip(&dir, "one.zip");
-        commit_import(&db, &save, &[zip1], &[LayerType::TopCopper], 2000).unwrap();
-
-        let zip2 = make_source_zip(&dir, "two.zip");
-        let m = import_zips(&db, &save, &[zip2], 3000).unwrap();
-        assert_eq!(m.designs.len(), 2);
-        assert_eq!(
-            m.designs[0].gerbers[0].layer_type,
-            LayerType::TopCopper,
-            "existing import's layer type must survive a later import_zips"
-        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
