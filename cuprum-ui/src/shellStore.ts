@@ -434,20 +434,33 @@ export const useShell = create<ShellStore>((set, get) => ({
     if (!currentPath || !workingDir || !currentManifest) return;
     if (paths.length === 0) return;
     const prev = currentManifest;
-    try {
-      // Copy each ZIP into the working dir as a new design (sequential: each
-      // add derives its id from the gerbers/ dir the previous one just created).
-      const added: ProjectDesign[] = [];
-      for (const zip of paths) added.push(await api.addDesignFromZip(workingDir, zip));
-      const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
-      get()._recordUndo(prev);
-      set({ currentManifest: manifest, error: null });
-      // Persist: write the loose manifest then repack the .cuprum so the freshly
-      // copied gerbers land in the container too.
-      await get()._persistManifest(manifest);
-    } catch (e) {
-      set({ error: String(e) });
+    // Copy each ZIP into the working dir as a new design (sequential: each add
+    // reserves its id from the gerbers/ dir the previous one just created).
+    // Collect successes; if one fails, still commit the ones that succeeded so
+    // their already-on-disk gerbers aren't orphaned, then surface the error.
+    const added: ProjectDesign[] = [];
+    let failure: unknown = null;
+    for (const zip of paths) {
+      try {
+        added.push(await api.addDesignFromZip(workingDir, zip));
+      } catch (e) {
+        failure = e;
+        break;
+      }
     }
+    try {
+      if (added.length > 0) {
+        const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
+        get()._recordUndo(prev);
+        set({ currentManifest: manifest, error: null });
+        // Persist: write the loose manifest then repack the .cuprum so the freshly
+        // copied gerbers land in the container too.
+        await get()._persistManifest(manifest);
+      }
+    } catch (e) {
+      failure = failure ?? e;
+    }
+    if (failure) set({ error: String(failure) });
   },
 
   setDesignLayerType: async (designId, gerberPath, type) => {
