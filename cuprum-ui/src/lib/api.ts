@@ -126,6 +126,12 @@ export interface Orphan {
   dirty: boolean;
 }
 
+export interface RestorePointMeta {
+  id: string;
+  label: string | null;
+  createdAt: number;
+}
+
 export interface BBox {
   minX: number;
   minY: number;
@@ -286,6 +292,12 @@ export const api = {
     invoke<void>("write_working_manifest", { workingDir, manifest }),
   scanRecoverable: () => invoke<Orphan[]>("scan_recoverable", {}),
   cleanupWorkdir: (workingDir: string) => invoke<void>("cleanup_workdir", { workingDir }),
+  makeRestorePoint: (workingDir: string, label?: string) =>
+    invoke<RestorePointMeta>("make_restore_point", { workingDir, label: label ?? null }),
+  listRestorePoints: (workingDir: string) =>
+    invoke<RestorePointMeta[]>("list_restore_points", { workingDir }),
+  readRestorePoint: (workingDir: string, id: string) =>
+    invoke<Manifest>("read_restore_point", { workingDir, id }),
   importZips: (path: string, zipPaths: string[]) =>
     invoke<Manifest>("import_zips", { path, zipPaths }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
