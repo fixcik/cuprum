@@ -44,6 +44,41 @@ everything:
 | **Project model**| `crates/cuprum-project`| The self-contained `.cuprum` project container and the recents catalog. |
 | **Desktop UI**   | `cuprum-ui`            | Tauri 2 + React app: native-sharp preview, CAD-style navigation (zoom-to-cursor, pan, grid, snapping), multi-select, alignment/auto-layout, 3D board view, and one-click exposure. |
 
+## Manufacturing checks (DFM)
+
+Before you burn a board, Cuprum tells you whether it can actually be made on
+*your* bench. It reads the fab package and measures the real manufacturing facts
+— then judges each one against an editable **machine capability profile**
+(min trace, min space, drill bits, panel size, …). Measurement lives in the Rust
+core; the judgement lives in the UI, so editing a threshold re-evaluates
+instantly without re-crunching geometry. The whole pass runs *off* the preview's
+critical path, so the board stays interactive while it computes.
+
+Each check resolves to **ok / warn / block** (plus advisory *info* for cosmetic
+layers), and they roll up into a single verdict badge. Located issues are drawn
+straight onto the board as side-aware markers — a bottom-side short isn't drawn
+while you're looking at the top — so you can step through every offending
+feature instead of hunting for it.
+
+What it currently checks:
+
+- **Board size** — fits the panel/work area (optionally rotated 90°), and warns
+  on an open (non-stitched) outline where the measured size is only an estimate.
+- **Layer stack** — copper layer count and unsupported inner layers.
+- **Minimum trace width** — narrowest routed copper, per side, artefact-filtered.
+- **Copper-to-copper clearance** — true geometric spacing (shorts).
+- **Copper slivers** — features narrower than the trace minimum.
+- **Annular ring** — plated-hole pad rings, including holes with no pad at all.
+- **Drilling** — smallest hole vs. your floor, and tool sizes that don't snap to
+  any available CNC bit.
+- **Vias** — small holes that would need plating you don't have at home.
+- **Solder-mask dams** — web width between adjacent mask openings.
+- **Silk line width** — legend strokes too thin to render, judged per side.
+- **Overshoot & slots** — features poking past the board edge, routed slots.
+
+Defaults are tuned for an Elegoo Saturn 4 Ultra 16K + a hobby CNC; every
+threshold is editable on the Settings page.
+
 ## Build & run
 
 ### Prerequisites
