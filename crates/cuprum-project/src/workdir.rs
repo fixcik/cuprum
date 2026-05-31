@@ -66,6 +66,37 @@ pub fn write_panel(workdir: &Path, panel: &PanelDoc) -> Result<()> {
     Ok(())
 }
 
+/// Pack the working dir back into `container` atomically: the manifest plus every
+/// file EXCEPT the manifest and the session marker (so panel.json + gerbers are
+/// preserved). Reuses `container::write` (temp-file + atomic rename).
+pub fn pack(workdir: &Path, container: &Path) -> Result<()> {
+    let manifest = read_manifest(workdir)?;
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    collect_entries(workdir, workdir, &mut entries)?;
+    container::write(container, &manifest, &entries)
+}
+
+/// Walk `dir` recursively, pushing (archive-relative path, bytes) for every file
+/// except the manifest and the session marker. Paths use `/` separators.
+fn collect_entries(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
+    for ent in fs::read_dir(dir)? {
+        let path = ent?.path();
+        if path.is_dir() {
+            collect_entries(root, &path, out)?;
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel == MANIFEST_NAME || rel == SESSION_MARKER {
+            continue;
+        }
+        out.push((rel, fs::read(&path)?));
+    }
+    Ok(())
+}
+
 use std::io::Read;
 
 /// Extract every entry of `container` into a fresh `workdir`, then write the
@@ -191,6 +222,48 @@ mod tests {
         std::fs::create_dir_all(&wd).unwrap();
         let marker = SessionMarker { source_path: cuprum.to_string_lossy().into(), pid: 1, opened_at: 0 };
         assert!(extract(&cuprum, &wd, &marker).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn pack_round_trips_and_drops_marker() {
+        use crate::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+        use crate::panel::PanelDoc;
+        let root = scratch("pack");
+        let cuprum = root.join("p.cu");
+
+        let mut m = Manifest::new("demo");
+        m.designs.push(Design {
+            id: "design-1".into(),
+            source_name: "src.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/design-1/a.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        });
+        container::write(&cuprum, &m, &[("gerbers/design-1/a.gbr".to_string(), b"BYTES".to_vec())]).unwrap();
+
+        let wd = root.join("wd");
+        let marker = SessionMarker { source_path: cuprum.to_string_lossy().into(), pid: 1, opened_at: 0 };
+        extract(&cuprum, &wd, &marker).unwrap();
+
+        // Edit the document in the working dir.
+        let mut edited = read_manifest(&wd).unwrap();
+        edited.name = "renamed".into();
+        write_manifest(&wd, &edited).unwrap();
+        write_panel(&wd, &PanelDoc::new(50.0, 40.0)).unwrap();
+
+        // Pack to a different container path.
+        let out = root.join("out.cu");
+        pack(&wd, &out).unwrap();
+
+        assert_eq!(container::read_manifest(&out).unwrap().name, "renamed");
+        assert_eq!(container::read_entry(&out, "gerbers/design-1/a.gbr").unwrap(), b"BYTES");
+        assert_eq!(container::read_panel(&out).unwrap().unwrap().width_mm, 50.0);
+        // Marker must not leak into the container.
+        assert!(container::read_entry(&out, SESSION_MARKER).is_err());
+
         std::fs::remove_dir_all(&root).ok();
     }
 }
