@@ -5,7 +5,6 @@ import { HomePage } from "@/pages/HomePage";
 import { ProjectPage } from "@/pages/ProjectPage";
 import { PrinterPage } from "@/pages/PrinterPage";
 import { SettingsPage } from "@/pages/SettingsPage";
-import { ImportWizardPage } from "@/pages/ImportWizardPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 
@@ -46,7 +45,6 @@ export default function App() {
         {view === "project" && <ProjectPage />}
         {view === "printer" && <PrinterPage />}
         {view === "settings" && <SettingsPage />}
-        {view === "import" && <ImportWizardPage />}
       </div>
     </div>
   );

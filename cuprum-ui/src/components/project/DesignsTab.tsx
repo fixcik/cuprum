@@ -16,7 +16,7 @@ export function DesignsTab() {
   const { t } = useTranslation(["project", "layers"]);
   const manifest = useShell((s) => s.currentManifest);
   const workingDir = useShell((s) => s.workingDir);
-  const startImport = useShell((s) => s.startImport);
+  const addDesignsFromZips = useShell((s) => s.addDesignsFromZips);
 
   const [layers, setLayers] = useState<StackLayer[]>([]);
   const [settled, setSettled] = useState(0);
@@ -162,7 +162,7 @@ export function DesignsTab() {
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {t("importedPackages")}
           </span>
-          <Button variant="ghost" size="sm" onClick={startImport}>
+          <Button variant="ghost" size="sm" onClick={addDesignsFromZips}>
             <Upload className="size-4" /> {t("importZip")}
           </Button>
         </div>
