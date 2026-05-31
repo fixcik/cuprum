@@ -92,7 +92,7 @@ pub fn update_manifest(path: &Path, manifest: &Manifest) -> Result<()> {
 mod tests {
     use super::*;
     use crate::layer::LayerType;
-    use crate::manifest::{GerberFile, Import, Manifest};
+    use crate::manifest::{Design, GerberFile, Manifest};
 
     #[test]
     fn write_then_read_round_trip() {
@@ -101,20 +101,20 @@ mod tests {
         let path = dir.join("p.cuprum");
 
         let mut m = Manifest::new("demo");
-        m.imports.push(Import {
-            id: "import-1".into(),
+        m.designs.push(Design {
+            id: "design-1".into(),
             source_name: "demo.zip".into(),
             gerbers: vec![GerberFile {
-                path: "gerbers/import-1/a.gbr".into(),
+                path: "gerbers/design-1/a.gbr".into(),
                 layer_type: LayerType::Other,
             }],
         });
-        let entries = vec![("gerbers/import-1/a.gbr".to_string(), b"G04 hi*".to_vec())];
+        let entries = vec![("gerbers/design-1/a.gbr".to_string(), b"G04 hi*".to_vec())];
         write(&path, &m, &entries).unwrap();
 
         assert_eq!(read_manifest(&path).unwrap(), m);
         assert_eq!(
-            read_entry(&path, "gerbers/import-1/a.gbr").unwrap(),
+            read_entry(&path, "gerbers/design-1/a.gbr").unwrap(),
             b"G04 hi*"
         );
 
@@ -138,16 +138,16 @@ mod tests {
         let path = dir.join("atomic.cuprum");
 
         let mut m = Manifest::new("atomic-test");
-        m.imports.push(Import {
-            id: "import-1".into(),
+        m.designs.push(Design {
+            id: "design-1".into(),
             source_name: "src.zip".into(),
             gerbers: vec![GerberFile {
-                path: "gerbers/import-1/a.gbr".into(),
+                path: "gerbers/design-1/a.gbr".into(),
                 layer_type: LayerType::Other,
             }],
         });
         let entries = vec![(
-            "gerbers/import-1/a.gbr".to_string(),
+            "gerbers/design-1/a.gbr".to_string(),
             b"G04 atomic*".to_vec(),
         )];
         write(&path, &m, &entries).unwrap();
@@ -162,7 +162,7 @@ mod tests {
         // Content round-trips correctly.
         assert_eq!(read_manifest(&path).unwrap(), m);
         assert_eq!(
-            read_entry(&path, "gerbers/import-1/a.gbr").unwrap(),
+            read_entry(&path, "gerbers/design-1/a.gbr").unwrap(),
             b"G04 atomic*"
         );
 

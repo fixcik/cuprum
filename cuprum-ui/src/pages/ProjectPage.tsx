@@ -32,8 +32,8 @@ export function ProjectPage() {
   const layerColors = useMemo(() => {
     const m: Record<string, string> = {};
     if (manifest) {
-      for (const imp of manifest.imports) {
-        for (const g of imp.gerbers) m[g.path] = colorFor(g.layer_type, manifest.layer_colors);
+      for (const design of manifest.designs) {
+        for (const g of design.gerbers) m[g.path] = colorFor(g.layer_type, manifest.layer_colors);
       }
     }
     return m;
@@ -59,7 +59,7 @@ export function ProjectPage() {
       setLayers([]);
       return;
     }
-    const gerbers = manifest.imports.flatMap((imp) => imp.gerbers);
+    const gerbers = manifest.designs.flatMap((design) => design.gerbers);
     const slots: (StackLayer | null)[] = gerbers.map(() => null);
     setLayers([]);
     setSettled(0);
@@ -97,8 +97,8 @@ export function ProjectPage() {
   const renderableTotal = useMemo(
     () =>
       manifest
-        ? manifest.imports.reduce(
-            (n, imp) => n + imp.gerbers.filter((g) => g.layer_type !== "drill").length,
+        ? manifest.designs.reduce(
+            (n, design) => n + design.gerbers.filter((g) => g.layer_type !== "drill").length,
             0,
           )
         : 0,
@@ -107,7 +107,7 @@ export function ProjectPage() {
   // Total render attempts (incl. drills) — the badge hides once ALL have settled,
   // even if some errored (empty/blank layers), so it can't hang on a missing preview.
   const totalGerbers = useMemo(
-    () => (manifest ? manifest.imports.reduce((n, imp) => n + imp.gerbers.length, 0) : 0),
+    () => (manifest ? manifest.designs.reduce((n, design) => n + design.gerbers.length, 0) : 0),
     [manifest],
   );
   const previewNotice =
@@ -124,8 +124,8 @@ export function ProjectPage() {
     }
     (async () => {
       const allHoles: Hole[] = [];
-      for (const imp of manifest.imports) {
-        for (const g of imp.gerbers) {
+      for (const design of manifest.designs) {
+        for (const g of design.gerbers) {
           if (g.layer_type === "drill") {
             try {
               const h = await api.readDrill(currentPath, g.path);
@@ -154,8 +154,8 @@ export function ProjectPage() {
       setMesh(null);
       return;
     }
-    const gerbers = manifest.imports.flatMap((imp) =>
-      imp.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
+    const gerbers = manifest.designs.flatMap((design) =>
+      design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
     );
     // Keep the previous mesh while recomputing so the 3D Canvas (camera, intro
     // state) survives — see ImportWizardPage for the rationale.
@@ -222,17 +222,17 @@ export function ProjectPage() {
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {t("importedPackages")}
           </div>
-          {manifest.imports.length === 0 ? (
+          {manifest.designs.length === 0 ? (
             <p className="text-[12px] text-muted-foreground">
               {t("noPackages")}
             </p>
           ) : (
             <ul className="flex flex-col gap-2">
-              {manifest.imports.map((imp) => (
-                <li key={imp.id} className="rounded-lg border border-border bg-card p-3">
-                  <div className="text-[13px] font-medium text-foreground">{imp.source_name}</div>
+              {manifest.designs.map((design) => (
+                <li key={design.id} className="rounded-lg border border-border bg-card p-3">
+                  <div className="text-[13px] font-medium text-foreground">{design.source_name}</div>
                   <ul className="mt-1 flex flex-col gap-1">
-                    {imp.gerbers.map((g) => (
+                    {design.gerbers.map((g) => (
                       <li key={g.path} className="flex items-center gap-2 text-[11px]">
                         <span
                           className="size-2.5 shrink-0 rounded-sm"

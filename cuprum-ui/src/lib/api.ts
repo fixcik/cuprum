@@ -64,7 +64,7 @@ export interface GerberFile {
   layer_type: LayerType;
 }
 
-export interface ProjectImport {
+export interface ProjectDesign {
   id: string;
   source_name: string;
   gerbers: GerberFile[];
@@ -74,7 +74,7 @@ export interface Manifest {
   schema_version: number;
   name: string;
   description: string;
-  imports: ProjectImport[];
+  designs: ProjectDesign[];
   exposure: unknown | null;
   placements: unknown[];
   layer_colors: Record<string, string>;
