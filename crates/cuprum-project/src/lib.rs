@@ -89,6 +89,56 @@ fn unique_name(base: &str, used: &std::collections::HashSet<String>) -> String {
     }
 }
 
+/// Pick the next free `design-N` id by scanning the working dir's `gerbers/`
+/// folder. Filesystem-derived (not manifest-derived) so an undone-then-re-added
+/// design — whose bytes are deliberately kept on disk — never reuses a live id.
+fn next_design_id(workdir: &Path) -> String {
+    let mut max = 0u32;
+    if let Ok(rd) = std::fs::read_dir(workdir.join("gerbers")) {
+        for ent in rd.flatten() {
+            if !ent.path().is_dir() {
+                continue;
+            }
+            let name = ent.file_name();
+            let name = name.to_string_lossy();
+            if let Some(n) = name.strip_prefix("design-").and_then(|s| s.parse::<u32>().ok()) {
+                max = max.max(n);
+            }
+        }
+    }
+    format!("design-{}", max + 1)
+}
+
+/// Add one source ZIP as a new Design directly inside an open project's working
+/// dir: copy each gerber to `gerbers/<new-id>/<name>` (deduping basenames),
+/// classify it by filename, and return the [`manifest::Design`] for the caller to
+/// merge into the manifest. Does NOT touch the manifest or the `.cuprum` — the UI
+/// merges the returned design and persists through the normal autosave path.
+pub fn add_design_to_workdir(workdir: &Path, zip_path: &Path) -> Result<manifest::Design> {
+    let imported = import::read_zip_gerbers(zip_path)?;
+    let id = next_design_id(workdir);
+    let design_dir = workdir.join("gerbers").join(&id);
+    std::fs::create_dir_all(&design_dir)?;
+
+    let mut gerbers = Vec::new();
+    let mut used = std::collections::HashSet::new();
+    for (base, bytes) in &imported.gerbers {
+        let name = unique_name(base, &used);
+        used.insert(name.clone());
+        std::fs::write(design_dir.join(&name), bytes)?;
+        let rel = format!("gerbers/{id}/{name}");
+        gerbers.push(manifest::GerberFile {
+            path: rel,
+            layer_type: layer::classify(&name),
+        });
+    }
+    Ok(manifest::Design {
+        id,
+        source_name: imported.source_name,
+        gerbers,
+    })
+}
+
 /// Build container entries (gerbers) + manifest designs from a set of imported
 /// ZIPs. Each gerber is classified by its file name (see [`layer::classify`]).
 /// Shared by create_project and import_zips.
@@ -329,6 +379,63 @@ mod tests {
         zip.write_all(b"G04 board*").unwrap();
         zip.finish().unwrap();
         path
+    }
+
+    #[test]
+    fn add_design_to_workdir_copies_and_classifies() {
+        use crate::layer::LayerType;
+        let dir = std::env::temp_dir().join(format!("cuprum-add-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // A source ZIP with a top-copper and an edge layer.
+        let zip = dir.join("board.zip");
+        {
+            use std::io::Write;
+            use zip::write::SimpleFileOptions;
+            let f = std::fs::File::create(&zip).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            let o = SimpleFileOptions::default();
+            z.start_file("board-F_Cu.gbr", o).unwrap();
+            z.write_all(b"G04 cu*").unwrap();
+            z.start_file("board-Edge_Cuts.gbr", o).unwrap();
+            z.write_all(b"G04 edge*").unwrap();
+            z.finish().unwrap();
+        }
+
+        // An empty working dir with a manifest (as `extract` would leave it).
+        let wd = dir.join("wd");
+        std::fs::create_dir_all(&wd).unwrap();
+        crate::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
+
+        let design = add_design_to_workdir(&wd, &zip).unwrap();
+
+        assert_eq!(design.id, "design-1");
+        assert_eq!(design.source_name, "board.zip");
+        assert_eq!(design.gerbers.len(), 2);
+        // Files landed under gerbers/design-1/ on disk.
+        assert_eq!(
+            std::fs::read(wd.join("gerbers/design-1/board-F_Cu.gbr")).unwrap(),
+            b"G04 cu*"
+        );
+        // Paths are container-relative with forward slashes.
+        assert!(design
+            .gerbers
+            .iter()
+            .any(|g| g.path == "gerbers/design-1/board-F_Cu.gbr"
+                && g.layer_type == LayerType::TopCopper));
+        assert!(design
+            .gerbers
+            .iter()
+            .any(|g| g.layer_type == LayerType::EdgeCuts));
+
+        // A SECOND add gets the next id from the filesystem, even though the manifest
+        // wasn't updated between calls (mirrors the multi-zip loop in the store).
+        let d2 = add_design_to_workdir(&wd, &zip).unwrap();
+        assert_eq!(d2.id, "design-2");
+        assert!(wd.join("gerbers/design-2/board-F_Cu.gbr").exists());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
