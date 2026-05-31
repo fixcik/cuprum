@@ -43,9 +43,11 @@ jobs:
 
       - name: Determine version
         id: bump
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
             VERSION="$(git cliff --bumped-version 2>/dev/null | sed 's/^v//' || true)"
             if [ -z "$VERSION" ]; then
