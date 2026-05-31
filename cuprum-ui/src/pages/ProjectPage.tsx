@@ -1,180 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
-import { Upload } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { InlineEditableField } from "@/components/ui/InlineEditableField";
-import { Button } from "@/components/ui/Button";
-import { type StackLayer } from "@/components/import/LayerStack";
-import { PreviewPane, type PreviewMode } from "@/components/preview/PreviewPane";
-import { colorFor, sideOf } from "@/lib/layerColors";
-import { api, type Hole } from "@/lib/api";
-import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
+import { DesignsTab } from "@/components/project/DesignsTab";
+import { PanelTab } from "@/components/project/PanelTab";
 import { useShell } from "@/shellStore";
 
+type ProjectTab = "panel" | "designs" | "operations";
+
 export function ProjectPage() {
-  const { t } = useTranslation(["project", "layers"]);
+  const { t } = useTranslation("project");
   const manifest = useShell((s) => s.currentManifest);
-  const currentPath = useShell((s) => s.currentPath);
   const updateProjectMetadata = useShell((s) => s.updateProjectMetadata);
-  const startImport = useShell((s) => s.startImport);
   const error = useShell((s) => s.error);
-
-  const [layers, setLayers] = useState<StackLayer[]>([]);
-  // How many gerber renders have SETTLED (resolved or rejected) this load — drives
-  // the progress badge. An errored layer (e.g. an empty silkscreen) never lands in
-  // `layers`, so gating the badge on `layers.length` alone would freeze it forever.
-  const [settled, setSettled] = useState(0);
-  const [holes, setHoles] = useState<Hole[]>([]);
-  const [mesh, setMesh] = useState<BoardMeshData | null>(null);
-  const [mode, setMode] = useState<PreviewMode>("2d");
-  const [side, setSide] = useState<"top" | "bottom">("top");
-
-  // Colour by gerber rel path, for "other" 3D surface layers.
-  const layerColors = useMemo(() => {
-    const m: Record<string, string> = {};
-    if (manifest) {
-      for (const design of manifest.designs) {
-        for (const g of design.gerbers) m[g.path] = colorFor(g.layer_type, manifest.layer_colors);
-      }
-    }
-    return m;
-  }, [manifest]);
-
-  // 3D shows both sides; 2D shows the top side only (no side toggle on this page).
-  // 3D shows both sides; 2D shows the selected side (+ shared layers).
-  const shownLayers = useMemo(
-    () =>
-      layers.map((l) => {
-        const s = sideOf(l.type);
-        return { ...l, visible: mode === "3d" || s === side || s === "both" };
-      }),
-    [layers, mode, side],
-  );
-
-  // Render every imported gerber to SVG for the composite 2D preview — in
-  // PARALLEL, filling layers in as each resolves (slotted by index so the stack
-  // order stays stable), so the viewer isn't blocked on the whole set.
-  useEffect(() => {
-    let cancelled = false;
-    if (!manifest || !currentPath) {
-      setLayers([]);
-      return;
-    }
-    const gerbers = manifest.designs.flatMap((design) => design.gerbers);
-    const slots: (StackLayer | null)[] = gerbers.map(() => null);
-    setLayers([]);
-    setSettled(0);
-    const markSettled = () => {
-      if (!cancelled) setSettled((n) => n + 1);
-    };
-    gerbers.forEach((g, idx) => {
-      api
-        .renderGerberSvg(currentPath, g.path)
-        .then((geo) => {
-          if (cancelled) return;
-          slots[idx] = {
-            key: g.path,
-            svgBody: geo.svgBody,
-            bbox: geo.bbox,
-            color: colorFor(g.layer_type, manifest.layer_colors),
-            visible: sideOf(g.layer_type) !== "bottom",
-            type: g.layer_type,
-            snap: geo.snap,
-          };
-          setLayers(slots.filter(Boolean) as StackLayer[]);
-        })
-        .catch(() => {
-          // Non-renderable (drill) or empty (a blank silkscreen errors with "no
-          // drawable geometry") — no preview, but the attempt has still settled.
-        })
-        .finally(markSettled);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [manifest, currentPath]);
-
-  // Renderable gerbers (everything but drills) — the badge's displayed total.
-  const renderableTotal = useMemo(
-    () =>
-      manifest
-        ? manifest.designs.reduce(
-            (n, design) => n + design.gerbers.filter((g) => g.layer_type !== "drill").length,
-            0,
-          )
-        : 0,
-    [manifest],
-  );
-  // Total render attempts (incl. drills) — the badge hides once ALL have settled,
-  // even if some errored (empty/blank layers), so it can't hang on a missing preview.
-  const totalGerbers = useMemo(
-    () => (manifest ? manifest.designs.reduce((n, design) => n + design.gerbers.length, 0) : 0),
-    [manifest],
-  );
-  const previewNotice =
-    mode === "2d" && renderableTotal > 0 && settled < totalGerbers
-      ? t("layersProgress", { loaded: layers.length, total: renderableTotal })
-      : undefined;
-
-  // Fetch drill holes for the 3D view.
-  useEffect(() => {
-    let cancelled = false;
-    if (!manifest || !currentPath) {
-      setHoles([]);
-      return;
-    }
-    (async () => {
-      const allHoles: Hole[] = [];
-      for (const design of manifest.designs) {
-        for (const g of design.gerbers) {
-          if (g.layer_type === "drill") {
-            try {
-              const h = await api.readDrill(currentPath, g.path);
-              allHoles.push(...h);
-            } catch {
-              // Skip unreadable drill files.
-            }
-          }
-        }
-      }
-      if (!cancelled) setHoles(allHoles);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [manifest, currentPath]);
-
-  // Build the FULL 3D board mesh in the Rust core (off the UI thread): every
-  // layer triangulated with drill holes subtracted (silk included), plus the
-  // FR4 substrate and plated bores. Returned as one binary blob; the frontend
-  // only uploads buffers. Recomputes only when the project changes — visibility
-  // toggles are a pure client-side show/hide in Board3D, no recompute.
-  useEffect(() => {
-    let cancelled = false;
-    if (!manifest || !currentPath) {
-      setMesh(null);
-      return;
-    }
-    const gerbers = manifest.designs.flatMap((design) =>
-      design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
-    );
-    // Keep the previous mesh while recomputing so the 3D Canvas (camera, intro
-    // state) survives — see ImportWizardPage for the rationale.
-    (async () => {
-      try {
-        const buf = await api.projectBoardMesh(currentPath, gerbers);
-        if (!cancelled) setMesh(parseBoardMesh(buf));
-      } catch {
-        if (!cancelled) setMesh(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [manifest, currentPath]);
+  const [tab, setTab] = useState<ProjectTab>("panel");
 
   if (!manifest) {
     return <div className="flex-1 p-6 text-[13px] text-muted-foreground">{t("noProject")}</div>;
   }
+
+  const configured = manifest.stackup != null;
+  const activeTab: ProjectTab = configured ? tab : "panel";
 
   const saveName = (name: string) => {
     const trimmed = name.trim();
@@ -187,83 +32,72 @@ export function ProjectPage() {
     updateProjectMetadata(manifest.name, trimmed);
   };
 
+  const TABS: { id: ProjectTab; label: string }[] = [
+    { id: "panel", label: t("tab.panel") },
+    { id: "designs", label: t("tab.designs") },
+    { id: "operations", label: t("tab.operations") },
+  ];
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-start justify-between gap-4 border-b border-border p-6">
-        <div className="min-w-0">
-          <InlineEditableField
-            value={manifest.name}
-            onCommit={saveName}
-            placeholder={manifest.name}
-            ariaLabel="Project name"
-            displayClassName="text-lg font-semibold text-foreground"
-            inputClassName="text-lg font-semibold"
-          />
-          <InlineEditableField
-            value={manifest.description}
-            onCommit={saveDescription}
-            placeholder={t("descriptionPlaceholder")}
-            multiline
-            ariaLabel="Project description"
-            displayClassName="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted-foreground"
-            inputClassName="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted-foreground"
-          />
-          {error && <p className="mt-2 text-[12px] text-destructive">{error}</p>}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={startImport}>
-            <Upload className="size-4" /> {t("importZip")}
-          </Button>
-        </div>
+      {/* Compact header */}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2">
+        <InlineEditableField
+          value={manifest.name}
+          onCommit={saveName}
+          placeholder={manifest.name}
+          ariaLabel="Project name"
+          displayClassName="shrink-0 text-sm font-semibold text-foreground"
+          inputClassName="text-sm font-semibold"
+        />
+        <span className="shrink-0 text-border">/</span>
+        <InlineEditableField
+          value={manifest.description}
+          onCommit={saveDescription}
+          placeholder={t("descriptionPlaceholder")}
+          ariaLabel="Project description"
+          displayClassName="min-w-0 flex-1 truncate text-[12px] text-muted-foreground"
+          inputClassName="min-w-0 flex-1 text-[12px] text-muted-foreground"
+        />
+        {error && <span className="ml-auto shrink-0 text-[12px] text-destructive">{error}</span>}
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="w-80 shrink-0 overflow-auto border-r border-border p-4">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {t("importedPackages")}
-          </div>
-          {manifest.designs.length === 0 ? (
-            <p className="text-[12px] text-muted-foreground">
-              {t("noPackages")}
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 border-b border-border px-3">
+        {TABS.map((tb) => {
+          const disabled = !configured && tb.id !== "panel";
+          const active = activeTab === tb.id;
+          return (
+            <button
+              key={tb.id}
+              type="button"
+              disabled={disabled}
+              title={disabled ? t("tabLocked") : undefined}
+              onClick={() => setTab(tb.id)}
+              className={[
+                "border-b-2 px-3 py-2 text-[12px] transition-colors",
+                active ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+                disabled ? "cursor-default opacity-30 hover:text-muted-foreground" : "",
+              ].join(" ")}
+            >
+              {tb.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab content */}
+      <div className="min-h-0 flex-1">
+        {activeTab === "panel" && <PanelTab />}
+        {activeTab === "designs" && <DesignsTab />}
+        {activeTab === "operations" && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <div className="text-[15px] font-semibold text-foreground">{t("operations.placeholder.title")}</div>
+            <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
+              {t("operations.placeholder.desc")}
             </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {manifest.designs.map((design) => (
-                <li key={design.id} className="rounded-lg border border-border bg-card p-3">
-                  <div className="text-[13px] font-medium text-foreground">{design.source_name}</div>
-                  <ul className="mt-1 flex flex-col gap-1">
-                    {design.gerbers.map((g) => (
-                      <li key={g.path} className="flex items-center gap-2 text-[11px]">
-                        <span
-                          className="size-2.5 shrink-0 rounded-sm"
-                          style={{ backgroundColor: colorFor(g.layer_type, manifest.layer_colors) }}
-                          aria-hidden
-                        />
-                        <span className="truncate text-foreground">{g.path.split("/").pop()}</span>
-                        <span className="ml-auto shrink-0 text-muted-foreground">
-                          {t(`layers:${g.layer_type}`)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <PreviewPane
-            layers={shownLayers}
-            holes={holes}
-            mesh={mesh}
-            layerColors={layerColors}
-            side={side}
-            onSideChange={setSide}
-            mode={mode}
-            onModeChange={setMode}
-            notice={previewNotice}
-          />
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

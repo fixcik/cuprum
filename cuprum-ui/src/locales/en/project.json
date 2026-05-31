@@ -5,5 +5,41 @@
   "noPackages": "No packages yet. Click «Import ZIP».",
   "descriptionPlaceholder": "Click to edit description.",
   "layersProgress": "Layers {{loaded}}/{{total}}",
-  "building3d": "Building 3D model…"
+  "building3d": "Building 3D model…",
+  "tab": {
+    "panel": "Panel",
+    "designs": "Designs",
+    "operations": "Operations"
+  },
+  "tabLocked": "Configure the panel blank first.",
+  "panel": {
+    "notConfigured": {
+      "title": "Panel not configured",
+      "desc": "Set the FR4 blank size and stackup to continue."
+    },
+    "configure": "Configure",
+    "edit": "Edit",
+    "summary": "{{w}} × {{h}} mm"
+  },
+  "operations": {
+    "placeholder": {
+      "title": "Operations",
+      "desc": "The process-step editor lands later."
+    }
+  },
+  "setup": {
+    "title": "Panel setup",
+    "width": "Width",
+    "height": "Height",
+    "copperWeight": "Copper",
+    "substrate": "FR4 thickness",
+    "preset": "Preset",
+    "loadPreset": "Load preset…",
+    "savePreset": "Save",
+    "presetNamePrompt": "Preset name:",
+    "save": "Save",
+    "cancel": "Back",
+    "sideTop": "Top",
+    "sideBottom": "Bottom"
+  }
 }
