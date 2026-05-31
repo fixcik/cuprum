@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { api, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
+import { api, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
 export type View = "home" | "project" | "printer" | "settings";
@@ -67,6 +67,8 @@ interface ShellStore {
   /** Pick source ZIP(s) and add each as a new design to the open project
    *  (copied into the working dir, auto-classified, persisted via autosave). */
   addDesignsFromZips: () => Promise<void>;
+  /** Reassign one gerber's layer type within a design (undoable, persisted). */
+  setDesignLayerType: (designId: string, gerberPath: string, type: LayerType) => Promise<void>;
 }
 
 /** Strip directory + .cuprum extension to a display/default name. */
@@ -431,6 +433,29 @@ export const useShell = create<ShellStore>((set, get) => ({
       set({ currentManifest: manifest, error: null });
       // Persist: write the loose manifest then repack the .cuprum so the freshly
       // copied gerbers land in the container too.
+      await get()._persistManifest(manifest);
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  setDesignLayerType: async (designId, gerberPath, type) => {
+    const prev = get().currentManifest;
+    if (!prev) return;
+    const designs = prev.designs.map((d) =>
+      d.id !== designId
+        ? d
+        : {
+            ...d,
+            gerbers: d.gerbers.map((g) =>
+              g.path === gerberPath ? { ...g, layer_type: type } : g,
+            ),
+          },
+    );
+    const manifest: Manifest = { ...prev, designs };
+    try {
+      get()._recordUndo(prev);
+      set({ currentManifest: manifest, error: null });
       await get()._persistManifest(manifest);
     } catch (e) {
       set({ error: String(e) });
