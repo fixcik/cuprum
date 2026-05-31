@@ -38,6 +38,15 @@ fn history_dir(workdir: &Path) -> PathBuf {
     workdir.join("history")
 }
 
+/// Reject ids that aren't a bare filename token (no path separators / `..`), so a
+/// restore-point id can never escape the `history/` directory.
+fn validate_id(id: &str) -> Result<()> {
+    if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") {
+        anyhow::bail!("invalid restore point id: {id:?}");
+    }
+    Ok(())
+}
+
 /// Snapshot the working dir's current manifest into `history/<id>.json`, then
 /// prune to the newest `MAX_RESTORE_POINTS`. Returns the new point's metadata.
 pub fn write(
@@ -46,6 +55,7 @@ pub fn write(
     label: Option<&str>,
     created_at: i64,
 ) -> Result<RestorePointMeta> {
+    validate_id(id)?;
     let manifest: Manifest = serde_json::from_slice(&fs::read(workdir.join("manifest.json"))?)?;
     let point = RestorePoint {
         id: id.to_string(),
@@ -95,6 +105,7 @@ pub fn list(workdir: &Path) -> Result<Vec<RestorePointMeta>> {
 
 /// The manifest captured by restore point `id`.
 pub fn read(workdir: &Path, id: &str) -> Result<Manifest> {
+    validate_id(id)?;
     let bytes = fs::read(history_dir(workdir).join(format!("{id}.json")))?;
     let point: RestorePoint = serde_json::from_slice(&bytes)?;
     Ok(point.manifest)
@@ -145,6 +156,21 @@ mod tests {
         // Each restore point captured the manifest as it was at write time.
         assert_eq!(read(&wd, "rp-1").unwrap().name, "demo");
         assert_eq!(read(&wd, "rp-2").unwrap().name, "changed");
+    }
+
+    #[test]
+    fn rejects_unsafe_ids() {
+        let wd = scratch("unsafe");
+        std::fs::write(
+            wd.join("manifest.json"),
+            serde_json::to_vec(&crate::manifest::Manifest::new("x")).unwrap(),
+        )
+        .unwrap();
+        assert!(write(&wd, "../escape", None, 1).is_err());
+        assert!(write(&wd, "a/b", None, 1).is_err());
+        assert!(read(&wd, "../escape").is_err());
+        // A normal generated-style id still works.
+        assert!(write(&wd, "rp-100-0", None, 1).is_ok());
     }
 
     #[test]
