@@ -42,7 +42,17 @@
     "sidesDouble": "Double-sided"
   },
   "aria": {
-    "settings": "Project settings"
+    "settings": "Project settings",
+    "restorePoints": "Restore points"
+  },
+  "history": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "savePoint": "Save point",
+    "points": "Restore points",
+    "noPoints": "No restore points yet.",
+    "autoOpenLabel": "Opened",
+    "restore": "Restore"
   },
   "settings": {
     "title": "Project settings",
