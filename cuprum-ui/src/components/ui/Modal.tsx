@@ -18,11 +18,17 @@ export function Modal({
 }) {
   useEffect(() => {
     if (!open) return;
+    // Restore focus to the element that was focused before the modal opened,
+    // once it closes (a full focus-trap is a later step).
+    const prev = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      prev?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;

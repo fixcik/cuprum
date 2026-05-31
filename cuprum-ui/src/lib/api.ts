@@ -1,5 +1,6 @@
 import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 /** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
  *  appear in the browser Network tab — in dev builds we log every command (args,
@@ -19,7 +20,6 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     },
   );
 }
-import { open, save } from "@tauri-apps/plugin-dialog";
 
 // Physical exposure screen, from cuprum-core (14×19 µm pitch → 211.68 × 118.37 mm).
 export const SCREEN_W_MM = 211.68;
