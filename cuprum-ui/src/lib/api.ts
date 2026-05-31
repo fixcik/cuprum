@@ -1,5 +1,24 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+/** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
+ *  appear in the browser Network tab — in dev builds we log every command (args,
+ *  result/error, timing) to the console instead. Production is a passthrough.
+ *  Filter the console by "[ipc]" to see all backend round-trips. */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!import.meta.env.DEV) return rawInvoke<T>(cmd, args);
+  const t0 = performance.now();
+  return rawInvoke<T>(cmd, args).then(
+    (result) => {
+      console.log(`[ipc] ${cmd}  ${(performance.now() - t0).toFixed(0)}ms`, { args, result });
+      return result;
+    },
+    (error) => {
+      console.error(`[ipc] ${cmd}  FAILED ${(performance.now() - t0).toFixed(0)}ms`, { args, error });
+      throw error;
+    },
+  );
+}
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 // Physical exposure screen, from cuprum-core (14×19 µm pitch → 211.68 × 118.37 mm).
