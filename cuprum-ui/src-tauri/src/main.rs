@@ -224,11 +224,14 @@ fn working_base(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// A freshly chosen, not-yet-existing working-dir path for one open project.
-/// Unique by pid + epoch (collisions within the same second are vanishingly
-/// unlikely for a desktop app opening one project at a time).
+/// Unique by pid + epoch + a process-local monotonic counter, so repeated
+/// opens of the same project within one wall-clock second never collide.
 fn new_workdir(app: &AppHandle) -> Result<PathBuf, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let base = working_base(app)?;
-    let name = format!("{}-{}", std::process::id(), now_epoch());
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = format!("{}-{}-{}", std::process::id(), now_epoch(), n);
     Ok(base.join(name))
 }
 
