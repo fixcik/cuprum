@@ -11,6 +11,7 @@ export function DesignCard({ design, onOpen }: { design: ProjectDesign; onOpen: 
   const { t } = useTranslation(["project", "layers"]);
   const workingDir = useShell((s) => s.workingDir);
   const layerColors = useShell((s) => s.currentManifest?.layer_colors);
+  const panel = useShell((s) => s.currentManifest?.panel ?? null);
   const profile = useSettings((s) => s.profile);
   const [layers, setLayers] = useState<StackLayer[]>([]);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -70,7 +71,7 @@ export function DesignCard({ design, onOpen }: { design: ProjectDesign; onOpen: 
         design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
       )
       .then((m) => {
-        if (!cancelled) setVerdict(overallVerdict(evaluate(m, profile)));
+        if (!cancelled) setVerdict(overallVerdict(evaluate(m, profile, panel)));
       })
       .catch(() => {
         if (!cancelled) setVerdict(null);
@@ -79,7 +80,7 @@ export function DesignCard({ design, onOpen }: { design: ProjectDesign; onOpen: 
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
-  }, [workingDir, gerbersKey, profile]);
+  }, [workingDir, gerbersKey, profile, panel]);
 
   const dotClass =
     verdict === "block"

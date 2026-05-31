@@ -265,8 +265,12 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   }, [workingDir, gerbersKey, hasRequired]);
 
   // Judge measured facts against the capability profile (instant, client-side —
-  // re-runs when the profile thresholds change too).
-  const findings = useMemo(() => evaluate(metrics, profile), [metrics, profile]);
+  // re-runs when the profile thresholds change too). The size check is against
+  // the project panel (the design must fit on it); falls back to the machine max.
+  const findings = useMemo(
+    () => evaluate(metrics, profile, manifest?.panel),
+    [metrics, profile, manifest?.panel],
+  );
   const verdict = overallVerdict(findings);
 
   // Effective visibility: 3D shows every side by default; 2D shows only the

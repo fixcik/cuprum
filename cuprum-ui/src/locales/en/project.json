@@ -34,6 +34,7 @@
   "setup": {
     "width": "Width",
     "height": "Height",
+    "maxFromSettings": "Max {{w}} × {{h}} mm (machine work area, set in Settings)",
     "copperWeight": "Copper",
     "substrate": "FR4 thickness",
     "preset": "Preset",
