@@ -46,7 +46,7 @@ export function ProjectPage() {
           value={manifest.name}
           onCommit={saveName}
           placeholder={manifest.name}
-          ariaLabel="Project name"
+          ariaLabel={t("aria.projectName")}
           displayClassName="shrink-0 text-sm font-semibold text-foreground"
           inputClassName="text-sm font-semibold"
         />
@@ -55,7 +55,7 @@ export function ProjectPage() {
           value={manifest.description}
           onCommit={saveDescription}
           placeholder={t("descriptionPlaceholder")}
-          ariaLabel="Project description"
+          ariaLabel={t("aria.projectDescription")}
           displayClassName="min-w-0 flex-1 truncate text-[12px] text-muted-foreground"
           inputClassName="min-w-0 flex-1 text-[12px] text-muted-foreground"
         />
