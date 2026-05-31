@@ -25,6 +25,9 @@ interface ShellStore {
   /** Bumped on undo/redo/restore so editors with local state (PanelEditor)
    *  re-sync from the manifest. */
   docNonce: number;
+  /** True while a history op (undo/redo/restoreTo/makeRestorePoint) is in
+   *  flight; blocks concurrent history ops to prevent overlapping repacks. */
+  historyBusy: boolean;
   canUndo: () => boolean;
   canRedo: () => boolean;
   undo: () => Promise<void>;
@@ -95,6 +98,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   redoStack: [],
   restorePoints: [],
   docNonce: 0,
+  historyBusy: false,
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
   staged: [],
@@ -320,29 +324,41 @@ export const useShell = create<ShellStore>((set, get) => ({
   canRedo: () => get().redoStack.length > 0,
 
   undo: async () => {
+    if (get().historyBusy) return;
     const { undoStack, currentManifest } = get();
     if (undoStack.length === 0 || !currentManifest) return;
-    const prev = undoStack[undoStack.length - 1];
-    set((s) => ({
-      undoStack: s.undoStack.slice(0, -1),
-      redoStack: [...s.redoStack, currentManifest],
-      currentManifest: prev,
-      docNonce: s.docNonce + 1,
-    }));
-    await get()._persistManifest(prev);
+    set({ historyBusy: true });
+    try {
+      const prev = undoStack[undoStack.length - 1];
+      set((s) => ({
+        undoStack: s.undoStack.slice(0, -1),
+        redoStack: [...s.redoStack, currentManifest],
+        currentManifest: prev,
+        docNonce: s.docNonce + 1,
+      }));
+      await get()._persistManifest(prev);
+    } finally {
+      set({ historyBusy: false });
+    }
   },
 
   redo: async () => {
+    if (get().historyBusy) return;
     const { redoStack, currentManifest } = get();
     if (redoStack.length === 0 || !currentManifest) return;
-    const next = redoStack[redoStack.length - 1];
-    set((s) => ({
-      redoStack: s.redoStack.slice(0, -1),
-      undoStack: [...s.undoStack, currentManifest!],
-      currentManifest: next,
-      docNonce: s.docNonce + 1,
-    }));
-    await get()._persistManifest(next);
+    set({ historyBusy: true });
+    try {
+      const next = redoStack[redoStack.length - 1];
+      set((s) => ({
+        redoStack: s.redoStack.slice(0, -1),
+        undoStack: [...s.undoStack, currentManifest],
+        currentManifest: next,
+        docNonce: s.docNonce + 1,
+      }));
+      await get()._persistManifest(next);
+    } finally {
+      set({ historyBusy: false });
+    }
   },
 
   refreshRestorePoints: async () => {
@@ -356,21 +372,33 @@ export const useShell = create<ShellStore>((set, get) => ({
   },
 
   makeRestorePoint: async (label) => {
+    if (get().historyBusy) return;
     const { workingDir, currentPath } = get();
     if (!workingDir || !currentPath) return;
-    // Snapshot reads the working-dir manifest, which _mirrorManifest keeps current.
-    await api.makeRestorePoint(workingDir, label);
-    await api.saveProject(workingDir, currentPath); // flush so the .cuprum carries it
-    await get().refreshRestorePoints();
+    set({ historyBusy: true });
+    try {
+      // Snapshot reads the working-dir manifest, which _mirrorManifest keeps current.
+      await api.makeRestorePoint(workingDir, label);
+      await api.saveProject(workingDir, currentPath); // flush so the .cuprum carries it
+      await get().refreshRestorePoints();
+    } finally {
+      set({ historyBusy: false });
+    }
   },
 
   restoreTo: async (id) => {
+    if (get().historyBusy) return;
     const { workingDir, currentManifest } = get();
     if (!workingDir || !currentManifest) return;
-    const manifest = await api.readRestorePoint(workingDir, id);
-    get()._recordUndo(currentManifest);
-    set((s) => ({ currentManifest: manifest, docNonce: s.docNonce + 1 }));
-    await get()._persistManifest(manifest);
+    set({ historyBusy: true });
+    try {
+      const manifest = await api.readRestorePoint(workingDir, id);
+      get()._recordUndo(currentManifest);
+      set((s) => ({ currentManifest: manifest, docNonce: s.docNonce + 1 }));
+      await get()._persistManifest(manifest);
+    } finally {
+      set({ historyBusy: false });
+    }
   },
 
   startImport: async () => {
