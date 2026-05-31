@@ -353,7 +353,12 @@ export const useShell = create<ShellStore>((set, get) => ({
         currentManifest: prev,
         docNonce: s.docNonce + 1,
       }));
+      // _persistManifest writes the working-dir manifest first (the live source
+      // of truth), so in-memory state stays consistent with the working dir even
+      // when the .cuprum repack fails; no rollback needed.
       await get()._persistManifest(prev);
+    } catch (e) {
+      set({ error: String(e) });
     } finally {
       set({ historyBusy: false });
     }
@@ -372,7 +377,12 @@ export const useShell = create<ShellStore>((set, get) => ({
         currentManifest: next,
         docNonce: s.docNonce + 1,
       }));
+      // _persistManifest writes the working-dir manifest first (the live source
+      // of truth), so in-memory state stays consistent with the working dir even
+      // when the .cuprum repack fails; no rollback needed.
       await get()._persistManifest(next);
+    } catch (e) {
+      set({ error: String(e) });
     } finally {
       set({ historyBusy: false });
     }
@@ -398,6 +408,8 @@ export const useShell = create<ShellStore>((set, get) => ({
       await api.makeRestorePoint(workingDir, label);
       await api.saveProject(workingDir, currentPath); // flush so the .cuprum carries it
       await get().refreshRestorePoints();
+    } catch (e) {
+      set({ error: String(e) });
     } finally {
       set({ historyBusy: false });
     }
@@ -412,7 +424,12 @@ export const useShell = create<ShellStore>((set, get) => ({
       const manifest = await api.readRestorePoint(workingDir, id);
       get()._recordUndo(currentManifest);
       set((s) => ({ currentManifest: manifest, docNonce: s.docNonce + 1 }));
+      // _persistManifest writes the working-dir manifest first (the live source
+      // of truth), so in-memory state stays consistent with the working dir even
+      // when the .cuprum repack fails; no rollback needed.
       await get()._persistManifest(manifest);
+    } catch (e) {
+      set({ error: String(e) });
     } finally {
       set({ historyBusy: false });
     }
