@@ -50,7 +50,9 @@ export function DesignsTab() {
       setLayers([]);
       return;
     }
-    const gerbers = manifest.designs.flatMap((design) => design.gerbers);
+    const gerbers = manifest.designs.flatMap((design) =>
+      design.gerbers.filter((g) => g.layer_type !== "drill"),
+    );
     const slots: (StackLayer | null)[] = gerbers.map(() => null);
     setLayers([]);
     setSettled(0);
@@ -106,6 +108,7 @@ export function DesignsTab() {
       setHoles([]);
       return;
     }
+    setHoles([]);
     (async () => {
       const allHoles: Hole[] = [];
       for (const design of manifest.designs) {
@@ -133,6 +136,7 @@ export function DesignsTab() {
       setMesh(null);
       return;
     }
+    setMesh(null);
     const gerbers = manifest.designs.flatMap((design) =>
       design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
     );
