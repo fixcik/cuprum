@@ -306,9 +306,9 @@ export const api = {
       string[] | null
     >,
   pickProjectFile: () =>
-    open({ multiple: false, filters: [{ name: "Cuprum", extensions: ["cuprum"] }] }) as Promise<
+    open({ multiple: false, filters: [{ name: "Cuprum", extensions: ["cu", "cuprum"] }] }) as Promise<
       string | null
     >,
   pickSavePath: (defaultName: string) =>
-    save({ defaultPath: defaultName, filters: [{ name: "Cuprum", extensions: ["cuprum"] }] }),
+    save({ defaultPath: defaultName, filters: [{ name: "Cuprum", extensions: ["cu", "cuprum"] }] }),
 };

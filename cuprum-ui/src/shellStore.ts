@@ -77,10 +77,10 @@ interface ShellStore {
   removeDesign: (designId: string) => Promise<void>;
 }
 
-/** Strip directory + .cuprum extension to a display/default name. */
+/** Strip directory + .cu/.cuprum extension to a display/default name. */
 function stem(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? path;
-  return base.replace(/\.cuprum$/i, "");
+  return base.replace(/\.(cu|cuprum)$/i, "");
 }
 
 export const useShell = create<ShellStore>((set, get) => ({
@@ -130,7 +130,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   newProject: async () => {
     set({ homeNotice: null, error: null });
     try {
-      const savePath = await api.pickSavePath("untitled.cuprum");
+      const savePath = await api.pickSavePath("untitled.cu");
       if (!savePath) return;
       // Clean up any previously-open project's working dir before switching, so
       // switching projects never leaks a temp working dir.
