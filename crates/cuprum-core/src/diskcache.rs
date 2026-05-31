@@ -92,7 +92,10 @@ pub fn put(dir: &Path, key: &str, bytes: &[u8], max_bytes: u64, ttl: Duration) {
 
 fn expired(meta: &std::fs::Metadata, ttl: Duration) -> bool {
     let mt = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-    SystemTime::now().duration_since(mt).map(|age| age > ttl).unwrap_or(false)
+    SystemTime::now()
+        .duration_since(mt)
+        .map(|age| age > ttl)
+        .unwrap_or(false)
 }
 
 /// Drop expired `.bin` entries, then evict least-recently-used ones until the
@@ -143,16 +146,31 @@ mod tests {
     #[test]
     fn put_get_roundtrip_and_budget_evicts_lru() {
         let day = Duration::from_secs(86_400);
-        let dir = std::env::temp_dir().join(format!("cuprum-diskcache-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("cuprum-diskcache-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
         // Two 100-byte entries; budget 150 → second put must evict the first.
         put(&dir, "aaa", &[1u8; 100], 1_000, day);
         assert_eq!(get(&dir, "aaa", day).as_deref(), Some(&[1u8; 100][..]));
 
+        // Pin "aaa" to an unambiguously older mtime so the LRU victim is
+        // deterministic regardless of filesystem timestamp granularity — on a
+        // fast runner the get() touch above and the put() below can otherwise
+        // land in the same tick and tie.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(entry_path(&dir, "aaa"))
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(60))
+            .unwrap();
+
         put(&dir, "bbb", &[2u8; 100], 150, day);
         // "aaa" was older (and not touched after) → evicted; "bbb" stays.
-        assert!(get(&dir, "aaa", day).is_none(), "oldest entry should be evicted");
+        assert!(
+            get(&dir, "aaa", day).is_none(),
+            "oldest entry should be evicted"
+        );
         assert_eq!(get(&dir, "bbb", day).as_deref(), Some(&[2u8; 100][..]));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -164,7 +182,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         put(&dir, "old", &[7u8; 10], 1_000, Duration::from_secs(86_400));
         // TTL of zero → already expired on read.
-        assert!(get(&dir, "old", Duration::ZERO).is_none(), "zero-TTL entry must expire");
+        assert!(
+            get(&dir, "old", Duration::ZERO).is_none(),
+            "zero-TTL entry must expire"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

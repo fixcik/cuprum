@@ -1,0 +1,195 @@
+name: Release
+
+# Manual, one-shot release. Computes the next version from Conventional Commits
+# across the whole repo (git-cliff), bumps every manifest, tags, drafts a GitHub
+# release with generated notes, builds the desktop app bundles for macOS / Linux
+# / Windows, attaches them, then publishes the release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Explicit version, e.g. 0.2.0 (leave empty to derive from commits)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run: compute version + changelog, do not tag/release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Bump version & draft release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Determine version
+        id: bump
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="$(git cliff --bumped-version 2>/dev/null | sed 's/^v//' || true)"
+            if [ -z "$VERSION" ]; then
+              # No prior release tags yet — start from the current manifest version.
+              VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+            fi
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "Could not determine version — pass an explicit one." >&2
+            exit 1
+          fi
+          echo "Releasing version $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update CHANGELOG.md
+        run: git cliff --tag "v${{ steps.bump.outputs.version }}" -o CHANGELOG.md
+
+      - name: Generate release notes
+        run: git cliff --tag "v${{ steps.bump.outputs.version }}" --unreleased --strip all -o RELEASE_NOTES.md
+
+      - name: Bump version in manifests
+        run: ./scripts/set-version.sh "${{ steps.bump.outputs.version }}"
+
+      - name: Refresh Cargo.lock files
+        run: |
+          cargo update --workspace
+          cargo update --workspace --manifest-path cuprum-ui/src-tauri/Cargo.toml
+
+      - name: Upload changelog (dry run)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preview
+          path: |
+            CHANGELOG.md
+            RELEASE_NOTES.md
+
+      - name: Commit, tag, push
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): v${{ steps.bump.outputs.version }}"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push origin HEAD --tags
+
+      - name: Create draft GitHub release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.bump.outputs.version }}" \
+            --draft \
+            --title "Cuprum v${{ steps.bump.outputs.version }}" \
+            --notes-file RELEASE_NOTES.md \
+            --repo "${{ github.repository }}"
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: prepare
+    if: ${{ !inputs.dry_run }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (universal)
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - os: ubuntu-22.04
+            label: Linux (x86_64)
+            args: ""
+            rust-targets: ""
+          - os: windows-latest
+            label: Windows (x86_64)
+            args: ""
+            rust-targets: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Install Tauri system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libayatana-appindicator3-dev \
+            libxdo-dev \
+            libsoup-3.0-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build-${{ matrix.label }}
+          workspaces: cuprum-ui/src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: cuprum-ui/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: cuprum-ui/pnpm-lock.yaml
+
+      - name: Install JS dependencies
+        working-directory: cuprum-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and upload bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: cuprum-ui
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: Cuprum ${{ needs.prepare.outputs.tag }}
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Un-draft the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ needs.prepare.outputs.tag }}" \
+            --draft=false \
+            --repo "${{ github.repository }}"

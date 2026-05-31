@@ -1,0 +1,63 @@
+# git-cliff configuration — repo-wide changelog from Conventional Commits.
+#
+# Cuprum releases as a single application, so the changelog spans the whole
+# repository (core, CLI, project model, and the Tauri UI) rather than being
+# scoped per crate. Used by the manual Release workflow to compute the next
+# version and render CHANGELOG.md / release notes.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to Cuprum are documented here.
+This project follows [Conventional Commits](https://www.conventionalcommits.org)
+and [Semantic Versioning](https://semver.org).\n
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}]{% if previous.version %} \
+- {{ timestamp | date(format="%Y-%m-%d") }}{% endif %}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "newest"
+
+# Conventional Commit type -> changelog section. Order here is display order.
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactor" },
+  { message = "^doc", group = "<!-- 4 -->Documentation" },
+  { message = "^style", group = "<!-- 5 -->Styling" },
+  { message = "^test", group = "<!-- 6 -->Testing" },
+  { message = "^build", group = "<!-- 7 -->Build" },
+  { message = "^ci", group = "<!-- 8 -->CI" },
+  { message = "^chore\\(release\\):", skip = true },
+  { message = "^chore", group = "<!-- 9 -->Chores" },
+  { body = ".*security", group = "<!-- 10 -->Security" },
+  { message = "^revert", group = "<!-- 11 -->Revert" },
+  { message = ".*", group = "<!-- 12 -->Other" },
+]
+
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = true

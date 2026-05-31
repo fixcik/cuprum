@@ -188,11 +188,23 @@ pub fn board_metrics(layers: &[MetricLayerInput]) -> BoardMetrics {
 /// same stitching the 3D mesh uses, so the measured size matches the render).
 fn board_dims(layers: &[MetricLayerInput]) -> BoardDims {
     let Some(edge) = layers.iter().find(|l| l.role == Role::Edge) else {
-        return BoardDims { width_mm: 0.0, height_mm: 0.0, outline_closed: false, cutout_count: 0, has_edge_layer: false };
+        return BoardDims {
+            width_mm: 0.0,
+            height_mm: 0.0,
+            outline_closed: false,
+            cutout_count: 0,
+            has_edge_layer: false,
+        };
     };
     let (loops, perimeter_closed) = crate::mesh::outline_info(edge.bytes);
     let Some(perimeter) = loops.first() else {
-        return BoardDims { width_mm: 0.0, height_mm: 0.0, outline_closed: false, cutout_count: 0, has_edge_layer: true };
+        return BoardDims {
+            width_mm: 0.0,
+            height_mm: 0.0,
+            outline_closed: false,
+            cutout_count: 0,
+            has_edge_layer: true,
+        };
     };
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for p in perimeter {
@@ -270,7 +282,12 @@ fn copper_metrics(layers: &[MetricLayerInput]) -> Vec<CopperLayerMetric> {
                 }
                 None => (None, Vec::new(), 0),
             };
-            CopperLayerMetric { side: side.to_string(), min_trace_mm, trace_widths_mm, primitive_count }
+            CopperLayerMetric {
+                side: side.to_string(),
+                min_trace_mm,
+                trace_widths_mm,
+                primitive_count,
+            }
         })
         .collect()
 }
@@ -318,7 +335,10 @@ fn drill_metrics(layers: &[MetricLayerInput]) -> DrillMetrics {
         }
     }
     m.unique_tool_diameters_mm = hist.keys().map(|um| *um as f32 / 1000.0).collect();
-    m.diameter_histogram = hist.iter().map(|(um, c)| (*um as f32 / 1000.0, *c)).collect();
+    m.diameter_histogram = hist
+        .iter()
+        .map(|(um, c)| (*um as f32 / 1000.0, *c))
+        .collect();
     m
 }
 
@@ -379,7 +399,11 @@ fn hots_overlap(a: &geometry::Hot, b: &geometry::Hot, pad: f64) -> bool {
 /// Drop hotspots whose box overlaps one already kept (longest-first), so two
 /// markers that visually intersect collapse into one.
 fn merge_overlapping(mut v: Vec<geometry::Hot>) -> Vec<geometry::Hot> {
-    v.sort_by(|a, b| hot_extent(b).partial_cmp(&hot_extent(a)).unwrap_or(std::cmp::Ordering::Equal));
+    v.sort_by(|a, b| {
+        hot_extent(b)
+            .partial_cmp(&hot_extent(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut kept: Vec<geometry::Hot> = Vec::new();
     for h in v {
         if !kept.iter().any(|k| hots_overlap(k, &h, MERGE_PAD_MM)) {
@@ -399,7 +423,11 @@ fn hot_mid(h: &geometry::Hot) -> [f64; 2] {
 /// swarm of nearby strokes (e.g. every glyph of a silk text block) into a few
 /// markers instead of one per letter.
 fn cluster_by_radius(mut v: Vec<geometry::Hot>, radius: f64) -> Vec<geometry::Hot> {
-    v.sort_by(|a, b| hot_extent(b).partial_cmp(&hot_extent(a)).unwrap_or(std::cmp::Ordering::Equal));
+    v.sort_by(|a, b| {
+        hot_extent(b)
+            .partial_cmp(&hot_extent(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut kept: Vec<geometry::Hot> = Vec::new();
     for h in v {
         let m = hot_mid(&h);
@@ -420,10 +448,17 @@ fn cluster_by_radius(mut v: Vec<geometry::Hot>, radius: f64) -> Vec<geometry::Ho
 /// survivor is tagged with `side` (these are computed per source layer).
 /// `cluster_mm` sets how aggressively nearby instances collapse (≈3 mm for silk
 /// text, ≈1 mm for traces/holes).
-fn dedup_by_value(hots: Vec<geometry::Hot>, per_value: usize, side: &str, cluster_mm: f64) -> Vec<Hotspot> {
+fn dedup_by_value(
+    hots: Vec<geometry::Hot>,
+    per_value: usize,
+    side: &str,
+    cluster_mm: f64,
+) -> Vec<Hotspot> {
     let mut by_v: BTreeMap<u32, Vec<geometry::Hot>> = BTreeMap::new();
     for h in hots {
-        by_v.entry((h.2 * 1000.0).round() as u32).or_default().push(h);
+        by_v.entry((h.2 * 1000.0).round() as u32)
+            .or_default()
+            .push(h);
     }
     let mut out = Vec::new();
     for (_um, group) in by_v {
@@ -452,7 +487,9 @@ const HIGHLIGHT_CAP: usize = 4000;
 fn thin_stroke_hotspots(layers: &[MetricLayerInput], role: Role) -> Vec<Hotspot> {
     let mut hots: Vec<Hotspot> = Vec::new();
     for l in layers.iter().filter(|l| l.role == role) {
-        let Some(lay) = parse_layer(l.bytes) else { continue };
+        let Some(lay) = parse_layer(l.bytes) else {
+            continue;
+        };
         let side = layer_side(l);
         for h in stroke_hotspots(&lay) {
             if h.2 <= HIGHLIGHT_MAX_W {
@@ -479,7 +516,12 @@ fn stroke_hotspots(layer: &GerberLayer) -> Vec<geometry::Hot> {
                 // highlight follows the curve instead of cutting a straight chord
                 // across it (a silk circle was drawn as a few crooked lines).
                 let steps = ((a.sweep_angle.abs() / 0.15).ceil() as usize).clamp(2, 96);
-                let pt = |ang: f64| [a.center.x + a.radius * ang.cos(), a.center.y + a.radius * ang.sin()];
+                let pt = |ang: f64| {
+                    [
+                        a.center.x + a.radius * ang.cos(),
+                        a.center.y + a.radius * ang.sin(),
+                    ]
+                };
                 let mut prev = pt(a.start_angle);
                 for k in 1..=steps {
                     let ang = a.start_angle + a.sweep_angle * (k as f64 / steps as f64);
@@ -497,7 +539,10 @@ fn stroke_hotspots(layer: &GerberLayer) -> Vec<geometry::Hot> {
 /// Per-plated-hole annular hotspots: hole centre → nearest pad edge, value =
 /// annular ring (pad radius − hole radius). A hole with no pad yields a zero
 /// hotspot at the hole. Worst-first, capped. Through-holes → side "both".
-fn annular_hotspots(copper_layers: &[(&str, Vec<Poly>)], plated_holes: &[[f64; 3]]) -> Vec<geometry::Hot> {
+fn annular_hotspots(
+    copper_layers: &[(&str, Vec<Poly>)],
+    plated_holes: &[[f64; 3]],
+) -> Vec<geometry::Hot> {
     let mut hots: Vec<geometry::Hot> = Vec::new();
     for h in plated_holes {
         let p = [h[0], h[1]];
@@ -507,7 +552,7 @@ fn annular_hotspots(copper_layers: &[(&str, Vec<Poly>)], plated_holes: &[[f64; 3
         for (_side, polys) in copper_layers {
             if let Some(poly) = geometry::poly_containing(polys, p) {
                 let (q, d) = geometry::point_ring_closest(p, &poly.outer);
-                if best.map_or(true, |(_, r)| d > r) {
+                if best.is_none_or(|(_, r)| d > r) {
                     best = Some((q, d));
                 }
             }
@@ -529,7 +574,8 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
             let (loops, _) = crate::mesh::outline_info(e.bytes);
             match loops.first() {
                 Some(perimeter) => {
-                    let area = ring_area_abs(perimeter) - loops.iter().skip(1).map(|r| ring_area_abs(r)).sum::<f64>();
+                    let area = ring_area_abs(perimeter)
+                        - loops.iter().skip(1).map(|r| ring_area_abs(r)).sum::<f64>();
                     let mut bb = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
                     for p in perimeter {
                         bb[0] = bb[0].min(p[0]);
@@ -550,7 +596,11 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     let copper_layers: Vec<(&str, Vec<Poly>)> = layers
         .iter()
         .filter(|l| l.role == Role::Copper)
-        .filter_map(|l| geometry::layer_polygons(l.bytes, &[]).ok().map(|p| (layer_side(l), p)))
+        .filter_map(|l| {
+            geometry::layer_polygons(l.bytes, &[])
+                .ok()
+                .map(|p| (layer_side(l), p))
+        })
         .filter(|(_, p)| !p.is_empty())
         .collect();
 
@@ -573,8 +623,14 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         clear_hots.extend(top_n(c, 40).into_iter().map(|h| to_hotspot(h, side)));
         width_hots.extend(top_n(w, 40).into_iter().map(|h| to_hotspot(h, side)));
     }
-    let min_clear = clear_hots.iter().map(|h| h.v).fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
-    let min_width = width_hots.iter().map(|h| h.v).fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
+    let min_clear = clear_hots
+        .iter()
+        .map(|h| h.v)
+        .fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
+    let min_width = width_hots
+        .iter()
+        .map(|h| h.v)
+        .fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
 
     // Annular ring: plated holes vs solid copper pads. Through-holes → side "both".
     let plated_holes: Vec<[f64; 3]> = layers
@@ -583,8 +639,10 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         .flat_map(|l| crate::drill::parse_drill(l.bytes).unwrap_or_default())
         .map(|h| [h.x_mm as f64, h.y_mm as f64, h.d_mm as f64])
         .collect();
-    let annular_hots: Vec<Hotspot> =
-        annular_hotspots(&copper_layers, &plated_holes).into_iter().map(|h| to_hotspot(h, "both")).collect();
+    let annular_hots: Vec<Hotspot> = annular_hotspots(&copper_layers, &plated_holes)
+        .into_iter()
+        .map(|h| to_hotspot(h, "both"))
+        .collect();
     let min_annular = annular_hots.first().map(|h| h.v);
 
     // Silk stroke widths (distinct, sorted) across silk layers.
@@ -635,7 +693,11 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
             .flatten()
             .collect();
         if openings.len() >= 2 {
-            mask_hots.extend(geometry::clearance_hotspots(&openings).into_iter().map(|h| to_hotspot(h, face)));
+            mask_hots.extend(
+                geometry::clearance_hotspots(&openings)
+                    .into_iter()
+                    .map(|h| to_hotspot(h, face)),
+            );
         }
     }
     mask_hots.sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(std::cmp::Ordering::Equal));
@@ -645,22 +707,38 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     let mut overshoot_hots: Vec<Hotspot> = Vec::new();
     if let Some(bb) = board_bbox {
         for l in layers.iter().filter(|l| l.role != Role::Edge) {
-            let Some(lay) = parse_layer(l.bytes) else { continue };
-            let Some(b) = lay.try_bounding_box() else { continue };
+            let Some(lay) = parse_layer(l.bytes) else {
+                continue;
+            };
+            let Some(b) = lay.try_bounding_box() else {
+                continue;
+            };
             let side = layer_side(l);
             let cy = ((b.min.y + b.max.y) / 2.0).clamp(bb[1], bb[3]);
             let cx = ((b.min.x + b.max.x) / 2.0).clamp(bb[0], bb[2]);
             if b.max.x > bb[2] {
-                overshoot_hots.push(to_hotspot(([b.max.x, cy], [bb[2], cy], b.max.x - bb[2]), side));
+                overshoot_hots.push(to_hotspot(
+                    ([b.max.x, cy], [bb[2], cy], b.max.x - bb[2]),
+                    side,
+                ));
             }
             if b.min.x < bb[0] {
-                overshoot_hots.push(to_hotspot(([b.min.x, cy], [bb[0], cy], bb[0] - b.min.x), side));
+                overshoot_hots.push(to_hotspot(
+                    ([b.min.x, cy], [bb[0], cy], bb[0] - b.min.x),
+                    side,
+                ));
             }
             if b.max.y > bb[3] {
-                overshoot_hots.push(to_hotspot(([cx, b.max.y], [cx, bb[3]], b.max.y - bb[3]), side));
+                overshoot_hots.push(to_hotspot(
+                    ([cx, b.max.y], [cx, bb[3]], b.max.y - bb[3]),
+                    side,
+                ));
             }
             if b.min.y < bb[1] {
-                overshoot_hots.push(to_hotspot(([cx, b.min.y], [cx, bb[1]], bb[1] - b.min.y), side));
+                overshoot_hots.push(to_hotspot(
+                    ([cx, b.min.y], [cx, bb[1]], bb[1] - b.min.y),
+                    side,
+                ));
             }
         }
     }
@@ -670,19 +748,25 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     let layer_overshoot = overshoot_hots.first().map(|h| h.v);
 
     // Routed slots from drill layers.
-    let slots: Vec<crate::drill::Slot> =
-        layers.iter().filter(|l| l.role == Role::Drill).flat_map(|l| crate::drill::parse_slots(l.bytes)).collect();
-    let min_slot_width_mm = slots.iter().map(|s| s.w_mm).fold(None::<f32>, |acc, v| Some(acc.map_or(v, |a| a.min(v))));
+    let slots: Vec<crate::drill::Slot> = layers
+        .iter()
+        .filter(|l| l.role == Role::Drill)
+        .flat_map(|l| crate::drill::parse_slots(l.bytes))
+        .collect();
+    let min_slot_width_mm = slots
+        .iter()
+        .map(|s| s.w_mm)
+        .fold(None::<f32>, |acc, v| Some(acc.map_or(v, |a| a.min(v))));
 
     GeoMetrics {
         copper_coverage_pct,
         min_silk_line_mm: min_silk_line,
         silk_line_widths_mm: silk_line_widths,
-        min_clearance_mm: min_clear.map(|v| v as f32),
-        min_copper_width_mm: min_width.map(|v| v as f32),
-        min_annular_mm: min_annular.map(|v| v as f32),
+        min_clearance_mm: min_clear,
+        min_copper_width_mm: min_width,
+        min_annular_mm: min_annular,
         min_mask_dam_mm: min_mask_dam,
-        layer_overshoot_mm: layer_overshoot.map(|v| v as f32),
+        layer_overshoot_mm: layer_overshoot,
         slot_count: slots.len() as u32,
         min_slot_width_mm,
         clearance_hotspots: clear_hots,
@@ -703,21 +787,37 @@ mod tests {
     // 10×10 mm rectangular Edge_Cuts outline (4 stroked sides).
     const EDGE_SQUARE: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.1*%\nD10*\nX0Y0D02*\nX0100000Y0D01*\nX0100000Y0100000D01*\nX0Y0100000D01*\nX0Y0D01*\nM02*\n";
     // A copper layer with one 0.2 mm horizontal trace from (0,0) to (10,0).
-    const CU_TRACE: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.2*%\nD10*\nX0Y0D02*\nX0100000Y0D01*\nM02*\n";
+    const CU_TRACE: &[u8] =
+        b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.2*%\nD10*\nX0Y0D02*\nX0100000Y0D01*\nM02*\n";
     // PTH drill: two 0.3 mm holes and one 0.8 mm hole.
-    const PTH: &[u8] = b"M48\nMETRIC,TZ\nT1C0.300\nT2C0.800\n%\nT1\nX1.0Y1.0\nX2.0Y1.0\nT2\nX3.0Y3.0\nM30\n";
+    const PTH: &[u8] =
+        b"M48\nMETRIC,TZ\nT1C0.300\nT2C0.800\n%\nT1\nX1.0Y1.0\nX2.0Y1.0\nT2\nX3.0Y3.0\nM30\n";
     // NPTH drill: one 3.2 mm mounting hole.
     const NPTH: &[u8] = b"M48\nMETRIC,TZ\nT1C3.200\n%\nT1\nX5.0Y5.0\nM30\n";
 
     fn edge(bytes: &'static [u8]) -> MetricLayerInput<'static> {
-        MetricLayerInput { role: Role::Edge, side: Side::Both, inner: false, plated: false, bytes }
+        MetricLayerInput {
+            role: Role::Edge,
+            side: Side::Both,
+            inner: false,
+            plated: false,
+            bytes,
+        }
     }
 
     #[test]
     fn board_size_from_edge_square() {
         let m = board_metrics(&[edge(EDGE_SQUARE)]);
-        assert!((m.board.width_mm - 10.0).abs() < 0.01, "w={}", m.board.width_mm);
-        assert!((m.board.height_mm - 10.0).abs() < 0.01, "h={}", m.board.height_mm);
+        assert!(
+            (m.board.width_mm - 10.0).abs() < 0.01,
+            "w={}",
+            m.board.width_mm
+        );
+        assert!(
+            (m.board.height_mm - 10.0).abs() < 0.01,
+            "h={}",
+            m.board.height_mm
+        );
         assert!(m.board.outline_closed, "square outline should be closed");
         assert_eq!(m.board.cutout_count, 0);
         assert!(m.board.has_edge_layer);
@@ -756,11 +856,35 @@ mod tests {
     #[test]
     fn layer_summary_counts_sides_and_inner() {
         let layers = vec![
-            MetricLayerInput { role: Role::Copper, side: Side::Top, inner: false, plated: false, bytes: CU_TRACE },
-            MetricLayerInput { role: Role::Copper, side: Side::Bottom, inner: false, plated: false, bytes: CU_TRACE },
+            MetricLayerInput {
+                role: Role::Copper,
+                side: Side::Top,
+                inner: false,
+                plated: false,
+                bytes: CU_TRACE,
+            },
+            MetricLayerInput {
+                role: Role::Copper,
+                side: Side::Bottom,
+                inner: false,
+                plated: false,
+                bytes: CU_TRACE,
+            },
             // Inner copper is mapped to Side::Top by the caller; `inner` disambiguates it.
-            MetricLayerInput { role: Role::Copper, side: Side::Top, inner: true, plated: false, bytes: CU_TRACE },
-            MetricLayerInput { role: Role::Mask, side: Side::Top, inner: false, plated: false, bytes: CU_TRACE },
+            MetricLayerInput {
+                role: Role::Copper,
+                side: Side::Top,
+                inner: true,
+                plated: false,
+                bytes: CU_TRACE,
+            },
+            MetricLayerInput {
+                role: Role::Mask,
+                side: Side::Top,
+                inner: false,
+                plated: false,
+                bytes: CU_TRACE,
+            },
         ];
         let m = board_metrics(&layers);
         assert!(m.layers.copper_top && m.layers.copper_bottom);
@@ -772,8 +896,20 @@ mod tests {
     #[test]
     fn drill_stats_split_plated_and_tools() {
         let layers = vec![
-            MetricLayerInput { role: Role::Drill, side: Side::Both, inner: false, plated: true, bytes: PTH },
-            MetricLayerInput { role: Role::Drill, side: Side::Both, inner: false, plated: false, bytes: NPTH },
+            MetricLayerInput {
+                role: Role::Drill,
+                side: Side::Both,
+                inner: false,
+                plated: true,
+                bytes: PTH,
+            },
+            MetricLayerInput {
+                role: Role::Drill,
+                side: Side::Both,
+                inner: false,
+                plated: false,
+                bytes: NPTH,
+            },
         ];
         let m = board_metrics(&layers);
         assert_eq!(m.drill.total_holes, 4, "3 PTH + 1 NPTH");
@@ -782,16 +918,28 @@ mod tests {
         assert_eq!(m.drill.unique_tool_diameters_mm, vec![0.3, 0.8, 3.2]);
         assert!((m.drill.min_hole_mm.unwrap() - 0.3).abs() < 0.001);
         // histogram: 0.3→2, 0.8→1, 3.2→1
-        assert_eq!(m.drill.diameter_histogram, vec![(0.3, 2), (0.8, 1), (3.2, 1)]);
+        assert_eq!(
+            m.drill.diameter_histogram,
+            vec![(0.3, 2), (0.8, 1), (3.2, 1)]
+        );
         // Holes go through the board → their hotspots are side "both".
-        assert!(m.geo.drill_hotspots.iter().all(|h| h.side == "both"), "drill hotspots are both-sided");
+        assert!(
+            m.geo.drill_hotspots.iter().all(|h| h.side == "both"),
+            "drill hotspots are both-sided"
+        );
     }
 
     #[test]
     fn geo_coverage_and_no_slots() {
         let m = board_metrics(&[
             edge(EDGE_SQUARE),
-            MetricLayerInput { role: Role::Copper, side: Side::Top, inner: false, plated: false, bytes: CU_TRACE },
+            MetricLayerInput {
+                role: Role::Copper,
+                side: Side::Top,
+                inner: false,
+                plated: false,
+                bytes: CU_TRACE,
+            },
         ]);
         let cov = m.geo.copper_coverage_pct.expect("coverage measured");
         assert!(cov > 0.0 && cov < 100.0, "0–100% coverage: {cov}");
@@ -799,7 +947,10 @@ mod tests {
         assert!(m.geo.min_slot_width_mm.is_none());
         // A top-copper trace's hotspots are tagged "top" (so the preview can hide
         // them while the bottom face is being viewed).
-        assert!(m.geo.trace_hotspots.iter().all(|h| h.side == "top"), "trace hotspots are top-sided");
+        assert!(
+            m.geo.trace_hotspots.iter().all(|h| h.side == "top"),
+            "trace hotspots are top-sided"
+        );
     }
 
     #[test]
@@ -816,16 +967,36 @@ mod tests {
             plated: false,
             bytes: SILK,
         }]);
-        assert_eq!(m.geo.silk_line_widths_mm, vec![0.01, 0.07], "both widths, sorted");
-        assert_eq!(m.geo.min_silk_line_mm, Some(0.01), "raw min is the artefact");
+        assert_eq!(
+            m.geo.silk_line_widths_mm,
+            vec![0.01, 0.07],
+            "both widths, sorted"
+        );
+        assert_eq!(
+            m.geo.min_silk_line_mm,
+            Some(0.01),
+            "raw min is the artefact"
+        );
         // Hotspots keep BOTH widths (per-value sampling), so the frontend's
         // artefact filter still leaves the real 0.07 stroke to mark.
-        let mut widths: Vec<u32> = m.geo.silk_hotspots.iter().map(|h| (h.v * 1000.0).round() as u32).collect();
+        let mut widths: Vec<u32> = m
+            .geo
+            .silk_hotspots
+            .iter()
+            .map(|h| (h.v * 1000.0).round() as u32)
+            .collect();
         widths.sort_unstable();
         widths.dedup();
-        assert_eq!(widths, vec![10, 70], "hotspots keep the artefact AND the real width");
+        assert_eq!(
+            widths,
+            vec![10, 70],
+            "hotspots keep the artefact AND the real width"
+        );
         // The silk layer is Side::Top → every silk hotspot is tagged "top".
-        assert!(m.geo.silk_hotspots.iter().all(|h| h.side == "top"), "silk hotspots are top-sided");
+        assert!(
+            m.geo.silk_hotspots.iter().all(|h| h.side == "top"),
+            "silk hotspots are top-sided"
+        );
     }
 
     #[test]
@@ -842,4 +1013,3 @@ mod tests {
         assert!((m.geo.min_slot_width_mm.unwrap() - 1.0).abs() < 0.01);
     }
 }
-

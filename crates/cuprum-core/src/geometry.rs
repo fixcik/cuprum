@@ -99,7 +99,10 @@ pub fn mask_polygons(outline_rings: &[Vec<[f64; 2]>], mask_bytes: &[u8]) -> Resu
     // out → the mask covers the pad corners (dark "bites"). All-CCW makes each
     // opening a solid clip that subtracts fully. (Same root cause as the copper
     // "mouse bites" — see fill_polygons.)
-    let openings: Vec<Vec<[f64; 2]>> = contours_of(layer.primitives()).into_iter().map(to_ccw).collect();
+    let openings: Vec<Vec<[f64; 2]>> = contours_of(layer.primitives())
+        .into_iter()
+        .map(to_ccw)
+        .collect();
 
     // No openings → the whole board is masked.
     let shapes = if openings.is_empty() {
@@ -175,7 +178,9 @@ pub(crate) fn shapes_to_polys(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Vec<Poly> {
 }
 
 fn to_f32(ring: Vec<[f64; 2]>) -> Vec<[f32; 2]> {
-    ring.into_iter().map(|[x, y]| [x as f32, y as f32]).collect()
+    ring.into_iter()
+        .map(|[x, y]| [x as f32, y as f32])
+        .collect()
 }
 
 /// Shoelace signed area; positive = counter-clockwise.
@@ -206,7 +211,12 @@ fn contours_of(prims: &[GerberPrimitive]) -> Vec<Vec<[f64; 2]>> {
     for prim in prims {
         match prim {
             GerberPrimitive::Circle(c) => {
-                contours.push(circle(c.center.x, c.center.y, c.diameter / 2.0, CIRCLE_SEGS));
+                contours.push(circle(
+                    c.center.x,
+                    c.center.y,
+                    c.diameter / 2.0,
+                    CIRCLE_SEGS,
+                ));
             }
             GerberPrimitive::Rectangle(r) => {
                 let (x, y, w, h) = (r.origin.x, r.origin.y, r.width, r.height);
@@ -222,7 +232,14 @@ fn contours_of(prims: &[GerberPrimitive]) -> Vec<Vec<[f64; 2]>> {
                 );
             }
             GerberPrimitive::Line(l) => {
-                push_stroke(&mut contours, l.start.x, l.start.y, l.end.x, l.end.y, l.width / 2.0);
+                push_stroke(
+                    &mut contours,
+                    l.start.x,
+                    l.start.y,
+                    l.end.x,
+                    l.end.y,
+                    l.width / 2.0,
+                );
             }
             GerberPrimitive::Arc(a) => {
                 let half = a.width / 2.0;
@@ -291,7 +308,10 @@ const DIST_BUDGET: u64 = 120_000_000;
 pub fn polys_area(polys: &[Poly]) -> f64 {
     polys
         .iter()
-        .map(|p| ring_area_f32(&p.outer).abs() - p.holes.iter().map(|h| ring_area_f32(h).abs()).sum::<f64>())
+        .map(|p| {
+            ring_area_f32(&p.outer).abs()
+                - p.holes.iter().map(|h| ring_area_f32(h).abs()).sum::<f64>()
+        })
         .sum()
 }
 
@@ -315,7 +335,12 @@ fn orient(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
 
 /// Do segments `ab` and `cd` properly cross? (Distance 0 when they do.)
 fn segs_cross(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
-    let (d1, d2, d3, d4) = (orient(c, d, a), orient(c, d, b), orient(a, b, c), orient(a, b, d));
+    let (d1, d2, d3, d4) = (
+        orient(c, d, a),
+        orient(c, d, b),
+        orient(a, b, c),
+        orient(a, b, d),
+    );
     ((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0))
 }
 
@@ -323,7 +348,11 @@ fn segs_cross(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
 fn point_seg_closest(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> ([f64; 2], f64) {
     let (abx, aby) = (b[0] - a[0], b[1] - a[1]);
     let len2 = abx * abx + aby * aby;
-    let t = if len2 <= 0.0 { 0.0 } else { (((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / len2).clamp(0.0, 1.0) };
+    let t = if len2 <= 0.0 {
+        0.0
+    } else {
+        (((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / len2).clamp(0.0, 1.0)
+    };
     let q = [a[0] + t * abx, a[1] + t * aby];
     (q, ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2)).sqrt())
 }
@@ -344,7 +373,12 @@ fn segs_intersection(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> Opti
 }
 
 /// The two closest points (one on each segment) and their distance.
-fn seg_seg_closest(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> ([f64; 2], [f64; 2], f64) {
+fn seg_seg_closest(
+    a: [f64; 2],
+    b: [f64; 2],
+    c: [f64; 2],
+    d: [f64; 2],
+) -> ([f64; 2], [f64; 2], f64) {
     if let Some(x) = segs_intersection(a, b, c, d) {
         return (x, x, 0.0);
     }
@@ -409,9 +443,9 @@ fn point_in_ring(p: [f64; 2], ring: &[[f32; 2]]) -> bool {
 /// The polygon whose outer ring contains `p` and whose holes don't (i.e. p is
 /// in solid copper). Used to associate a drill with its pad.
 pub(crate) fn poly_containing(polys: &[Poly], p: [f64; 2]) -> Option<&Poly> {
-    polys
-        .iter()
-        .find(|poly| point_in_ring(p, &poly.outer) && !poly.holes.iter().any(|h| point_in_ring(p, h)))
+    polys.iter().find(|poly| {
+        point_in_ring(p, &poly.outer) && !poly.holes.iter().any(|h| point_in_ring(p, h))
+    })
 }
 
 /// Closest point on a ring's boundary to `p`, plus the distance.
@@ -581,11 +615,13 @@ fn dedup_top(hots: Vec<Hot>) -> Vec<Hot> {
     for h in hots {
         let mx = ((h.0[0] + h.1[0]) / 2.0 / HOT_DEDUP_MM).round() as i64;
         let my = ((h.0[1] + h.1[1]) / 2.0 / HOT_DEDUP_MM).round() as i64;
-        best.entry((mx, my)).and_modify(|b| {
-            if h.2 < b.2 {
-                *b = h;
-            }
-        }).or_insert(h);
+        best.entry((mx, my))
+            .and_modify(|b| {
+                if h.2 < b.2 {
+                    *b = h;
+                }
+            })
+            .or_insert(h);
     }
     let mut v: Vec<Hot> = best.into_values().collect();
     v.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
@@ -614,9 +650,11 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
     }
     let diag = (maxx - minx).hypot(maxy - miny).max(1e-6);
     let cell = (diag / DIST_CELLS).clamp(0.2, 10.0);
-    let key = |x: f64, y: f64| -> (i64, i64) { (((x - minx) / cell) as i64, ((y - miny) / cell) as i64) };
+    let key =
+        |x: f64, y: f64| -> (i64, i64) { (((x - minx) / cell) as i64, ((y - miny) / cell) as i64) };
 
-    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> = std::collections::HashMap::new();
+    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
+        std::collections::HashMap::new();
     for (ei, e) in edges.iter().enumerate() {
         let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
         let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
@@ -638,7 +676,9 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
         let mut seen = std::collections::HashSet::new();
         for gx in cx0 - 2..=cx1 + 2 {
             for gy in cy0 - 2..=cy1 + 2 {
-                let Some(bucket) = grid.get(&(gx, gy)) else { continue };
+                let Some(bucket) = grid.get(&(gx, gy)) else {
+                    continue;
+                };
                 for &ej in bucket {
                     if ej <= ei || !seen.insert(ej) {
                         continue;
@@ -739,7 +779,11 @@ mod tests {
         let a = vec![[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]];
         let b = vec![[1.0, 1.0], [3.0, 1.0], [3.0, 3.0], [1.0, 3.0]];
         let polys = fill_polygons(&[a, b], &[]);
-        assert_eq!(polys.len(), 1, "overlapping rects must union to one polygon: {polys:?}");
+        assert_eq!(
+            polys.len(),
+            1,
+            "overlapping rects must union to one polygon: {polys:?}"
+        );
         assert!(polys[0].holes.is_empty(), "no holes expected");
         // The L-shaped union outline has 6 corners (the overlap removes 2).
         assert!(polys[0].outer.len() >= 6, "outline: {:?}", polys[0].outer);
@@ -754,7 +798,10 @@ mod tests {
         let ccw = vec![[1.0, 1.0], [3.0, 1.0], [3.0, 3.0], [1.0, 3.0]]; // counter-clockwise
         let polys = fill_polygons(&[cw, ccw], &[]);
         assert_eq!(polys.len(), 1, "should union to one polygon: {polys:?}");
-        assert!(polys[0].holes.is_empty(), "no winding-cancellation hole: {polys:?}");
+        assert!(
+            polys[0].holes.is_empty(),
+            "no winding-cancellation hole: {polys:?}"
+        );
     }
 
     /// Collinear subdivisions and a duplicate vertex are polygon noise — the sweep
@@ -771,7 +818,11 @@ mod tests {
         ring.push([10.0, 10.0]);
         ring.push([0.0, 10.0]);
         let s = simplify_ring(&ring);
-        assert!(s.len() <= 6, "collinear/duplicate noise collapsed to ~4 corners, got {}: {s:?}", s.len());
+        assert!(
+            s.len() <= 6,
+            "collinear/duplicate noise collapsed to ~4 corners, got {}: {s:?}",
+            s.len()
+        );
     }
 
     /// Simplification must NOT erase a genuine thin feature: a 0.1 mm-wide copper
@@ -790,7 +841,14 @@ mod tests {
     #[test]
     fn drill_hole_punches_a_hole() {
         let sq = vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
-        let polys = fill_polygons(&[sq], &[Hole { x: 5.0, y: 5.0, d: 2.0 }]);
+        let polys = fill_polygons(
+            &[sq],
+            &[Hole {
+                x: 5.0,
+                y: 5.0,
+                d: 2.0,
+            }],
+        );
         assert_eq!(polys.len(), 1, "one outer polygon expected");
         assert_eq!(polys[0].holes.len(), 1, "one hole ring expected: {polys:?}");
     }
@@ -798,7 +856,8 @@ mod tests {
     /// A flashed circle aperture parses end-to-end into a non-empty polygon.
     #[test]
     fn flash_circle_yields_a_polygon() {
-        const FLASH_CIRCLE: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
+        const FLASH_CIRCLE: &[u8] =
+            b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
         let polys = copper_polygons(FLASH_CIRCLE, &[]).unwrap();
         assert_eq!(polys.len(), 1, "expected one disc polygon: {polys:?}");
         assert!(polys[0].outer.len() >= 3);
@@ -810,9 +869,21 @@ mod tests {
     fn silk_fill_subtracts_a_drill() {
         // A 4mm circle pad centred at origin, with a 1mm drill through its centre.
         const FLASH_PAD: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,4.0*%\nD10*\nX0Y0D03*\nM02*\n";
-        let polys = layer_polygons(FLASH_PAD, &[Hole { x: 0.0, y: 0.0, d: 1.0 }]).unwrap();
+        let polys = layer_polygons(
+            FLASH_PAD,
+            &[Hole {
+                x: 0.0,
+                y: 0.0,
+                d: 1.0,
+            }],
+        )
+        .unwrap();
         assert_eq!(polys.len(), 1, "one outer polygon expected: {polys:?}");
-        assert_eq!(polys[0].holes.len(), 1, "drill must cut a hole in silk fill: {polys:?}");
+        assert_eq!(
+            polys[0].holes.len(),
+            1,
+            "drill must cut a hole in silk fill: {polys:?}"
+        );
     }
 
     /// Mask = board MINUS openings: a board square with a centred opening pad
@@ -822,10 +893,15 @@ mod tests {
         let board = vec![vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]];
         // A 2mm mask opening flashed at the board centre (5,5).
         // 5mm in 2.4 format == 0050000.
-        const OPENING: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\nD10*\nX0050000Y0050000D03*\nM02*\n";
+        const OPENING: &[u8] =
+            b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\nD10*\nX0050000Y0050000D03*\nM02*\n";
         let polys = mask_polygons(&board, OPENING).unwrap();
         assert_eq!(polys.len(), 1, "one mask polygon expected: {polys:?}");
-        assert_eq!(polys[0].holes.len(), 1, "opening must be cut out of the mask: {polys:?}");
+        assert_eq!(
+            polys[0].holes.len(),
+            1,
+            "opening must be cut out of the mask: {polys:?}"
+        );
     }
 
     /// A roundrect mask opening (rect + corner circles, mixed winding) must be
@@ -845,7 +921,11 @@ mod tests {
             s.abs() / 2.0
         };
         // The standalone pad area (copper path is already CCW-correct).
-        let pad_area: f64 = layer_polygons(RR, &[]).unwrap().iter().map(|p| area(&p.outer)).sum();
+        let pad_area: f64 = layer_polygons(RR, &[])
+            .unwrap()
+            .iter()
+            .map(|p| area(&p.outer))
+            .sum();
         assert!(pad_area > 0.5, "sanity: roundrect pad has area: {pad_area}");
         // Same opening cut from a 4×4 board.
         let board = vec![vec![[-2.0, -2.0], [2.0, -2.0], [2.0, 2.0], [-2.0, 2.0]]];
@@ -865,7 +945,10 @@ mod tests {
         const EMPTY: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\nM02*\n";
         let polys = mask_polygons(&board, EMPTY).unwrap();
         assert_eq!(polys.len(), 1, "full board polygon expected: {polys:?}");
-        assert!(polys[0].holes.is_empty(), "no openings → no holes: {polys:?}");
+        assert!(
+            polys[0].holes.is_empty(),
+            "no openings → no holes: {polys:?}"
+        );
     }
 
     // ---- DFM measurement geometry (G1) ----
@@ -873,10 +956,21 @@ mod tests {
     #[test]
     fn polys_area_counts_outer_minus_holes() {
         let sq = vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
-        let solid = fill_polygons(&[sq.clone()], &[]);
-        assert!((polys_area(&solid) - 100.0).abs() < 0.01, "10×10 = 100: {}", polys_area(&solid));
+        let solid = fill_polygons(std::slice::from_ref(&sq), &[]);
+        assert!(
+            (polys_area(&solid) - 100.0).abs() < 0.01,
+            "10×10 = 100: {}",
+            polys_area(&solid)
+        );
         // A 2mm drill removes ~π mm².
-        let drilled = fill_polygons(&[sq], &[Hole { x: 5.0, y: 5.0, d: 2.0 }]);
+        let drilled = fill_polygons(
+            &[sq],
+            &[Hole {
+                x: 5.0,
+                y: 5.0,
+                d: 2.0,
+            }],
+        );
         assert!((polys_area(&drilled) - (100.0 - std::f64::consts::PI)).abs() < 0.1);
     }
 
@@ -888,7 +982,10 @@ mod tests {
         let polys = fill_polygons(&[a, b], &[]);
         assert_eq!(polys.len(), 2, "expected two islands: {polys:?}");
         let (clear, _) = min_clearance_and_width(&polys);
-        assert!((clear.unwrap() - 0.2).abs() < 0.02, "clearance ≈ 0.2: {clear:?}");
+        assert!(
+            (clear.unwrap() - 0.2).abs() < 0.02,
+            "clearance ≈ 0.2: {clear:?}"
+        );
     }
 
     /// A BAY (deep narrow notch) is a void between two outward-facing faces of
@@ -898,8 +995,13 @@ mod tests {
     fn bay_notch_is_not_reported_as_thin_copper() {
         // 2×2 block with a 0.1 mm-wide slot cut from the top down to y=0.5.
         let notched = vec![
-            [0.0, 0.0], [2.0, 0.0], [2.0, 2.0],
-            [1.05, 2.0], [1.05, 0.5], [0.95, 0.5], [0.95, 2.0],
+            [0.0, 0.0],
+            [2.0, 0.0],
+            [2.0, 2.0],
+            [1.05, 2.0],
+            [1.05, 0.5],
+            [0.95, 0.5],
+            [0.95, 2.0],
             [0.0, 2.0],
         ];
         let polys = fill_polygons(&[notched], &[]);
@@ -910,7 +1012,10 @@ mod tests {
             let my = (h.0[1] + h.1[1]) / 2.0;
             (0.9..=1.1).contains(&mx) && (0.5..=2.0).contains(&my) && h.2 < 0.15
         });
-        assert!(!in_slot, "slot void must not be reported as thin copper: {w:?}");
+        assert!(
+            !in_slot,
+            "slot void must not be reported as thin copper: {w:?}"
+        );
     }
 
     /// A WEDGE at an acute convex corner is solid copper but not a neck: its two
@@ -928,7 +1033,10 @@ mod tests {
             let mx = (h.0[0] + h.1[0]) / 2.0;
             (4.6..=5.0).contains(&mx) && h.2 < 0.15
         });
-        assert!(!at_tip, "acute wedge tip must not be reported as thin copper: {w:?}");
+        assert!(
+            !at_tip,
+            "acute wedge tip must not be reported as thin copper: {w:?}"
+        );
     }
 
     #[test]
@@ -939,7 +1047,10 @@ mod tests {
         assert_eq!(polys.len(), 1);
         let (clear, width) = min_clearance_and_width(&polys);
         assert!(clear.is_none(), "single island → no clearance: {clear:?}");
-        assert!((width.unwrap() - 0.1).abs() < 0.02, "width ≈ 0.1: {width:?}");
+        assert!(
+            (width.unwrap() - 0.1).abs() < 0.02,
+            "width ≈ 0.1: {width:?}"
+        );
     }
 
     #[test]
@@ -952,14 +1063,26 @@ mod tests {
         let h = clear[0];
         assert!((h.2 - 0.2).abs() < 0.02, "gap value ≈ 0.2: {}", h.2);
         let midx = (h.0[0] + h.1[0]) / 2.0;
-        assert!((1.0..=1.2).contains(&midx), "hotspot midpoint sits in the gap: {midx}");
+        assert!(
+            (1.0..=1.2).contains(&midx),
+            "hotspot midpoint sits in the gap: {midx}"
+        );
     }
 
     #[test]
     fn containment_and_point_to_boundary() {
-        let polys = fill_polygons(&[vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]], &[]);
+        let polys = fill_polygons(
+            &[vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]],
+            &[],
+        );
         let hit = poly_containing(&polys, [5.0, 5.0]).expect("centre is inside");
-        assert!((point_ring_closest([5.0, 5.0], &hit.outer).1 - 5.0).abs() < 0.01, "centre is 5mm from edges");
-        assert!(poly_containing(&polys, [20.0, 20.0]).is_none(), "outside point not contained");
+        assert!(
+            (point_ring_closest([5.0, 5.0], &hit.outer).1 - 5.0).abs() < 0.01,
+            "centre is 5mm from edges"
+        );
+        assert!(
+            poly_containing(&polys, [20.0, 20.0]).is_none(),
+            "outside point not contained"
+        );
     }
 }

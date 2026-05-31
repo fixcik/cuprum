@@ -54,7 +54,15 @@ pub fn calibration_mask(
         }
     }
     // A center fiducial too, as an extra reference.
-    cross(&mut buf, sw, sh, (screen_w / 2) as i32, (screen_h / 2) as i32, arm, thick);
+    cross(
+        &mut buf,
+        sw,
+        sh,
+        (screen_w / 2) as i32,
+        (screen_h / 2) as i32,
+        arm,
+        thick,
+    );
 
     // Ruler ticks every 10 mm along the top and left edges (uses current pitch).
     let step_x = (px_per_mm_x * 10.0).round() as i32;
@@ -122,7 +130,7 @@ mod tests {
         // Expected mm = span / pitch.
         assert!((info.expected_x_mm - (15120 - 400) as f32 / 69.08).abs() < 1e-3);
         // Something was actually drawn.
-        assert!(buf.iter().any(|&p| p == 255));
+        assert!(buf.contains(&255));
     }
 
     #[test]

@@ -54,7 +54,10 @@ pub fn upload_file(ip: &str, filename: &str, data: &[u8]) -> Result<UploadOutcom
     // Response: {"code":"000000","messages":null,"data":{},"success":true}
     let json: serde_json::Value =
         serde_json::from_str(&body).with_context(|| format!("non-JSON response: {body}"))?;
-    let ok = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false)
+    let ok = json
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         || json.get("code").and_then(|v| v.as_str()) == Some("000000");
     if !ok {
         bail!("printer rejected upload: {body}");

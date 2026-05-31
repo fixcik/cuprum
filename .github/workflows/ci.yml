@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE-*"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE-*"
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# CI only reads the repo; no write scopes needed.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  lint:
+    name: Lint (fmt + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: lint
+
+      - name: rustfmt (workspace)
+        run: cargo fmt --check
+
+      - name: rustfmt (Tauri UI)
+        run: cargo fmt --manifest-path cuprum-ui/src-tauri/Cargo.toml --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  ui:
+    name: UI build + typecheck
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libayatana-appindicator3-dev \
+            libxdo-dev \
+            libsoup-3.0-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ui
+          workspaces: cuprum-ui/src-tauri
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: cuprum-ui/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: cuprum-ui/pnpm-lock.yaml
+
+      - name: Install JS dependencies
+        working-directory: cuprum-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck + build frontend
+        working-directory: cuprum-ui
+        run: pnpm build
+
+      - name: Clippy Tauri backend
+        run: cargo clippy --manifest-path cuprum-ui/src-tauri/Cargo.toml --all-targets -- -D warnings

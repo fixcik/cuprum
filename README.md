@@ -1,5 +1,7 @@
 # Cuprum
 
+[![CI](https://github.com/fixcik/cuprum/actions/workflows/ci.yml/badge.svg)](https://github.com/fixcik/cuprum/actions/workflows/ci.yml)
+
 **A CAM toolchain for making printed circuit boards at home — one tool for the
 whole cycle, from fab package to finished board.**
 

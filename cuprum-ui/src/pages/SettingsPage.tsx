@@ -1,6 +1,7 @@
 import * as React from "react";
 import { RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { getVersion } from "@tauri-apps/api/app";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { Switch } from "@/components/ui/Switch";
@@ -158,6 +159,19 @@ export function SettingsPage() {
   const [tab, setTab] = React.useState<Tab>("general");
   const [active, setActive] = React.useState<CapCategoryId>("panel");
 
+  // App version, compiled into the bundle from tauri.conf.json by the release
+  // pipeline and read back at runtime.
+  const [version, setVersion] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let mounted = true;
+    getVersion()
+      .then((v) => mounted && setVersion(v))
+      .catch(() => mounted && setVersion(null));
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Single header row: tabs on the left, the contextual action on the right.
@@ -211,6 +225,12 @@ export function SettingsPage() {
                 ]}
               />
             </label>
+            <div className="flex items-center justify-between gap-4 py-2">
+              <span className="text-[12px] text-foreground">{t("interface.version")}</span>
+              <span className="text-[12px] tabular-nums text-muted-foreground">
+                {version ? `v${version}` : "—"}
+              </span>
+            </div>
           </div>
         </div>
       )}

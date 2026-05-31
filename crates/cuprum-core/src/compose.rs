@@ -49,7 +49,11 @@ pub fn compose_layout(
     // exposes and reloads reuse the raster instead of re-rendering.
     let unique: Vec<PathBuf> = {
         let mut seen = std::collections::HashSet::new();
-        placements.iter().map(|p| p.path.clone()).filter(|p| seen.insert(p.clone())).collect()
+        placements
+            .iter()
+            .map(|p| p.path.clone())
+            .filter(|p| seen.insert(p.clone()))
+            .collect()
     };
     let masks: HashMap<PathBuf, Arc<Mask>> = unique
         .into_par_iter()
@@ -61,7 +65,16 @@ pub fn compose_layout(
     // TODO(nesting): honor rotation_deg 90/270 via a rotated re-render.
     for p in placements {
         let m = &masks[&p.path];
-        goo::blit_max(&mut screen, SCREEN_W, SCREEN_H, &m.px, m.w, m.h, p.off_x, p.off_y);
+        goo::blit_max(
+            &mut screen,
+            SCREEN_W,
+            SCREEN_H,
+            &m.px,
+            m.w,
+            m.h,
+            p.off_x,
+            p.off_y,
+        );
     }
 
     if mirror {

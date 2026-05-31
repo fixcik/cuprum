@@ -113,7 +113,10 @@ mod tests {
         write(&path, &m, &entries).unwrap();
 
         assert_eq!(read_manifest(&path).unwrap(), m);
-        assert_eq!(read_entry(&path, "gerbers/import-1/a.gbr").unwrap(), b"G04 hi*");
+        assert_eq!(
+            read_entry(&path, "gerbers/import-1/a.gbr").unwrap(),
+            b"G04 hi*"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -143,12 +146,18 @@ mod tests {
                 layer_type: LayerType::Other,
             }],
         });
-        let entries = vec![("gerbers/import-1/a.gbr".to_string(), b"G04 atomic*".to_vec())];
+        let entries = vec![(
+            "gerbers/import-1/a.gbr".to_string(),
+            b"G04 atomic*".to_vec(),
+        )];
         write(&path, &m, &entries).unwrap();
 
         // The .tmp sibling must not exist after a successful write.
         let tmp = std::path::PathBuf::from(format!("{}.tmp", path.display()));
-        assert!(!tmp.exists(), ".tmp file should not exist after successful write");
+        assert!(
+            !tmp.exists(),
+            ".tmp file should not exist after successful write"
+        );
 
         // Content round-trips correctly.
         assert_eq!(read_manifest(&path).unwrap(), m);

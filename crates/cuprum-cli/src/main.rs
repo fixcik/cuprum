@@ -172,17 +172,54 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Discover => discover(),
         Command::GerberInfo { file } => gerber_info(file),
-        Command::Render { file, out, dpi, mirror, invert } => render(file, out, dpi, mirror, invert),
-        Command::Prepare { file, out, time, pwm, mirror, invert, off_x, off_y, preview, no_rotate } => {
-            prepare(file, out, time, pwm, mirror, invert, off_x, off_y, preview, no_rotate)
-        }
-        Command::Print { file, time, pwm, mirror, invert, off_x, off_y, no_rotate, preview } => {
-            print_gerber(file, time, pwm, mirror, invert, off_x, off_y, no_rotate, preview)
-        }
-        Command::Calibrate { out, time, pwm, margin, preview, no_rotate } => {
-            calibrate(out, time, pwm, margin, preview, no_rotate)
-        }
-        Command::GenGoo { out, time, pwm, full } => gen_goo(out, time, pwm, full),
+        Command::Render {
+            file,
+            out,
+            dpi,
+            mirror,
+            invert,
+        } => render(file, out, dpi, mirror, invert),
+        Command::Prepare {
+            file,
+            out,
+            time,
+            pwm,
+            mirror,
+            invert,
+            off_x,
+            off_y,
+            preview,
+            no_rotate,
+        } => prepare(
+            file, out, time, pwm, mirror, invert, off_x, off_y, preview, no_rotate,
+        ),
+        Command::Print {
+            file,
+            time,
+            pwm,
+            mirror,
+            invert,
+            off_x,
+            off_y,
+            no_rotate,
+            preview,
+        } => print_gerber(
+            file, time, pwm, mirror, invert, off_x, off_y, no_rotate, preview,
+        ),
+        Command::Calibrate {
+            out,
+            time,
+            pwm,
+            margin,
+            preview,
+            no_rotate,
+        } => calibrate(out, time, pwm, margin, preview, no_rotate),
+        Command::GenGoo {
+            out,
+            time,
+            pwm,
+            full,
+        } => gen_goo(out, time, pwm, full),
         Command::Upload { file, ip, name } => upload(file, ip, name),
         Command::Stop => stop(),
         Command::Expose { file, watch_secs } => expose(file, watch_secs),
@@ -190,14 +227,20 @@ fn main() -> Result<()> {
 }
 
 fn discover() -> Result<()> {
-    println!("broadcasting M99999 (waiting {}s)...", DISCOVERY_TIMEOUT.as_secs());
+    println!(
+        "broadcasting M99999 (waiting {}s)...",
+        DISCOVERY_TIMEOUT.as_secs()
+    );
     let devices = sdcp::discover(DISCOVERY_TIMEOUT)?;
     if devices.is_empty() {
         println!("no printers responded");
         return Ok(());
     }
     for d in &devices {
-        println!("- {} @ {} (mainboard {})", d.data.name, d.data.mainboard_ip, d.data.mainboard_id);
+        println!(
+            "- {} @ {} (mainboard {})",
+            d.data.name, d.data.mainboard_ip, d.data.mainboard_id
+        );
     }
     Ok(())
 }
@@ -256,7 +299,11 @@ fn compose_gerber_screen(
     // Render at the printer's native anisotropic pitch: one mask pixel == one
     // screen pixel, so compositing is a straight copy with no resampling.
     let commands = gerber::parse_file(file)?;
-    let opts = gerber::RenderOptions { mirror_x: mirror, invert, ..Default::default() };
+    let opts = gerber::RenderOptions {
+        mirror_x: mirror,
+        invert,
+        ..Default::default()
+    };
     let pixmap = gerber::render(commands, &opts)?;
     let (bw, bh) = (pixmap.width(), pixmap.height());
     let mask = gerber::to_grayscale(&pixmap);
@@ -280,7 +327,11 @@ fn compose_gerber_screen(
     }
 
     // Pre-rotate 180° to cancel the printer's screen orientation (see rotate180).
-    Ok(if no_rotate { screen } else { goo::rotate180(&screen) })
+    Ok(if no_rotate {
+        screen
+    } else {
+        goo::rotate180(&screen)
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -296,8 +347,19 @@ fn prepare(
     preview: Option<PathBuf>,
     no_rotate: bool,
 ) -> Result<()> {
-    let screen = compose_gerber_screen(&file, mirror, invert, off_x, off_y, no_rotate, preview.as_deref())?;
-    let params = ExposureParams { exposure_time_s: time, light_pwm: pwm };
+    let screen = compose_gerber_screen(
+        &file,
+        mirror,
+        invert,
+        off_x,
+        off_y,
+        no_rotate,
+        preview.as_deref(),
+    )?;
+    let params = ExposureParams {
+        exposure_time_s: time,
+        light_pwm: pwm,
+    };
     let goo_file = goo::single_layer_exposure(SCREEN_W, SCREEN_H, &screen, params)?;
     let bytes = goo::serialize(&goo_file);
     if let Some(parent) = out.parent() {
@@ -309,9 +371,12 @@ fn prepare(
         out.display(),
         bytes.len() as f64 / 1024.0,
     );
-    println!("next: cuprum upload --file {} && cuprum expose --file {}",
+    println!(
+        "next: cuprum upload --file {} && cuprum expose --file {}",
         out.display(),
-        out.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        out.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     );
     Ok(())
 }
@@ -328,17 +393,34 @@ fn print_gerber(
     no_rotate: bool,
     preview: Option<PathBuf>,
 ) -> Result<()> {
-    let screen = compose_gerber_screen(&file, mirror, invert, off_x, off_y, no_rotate, preview.as_deref())?;
-    let params = ExposureParams { exposure_time_s: time, light_pwm: pwm };
+    let screen = compose_gerber_screen(
+        &file,
+        mirror,
+        invert,
+        off_x,
+        off_y,
+        no_rotate,
+        preview.as_deref(),
+    )?;
+    let params = ExposureParams {
+        exposure_time_s: time,
+        light_pwm: pwm,
+    };
     let goo_file = goo::single_layer_exposure(SCREEN_W, SCREEN_H, &screen, params)?;
     let bytes = goo::serialize(&goo_file);
 
     // Discover once: same device drives the HTTP upload and the WS exposure.
     let device = sdcp::discover_one(DISCOVERY_TIMEOUT)?;
-    println!("printer: {} @ {}", device.data.name, device.data.mainboard_ip);
+    println!(
+        "printer: {} @ {}",
+        device.data.name, device.data.mainboard_ip
+    );
 
     let filename = "cuprum-gerber.goo";
-    println!("uploading {:.1} KiB as {filename} (no local file)...", bytes.len() as f64 / 1024.0);
+    println!(
+        "uploading {:.1} KiB as {filename} (no local file)...",
+        bytes.len() as f64 / 1024.0
+    );
     let outcome = sdcp::upload_file(&device.data.mainboard_ip, filename, &bytes)?;
     println!("uploaded {} bytes (md5 {})", outcome.size, outcome.md5);
 
@@ -370,8 +452,13 @@ fn calibrate(
     no_rotate: bool,
 ) -> Result<()> {
     use cuprum_core::goo::{SCREEN_PX_PER_MM_X, SCREEN_PX_PER_MM_Y};
-    let (mask, info) =
-        cal::calibration_mask(SCREEN_W, SCREEN_H, margin, SCREEN_PX_PER_MM_X, SCREEN_PX_PER_MM_Y);
+    let (mask, info) = cal::calibration_mask(
+        SCREEN_W,
+        SCREEN_H,
+        margin,
+        SCREEN_PX_PER_MM_X,
+        SCREEN_PX_PER_MM_Y,
+    );
 
     if let Some(preview) = preview {
         if let Some(parent) = preview.parent() {
@@ -382,8 +469,15 @@ fn calibrate(
     }
 
     // Pre-rotate 180° to cancel the printer's screen orientation (see rotate180).
-    let mask = if no_rotate { mask } else { goo::rotate180(&mask) };
-    let params = ExposureParams { exposure_time_s: time, light_pwm: pwm };
+    let mask = if no_rotate {
+        mask
+    } else {
+        goo::rotate180(&mask)
+    };
+    let params = ExposureParams {
+        exposure_time_s: time,
+        light_pwm: pwm,
+    };
     let goo_file = goo::single_layer_exposure(SCREEN_W, SCREEN_H, &mask, params)?;
     let bytes = goo::serialize(&goo_file);
     if let Some(parent) = out.parent() {
@@ -411,7 +505,10 @@ fn calibrate(
 }
 
 fn gen_goo(out: PathBuf, time: f32, pwm: u16, full: bool) -> Result<()> {
-    let params = ExposureParams { exposure_time_s: time, light_pwm: pwm };
+    let params = ExposureParams {
+        exposure_time_s: time,
+        light_pwm: pwm,
+    };
     let kind = if full { "full-white" } else { "test pattern" };
     println!("building {kind} {SCREEN_W}x{SCREEN_H}...");
     let pixels = if full {
@@ -455,7 +552,10 @@ fn upload(file: PathBuf, ip: String, name: Option<String>) -> Result<()> {
 
 fn connect_first() -> Result<Session> {
     let device = sdcp::discover_one(DISCOVERY_TIMEOUT)?;
-    println!("printer: {} @ {}", device.data.name, device.data.mainboard_ip);
+    println!(
+        "printer: {} @ {}",
+        device.data.name, device.data.mainboard_ip
+    );
     Session::connect(&device)
 }
 
