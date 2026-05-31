@@ -321,28 +321,37 @@ fn write_working_manifest(
 
 /// Mirror the panel doc into the working dir.
 #[tauri::command]
-fn write_working_panel(
-    working_dir: String,
-    panel: cuprum_project::PanelDoc,
-) -> Result<(), String> {
-    cuprum_project::workdir::write_panel(Path::new(&working_dir), &panel)
-        .map_err(|e| e.to_string())
+fn write_working_panel(working_dir: String, panel: cuprum_project::PanelDoc) -> Result<(), String> {
+    cuprum_project::workdir::write_panel(Path::new(&working_dir), &panel).map_err(|e| e.to_string())
 }
 
 /// List recoverable (dirty) orphan working dirs left by a previous run.
 #[tauri::command]
 fn scan_recoverable(app: AppHandle) -> Result<Vec<cuprum_project::Orphan>, String> {
     let base = working_base(&app)?;
-    let orphans =
-        cuprum_project::workdir::scan_orphans(&base, std::process::id()).map_err(|e| e.to_string())?;
+    let orphans = cuprum_project::workdir::scan_orphans(&base, std::process::id())
+        .map_err(|e| e.to_string())?;
     Ok(orphans.into_iter().filter(|o| o.dirty).collect())
 }
 
 /// Delete a working dir (clean shutdown / discard / after adopting recovery).
+/// Confines deletion to the working base so an IPC caller cannot remove arbitrary
+/// paths on the filesystem.
 #[tauri::command]
-fn cleanup_workdir(working_dir: String) -> Result<(), String> {
-    std::fs::remove_dir_all(Path::new(&working_dir)).ok();
-    Ok(())
+fn cleanup_workdir(app: AppHandle, working_dir: String) -> Result<(), String> {
+    let base = working_base(&app)?;
+    let path = Path::new(&working_dir);
+    // Resolve `..`/symlinks before the containment check. A path that no longer
+    // exists (already cleaned) canonicalizes to Err -> nothing to do.
+    match (path.canonicalize(), base.canonicalize()) {
+        (Ok(canonical), Ok(base_canonical)) => {
+            if !canonical.starts_with(&base_canonical) {
+                return Err("refusing to remove path outside the working base".to_string());
+            }
+            std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())
+        }
+        _ => Ok(()),
+    }
 }
 
 #[tauri::command]
