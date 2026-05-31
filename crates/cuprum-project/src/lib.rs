@@ -8,6 +8,7 @@ pub mod import;
 pub mod layer;
 pub mod manifest;
 pub mod panel;
+pub mod workdir;
 
 use std::path::{Path, PathBuf};
 
