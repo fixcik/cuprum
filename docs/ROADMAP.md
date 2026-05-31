@@ -46,8 +46,10 @@ Panel-модель ниже. Ведётся инкрементальными PR 
       слоёв + DFM через `projectBoardMetrics`); удаление `ImportWizardPage`/`DesignsTab`.
       DFM-проверка размера дизайна — против панели проекта (фолбэк на макс. станка),
       размер панели клампится по рабочей зоне из настроек.
-- [ ] **Фаза 5 — открытие по клику**: ассоциация `.cu`/`.cuprum`,
-      `RunEvent::Opened`, single-instance, подписка в `App.tsx`.
+- [x] **Фаза 5 — открытие по клику** (✅ 2026-06-01, [PR #9](https://github.com/fixcik/cuprum/pull/9)):
+      ассоциация `.cu`/`.cuprum` (дефолт `.cu`); `RunEvent::Opened` + single-instance + argv →
+      `take_pending_open`/событие `open-file` в `App.tsx`; идемпотентный `openProjectByPath`;
+      dock-recents на macOS (`NSDocumentController.noteNewRecentDocumentURL`).
 
 Бэклог:
 - **Удаление дизайна ↔ панель.** Сейчас удаление снимает только ссылку из
