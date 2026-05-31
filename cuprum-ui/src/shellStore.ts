@@ -123,11 +123,14 @@ export const useShell = create<ShellStore>((set, get) => ({
         }
       }
       const name = stem(savePath);
-      const manifest = await api.createProject(savePath, name, []);
+      await api.createProject(savePath, name, []);
+      // Give the fresh project a working-dir the same way `open` does, so a
+      // subsequent import/edit has somewhere to extract into.
+      const opened = await api.openProject(savePath);
       set({
         currentPath: savePath,
-        workingDir: null,
-        currentManifest: manifest,
+        workingDir: opened.workingDir,
+        currentManifest: opened.manifest,
         view: "project",
         error: null,
       });
@@ -335,9 +338,15 @@ export const useShell = create<ShellStore>((set, get) => ({
     try {
       // Positional: layer types in staging order, one per staged file.
       const layerTypes = staged.map((f) => f.layerType);
-      const manifest = await api.commitImport(currentPath, stagedZipPaths, layerTypes);
+      await api.commitImport(currentPath, stagedZipPaths, layerTypes);
+      // commitImport sewed the new gerbers into the .cuprum container but left
+      // the working-dir untouched. Re-extract a fresh working-dir from the
+      // updated container so the new gerber files are present for rendering.
+      const prevWorkingDir = get().workingDir;
+      const reopened = await api.openProject(currentPath);
       set((s) => ({
-        currentManifest: manifest,
+        currentManifest: reopened.manifest,
+        workingDir: reopened.workingDir,
         staged: [],
         stagedHoles: [],
         stagedZipPaths: [],
@@ -346,7 +355,8 @@ export const useShell = create<ShellStore>((set, get) => ({
         importGen: s.importGen + 1,
         view: "project",
       }));
-      await get()._mirrorManifest(manifest);
+      if (prevWorkingDir && prevWorkingDir !== reopened.workingDir)
+        await api.cleanupWorkdir(prevWorkingDir).catch(() => {});
       await get().loadRecents();
     } catch (e) {
       set({ stagingError: String(e) });
