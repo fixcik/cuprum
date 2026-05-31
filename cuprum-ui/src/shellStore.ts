@@ -39,6 +39,10 @@ interface ShellStore {
   _persistManifest: (manifest: Manifest) => Promise<void>;
   /** Private: push the previous manifest onto the undo stack (caps length). */
   _recordUndo: (prev: Manifest) => void;
+  /** Private: create an "opened" restore point only when the document differs
+   *  from the newest existing point, so reopening an unchanged project does not
+   *  stack duplicate auto points. */
+  _maybeAutoOpenPoint: () => Promise<void>;
 
   /** CSS px per mm for the host display; defaults to the 96dpi CSS reference. */
   pxPerMm: number;
@@ -165,11 +169,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
       await get().refreshRestorePoints();
-      try {
-        await get().makeRestorePoint(i18n.t("project:history.autoOpenLabel"));
-      } catch {
-        /* auto restore point is best-effort */
-      }
+      await get()._maybeAutoOpenPoint();
     } catch (e) {
       set({ error: String(e) });
     }
@@ -210,11 +210,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
       await get().refreshRestorePoints();
-      try {
-        await get().makeRestorePoint(i18n.t("project:history.autoOpenLabel"));
-      } catch {
-        /* auto restore point is best-effort */
-      }
+      await get()._maybeAutoOpenPoint();
     } catch (e) {
       if (isProjectNotFound(e)) {
         const name = projectDisplayName(path, get().recents);
@@ -310,6 +306,27 @@ export const useShell = create<ShellStore>((set, get) => ({
 
   _recordUndo: (prev) =>
     set((s) => ({ undoStack: [...s.undoStack, prev].slice(-100), redoStack: [] })),
+
+  // Create an "opened" restore point only if the document differs from the
+  // newest existing point — so reopening an unchanged project doesn't stack
+  // identical auto points.
+  _maybeAutoOpenPoint: async () => {
+    const { workingDir, currentManifest, restorePoints } = get();
+    if (!workingDir || !currentManifest) return;
+    if (restorePoints.length > 0) {
+      try {
+        const newest = await api.readRestorePoint(workingDir, restorePoints[0].id);
+        if (JSON.stringify(newest) === JSON.stringify(currentManifest)) return; // unchanged
+      } catch {
+        /* fall through and create the point */
+      }
+    }
+    try {
+      await get().makeRestorePoint(i18n.t("project:history.autoOpenLabel"));
+    } catch {
+      /* auto restore point is best-effort */
+    }
+  },
 
   // Persist a manifest as the live document: working-dir loose file (instant)
   // + repack the .cuprum (autosave). No-op without an open project.
