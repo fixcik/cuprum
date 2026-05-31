@@ -110,7 +110,7 @@ function viaCount(metrics: BoardMetrics, maxDiaMm: number): number {
 export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfile): Finding[] {
   if (!metrics) return [];
   const out: Finding[] = [];
-  const { board, layers, copper, drill } = metrics;
+  const { board, layers, drill } = metrics;
 
   // --- Size: fits the max panel (try rotated if allowed) ---
   if (board.hasEdgeLayer) {
@@ -185,30 +185,42 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
     });
   }
 
-  // --- Minimum trace width (narrowest non-artefact stroke across copper layers) ---
-  const traces = copper
-    .map((c) => ({ side: c.side, w: minAbove(c.traceWidthsMm, profile.ignoreBelowMm) }))
-    .filter((c) => c.w != null) as { side: "top" | "bottom" | "inner"; w: number }[];
-  if (traces.length > 0) {
-    const worst = traces.reduce((a, b) => (b.w < a.w ? b : a));
-    const t = worst.w;
+  // --- Thin routed traces (conductor model). Highlight each thin trace's actual
+  //     centreline (red) via the existing per-stroke traceHotspots; one hover per
+  //     conductor carries its neck. Per side so a thin top trace isn't masked by a
+  //     fine bottom one. Replaces the old global min-trace box + sliver calipers. ---
+  {
+    const traceSideKey: Record<string, string> = {
+      top: "feasibility:side.top",
+      bottom: "feasibility:side.bottom",
+      inner: "feasibility:side.inner",
+      both: "feasibility:side.both",
+    };
     const lim = profile.minTraceMm;
-    const sideKey =
-      worst.side === "top" ? "feasibility:side.top" : worst.side === "bottom" ? "feasibility:side.bottom" : "feasibility:side.inner";
-    let severity: Severity = "ok";
-    if (t < lim) severity = "block";
-    else if (t < lim / 0.8) severity = "warn"; // within 80–100% of the limit
-    const traceHs = metrics.geo.traceHotspots.filter((h) => h.v >= profile.ignoreBelowMm && h.v < lim);
-    out.push({
-      id: "copper.minTrace",
-      category: "copper",
-      severity,
-      label: { key: "feasibility:trace.label" },
-      measured: { key: "feasibility:trace.measured", params: { len: t, side: sideKey } },
-      limit: { key: "feasibility:gteLen", params: { len: lim } },
-      detail: severity === "block" ? { key: "feasibility:trace.tooThin" } : undefined,
-      hotspots: clusterBoxes(traceHs, 1.5),
-    });
+    for (const sd of [...new Set(metrics.geo.thinTraceConductors.map((h) => h.side))]) {
+      const conds = metrics.geo.thinTraceConductors.filter(
+        (h) => h.side === sd && h.v >= profile.ignoreBelowMm && h.v < lim / 0.8,
+      );
+      if (conds.length === 0) continue;
+      const neck = Math.min(...conds.map((h) => h.v));
+      const severity: Severity = neck < lim ? "block" : "warn";
+      // Red centreline = this side's routed strokes actually below the limit.
+      const segs = metrics.geo.traceHotspots.filter(
+        (h) => h.side === sd && h.v >= profile.ignoreBelowMm && h.v < lim,
+      );
+      out.push({
+        id: `copper.thinTrace.${sd}`,
+        category: "copper",
+        severity,
+        label: { key: "feasibility:thinTrace.label", params: { side: traceSideKey[sd] ?? sd } },
+        measured: { key: "feasibility:lenOnly", params: { len: neck } },
+        limit: { key: "feasibility:gteLen", params: { len: lim } },
+        detail: { key: "feasibility:thinTrace.detail" },
+        hotspots: segs,
+        hoverBoxes: conds,
+        highlightAll: true,
+      });
+    }
   }
 
   // --- Minimum hole size (the user's own floor, separate from the bit set) ---
@@ -270,17 +282,17 @@ export function evaluate(metrics: BoardMetrics | null, profile: CapabilityProfil
     });
   }
 
-  const sliverViol = g.copperWidthHotspots.filter((h) => h.v >= profile.ignoreBelowMm && h.v < profile.minTraceMm);
-  if (sliverViol.length) {
+  const regionViol = g.copperWidthHotspots.filter((h) => h.v >= profile.ignoreBelowMm && h.v < profile.minTraceMm);
+  if (regionViol.length) {
     out.push({
-      id: "copper.sliver",
+      id: "copper.regionNeck",
       category: "copper",
       severity: "warn",
-      label: { key: "feasibility:sliver.label" },
-      measured: { key: "feasibility:lenOnly", params: { len: minBelow(sliverViol) } },
+      label: { key: "feasibility:regionNeck.label" },
+      measured: { key: "feasibility:lenOnly", params: { len: minBelow(regionViol) } },
       limit: { key: "feasibility:gteLen", params: { len: profile.minTraceMm } },
-      detail: { key: "feasibility:sliver.detail" },
-      hotspots: sliverViol,
+      detail: { key: "feasibility:regionNeck.detail" },
+      hotspots: regionViol,
     });
   }
 

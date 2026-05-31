@@ -20,13 +20,13 @@ import { useUnitFormat } from "@/i18n/useUnitFormat";
 const LEN_PARAMS = new Set(["len", "w", "h"]);
 
 /** Findings whose hotspots mark a thin feature (drawn as a box). */
-const BOX_FINDINGS = new Set(["copper.minTrace"]);
+const BOX_FINDINGS = new Set<string>([]);
 /** Findings whose hotspots are holes — drawn as a ring around the bore. */
 const CIRCLE_FINDINGS = new Set(["drill.minHole", "via.plating", "drill.bitSnap"]);
 /** Findings whose hotspots are the actual failing strokes — colour-highlighted as
  *  lines at their width (no per-stroke box/tooltip). Silk is split per side, so
  *  match the `silk.line.*` family by prefix. */
-const isLineFinding = (id: string) => id.startsWith("silk.line");
+const isLineFinding = (id: string) => id.startsWith("silk.line") || id.startsWith("copper.thinTrace");
 
 /** Layer types a finding's hotspots belong to, by category — so a marker is only
  *  drawn while one of those layers is actually visible. `null` = not tied to a
@@ -52,15 +52,18 @@ export function ImportWizardPage() {
   const manifest = useShell((s) => s.currentManifest);
 
   const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers"]);
-  const { fmtLen } = useUnitFormat();
-  // Resolve an I18nText to a display string: length params unit-formatted,
-  // key-like string params translated, then the text key translated.
-  const tr = useCallback(
-    (text?: I18nText): string => {
+  const { fmtLen, fmtLenPair } = useUnitFormat();
+  // Resolve an I18nText to a display string: length params unit-formatted, key-like
+  // string params translated, then the text key translated. `lenOverride`, when
+  // given, replaces the `len` param's value (so a finding's value and limit can be
+  // rendered in one shared unit by the caller).
+  const resolveText = useCallback(
+    (text?: I18nText, lenOverride?: string): string => {
       if (!text) return "";
       const params: Record<string, string | number> = {};
       for (const [k, v] of Object.entries(text.params ?? {})) {
-        if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
+        if (k === "len" && lenOverride != null && typeof v === "number") params[k] = lenOverride;
+        else if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
         else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
         else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
         else params[k] = v;
@@ -68,6 +71,11 @@ export function ImportWizardPage() {
       return t(text.key, params);
     },
     [t, fmtLen],
+  );
+  const tr = useCallback((text?: I18nText): string => resolveText(text), [resolveText]);
+  const trLen = useCallback(
+    (text: I18nText | undefined, lenStr: string): string => resolveText(text, lenStr),
+    [resolveText],
   );
 
   const [mode, setMode] = useState<PreviewMode>("2d");
@@ -218,7 +226,9 @@ export function ImportWizardPage() {
       setTab("preview");
       setMode("2d");
       // Reveal the right face so the focused marker isn't filtered out.
-      const hs = findings.find((x) => x.id === fid)?.hotspots?.[hi]?.side;
+      const f = findings.find((x) => x.id === fid);
+      // For highlightAll findings hi indexes hoverBoxes; otherwise hotspots.
+      const hs = f?.highlightAll ? f.hoverBoxes?.[hi]?.side : f?.hotspots?.[hi]?.side;
       if (hs === "top" || hs === "bottom") setSide(hs);
     },
     [findings],
@@ -240,39 +250,54 @@ export function ImportWizardPage() {
           // Hide markers whose layer isn't currently shown (e.g. bottom-side
           // issues while viewing the top).
           .filter(({ h }) => markerVisible(f.category, h.side))
-          .map(({ h, i }) => ({
-            key: `${f.id}#${i}`,
-            a: h.a,
-            b: h.b,
-            value: fmtLen(h.v),
-            label: tr(f.label),
-            limit: tr(f.limit),
-            detail: tr(f.detail) || undefined,
-            severity: f.severity,
-            // Line highlights aren't individually focusable (it's a bulk tint).
-            focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
-            shape,
-            widthMm: shape === "line" ? h.v : undefined,
-          }));
+          .map(({ h, i }) => {
+            // value (this hotspot) + the finding's limit share one unit.
+            const l = f.limit?.params?.len;
+            const [vs, ls2] = typeof l === "number" ? fmtLenPair([h.v, l]) : [fmtLen(h.v), ""];
+            const limitStr = typeof l === "number" ? trLen(f.limit, ls2) : tr(f.limit);
+            return {
+              key: `${f.id}#${i}`,
+              a: h.a,
+              b: h.b,
+              value: vs,
+              label: tr(f.label),
+              limit: limitStr,
+              detail: tr(f.detail) || undefined,
+              severity: f.severity,
+              // Line highlights aren't individually focusable (it's a bulk tint).
+              focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
+              shape,
+              widthMm: shape === "line" ? h.v : undefined,
+              lineColor: shape === "line" && f.category === "copper" ? "hsl(var(--destructive))" : undefined,
+            };
+          });
         // Invisible per-cluster hover regions so a tooltip pops on any part of a
         // line-highlighted feature (without one hitbox per stroke).
         const hovers = (f.hoverBoxes ?? [])
           .filter((h) => markerVisible(f.category, h.side))
-          .map((h, i) => ({
-            key: `${f.id}~hover#${i}`,
-            a: h.a,
-            b: h.b,
-            value: tr(f.measured),
-            label: tr(f.label),
-            limit: tr(f.limit),
-            detail: tr(f.detail) || undefined,
-            severity: f.severity,
-            focused: false,
-            shape: "hover" as const,
-          }));
+          .map((h, i) => {
+            // Each cluster shows ITS OWN width (h.v), in one shared unit with the limit.
+            const l = f.limit?.params?.len;
+            const [valueStr, limitStr] =
+              typeof l === "number"
+                ? (() => { const [vs, ls] = fmtLenPair([h.v, l]); return [vs, trLen(f.limit, ls)]; })()
+                : [fmtLen(h.v), tr(f.limit)];
+            return {
+              key: `${f.id}~hover#${i}`,
+              a: h.a,
+              b: h.b,
+              value: valueStr,
+              label: tr(f.label),
+              limit: limitStr,
+              detail: tr(f.detail) || undefined,
+              severity: f.severity,
+              focused: focus?.fid === f.id && focus?.hi === i,
+              shape: "hover" as const,
+            };
+          });
         return [...visual, ...hovers];
       }),
-    [findings, focus, markerVisible, tr, fmtLen],
+    [findings, focus, markerVisible, tr, trLen, fmtLen, fmtLenPair],
   );
 
   // Flat list of navigable problems for the on-preview stepper ("walk the
@@ -286,6 +311,16 @@ export function ImportWizardPage() {
         const hs = f.hotspots ?? [];
         if (hs.length === 0) return [];
         if (f.highlightAll) {
+          const boxes = f.hoverBoxes ?? [];
+          // Each cluster (silk line / text-block, copper trace) is its own ‹› stop,
+          // showing its own width — instead of one entry per side.
+          if (boxes.length > 0) {
+            return boxes.flatMap((h, i) =>
+              markerVisible(f.category, h.side)
+                ? [{ fid: f.id, hi: i, label: tr(f.label), value: fmtLen(h.v), severity: f.severity }]
+                : [],
+            );
+          }
           return markerVisible(f.category, hs[0].side)
             ? [{ fid: f.id, hi: 0, label: tr(f.label), value: tr(f.measured), severity: f.severity }]
             : [];
@@ -316,19 +351,32 @@ export function ImportWizardPage() {
     if (!focus) return null;
     const f = findings.find((x) => x.id === focus.fid);
     if (!f) return null;
-    if (f.highlightAll && f.hotspots && f.hotspots.length > 0) {
-      let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-      for (const h of f.hotspots) {
-        for (const p of [h.a, h.b]) {
-          minx = Math.min(minx, p[0]); miny = Math.min(miny, p[1]);
-          maxx = Math.max(maxx, p[0]); maxy = Math.max(maxy, p[1]);
-        }
+    if (f.highlightAll) {
+      // Frame the focused cluster (hoverBox); fall back to the whole set.
+      const box = f.hoverBoxes?.[focus.hi];
+      if (box) {
+        const w = Math.abs(box.b[0] - box.a[0]);
+        const h2 = Math.abs(box.b[1] - box.a[1]);
+        return {
+          p: [(box.a[0] + box.b[0]) / 2, (box.a[1] + box.b[1]) / 2],
+          spanMm: Math.max(w, h2) * 1.6 + 6,
+          nonce: focusNonce.current,
+        };
       }
-      return {
-        p: [(minx + maxx) / 2, (miny + maxy) / 2],
-        spanMm: Math.max(maxx - minx, maxy - miny) * 1.3 + 4,
-        nonce: focusNonce.current,
-      };
+      if (f.hotspots && f.hotspots.length > 0) {
+        let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+        for (const h of f.hotspots) {
+          for (const p of [h.a, h.b]) {
+            minx = Math.min(minx, p[0]); miny = Math.min(miny, p[1]);
+            maxx = Math.max(maxx, p[0]); maxy = Math.max(maxy, p[1]);
+          }
+        }
+        return {
+          p: [(minx + maxx) / 2, (miny + maxy) / 2],
+          spanMm: Math.max(maxx - minx, maxy - miny) * 1.3 + 4,
+          nonce: focusNonce.current,
+        };
+      }
     }
     const h = f.hotspots?.[focus.hi];
     if (!h) return null;
@@ -381,9 +429,13 @@ export function ImportWizardPage() {
 
   // Progress badge while per-layer SVGs stream in (2D only — 3D has its own
   // spinner until the mesh is ready).
+  // A layer is "done" once its render has SETTLED — loaded OR errored — not only
+  // when loaded. An empty gerber (e.g. a single-sided board's blank B_Silkscreen,
+  // header + M02 with no geometry) legitimately errors ("no drawable geometry");
+  // counting it as still-pending froze the badge at N-1/N forever.
   const svgTotal = staged.filter((f) => f.svgStatus !== "none").length;
-  const svgLoaded = staged.filter((f) => f.svgStatus === "loaded").length;
-  const previewNotice = mode === "2d" && svgTotal > 0 && svgLoaded < svgTotal ? t("metrics:layersProgress", { done: svgLoaded, total: svgTotal }) : undefined;
+  const svgSettled = staged.filter((f) => f.svgStatus === "loaded" || f.svgStatus === "error").length;
+  const previewNotice = mode === "2d" && svgTotal > 0 && svgSettled < svgTotal ? t("metrics:layersProgress", { done: svgSettled, total: svgTotal }) : undefined;
 
   // Holes from the currently-visible drill layers (each drill file toggles its own).
   const visibleHoles = useMemo(

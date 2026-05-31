@@ -94,6 +94,8 @@
     "warn": "With risks",
     "block": "Cannot be produced"
   },
+  "thinTrace": { "label": "Thin trace ({{side}})", "detail": "Thinner than the process limit — may not reproduce." },
+  "regionNeck": { "label": "Pinched pour", "detail": "A neck in a filled region can lift/peel." },
   "chrome": {
     "loading": "Checking feasibility…",
     "noData": "No data — assign layers.",

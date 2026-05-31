@@ -525,70 +525,6 @@ export function LayerStack({
           </g>
         </g>
 
-        {/* Edge rulers — screen space, on top, non-interactive. */}
-        <g style={{ pointerEvents: "none" }}>
-          <rect x={0} y={0} width={size.w} height={RULER} style={{ fill: "hsl(var(--card) / 0.92)" }} />
-          <rect x={0} y={0} width={RULER} height={size.h} style={{ fill: "hsl(var(--card) / 0.92)" }} />
-          <rect x={0} y={0} width={RULER} height={RULER} style={{ fill: "hsl(var(--card))" }} />
-          {/* top ruler */}
-          {vTicks.map((t) => {
-            const x = sx(t.mm);
-            if (x < RULER || x > size.w) return null;
-            return (
-              <g key={`tv${t.mm}`}>
-                <line
-                  x1={x}
-                  y1={t.major ? RULER - 9 : RULER - 5}
-                  x2={x}
-                  y2={RULER}
-                  style={{ stroke: `hsl(var(--muted-foreground) / ${t.major ? 0.7 : 0.4})` }}
-                  strokeWidth={1}
-                />
-                {t.major && (
-                  <text
-                    x={x + 3}
-                    y={9}
-                    style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
-                  >
-                    {fmtMm(t.label)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-          {/* left ruler */}
-          {hTicks.map((t) => {
-            const y = sy(t.mm);
-            if (y < RULER || y > size.h) return null;
-            return (
-              <g key={`th${t.mm}`}>
-                <line
-                  x1={t.major ? RULER - 9 : RULER - 5}
-                  y1={y}
-                  x2={RULER}
-                  y2={y}
-                  style={{ stroke: `hsl(var(--muted-foreground) / ${t.major ? 0.7 : 0.4})` }}
-                  strokeWidth={1}
-                />
-                {t.major && (
-                  <text
-                    x={9}
-                    y={y + 3}
-                    transform={`rotate(-90 9 ${y + 3})`}
-                    textAnchor="start"
-                    style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
-                  >
-                    {fmtMm(t.label)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-          {/* ruler edges */}
-          <line x1={RULER} y1={0} x2={RULER} y2={size.h} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
-          <line x1={0} y1={RULER} x2={size.w} y2={RULER} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
-        </g>
-
         {tool === "measure" && (() => {
           const endA = mA;
           const endB = mB ?? hover?.g ?? null;
@@ -655,6 +591,72 @@ export function LayerStack({
             </g>
           );
         })()}
+
+        {/* Edge rulers — screen space, drawn LAST so they sit on top of every
+            layer and the measure overlay; their opaque fill clips content out of
+            the ruler band so nothing ever bleeds onto them. */}
+        <g style={{ pointerEvents: "none" }}>
+          <rect x={0} y={0} width={size.w} height={RULER} style={{ fill: "hsl(var(--card))" }} />
+          <rect x={0} y={0} width={RULER} height={size.h} style={{ fill: "hsl(var(--card))" }} />
+          <rect x={0} y={0} width={RULER} height={RULER} style={{ fill: "hsl(var(--card))" }} />
+          {/* top ruler */}
+          {vTicks.map((t) => {
+            const x = sx(t.mm);
+            if (x < RULER || x > size.w) return null;
+            return (
+              <g key={`tv${t.mm}`}>
+                <line
+                  x1={x}
+                  y1={t.major ? RULER - 9 : RULER - 5}
+                  x2={x}
+                  y2={RULER}
+                  style={{ stroke: `hsl(var(--muted-foreground) / ${t.major ? 0.7 : 0.4})` }}
+                  strokeWidth={1}
+                />
+                {t.major && (
+                  <text
+                    x={x + 3}
+                    y={9}
+                    style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
+                  >
+                    {fmtMm(t.label)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          {/* left ruler */}
+          {hTicks.map((t) => {
+            const y = sy(t.mm);
+            if (y < RULER || y > size.h) return null;
+            return (
+              <g key={`th${t.mm}`}>
+                <line
+                  x1={t.major ? RULER - 9 : RULER - 5}
+                  y1={y}
+                  x2={RULER}
+                  y2={y}
+                  style={{ stroke: `hsl(var(--muted-foreground) / ${t.major ? 0.7 : 0.4})` }}
+                  strokeWidth={1}
+                />
+                {t.major && (
+                  <text
+                    x={9}
+                    y={y + 3}
+                    transform={`rotate(-90 9 ${y + 3})`}
+                    textAnchor="start"
+                    style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
+                  >
+                    {fmtMm(t.label)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          {/* ruler edges */}
+          <line x1={RULER} y1={0} x2={RULER} y2={size.h} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
+          <line x1={0} y1={RULER} x2={size.w} y2={RULER} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
+        </g>
       </svg>
 
       <DrcMarkers markers={projectedMarkers} width={size.w} height={size.h} />

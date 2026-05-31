@@ -29,7 +29,9 @@
     "slots": "Слоты (раут)",
     "maskDam": "Перемычка маски",
     "minSilkLine": "Мин. линия шелка",
-    "layerOvershoot": "Выход за контур"
+    "layerOvershoot": "Выход за контур",
+    "traceCount": "Дорожек",
+    "traceLength": "Длина разводки"
   },
   "side": {
     "top": "верх",

@@ -13,23 +13,45 @@ const ICON: Record<Severity, { Icon: typeof CheckCircle2; color: string }> = {
 /** Param names carrying a RAW length in mm — formatted via fmtLen at render. */
 const LEN_PARAMS = new Set(["len", "w", "h"]);
 
-/** Hook returning a renderer that resolves an I18nText: length params are
+/** Hook returning renderers that resolve an I18nText: length params are
  *  unit-formatted, key-like string params (containing ":") are translated, then
  *  the text key is translated with the resulting interpolation params. */
 function useRenderText() {
   const { t } = useTranslation(["feasibility", "common"]);
-  const { fmtLen } = useUnitFormat();
-  return (text?: I18nText): string => {
+  const { fmtLen, fmtLenPair } = useUnitFormat();
+
+  // Resolve an I18nText to a display string: length params unit-formatted, key-like
+  // string params translated, then the text key translated. `lenOverride`, when
+  // given, replaces the `len` param's value (so a finding's value and limit can be
+  // rendered in one shared unit by the caller).
+  const resolveText = (text?: I18nText, lenOverride?: string): string => {
     if (!text) return "";
     const params: Record<string, string | number> = {};
     for (const [k, v] of Object.entries(text.params ?? {})) {
-      if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
+      if (k === "len" && lenOverride != null && typeof v === "number") params[k] = lenOverride;
+      else if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
       else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
       else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
       else params[k] = v;
     }
     return t(text.key, params);
   };
+  const tr = (text?: I18nText): string => resolveText(text);
+  const trLen = (text: I18nText | undefined, lenStr: string): string => resolveText(text, lenStr);
+
+  // Format a finding's measured + limit in a shared unit when both are simple
+  // lengths; otherwise resolve each independently.
+  const measuredLimit = (f: Finding): { measured: string; limit: string } => {
+    const m = f.measured?.params?.len;
+    const l = f.limit?.params?.len;
+    if (typeof m === "number" && typeof l === "number") {
+      const [ms, ls] = fmtLenPair([m, l]);
+      return { measured: trLen(f.measured, ms), limit: trLen(f.limit, ls) };
+    }
+    return { measured: tr(f.measured), limit: tr(f.limit) };
+  };
+
+  return { tr, trLen, measuredLimit };
 }
 
 function FindingRow({
@@ -42,8 +64,9 @@ function FindingRow({
   active: number | null;
   onFocus?: (fid: string, hi: number) => void;
 }) {
-  const tr = useRenderText();
+  const { tr, measuredLimit } = useRenderText();
   const { Icon, color } = ICON[f.severity];
+  const ml = measuredLimit(f);
   const n = f.hotspots?.length ?? 0;
   const k = active ?? 0;
   const clickable = n > 0 && !!onFocus;
@@ -66,10 +89,10 @@ function FindingRow({
               </span>
             )}
           </span>
-          <span className="shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{tr(f.measured)}</span>
+          <span className="shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{ml.measured}</span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-3">
-          <span className="text-[10px] text-muted-foreground">{tr(f.limit)}</span>
+          <span className="text-[10px] text-muted-foreground">{ml.limit}</span>
         </div>
         {f.detail && <p className={`mt-1 text-[10px] leading-relaxed ${color}`}>{tr(f.detail)}</p>}
       </div>

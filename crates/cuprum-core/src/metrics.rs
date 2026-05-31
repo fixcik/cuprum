@@ -102,7 +102,17 @@ pub struct GeoMetrics {
     pub slot_count: u32,
     pub min_slot_width_mm: Option<f32>,
     pub clearance_hotspots: Vec<Hotspot>,
+    /// Copper-width necks measured on REGION copper only (pads + zone fills, no
+    /// routed strokes). Traces are judged by the conductor model, not here.
     pub copper_width_hotspots: Vec<Hotspot>,
+    /// Routed conductors thin enough to possibly fail a min-width check: bbox
+    /// corners in `a`/`b`, neck width in `v`, side-tagged. Drives the per-trace
+    /// hover/tooltip of the thin-trace finding.
+    pub thin_trace_conductors: Vec<Hotspot>,
+    /// Total routed-conductor count across copper layers (geometric, not nets).
+    pub trace_count: u32,
+    /// Total routed length across all conductors (mm).
+    pub trace_total_length_mm: f32,
     pub annular_hotspots: Vec<Hotspot>,
     pub mask_dam_hotspots: Vec<Hotspot>,
     pub overshoot_hotspots: Vec<Hotspot>,
@@ -614,15 +624,50 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         })
         .map(|v| v as f32);
 
-    // Clearance (shorts) + copper width (slivers) hotspots, per copper layer so
-    // each keeps its side. `min_*` is the worst value across all sides.
+    // Clearance (shorts) from the FULL union — needs all copper. Copper-WIDTH
+    // necks from REGION copper only (pads + zone fills, no routed strokes): a
+    // trace's width is its aperture (judged by the conductor model below), so
+    // cross-measuring unioned trace bends here only produced artefacts.
     let mut clear_hots: Vec<Hotspot> = Vec::new();
     let mut width_hots: Vec<Hotspot> = Vec::new();
     for (side, polys) in &copper_layers {
-        let (c, w) = geometry::clearance_width_hotspots(polys);
+        let (c, _) = geometry::clearance_width_hotspots(polys);
         clear_hots.extend(top_n(c, 40).into_iter().map(|h| to_hotspot(h, side)));
+    }
+    for l in layers.iter().filter(|l| l.role == Role::Copper) {
+        let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
+            continue;
+        };
+        if region.is_empty() {
+            continue;
+        }
+        let side = layer_side(l);
+        let (_, w) = geometry::clearance_width_hotspots(&region);
         width_hots.extend(top_n(w, 40).into_iter().map(|h| to_hotspot(h, side)));
     }
+
+    // Conductor model: connected routed-stroke runs per copper layer. Neck = the
+    // thin-trace value; count + total length feed the metrics tab.
+    let mut runs: Vec<(crate::conductor::Conductor, &'static str)> = Vec::new();
+    for l in layers.iter().filter(|l| l.role == Role::Copper) {
+        let Some(lay) = parse_layer(l.bytes) else {
+            continue;
+        };
+        let side = layer_side(l);
+        for c in crate::conductor::conductors(&lay) {
+            runs.push((c, side));
+        }
+    }
+    let trace_count = runs.len() as u32;
+    let trace_total_length_mm = runs.iter().map(|(c, _)| c.length_mm).sum::<f64>() as f32;
+    let mut thin_trace_conductors: Vec<Hotspot> = runs
+        .iter()
+        .filter(|(c, _)| c.neck_mm <= HIGHLIGHT_MAX_W)
+        .map(|(c, side)| to_hotspot((c.min, c.max, c.neck_mm), side))
+        .collect();
+    thin_trace_conductors
+        .sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(std::cmp::Ordering::Equal));
+    thin_trace_conductors.truncate(HIGHLIGHT_CAP);
     let min_clear = clear_hots
         .iter()
         .map(|h| h.v)
@@ -771,6 +816,9 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         min_slot_width_mm,
         clearance_hotspots: clear_hots,
         copper_width_hotspots: width_hots,
+        thin_trace_conductors,
+        trace_count,
+        trace_total_length_mm,
         annular_hotspots: annular_hots,
         mask_dam_hotspots: mask_hots,
         overshoot_hotspots: overshoot_hots,
@@ -996,6 +1044,43 @@ mod tests {
         assert!(
             m.geo.silk_hotspots.iter().all(|h| h.side == "top"),
             "silk hotspots are top-sided"
+        );
+    }
+
+    #[test]
+    fn thin_trace_reported_via_conductor_not_region() {
+        // One copper layer: a 1mm pad + a 0.1mm trace from it. The conductor model
+        // must surface the thin trace; the region width-check must stay silent (no
+        // zone fill present).
+        const CU: &[u8] = b"%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,1.0*%\n%ADD11C,0.1*%\n\
+            D10*\nX0Y0D03*\nD11*\nX0Y0D02*\nX5000000Y0D01*\nM02*\n";
+        let inputs = vec![MetricLayerInput {
+            role: Role::Copper,
+            side: Side::Top,
+            inner: false,
+            plated: false,
+            bytes: CU,
+        }];
+        let g = geo_metrics(&inputs);
+        assert!(
+            g.trace_count >= 1,
+            "expected a conductor: {}",
+            g.trace_count
+        );
+        assert!(
+            g.thin_trace_conductors.iter().any(|h| h.v < 0.15),
+            "thin conductor expected: {:?}",
+            g.thin_trace_conductors
+        );
+        assert!(
+            !g.copper_width_hotspots.iter().any(|h| h.v < 0.15),
+            "region width-check must not flag the trace: {:?}",
+            g.copper_width_hotspots
+        );
+        assert!(
+            g.trace_total_length_mm > 4.0,
+            "routed length: {}",
+            g.trace_total_length_mm
         );
     }
 

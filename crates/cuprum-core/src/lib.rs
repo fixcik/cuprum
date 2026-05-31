@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod cal;
 pub mod compose;
+pub mod conductor;
 pub mod diskcache;
 pub mod drill;
 pub mod geometry;
