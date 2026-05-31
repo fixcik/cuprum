@@ -66,6 +66,40 @@ pub fn write_panel(workdir: &Path, panel: &PanelDoc) -> Result<()> {
     Ok(())
 }
 
+use std::io::Read;
+
+/// Extract every entry of `container` into a fresh `workdir`, then write the
+/// session marker. `workdir` must not already exist.
+pub fn extract(container: &Path, workdir: &Path, marker: &SessionMarker) -> Result<()> {
+    if workdir.exists() {
+        anyhow::bail!("working dir already exists: {}", workdir.display());
+    }
+    fs::create_dir_all(workdir)?;
+    let file = fs::File::open(container)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        // Skip entries with unsafe (absolute / `..`) paths.
+        let rel = match entry.enclosed_name() {
+            Some(p) => p.to_path_buf(),
+            None => continue,
+        };
+        let out = workdir.join(&rel);
+        if entry.is_dir() {
+            fs::create_dir_all(&out)?;
+            continue;
+        }
+        if let Some(parent) = out.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+        fs::write(&out, &buf)?;
+    }
+    write_marker(workdir, marker)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +143,54 @@ mod tests {
         assert_eq!(read_panel(&wd).unwrap(), Some(p));
 
         std::fs::remove_dir_all(&wd).ok();
+    }
+
+    #[test]
+    fn extract_lays_out_loose_files() {
+        use crate::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+        let root = scratch("extract");
+        let cuprum = root.join("p.cu");
+
+        let mut m = Manifest::new("demo");
+        m.designs.push(Design {
+            id: "design-1".into(),
+            source_name: "src.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/design-1/a.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        });
+        container::write(
+            &cuprum,
+            &m,
+            &[("gerbers/design-1/a.gbr".to_string(), b"G04 hi*".to_vec())],
+        )
+        .unwrap();
+
+        let wd = root.join("wd");
+        let marker = SessionMarker { source_path: cuprum.to_string_lossy().into(), pid: 1, opened_at: 7 };
+        extract(&cuprum, &wd, &marker).unwrap();
+
+        assert_eq!(read_manifest(&wd).unwrap(), m);
+        assert_eq!(read_marker(&wd).unwrap(), marker);
+        assert_eq!(
+            std::fs::read(wd.join("gerbers/design-1/a.gbr")).unwrap(),
+            b"G04 hi*"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn extract_refuses_existing_dir() {
+        let root = scratch("extract-exists");
+        let cuprum = root.join("p.cu");
+        container::write(&cuprum, &crate::manifest::Manifest::new("x"), &[]).unwrap();
+        let wd = root.join("wd");
+        std::fs::create_dir_all(&wd).unwrap();
+        let marker = SessionMarker { source_path: cuprum.to_string_lossy().into(), pid: 1, opened_at: 0 };
+        assert!(extract(&cuprum, &wd, &marker).is_err());
+        std::fs::remove_dir_all(&root).ok();
     }
 }
