@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type PanelDoc, type RecentProject, type RestorePointMeta, type StagedFile, type Stackup } from "@/lib/api";
+import { api, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
-export type View = "home" | "project" | "printer" | "settings" | "import";
+export type View = "home" | "project" | "printer" | "settings";
 
 interface ShellStore {
   view: View;
@@ -64,23 +64,9 @@ interface ShellStore {
    *  manifest.json after a mutation (basis for crash recovery). */
   _mirrorManifest: (manifest: Manifest) => Promise<void>;
 
-  // Import wizard
-  staged: StagedFile[];
-  stagedHoles: Hole[];
-  stagedZipPaths: string[];
-  stagingError: string | null;
-  /** True while the initial fast classify is in flight (before the layer list). */
-  staging: boolean;
-  /** Bumped on every start/cancel/confirm so late per-layer SVG callbacks from a
-   *  superseded import are ignored. */
-  importGen: number;
-  startImport: () => Promise<void>;
-  setLayerType: (index: number, type: LayerType) => void;
-  confirmImport: () => Promise<void>;
-  cancelImport: () => void;
-  /** Private: fill in one staged file's rendered SVG (progressive). */
-  _setStagedSvg: (gen: number, index: number, geo: LayerGeometry) => void;
-  _setStagedSvgError: (gen: number, index: number, error: string) => void;
+  /** Pick source ZIP(s) and add each as a new design to the open project
+   *  (copied into the working dir, auto-classified, persisted via autosave). */
+  addDesignsFromZips: () => Promise<void>;
 }
 
 /** Strip directory + .cuprum extension to a display/default name. */
@@ -105,12 +91,6 @@ export const useShell = create<ShellStore>((set, get) => ({
   historyBusy: false,
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
-  staged: [],
-  stagedHoles: [],
-  stagedZipPaths: [],
-  stagingError: null,
-  staging: false,
-  importGen: 0,
 
   loadDisplayScale: async () => {
     // Cache once per launch; the native value never changes mid-session.
@@ -435,116 +415,25 @@ export const useShell = create<ShellStore>((set, get) => ({
     }
   },
 
-  startImport: async () => {
+  addDesignsFromZips: async () => {
+    const { currentPath, workingDir, currentManifest } = get();
+    if (!currentPath || !workingDir || !currentManifest) return;
     const zips = await api.pickZips();
     if (!zips || zips.length === 0) return;
-    const gen = get().importGen + 1;
-    // Open the wizard immediately and show the staging state; the layer list and
-    // previews stream in below.
-    set({
-      importGen: gen,
-      staging: true,
-      stagingError: null,
-      staged: [],
-      stagedHoles: [],
-      stagedZipPaths: zips,
-      view: "import",
-    });
+    const prev = currentManifest;
     try {
-      const cls = await api.stageClassify(zips);
-      if (get().importGen !== gen) return; // superseded (cancelled / re-imported)
-      const files: StagedFile[] = cls.files.map((f) => ({
-        sourceZip: f.sourceZip,
-        filename: f.filename,
-        layerType: f.layerType,
-        svgBody: null,
-        bbox: null,
-        snap: [],
-        error: null,
-        holes: f.holes,
-        drillError: f.drillError ?? null,
-        svgStatus: f.layerType === "drill" ? "none" : "pending",
-      }));
-      set({ staged: files, stagedHoles: files.flatMap((f) => f.holes), staging: false });
-      // Render each layer's SVG in parallel; fill previews in as they resolve.
-      files.forEach((f, i) => {
-        if (f.svgStatus !== "pending") return;
-        api
-          .stageLayerSvg(zips, i)
-          .then((geo) => get()._setStagedSvg(gen, i, geo))
-          .catch((e) => get()._setStagedSvgError(gen, i, String(e)));
-      });
+      // Copy each ZIP into the working dir as a new design (sequential: each
+      // add derives its id from the gerbers/ dir the previous one just created).
+      const added: ProjectDesign[] = [];
+      for (const zip of zips) added.push(await api.addDesignFromZip(workingDir, zip));
+      const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
+      get()._recordUndo(prev);
+      set({ currentManifest: manifest, error: null });
+      // Persist: write the loose manifest then repack the .cuprum so the freshly
+      // copied gerbers land in the container too.
+      await get()._persistManifest(manifest);
     } catch (e) {
-      if (get().importGen !== gen) return;
-      set({ stagingError: String(e), staging: false });
+      set({ error: String(e) });
     }
   },
-
-  _setStagedSvg: (gen, index, geo) =>
-    set((s) => {
-      if (s.importGen !== gen) return s;
-      return {
-        staged: s.staged.map((f, i) =>
-          i === index ? { ...f, svgBody: geo.svgBody, bbox: geo.bbox, snap: geo.snap, svgStatus: "loaded" } : f,
-        ),
-      };
-    }),
-
-  _setStagedSvgError: (gen, index, error) =>
-    set((s) => {
-      if (s.importGen !== gen) return s;
-      return {
-        staged: s.staged.map((f, i) => (i === index ? { ...f, error, svgStatus: "error" } : f)),
-      };
-    }),
-
-  setLayerType: (index, type) =>
-    set((s) => ({
-      staged: s.staged.map((f, i) => (i === index ? { ...f, layerType: type } : f)),
-    })),
-
-  confirmImport: async () => {
-    const { currentPath, staged, stagedZipPaths } = get();
-    if (!currentPath) return;
-    const prev = get().currentManifest;
-    try {
-      // Positional: layer types in staging order, one per staged file.
-      const layerTypes = staged.map((f) => f.layerType);
-      await api.commitImport(currentPath, stagedZipPaths, layerTypes);
-      // commitImport sewed the new gerbers into the .cuprum container but left
-      // the working-dir untouched. Re-extract a fresh working-dir from the
-      // updated container so the new gerber files are present for rendering.
-      const prevWorkingDir = get().workingDir;
-      const reopened = await api.openProject(currentPath);
-      set((s) => ({
-        currentManifest: reopened.manifest,
-        workingDir: reopened.workingDir,
-        staged: [],
-        stagedHoles: [],
-        stagedZipPaths: [],
-        stagingError: null,
-        staging: false,
-        importGen: s.importGen + 1,
-        view: "project",
-      }));
-      if (prev) get()._recordUndo(prev);
-      if (prevWorkingDir && prevWorkingDir !== reopened.workingDir)
-        await api.cleanupWorkdir(prevWorkingDir).catch(() => {});
-      await get().loadRecents();
-      await get().refreshRestorePoints();
-    } catch (e) {
-      set({ stagingError: String(e) });
-    }
-  },
-
-  cancelImport: () =>
-    set((s) => ({
-      staged: [],
-      stagedHoles: [],
-      stagedZipPaths: [],
-      stagingError: null,
-      staging: false,
-      importGen: s.importGen + 1,
-      view: "project",
-    })),
 }));
