@@ -132,6 +132,27 @@ pub fn update_panel(path: &Path, panel: &PanelDoc) -> Result<()> {
     write(path, &manifest, &entries)
 }
 
+/// Atomically replace BOTH `manifest.json` and `panel.json` in a single
+/// container rewrite, preserving every other entry. Avoids the inconsistent
+/// state where the manifest's stackup is set but `panel.json` is stale.
+pub fn update_manifest_and_panel(path: &Path, manifest: &Manifest, panel: &PanelDoc) -> Result<()> {
+    let file = File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+        if name == MANIFEST_NAME || name == PANEL_NAME {
+            continue;
+        }
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+        entries.push((name, buf));
+    }
+    entries.push((PANEL_NAME.to_string(), serde_json::to_vec_pretty(panel)?));
+    write(path, manifest, &entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

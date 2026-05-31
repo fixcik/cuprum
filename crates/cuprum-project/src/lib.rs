@@ -275,10 +275,23 @@ pub fn configure_panel(
     now: i64,
 ) -> Result<Manifest> {
     ensure_project_exists(container)?;
+    if !panel.width_mm.is_finite()
+        || !panel.height_mm.is_finite()
+        || panel.width_mm <= 0.0
+        || panel.height_mm <= 0.0
+    {
+        anyhow::bail!("panel dimensions must be finite and > 0");
+    }
+    if !stackup.copper_weight_oz.is_finite()
+        || !stackup.substrate_thickness_mm.is_finite()
+        || stackup.copper_weight_oz <= 0.0
+        || stackup.substrate_thickness_mm <= 0.0
+    {
+        anyhow::bail!("stackup values must be finite and > 0");
+    }
     let mut manifest = container::read_manifest(container)?;
     manifest.stackup = Some(stackup);
-    container::update_manifest(container, &manifest)?;
-    container::update_panel(container, panel)?;
+    container::update_manifest_and_panel(container, &manifest, panel)?;
 
     let conn = catalog::open(db_path)?;
     catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
@@ -499,6 +512,35 @@ mod tests {
 
         // Persisted: reopening sees the stackup.
         assert!(open_project(&db, &save, 2500).unwrap().stackup.is_some());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn configure_panel_rejects_bad_dimensions() {
+        use crate::manifest::Stackup;
+        use crate::panel::PanelDoc;
+        let dir = std::env::temp_dir().join(format!("cuprum-badpanel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("catalog.sqlite");
+        let save = dir.join("proj.cuprum");
+        create_project(&db, &save, "proj", &[], 1000).unwrap();
+
+        let ok = Stackup {
+            copper_weight_oz: 1.0,
+            substrate_thickness_mm: 1.6,
+            double_sided: false,
+        };
+        // Non-positive dimension is rejected, and nothing is written.
+        assert!(configure_panel(&db, &save, &PanelDoc::new(0.0, 100.0), ok.clone(), 2000).is_err());
+        assert!(read_panel(&save).unwrap().is_none());
+        // Non-positive stackup value is rejected too.
+        let bad = Stackup {
+            copper_weight_oz: 0.0,
+            substrate_thickness_mm: 1.6,
+            double_sided: false,
+        };
+        assert!(configure_panel(&db, &save, &PanelDoc::new(150.0, 100.0), bad, 2000).is_err());
 
         std::fs::remove_dir_all(&dir).ok();
     }
