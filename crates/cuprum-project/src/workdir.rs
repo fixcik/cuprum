@@ -128,14 +128,20 @@ pub fn scan_orphans(base: &Path, live_pid: u32) -> Result<Vec<Orphan>> {
         if marker.pid == live_pid {
             continue;
         }
-        let working = match read_manifest(&wd) {
+        let working_manifest = match read_manifest(&wd) {
             Ok(m) => m,
             Err(_) => continue, // unusable
         };
+        let working_panel = read_panel(&wd).ok().flatten();
         let source = Path::new(&marker.source_path);
-        let dirty = match container::read_manifest(source) {
-            Ok(saved) => saved != working,
-            Err(_) => true,
+        let dirty = match (
+            container::read_manifest(source),
+            container::read_panel(source),
+        ) {
+            (Ok(saved_manifest), Ok(saved_panel)) => {
+                saved_manifest != working_manifest || saved_panel != working_panel
+            }
+            _ => true, // source missing/corrupt -> treat as recoverable
         };
         out.push(Orphan {
             workdir: wd.to_string_lossy().to_string(),
@@ -148,13 +154,23 @@ pub fn scan_orphans(base: &Path, live_pid: u32) -> Result<Vec<Orphan>> {
 
 /// Delete every orphan working dir under `base` that is NOT dirty (no unsaved
 /// changes) and not owned by `live_pid`. Dirty ones are left for recovery.
+/// All clean orphans are attempted even if one fails; the first removal error
+/// is returned after the full sweep.
 pub fn gc_clean(base: &Path, live_pid: u32) -> Result<()> {
+    let mut first_err: Option<anyhow::Error> = None;
     for o in scan_orphans(base, live_pid)? {
         if !o.dirty {
-            fs::remove_dir_all(&o.workdir).ok();
+            if let Err(e) = fs::remove_dir_all(&o.workdir) {
+                if first_err.is_none() {
+                    first_err = Some(anyhow::anyhow!("failed to remove {}: {e}", o.workdir));
+                }
+            }
         }
     }
-    Ok(())
+    match first_err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 /// Extract every entry of `container` into a fresh `workdir`, then write the
@@ -235,8 +251,8 @@ mod tests {
 
     #[test]
     fn extract_lays_out_loose_files() {
-        use crate::manifest::{Design, GerberFile, Manifest};
         use crate::layer::LayerType;
+        use crate::manifest::{Design, GerberFile, Manifest};
         let root = scratch("extract");
         let cuprum = root.join("p.cu");
 
@@ -257,7 +273,11 @@ mod tests {
         .unwrap();
 
         let wd = root.join("wd");
-        let marker = SessionMarker { source_path: cuprum.to_string_lossy().into(), pid: 1, opened_at: 7 };
+        let marker = SessionMarker {
+            source_path: cuprum.to_string_lossy().into(),
+            pid: 1,
+            opened_at: 7,
+        };
         extract(&cuprum, &wd, &marker).unwrap();
 
         assert_eq!(read_manifest(&wd).unwrap(), m);
@@ -277,15 +297,19 @@ mod tests {
         container::write(&cuprum, &crate::manifest::Manifest::new("x"), &[]).unwrap();
         let wd = root.join("wd");
         std::fs::create_dir_all(&wd).unwrap();
-        let marker = SessionMarker { source_path: cuprum.to_string_lossy().into(), pid: 1, opened_at: 0 };
+        let marker = SessionMarker {
+            source_path: cuprum.to_string_lossy().into(),
+            pid: 1,
+            opened_at: 0,
+        };
         assert!(extract(&cuprum, &wd, &marker).is_err());
         std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
     fn pack_round_trips_and_drops_marker() {
-        use crate::manifest::{Design, GerberFile, Manifest};
         use crate::layer::LayerType;
+        use crate::manifest::{Design, GerberFile, Manifest};
         use crate::panel::PanelDoc;
         let root = scratch("pack");
         let cuprum = root.join("p.cu");
@@ -299,10 +323,19 @@ mod tests {
                 layer_type: LayerType::TopCopper,
             }],
         });
-        container::write(&cuprum, &m, &[("gerbers/design-1/a.gbr".to_string(), b"BYTES".to_vec())]).unwrap();
+        container::write(
+            &cuprum,
+            &m,
+            &[("gerbers/design-1/a.gbr".to_string(), b"BYTES".to_vec())],
+        )
+        .unwrap();
 
         let wd = root.join("wd");
-        let marker = SessionMarker { source_path: cuprum.to_string_lossy().into(), pid: 1, opened_at: 0 };
+        let marker = SessionMarker {
+            source_path: cuprum.to_string_lossy().into(),
+            pid: 1,
+            opened_at: 0,
+        };
         extract(&cuprum, &wd, &marker).unwrap();
 
         // Edit the document in the working dir.
@@ -316,7 +349,10 @@ mod tests {
         pack(&wd, &out).unwrap();
 
         assert_eq!(container::read_manifest(&out).unwrap().name, "renamed");
-        assert_eq!(container::read_entry(&out, "gerbers/design-1/a.gbr").unwrap(), b"BYTES");
+        assert_eq!(
+            container::read_entry(&out, "gerbers/design-1/a.gbr").unwrap(),
+            b"BYTES"
+        );
         assert_eq!(container::read_panel(&out).unwrap().unwrap().width_mm, 50.0);
         // Marker must not leak into the container.
         assert!(container::read_entry(&out, SESSION_MARKER).is_err());
@@ -340,8 +376,26 @@ mod tests {
         // Working dirs owned by a DEAD pid (9999).
         let wd_clean = base.join("a");
         let wd_dirty = base.join("b");
-        extract(&cu_clean, &wd_clean, &SessionMarker { source_path: cu_clean.to_string_lossy().into(), pid: 9999, opened_at: 0 }).unwrap();
-        extract(&cu_dirty, &wd_dirty, &SessionMarker { source_path: cu_dirty.to_string_lossy().into(), pid: 9999, opened_at: 0 }).unwrap();
+        extract(
+            &cu_clean,
+            &wd_clean,
+            &SessionMarker {
+                source_path: cu_clean.to_string_lossy().into(),
+                pid: 9999,
+                opened_at: 0,
+            },
+        )
+        .unwrap();
+        extract(
+            &cu_dirty,
+            &wd_dirty,
+            &SessionMarker {
+                source_path: cu_dirty.to_string_lossy().into(),
+                pid: 9999,
+                opened_at: 0,
+            },
+        )
+        .unwrap();
 
         // Make wd_dirty actually differ from its source.
         let mut edited = read_manifest(&wd_dirty).unwrap();
