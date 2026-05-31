@@ -112,9 +112,25 @@ export const useShell = create<ShellStore>((set, get) => ({
     try {
       const savePath = await api.pickSavePath("untitled.cuprum");
       if (!savePath) return;
+      // Clean up any previously-open project's working dir before switching, so
+      // switching projects never leaks a temp working dir.
+      const prevWorkingDir = get().workingDir;
+      if (prevWorkingDir) {
+        try {
+          await api.cleanupWorkdir(prevWorkingDir);
+        } catch {
+          /* best-effort: a stale working dir is GC'd at next startup */
+        }
+      }
       const name = stem(savePath);
       const manifest = await api.createProject(savePath, name, []);
-      set({ currentPath: savePath, currentManifest: manifest, view: "project", error: null });
+      set({
+        currentPath: savePath,
+        workingDir: null,
+        currentManifest: manifest,
+        view: "project",
+        error: null,
+      });
       await get().loadRecents();
     } catch (e) {
       set({ error: String(e) });
