@@ -67,6 +67,27 @@ pub fn copper_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     layer_polygons(bytes, holes)
 }
 
+/// Like [`layer_polygons`] but from FILL primitives only — flashes (Circle,
+/// Rectangle, Polygon) and region fills (G36) — skipping routed strokes
+/// (Line/Arc). The copper-WIDTH (neck) check runs on THIS set: a trace's width is
+/// its aperture (measured via the conductor model), so unioning trace strokes and
+/// cross-measuring their concave bends only produced artefacts. Genuine necks live
+/// in zone fills, which this preserves.
+pub fn region_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
+    let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
+    let doc = gerber_viewer::gerber_parser::parse(reader)
+        .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
+    let layer = GerberLayer::new(doc.into_commands());
+    let mut contours: Vec<Vec<[f64; 2]>> = Vec::new();
+    for prim in layer.primitives() {
+        if matches!(prim, GerberPrimitive::Line(_) | GerberPrimitive::Arc(_)) {
+            continue;
+        }
+        contours_for(prim, &mut contours);
+    }
+    Ok(fill_polygons(&contours, holes))
+}
+
 /// Compute the soldermask geometry: the board region MINUS the mask openings.
 ///
 /// The board outline (a set of CCW/CW rings — outer perimeter plus inner
@@ -203,64 +224,54 @@ fn to_ccw(mut ring: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
     ring
 }
 
+/// Emit the solid contour(s) for ONE primitive (Add-only) into `out`.
+fn contours_for(prim: &GerberPrimitive, out: &mut Vec<Vec<[f64; 2]>>) {
+    match prim {
+        GerberPrimitive::Circle(c) => {
+            out.push(circle(c.center.x, c.center.y, c.diameter / 2.0, CIRCLE_SEGS));
+        }
+        GerberPrimitive::Rectangle(r) => {
+            let (x, y, w, h) = (r.origin.x, r.origin.y, r.width, r.height);
+            out.push(vec![[x, y], [x + w, y], [x + w, y + h], [x, y + h]]);
+        }
+        GerberPrimitive::Polygon(poly) => {
+            out.push(
+                poly.geometry
+                    .relative_vertices
+                    .iter()
+                    .map(|v| [poly.center.x + v.x, poly.center.y + v.y])
+                    .collect(),
+            );
+        }
+        GerberPrimitive::Line(l) => {
+            push_stroke(out, l.start.x, l.start.y, l.end.x, l.end.y, l.width / 2.0);
+        }
+        GerberPrimitive::Arc(a) => {
+            let half = a.width / 2.0;
+            let mut prev: Option<(f64, f64)> = None;
+            for i in 0..=ARC_STEPS {
+                let t = i as f64 / ARC_STEPS as f64;
+                let ang = a.start_angle + a.sweep_angle * t;
+                let pt = (a.center.x + a.radius * ang.cos(), a.center.y + a.radius * ang.sin());
+                if let Some((px, py)) = prev {
+                    push_stroke(out, px, py, pt.0, pt.1, half);
+                } else {
+                    out.push(circle(pt.0, pt.1, half, CIRCLE_SEGS));
+                }
+                out.push(circle(pt.0, pt.1, half, CIRCLE_SEGS));
+                prev = Some(pt);
+            }
+        }
+    }
+}
+
 /// Convert every primitive to one or more solid contours, treating all as Add
 /// (v1: clear-polarity is not produced by the vendored gerber-viewer anyway —
 /// see the note in [`crate::svg`]).
 fn contours_of(prims: &[GerberPrimitive]) -> Vec<Vec<[f64; 2]>> {
     let mut contours: Vec<Vec<[f64; 2]>> = Vec::new();
     for prim in prims {
-        match prim {
-            GerberPrimitive::Circle(c) => {
-                contours.push(circle(
-                    c.center.x,
-                    c.center.y,
-                    c.diameter / 2.0,
-                    CIRCLE_SEGS,
-                ));
-            }
-            GerberPrimitive::Rectangle(r) => {
-                let (x, y, w, h) = (r.origin.x, r.origin.y, r.width, r.height);
-                contours.push(vec![[x, y], [x + w, y], [x + w, y + h], [x, y + h]]);
-            }
-            GerberPrimitive::Polygon(poly) => {
-                contours.push(
-                    poly.geometry
-                        .relative_vertices
-                        .iter()
-                        .map(|v| [poly.center.x + v.x, poly.center.y + v.y])
-                        .collect(),
-                );
-            }
-            GerberPrimitive::Line(l) => {
-                push_stroke(
-                    &mut contours,
-                    l.start.x,
-                    l.start.y,
-                    l.end.x,
-                    l.end.y,
-                    l.width / 2.0,
-                );
-            }
-            GerberPrimitive::Arc(a) => {
-                let half = a.width / 2.0;
-                let mut prev: Option<(f64, f64)> = None;
-                for i in 0..=ARC_STEPS {
-                    let t = i as f64 / ARC_STEPS as f64;
-                    let ang = a.start_angle + a.sweep_angle * t;
-                    let pt = (
-                        a.center.x + a.radius * ang.cos(),
-                        a.center.y + a.radius * ang.sin(),
-                    );
-                    if let Some((px, py)) = prev {
-                        push_stroke(&mut contours, px, py, pt.0, pt.1, half);
-                    } else {
-                        contours.push(circle(pt.0, pt.1, half, CIRCLE_SEGS));
-                    }
-                    contours.push(circle(pt.0, pt.1, half, CIRCLE_SEGS));
-                    prev = Some(pt);
-                }
-            }
-        }
+        contours_for(prim, &mut contours);
     }
     contours
 }
@@ -1177,6 +1188,22 @@ mod tests {
             !at_bend,
             "trace bend must not be reported as thin copper: {width:?}"
         );
+    }
+
+    #[test]
+    fn region_polygons_excludes_trace_strokes() {
+        // A pad flash (D03) plus a thin trace draw (D01). region_polygons must keep
+        // the pad and drop the trace → no thin neck to find on the region set.
+        const PAD_AND_TRACE: &[u8] = b"%FSLAX46Y46*%\n%MOMM*%\n\
+            %ADD10C,1.0*%\n%ADD11C,0.1*%\n\
+            D10*\nX0Y0D03*\n\
+            D11*\nX0Y0D02*\nX5000000Y0D01*\nM02*\n";
+        let regions = region_polygons(PAD_AND_TRACE, &[]).unwrap();
+        let full = layer_polygons(PAD_AND_TRACE, &[]).unwrap();
+        let (_c, full_w) = clearance_width_hotspots(&full);
+        assert!(full_w.iter().any(|h| h.2 < 0.15), "trace neck should show in full union: {full_w:?}");
+        let (_c, region_w) = clearance_width_hotspots(&regions);
+        assert!(!region_w.iter().any(|h| h.2 < 0.15), "region set must have no thin neck: {region_w:?}");
     }
 
     #[test]
