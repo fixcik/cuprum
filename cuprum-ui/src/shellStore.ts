@@ -3,7 +3,7 @@ import i18n from "@/i18n";
 import { api, type Hole, type LayerGeometry, type LayerType, type Manifest, type PanelDoc, type RecentProject, type StagedFile, type Stackup } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
-export type View = "home" | "project" | "printer" | "settings" | "import" | "panel-setup";
+export type View = "home" | "project" | "printer" | "settings" | "import";
 
 interface ShellStore {
   view: View;
