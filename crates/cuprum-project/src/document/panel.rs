@@ -1,6 +1,7 @@
-//! FR4 blank definition (`PanelDoc`): size and panel-space origin in the
-//! panel's coordinate system. Stored in `Manifest::panel` (schema v4+);
-//! previously lived in a separate `panel.json` container entry (schema ≤ v3).
+//! FR4 blank definition (`PanelDoc`): size, panel-space origin, board instances,
+//! and tooling holes. Embedded in `Manifest::panel` (manifest schema v4+;
+//! previously a separate `panel.json` entry). `PanelDoc` itself is schema v2
+//! (added `instances` + `tooling_holes`).
 
 use serde::{Deserialize, Serialize};
 
@@ -55,10 +56,12 @@ pub struct ToolingHole {
 }
 
 /// Bump when the on-disk shape changes incompatibly.
-pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 1;
+/// v2: panel carries board instances and tooling holes.
+pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 2;
 
-/// The FR4 blank definition (size + panel-space origin). Stored in
-/// `Manifest::panel` since schema v4; previously a separate `panel.json` entry.
+/// The FR4 blank definition (size + panel-space origin + layout). Embedded in
+/// `Manifest::panel` since manifest schema v4; previously a separate `panel.json`
+/// entry. Panel doc schema: see `CURRENT_PANEL_SCHEMA_VERSION`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PanelDoc {
     pub schema_version: u32,
@@ -72,6 +75,12 @@ pub struct PanelDoc {
     /// Panel-space origin Y (mm). Default 0 = bottom-left corner.
     #[serde(default)]
     pub origin_y_mm: f32,
+    /// Board instances placed on this panel.
+    #[serde(default)]
+    pub instances: Vec<BoardInstance>,
+    /// Tooling holes drilled into this panel.
+    #[serde(default)]
+    pub tooling_holes: Vec<ToolingHole>,
 }
 
 impl PanelDoc {
@@ -83,6 +92,8 @@ impl PanelDoc {
             height_mm,
             origin_x_mm: 0.0,
             origin_y_mm: 0.0,
+            instances: Vec::new(),
+            tooling_holes: Vec::new(),
         }
     }
 }
@@ -149,6 +160,24 @@ mod tests {
         let json = r#"{"id":"t","x_mm":0.0,"y_mm":0.0,"diameter_mm":3.0}"#;
         let th: ToolingHole = serde_json::from_str(json).unwrap();
         assert_eq!(th.role, ToolingHoleRole::Registration);
+    }
+
+    #[test]
+    fn panel_v1_loads_with_empty_instances() {
+        // A v1 PanelDoc has neither `instances` nor `tooling_holes`.
+        let json = r#"{"schema_version":1,"width_mm":200.0,"height_mm":100.0}"#;
+        let p: PanelDoc = serde_json::from_str(json).unwrap();
+        assert!(p.instances.is_empty());
+        assert!(p.tooling_holes.is_empty());
+    }
+
+    #[test]
+    fn panel_new_is_schema_v2_empty() {
+        let p = PanelDoc::new(150.0, 100.0);
+        assert_eq!(p.schema_version, CURRENT_PANEL_SCHEMA_VERSION);
+        assert_eq!(CURRENT_PANEL_SCHEMA_VERSION, 2);
+        assert!(p.instances.is_empty());
+        assert!(p.tooling_holes.is_empty());
     }
 
     #[test]
