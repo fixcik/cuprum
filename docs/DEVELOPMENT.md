@@ -17,6 +17,51 @@ get a stale result from the cache. The tags live in
 A change in `geometry.rs` can touch **both** mesh (if polygons are affected)
 **and** metrics (if measurements are affected) — bump both relevant tags.
 
+## Tracing / profiling
+
+Heavy pipeline phases are instrumented with [`tracing`](https://docs.rs/tracing)
+spans. Tracing is **off by default** and compiled into every build (including
+release — profile optimized builds, not debug). Enable it at runtime via the
+`CUPRUM_TRACE` env var:
+
+| Value | Behavior |
+|-------|----------|
+| unset | tracing sleeps (default) |
+| `CUPRUM_TRACE=1` / `on` / `true` | on, default directory |
+| `CUPRUM_TRACE=/path/to/dir` | on, write traces there |
+| `CUPRUM_TRACE_FILTER=…` | optional [`EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) directive (default: capture everything) |
+
+Each traced operation writes **one** Chrome Trace Event JSON file (`<op>_<seq>_<ts>.json`).
+The absolute path of every file is printed to stderr (`cuprum: trace → …`), so you
+don't have to hunt for it. Default directories:
+
+- **UI:** `app_cache_dir()/traces` (sibling of the artifact cache).
+- **CLI:** `./cuprum-traces/` in the current directory.
+
+**View a trace:** open the JSON in <https://ui.perfetto.dev> — you get a timeline
+with nested spans and per-thread tracks (rayon parallelism included).
+
+```sh
+# CLI example
+CUPRUM_TRACE=1 cargo run -p cuprum-cli -- render testdata/board.gbr -o /tmp/out.png
+# UI example
+cd cuprum-ui && CUPRUM_TRACE=1 pnpm tauri dev
+```
+
+Mechanism: `cuprum_core::trace::operation(name, dir, f)` runs `f` under a
+thread-scoped subscriber + `tracing-chrome` layer. Spans are created with
+`#[tracing::instrument]` / `info_span!` in `cuprum-core` and are near-zero when no
+subscriber is active. Because the work runs synchronously on one thread, all its
+spans land in that operation's file; parallel UI operations run on distinct
+threads and so get distinct files. Rayon parallel loops are wrapped by a single
+span on the parent thread (we don't instrument per-iteration).
+
+**Tracing does not change derived output**, so the cache version tags above do
+**not** need bumping when you add or move spans.
+
+Instrumented so far (extended over time): the `render` operation covers
+`gerber::parse_file` and `gerber::render_preview_png`.
+
 ## CI & releases
 
 Two GitHub Actions workflows live in `.github/workflows/`:
