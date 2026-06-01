@@ -18,6 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::{self, Poly};
@@ -585,23 +586,46 @@ fn copper_clearance_width_hotspots(
     copper_layers: &[(&str, Vec<Poly>)],
     layers: &[MetricLayerInput],
 ) -> (Vec<Hotspot>, Vec<Hotspot>) {
-    let mut clear_hots: Vec<Hotspot> = Vec::new();
-    let mut width_hots: Vec<Hotspot> = Vec::new();
-    for (side, polys) in copper_layers {
-        let (c, _) = geometry::clearance_width_hotspots(polys);
-        clear_hots.extend(top_n(c, 40).into_iter().map(|h| to_hotspot(h, side)));
-    }
-    for l in layers.iter().filter(|l| l.role == Role::Copper) {
-        let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
-            continue;
-        };
-        if region.is_empty() {
-            continue;
-        }
-        let side = layer_side(l);
-        let (_, w) = geometry::clearance_width_hotspots(&region);
-        width_hots.extend(top_n(w, 40).into_iter().map(|h| to_hotspot(h, side)));
-    }
+    // Per-layer work runs in parallel. `par_iter().map(...).collect()` preserves
+    // input order, and each `clearance_width_hotspots` call is pure, so the
+    // concatenated result is identical to a sequential pass (bit-for-bit) — see
+    // `copper_hotspots_match_sequential_reference`.
+    let clear_hots: Vec<Hotspot> = copper_layers
+        .par_iter()
+        .map(|(side, polys)| {
+            let (c, _) = geometry::clearance_width_hotspots(polys);
+            top_n(c, 40)
+                .into_iter()
+                .map(|h| to_hotspot(h, side))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flatten()
+        .collect();
+
+    let width_hots: Vec<Hotspot> = layers
+        .par_iter()
+        .filter(|l| l.role == Role::Copper)
+        .filter_map(|l| {
+            let region = geometry::region_polygons(l.bytes, &[]).ok()?;
+            if region.is_empty() {
+                return None;
+            }
+            let side = layer_side(l);
+            let (_, w) = geometry::clearance_width_hotspots(&region);
+            Some(
+                top_n(w, 40)
+                    .into_iter()
+                    .map(|h| to_hotspot(h, side))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flatten()
+        .collect();
+
     (clear_hots, width_hots)
 }
 
