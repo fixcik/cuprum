@@ -96,7 +96,9 @@ fn run_with_config<T>(
         .ok()
         .and_then(|s| tracing_subscriber::EnvFilter::try_new(s).ok())
         .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("trace"));
-    let subscriber = tracing_subscriber::registry().with(filter).with(chrome_layer);
+    let subscriber = tracing_subscriber::registry()
+        .with(filter)
+        .with(chrome_layer);
 
     let result = tracing::subscriber::with_default(subscriber, || {
         let _root = tracing::info_span!("operation", op = name).entered();
