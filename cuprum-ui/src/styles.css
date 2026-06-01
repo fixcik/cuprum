@@ -30,6 +30,10 @@
   /* Preview backdrop — matches the 3D view background (#1b1f24). */
   --pcb-preview: 213 14% 12%;
   --radius: 0.5rem;
+  /* Tell the engine the UI is dark so native form controls (notably the
+     `<input type="number">` spin buttons in WKWebView) render light glyphs on a
+     dark base instead of black arrows on a white box. */
+  color-scheme: dark;
 }
 
 @theme inline {
