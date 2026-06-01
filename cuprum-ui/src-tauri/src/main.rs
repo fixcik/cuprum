@@ -201,13 +201,19 @@ fn run_print(app: &AppHandle, req: PrintRequest) -> anyhow::Result<()> {
         })
         .collect();
 
-    let screen = compose::compose_layout(&placements, req.mirror, req.invert, true)?;
-    let params = ExposureParams {
-        exposure_time_s: req.exposure_s,
-        light_pwm: req.pwm,
-    };
-    let goo_file = goo::single_layer_exposure(SCREEN_W, SCREEN_H, &screen, params)?;
-    let bytes = goo::serialize(&goo_file);
+    let bytes = cuprum_core::trace::operation(
+        "compose",
+        &traces_dir(app),
+        || -> anyhow::Result<Vec<u8>> {
+            let screen = compose::compose_layout(&placements, req.mirror, req.invert, true)?;
+            let params = ExposureParams {
+                exposure_time_s: req.exposure_s,
+                light_pwm: req.pwm,
+            };
+            let goo_file = goo::single_layer_exposure(SCREEN_W, SCREEN_H, &screen, params)?;
+            Ok(goo::serialize(&goo_file))
+        },
+    )?;
 
     emit_status(app, "discovering", "finding printer…");
     let device = sdcp::discover_one(DISCOVERY_TIMEOUT)?;
@@ -694,7 +700,10 @@ fn render_or_cache_svg(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto
         }
     }
     let id = format!("ly{}", &key[..8]);
-    let g = cuprum_core::svg::render_layer_svg(bytes, &id).map_err(|e| e.to_string())?;
+    let g = cuprum_core::trace::operation("svg", &traces_dir(app), || {
+        cuprum_core::svg::render_layer_svg(bytes, &id)
+    })
+    .map_err(|e| e.to_string())?;
     let dto = LayerGeometryDto {
         svg_body: g.svg_body,
         bbox: BBoxDto {
@@ -900,7 +909,9 @@ async fn project_board_mesh(
                     }
                 })
                 .collect();
-            pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))
+            cuprum_core::trace::operation("mesh", &traces_dir(&app), || {
+                pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))
+            })
         });
         Ok(blob)
     })
@@ -961,7 +972,9 @@ async fn project_board_metrics(
                     }
                 })
                 .collect();
-            let metrics = cuprum_core::metrics::board_metrics(&inputs);
+            let metrics = cuprum_core::trace::operation("metrics", &traces_dir(&app), || {
+                cuprum_core::metrics::board_metrics(&inputs)
+            });
             if let Some(dir) = artifact_cache_dir(&app) {
                 if let Ok(blob) = serde_json::to_vec(&metrics) {
                     cuprum_core::diskcache::put(
