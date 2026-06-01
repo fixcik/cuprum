@@ -1,7 +1,7 @@
 //! Project manifest — the `manifest.json` inside a `.cuprum` container.
 
 use crate::layer::LayerType;
-use crate::panel::PanelDoc;
+use crate::document::panel::PanelDoc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -141,7 +141,7 @@ pub struct Placement {
 #[cfg(test)]
 mod manifest_panel_tests {
     use super::*;
-    use crate::panel::PanelDoc;
+    use crate::document::panel::PanelDoc;
 
     #[test]
     fn manifest_round_trips_with_panel() {

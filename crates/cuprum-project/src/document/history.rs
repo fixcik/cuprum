@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::manifest::Manifest;
+use crate::document::manifest::Manifest;
 
 /// Max retained restore points; oldest beyond this are pruned on each write.
 pub const MAX_RESTORE_POINTS: usize = 50;
@@ -131,7 +131,7 @@ fn prune(workdir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::Manifest;
+    use crate::document::manifest::Manifest;
 
     fn scratch(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("cuprum-hist-{tag}-{}", std::process::id()));
@@ -170,7 +170,7 @@ mod tests {
         let wd = scratch("unsafe");
         std::fs::write(
             wd.join("manifest.json"),
-            serde_json::to_vec(&crate::manifest::Manifest::new("x")).unwrap(),
+            serde_json::to_vec(&crate::document::manifest::Manifest::new("x")).unwrap(),
         )
         .unwrap();
         assert!(write(&wd, "../escape", None, 1).is_err());

@@ -1,6 +1,6 @@
-//! `panel.json` — the physical FR4 blank: size and panel-space origin. Lives in
-//! its own container entry so moving boards (Phase 2) never rewrites the
-//! manifest. Board instances and tooling holes will be added here later.
+//! FR4 blank definition (`PanelDoc`): size and panel-space origin in the
+//! panel's coordinate system. Stored in `Manifest::panel` (schema v4+);
+//! previously lived in a separate `panel.json` container entry (schema ≤ v3).
 
 use serde::{Deserialize, Serialize};
 

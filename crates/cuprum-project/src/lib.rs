@@ -3,24 +3,22 @@
 //! deps) so it builds and tests fast; the UI's Tauri layer is a thin proxy.
 
 pub mod catalog;
-pub mod container;
-pub mod history;
+pub mod document;
 pub mod import;
 pub mod layer;
-pub mod manifest;
-pub mod panel;
-pub mod workdir;
 
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
+use document::{container, manifest};
+
 pub use catalog::RecentProject;
-pub use history::{RestorePoint, RestorePointMeta};
+pub use document::history::{RestorePoint, RestorePointMeta};
+pub use document::manifest::{GerberFile, Manifest, Stackup};
+pub use document::panel::PanelDoc;
+pub use document::workdir::{Orphan, SessionMarker};
 pub use layer::LayerType;
-pub use manifest::{GerberFile, Manifest, Stackup};
-pub use panel::PanelDoc;
-pub use workdir::{Orphan, SessionMarker};
 
 /// Stable error token returned when a `.cuprum` file is missing on disk.
 pub const PROJECT_NOT_FOUND: &str = "PROJECT_NOT_FOUND";
@@ -399,7 +397,7 @@ mod tests {
         // An empty working dir with a manifest (as `extract` would leave it).
         let wd = dir.join("wd");
         std::fs::create_dir_all(&wd).unwrap();
-        crate::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
+        crate::document::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
 
         let design = add_design_to_workdir(&wd, &zip).unwrap();
 
@@ -449,7 +447,7 @@ mod tests {
         }
         let wd = dir.join("wd");
         std::fs::create_dir_all(&wd).unwrap();
-        crate::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
+        crate::document::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
         assert!(add_design_to_workdir(&wd, &zip).is_err());
         assert!(!wd.join("gerbers/design-1").exists());
         std::fs::remove_dir_all(&dir).ok();
@@ -551,8 +549,8 @@ mod tests {
 
     #[test]
     fn configure_panel_sets_stackup_and_panel() {
-        use crate::manifest::Stackup;
-        use crate::panel::PanelDoc;
+        use crate::document::manifest::Stackup;
+        use crate::document::panel::PanelDoc;
         let dir = std::env::temp_dir().join(format!("cuprum-cfgpanel-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("catalog.sqlite");
@@ -588,8 +586,8 @@ mod tests {
 
     #[test]
     fn configure_panel_rejects_bad_dimensions() {
-        use crate::manifest::Stackup;
-        use crate::panel::PanelDoc;
+        use crate::document::manifest::Stackup;
+        use crate::document::panel::PanelDoc;
         let dir = std::env::temp_dir().join(format!("cuprum-badpanel-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("catalog.sqlite");
@@ -618,8 +616,8 @@ mod tests {
 
     #[test]
     fn reimport_preserves_stackup() {
-        use crate::manifest::Stackup;
-        use crate::panel::PanelDoc;
+        use crate::document::manifest::Stackup;
+        use crate::document::panel::PanelDoc;
         let dir = std::env::temp_dir().join(format!("cuprum-reimp-stk-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("catalog.sqlite");
@@ -647,7 +645,7 @@ mod tests {
 
     #[test]
     fn open_migrates_legacy_panel_json() {
-        use crate::panel::PanelDoc;
+        use crate::document::panel::PanelDoc;
         let dir = std::env::temp_dir().join(format!("cuprum-migrate-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("catalog.sqlite");
