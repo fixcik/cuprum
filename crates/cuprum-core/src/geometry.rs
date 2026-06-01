@@ -693,12 +693,15 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
 
     let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
         std::collections::HashMap::new();
-    for (ei, e) in edges.iter().enumerate() {
-        let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
-        let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
-        for gx in cx0..=cx1 {
-            for gy in cy0..=cy1 {
-                grid.entry((gx, gy)).or_default().push(ei);
+    {
+        let _gb = tracing::info_span!("grid_build", edges = edges.len()).entered();
+        for (ei, e) in edges.iter().enumerate() {
+            let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
+            let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
+            for gx in cx0..=cx1 {
+                for gy in cy0..=cy1 {
+                    grid.entry((gx, gy)).or_default().push(ei);
+                }
             }
         }
     }
@@ -706,6 +709,13 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
     let max_gap = cell * 2.0; // matches the ±2-cell neighbour search radius
     let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
     let mut budget = DIST_BUDGET;
+    let sweep_span = tracing::info_span!(
+        "sweep",
+        edges = edges.len(),
+        seg_pairs = tracing::field::Empty
+    );
+    let mut seg_pairs: u64 = 0;
+    let _sw = sweep_span.clone().entered();
     'sweep: for (ei, e) in edges.iter().enumerate() {
         let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
         let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
@@ -731,6 +741,7 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
                         break 'sweep;
                     }
                     budget -= 1;
+                    seg_pairs += 1;
                     let (pa, pb, d) = seg_seg_closest(e.a, e.b, f.a, f.b);
                     if d > max_gap {
                         continue;
@@ -788,17 +799,22 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
             }
         }
     }
+    drop(_sw);
+    sweep_span.record("seg_pairs", seg_pairs);
     // Persistence filter (drops trace-bend / pad-seam false necks) is O(edges)
     // per candidate, so run it ONLY on the final reported set — never in the hot
     // sweep above (a dense pour yields tens of thousands of candidates). Each
     // surviving hotspot's island is found by midpoint containment.
-    let width = dedup_top(width)
-        .into_iter()
-        .filter(|&(pa, pb, d)| {
-            let mid = [(pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0];
-            poly_containing(polys, mid).is_none_or(|poly| neck_persists(poly, pa, pb, d))
-        })
-        .collect();
+    let width = {
+        let _wf = tracing::info_span!("width_filter").entered();
+        dedup_top(width)
+            .into_iter()
+            .filter(|&(pa, pb, d)| {
+                let mid = [(pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0];
+                poly_containing(polys, mid).is_none_or(|poly| neck_persists(poly, pa, pb, d))
+            })
+            .collect()
+    };
     (dedup_top(clear), width)
 }
 
