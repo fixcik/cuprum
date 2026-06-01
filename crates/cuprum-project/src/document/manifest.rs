@@ -114,6 +114,8 @@ mod manifest_panel_tests {
         let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
         let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.panel.is_none());
+        // v3 → current: the version bump must happen on read.
+        assert_eq!(m.schema_version, CURRENT_SCHEMA_VERSION);
     }
 }
 
