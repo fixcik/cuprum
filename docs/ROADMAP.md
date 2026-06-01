@@ -20,7 +20,9 @@
 
 **Чего нет:**
 
-- Panel-модели (всё ещё `placements[]` per-gerber, не BoardInstance на Panel)
+- Panel-модели в UI: структуры данных (`BoardInstance`/`ToolingHole`, `PanelDoc`
+  v2) заведены, но **редактора размещения и Panel-превью ещё нет** (дизайны пока
+  не кладутся на панель)
 - CNC вообще: ни G-code, ни ToolLibrary, ни auto-leveling
 - Ни одной реальной платы в руках
 
@@ -70,7 +72,7 @@ Panel-модель ниже. Ведётся инкрементальными PR 
 [`PROJECT.md`](PROJECT.md), чтобы остальное строилось на ней, а не на
 обходных путях.
 
-- [ ] Schema migration: `placements[]` → `Panel + BoardInstance[] + ToolingHole[]`
+- [x] Schema migration: `placements[]` → `Panel + BoardInstance[] + ToolingHole[]` (✅ 2026-06-01, [PR #12](https://github.com/fixcik/cuprum/pull/12) рефактор `document/` + централизованные миграции, [PR #13](https://github.com/fixcik/cuprum/pull/13) структуры + схема v5)
 - [x] Переименование `manifest.imports[]` → `manifest.designs[]` (✅ 2026-05-31, PR #4)
 - [x] `Stackup` в манифесте: `copper_weight_oz`, `substrate_thickness_mm`, `double_sided` (+ `panel` в манифесте, схема v4) (✅ 2026-05-31, PR #4)
 - [ ] Panel editor UI: холст в Panel space, drag BoardInstance, инструмент «ToolingHole»
