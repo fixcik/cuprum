@@ -118,9 +118,16 @@ struct PreviewResult {
 /// Async + spawn_blocking: rasterization is CPU-bound; keep it off the main
 /// thread so concurrent renders (reload) don't serialize and the UI stays live.
 #[tauri::command]
-async fn render_preview(path: String, max_px: u32) -> Result<PreviewResult, String> {
+async fn render_preview(
+    app: AppHandle,
+    path: String,
+    max_px: u32,
+) -> Result<PreviewResult, String> {
+    let dir = traces_dir(&app);
     let (png, info, timings) = tauri::async_runtime::spawn_blocking(move || {
-        cache::preview_png(std::path::Path::new(&path), max_px)
+        cuprum_core::trace::operation("render", &dir, || {
+            cache::preview_png(std::path::Path::new(&path), max_px)
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -662,6 +669,15 @@ const ARTIFACT_CACHE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60); // 7
 /// be resolved (then caching is simply skipped).
 fn artifact_cache_dir(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_cache_dir().ok().map(|d| d.join("artifacts"))
+}
+
+/// Directory for per-operation trace files (sibling of the artifact cache).
+/// Falls back to the OS temp dir if the app cache dir can't be resolved.
+fn traces_dir(app: &AppHandle) -> PathBuf {
+    app.path()
+        .app_cache_dir()
+        .map(|d| d.join("traces"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
 /// Render one gerber's SVG, going through the disk cache. The SVG element-id is
