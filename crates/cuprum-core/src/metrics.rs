@@ -628,24 +628,31 @@ fn copper_clearance_width_hotspots(
                 .collect()
         },
         || {
+            // `par_iter().map()` over the slice stays an *indexed* parallel iterator,
+            // so `collect` preserves input order by API contract (unlike `filter`,
+            // which drops to an unindexed iterator). Non-copper / empty-region layers
+            // contribute an empty Vec that `flatten` drops — same result as filtering,
+            // but with a guaranteed order → bit-identical regardless of rayon version.
             layers
                 .par_iter()
-                .filter(|l| l.role == Role::Copper)
-                .filter_map(|l| {
+                .map(|l| {
                     tracing::dispatcher::with_default(&dispatch, || {
                         span.in_scope(|| {
-                            let region = geometry::region_polygons(l.bytes, &[]).ok()?;
+                            if l.role != Role::Copper {
+                                return Vec::new();
+                            }
+                            let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
+                                return Vec::new();
+                            };
                             if region.is_empty() {
-                                return None;
+                                return Vec::new();
                             }
                             let side = layer_side(l);
                             let (_, w) = geometry::clearance_width_hotspots(&region);
-                            Some(
-                                top_n(w, 40)
-                                    .into_iter()
-                                    .map(|h| to_hotspot(h, side))
-                                    .collect::<Vec<_>>(),
-                            )
+                            top_n(w, 40)
+                                .into_iter()
+                                .map(|h| to_hotspot(h, side))
+                                .collect::<Vec<_>>()
                         })
                     })
                 })
