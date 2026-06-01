@@ -4,6 +4,27 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Which physical copper layer a board instance sits on. `side` (top/bottom) is
+/// derived; the enum is widened to `In1..InN` later for multilayer without a
+/// migration.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum LayerRef {
+    #[default]
+    Top,
+    Bottom,
+}
+
+/// Purpose of a tooling hole on the panel.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolingHoleRole {
+    #[default]
+    Registration,
+    Flip,
+    Unused,
+}
+
 /// Bump when the on-disk shape changes incompatibly.
 pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 1;
 
@@ -40,6 +61,25 @@ impl PanelDoc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layer_ref_serializes_pascal_case() {
+        assert_eq!(serde_json::to_string(&LayerRef::Top).unwrap(), "\"Top\"");
+        assert_eq!(
+            serde_json::to_string(&LayerRef::Bottom).unwrap(),
+            "\"Bottom\""
+        );
+        assert_eq!(LayerRef::default(), LayerRef::Top);
+    }
+
+    #[test]
+    fn role_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&ToolingHoleRole::Registration).unwrap(),
+            "\"registration\""
+        );
+        assert_eq!(ToolingHoleRole::default(), ToolingHoleRole::Registration);
+    }
 
     #[test]
     fn panel_json_round_trip() {
