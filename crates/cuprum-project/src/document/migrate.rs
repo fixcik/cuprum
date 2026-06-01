@@ -17,6 +17,12 @@ use super::manifest::{Manifest, CURRENT_SCHEMA_VERSION};
 pub fn manifest_from_value(mut v: Value) -> Result<Manifest> {
     let from = v.get("schema_version").and_then(Value::as_u64).unwrap_or(1) as u32;
 
+    if from > CURRENT_SCHEMA_VERSION {
+        anyhow::bail!(
+            "manifest schema version {from} is newer than supported ({CURRENT_SCHEMA_VERSION}); update Cuprum to open this project"
+        );
+    }
+
     // Steps are ordered by dependency, not strictly by version number: the
     // imports→designs rename must run before gerber normalization, which only
     // looks under `designs`.
@@ -87,5 +93,11 @@ mod tests {
         let back = manifest_from_slice(&bytes).unwrap();
         assert_eq!(back.name, "demo");
         assert_eq!(back.schema_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn rejects_future_schema_version() {
+        let bytes = br#"{"schema_version":999,"name":"x","designs":[]}"#;
+        assert!(manifest_from_slice(bytes).is_err());
     }
 }
