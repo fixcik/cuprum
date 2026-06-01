@@ -59,8 +59,35 @@ span on the parent thread (we don't instrument per-iteration).
 **Tracing does not change derived output**, so the cache version tags above do
 **not** need bumping when you add or move spans.
 
-Instrumented so far (extended over time): the `render` operation covers
-`gerber::parse_file` and `gerber::render_preview_png`.
+### Operations (one trace file each)
+
+| Operation | Where | Heavy work captured |
+|-----------|-------|---------------------|
+| `render`  | UI `render_preview`, CLI `render` | `gerber::parse_file`, `render_preview_png` |
+| `compose` | UI `run_print`, CLI `prepare`/`render` | `compose::compose_layout` (+ `rasterize`/`invert` spans), `goo::single_layer_exposure`/`serialize` |
+| `mesh`    | UI `project_board_mesh` (cache miss) | `mesh::board_geometry` (+ `triangulate_parallel`), polygon builders |
+| `metrics` | UI `project_board_metrics` (cache miss) | `metrics::board_metrics`, `geometry::clearance_width_hotspots` |
+| `svg`     | UI `render_gerber_svg` (cache miss) | `svg::render_layer_svg` |
+| `gerber-info` | CLI `gerber-info` | `gerber::parse_file` |
+
+UI operations that go through the artifact disk cache (`mesh`/`metrics`/`svg`)
+only write a trace on a **cache miss** — a cache hit does no heavy work, so there
+is nothing to profile.
+
+### Instrumented spans (in `cuprum-core`)
+
+- `gerber.rs`: `parse_file`, `render_preview_png`
+- `geometry.rs`: `layer_polygons`, `copper_polygons`, `region_polygons`,
+  `mask_polygons`, `fill_polygons`, `clearance_width_hotspots`
+- `metrics.rs`: `board_metrics`
+- `mesh.rs`: `board_geometry` + `triangulate_parallel` (the rayon section)
+- `compose.rs`: `compose_layout` + `rasterize` + `invert` (the rayon sections)
+- `goo.rs`: `single_layer_exposure`, `serialize`
+- `svg.rs`: `render_layer_svg`
+- `diskcache.rs`: `get` (records a `hit` = true/false field), `put`
+
+Heavy inner loops (e.g. `geometry::seg_seg_closest`) are intentionally not
+instrumented per-iteration — only the enclosing phase span is.
 
 ## CI & releases
 
