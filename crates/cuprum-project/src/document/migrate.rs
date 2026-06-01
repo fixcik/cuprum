@@ -23,14 +23,17 @@ pub fn manifest_from_value(mut v: Value) -> Result<Manifest> {
         );
     }
 
-    // Steps are ordered by dependency, not strictly by version number: the
-    // imports→designs rename must run before gerber normalization, which only
-    // looks under `designs`.
+    // Steps v1→v3 are ordered by dependency: the imports→designs rename must run
+    // before gerber normalization (which only looks under `designs`). Later steps
+    // (v4+) have no cross-step dependency and are ordered by version number.
     if from < 3 {
         steps::rename_imports_to_designs(&mut v);
     }
     if from < 2 {
         steps::gerber_strings_to_objects(&mut v);
+    }
+    if from < 5 {
+        steps::drop_placements(&mut v);
     }
 
     // Ensure schema_version is present so the Manifest struct (non-optional
@@ -99,5 +102,24 @@ mod tests {
     fn rejects_future_schema_version() {
         let bytes = br#"{"schema_version":999,"name":"x","designs":[]}"#;
         assert!(manifest_from_slice(bytes).is_err());
+    }
+
+    #[test]
+    fn v4_drops_placements_and_bumps_to_v5() {
+        let bytes = br#"{"schema_version":4,"name":"x","designs":[],
+            "placements":[{"gerber":"g","x_mm":1.0,"y_mm":2.0,"rotation_deg":0}]}"#;
+        let m = manifest_from_slice(bytes).unwrap();
+        assert_eq!(m.schema_version, 5);
+        // `placements` no longer exists on the struct; re-serializing must not contain it.
+        let reserialized = serde_json::to_value(&m).unwrap();
+        assert!(reserialized.get("placements").is_none());
+    }
+
+    #[test]
+    fn v5_manifest_passes_through_unchanged() {
+        let bytes = br#"{"schema_version":5,"name":"demo","designs":[]}"#;
+        let m = manifest_from_slice(bytes).unwrap();
+        assert_eq!(m.schema_version, 5);
+        assert_eq!(m.name, "demo");
     }
 }

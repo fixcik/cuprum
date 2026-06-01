@@ -33,6 +33,14 @@ pub fn gerber_strings_to_objects(v: &mut Value) {
     }
 }
 
+/// v4→v5: `placements[]` (dead per-gerber layout) is removed; the panel's
+/// `instances[]` replaces it. Safe no-op on v1–v3, where the key never existed.
+pub fn drop_placements(v: &mut Value) {
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("placements");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,5 +84,13 @@ mod tests {
             json!({ "designs": [{ "gerbers": [{ "path": "x", "layer_type": "topCopper" }] }] });
         gerber_strings_to_objects(&mut v);
         assert_eq!(v["designs"][0]["gerbers"][0]["layer_type"], "topCopper");
+    }
+
+    #[test]
+    fn drop_placements_removes_key() {
+        let mut v = json!({ "placements": [{ "gerber": "g" }], "name": "x" });
+        drop_placements(&mut v);
+        assert!(v.get("placements").is_none());
+        assert_eq!(v["name"], "x");
     }
 }
