@@ -369,6 +369,7 @@ fn segs_cross(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
 }
 
 /// Closest point on segment `ab` to `p`, plus the distance.
+#[inline]
 fn point_seg_closest(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> ([f64; 2], f64) {
     let (abx, aby) = (b[0] - a[0], b[1] - a[1]);
     let len2 = abx * abx + aby * aby;
@@ -382,6 +383,7 @@ fn point_seg_closest(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> ([f64; 2], f64) {
 }
 
 /// Proper intersection point of segments `ab` and `cd`, if they cross.
+#[inline]
 fn segs_intersection(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> Option<[f64; 2]> {
     if !segs_cross(a, b, c, d) {
         return None;
@@ -397,6 +399,7 @@ fn segs_intersection(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> Opti
 }
 
 /// The two closest points (one on each segment) and their distance.
+#[inline]
 fn seg_seg_closest(
     a: [f64; 2],
     b: [f64; 2],
@@ -446,6 +449,7 @@ fn seg_seg_closest(
 }
 
 /// Ray-cast point-in-ring test (ring in f32, point in f64 mm).
+#[inline]
 fn point_in_ring(p: [f64; 2], ring: &[[f32; 2]]) -> bool {
     let n = ring.len();
     if n < 3 {
@@ -626,6 +630,7 @@ fn collect_edges(polys: &[Poly]) -> Vec<GEdge> {
 }
 
 /// Two edges of the same ring that share a vertex (consecutive, cyclic).
+#[inline]
 fn adjacent(x: &GEdge, y: &GEdge) -> bool {
     if x.poly != y.poly || x.ring != y.ring {
         return false;
@@ -722,22 +727,29 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
     let max_gap = cell * 2.0; // matches the ±2-cell neighbour search radius
     let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
     let mut budget = DIST_BUDGET;
+    // Per-edge dedup of `ej` (an edge spans several cells, so the same neighbour
+    // appears in multiple buckets). A generation-stamped array replaces a fresh
+    // `HashSet` per edge: bump `visit_gen` to "clear" it in O(1) — no per-edge
+    // allocation in the hot loop. Same membership semantics → identical results.
+    let mut visited = vec![0u32; edges.len()];
+    let mut visit_gen = 0u32;
     let _sw = tracing::info_span!("sweep", edges = edges.len()).entered();
     'sweep: for (ei, e) in edges.iter().enumerate() {
+        visit_gen += 1;
         let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
         let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
         // ±2 cells: two edges within `cell` of each other can land 2 grid indices
         // apart once float rounding nudges a coordinate past a cell boundary.
-        let mut seen = std::collections::HashSet::new();
         for gx in cx0 - 2..=cx1 + 2 {
             for gy in cy0 - 2..=cy1 + 2 {
                 let Some(bucket) = grid.get(&(gx, gy)) else {
                     continue;
                 };
                 for &ej in bucket {
-                    if ej <= ei || !seen.insert(ej) {
+                    if ej <= ei || visited[ej] == visit_gen {
                         continue;
                     }
+                    visited[ej] = visit_gen;
                     let f = &edges[ej];
                     let cross = e.poly != f.poly;
                     let same_nonadj = e.poly == f.poly && !adjacent(e, f);
