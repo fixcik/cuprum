@@ -11,13 +11,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use document::{container, manifest};
-
 pub use catalog::RecentProject;
 pub use document::history::{RestorePoint, RestorePointMeta};
 pub use document::manifest::{GerberFile, Manifest, Stackup};
 pub use document::panel::PanelDoc;
 pub use document::workdir::{Orphan, SessionMarker};
+pub use document::{container, history, manifest, panel, workdir};
 pub use layer::LayerType;
 
 /// Stable error token returned when a `.cuprum` file is missing on disk.
