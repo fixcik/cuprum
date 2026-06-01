@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PcbPreviewPlaceholder } from "@/components/home/PcbPreviewPlaceholder";
 import { type RecentProject } from "@/lib/api";
@@ -69,34 +69,55 @@ export function RecentTile({
     );
   }
 
+  // Trash overlay: removes the project from the recents catalog only (the .cuprum
+  // file on disk is left untouched). Sibling of the open-button, not nested — a
+  // button inside a button is invalid HTML.
+  const removeButton = (
+    <button
+      type="button"
+      onClick={() => removeRecent(project.path)}
+      aria-label={t("removeRecent")}
+      title={t("removeRecent")}
+      className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+    >
+      <Trash2 className="size-4" />
+    </button>
+  );
+
   if (layout === "list") {
     return (
-      <button
-        type="button"
-        onClick={() => openByPath(project.path)}
-        className="group flex w-full items-center gap-3 rounded-md bg-panel px-2 py-1.5 text-left transition hover:bg-muted"
-        title={project.path}
-      >
-        <PreviewThumb className="aspect-[4/3] w-12 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px] font-semibold text-foreground">{project.name}</div>
-          <div className="truncate text-[10px] text-muted-foreground">{project.path}</div>
-        </div>
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{when}</span>
-      </button>
+      <div className="group relative">
+        <button
+          type="button"
+          onClick={() => openByPath(project.path)}
+          className="flex w-full items-center gap-3 rounded-md bg-panel px-2 py-1.5 text-left transition hover:bg-muted"
+          title={project.path}
+        >
+          <PreviewThumb className="aspect-[4/3] w-12 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-semibold text-foreground">{project.name}</div>
+            <div className="truncate text-[10px] text-muted-foreground">{project.path}</div>
+          </div>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{when}</span>
+        </button>
+        <div className="absolute right-2 top-1/2 -translate-y-1/2">{removeButton}</div>
+      </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => openByPath(project.path)}
-      className="group w-full text-left"
-      title={project.path}
-    >
-      <PreviewThumb className="aspect-[4/3] w-full" />
-      <div className="mt-1.5 truncate text-[12px] font-semibold text-foreground">{project.name}</div>
-      <div className="text-[10px] tabular-nums text-muted-foreground">{when}</div>
-    </button>
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={() => openByPath(project.path)}
+        className="w-full text-left"
+        title={project.path}
+      >
+        <PreviewThumb className="aspect-[4/3] w-full" />
+        <div className="mt-1.5 truncate text-[12px] font-semibold text-foreground">{project.name}</div>
+        <div className="text-[10px] tabular-nums text-muted-foreground">{when}</div>
+      </button>
+      <div className="absolute left-2 top-2">{removeButton}</div>
+    </div>
   );
 }
