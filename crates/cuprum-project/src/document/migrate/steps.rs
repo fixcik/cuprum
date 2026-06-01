@@ -62,6 +62,15 @@ mod tests {
     }
 
     #[test]
+    fn gerber_step_is_noop_before_rename() {
+        // Still keyed `imports`: the gerber step looks only under `designs`, so it
+        // must leave the bare-string gerbers untouched until the rename has run.
+        let mut v = json!({ "imports": [{ "gerbers": ["a.gbr"] }] });
+        gerber_strings_to_objects(&mut v);
+        assert_eq!(v["imports"][0]["gerbers"][0], "a.gbr");
+    }
+
+    #[test]
     fn gerbers_object_left_untouched() {
         let mut v =
             json!({ "designs": [{ "gerbers": [{ "path": "x", "layer_type": "topCopper" }] }] });

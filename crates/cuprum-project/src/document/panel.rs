@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 /// Bump when the on-disk shape changes incompatibly.
 pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 1;
 
-/// The FR4 blank definition stored as `panel.json`.
+/// The FR4 blank definition (size + panel-space origin). Stored in
+/// `Manifest::panel` since schema v4; previously a separate `panel.json` entry.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PanelDoc {
     pub schema_version: u32,

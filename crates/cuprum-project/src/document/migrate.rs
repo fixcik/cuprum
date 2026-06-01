@@ -65,6 +65,22 @@ mod tests {
     }
 
     #[test]
+    fn v2_legacy_shape_migrates() {
+        // v2: still keyed `imports`, but gerbers are already objects.
+        let bytes = br#"{"schema_version":2,"name":"x","imports":[
+            {"id":"design-1","source_name":"a.zip","gerbers":[{"path":"gerbers/design-1/a.gbr","layer_type":"topCopper"}]}
+        ]}"#;
+        let m = manifest_from_slice(bytes).unwrap();
+        assert_eq!(m.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(m.designs.len(), 1);
+        assert_eq!(m.designs[0].gerbers[0].path, "gerbers/design-1/a.gbr");
+        assert_eq!(
+            m.designs[0].gerbers[0].layer_type,
+            crate::layer::LayerType::TopCopper
+        );
+    }
+
+    #[test]
     fn current_shape_round_trips() {
         let m = Manifest::new("demo");
         let bytes = serde_json::to_vec(&m).unwrap();

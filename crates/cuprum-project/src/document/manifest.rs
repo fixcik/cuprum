@@ -124,7 +124,7 @@ mod manifest_panel_tests {
     fn panel_defaults_to_none_when_absent() {
         // A manifest written before the panel field existed (no `panel` key).
         let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
-        let m: Manifest = serde_json::from_str(json).unwrap();
+        let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.panel.is_none());
     }
 }
@@ -172,7 +172,7 @@ mod tests {
     fn manifest_stackup_round_trips_and_defaults_none() {
         // Old files without `stackup` deserialize to None.
         let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
-        let m: Manifest = serde_json::from_str(json).unwrap();
+        let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.stackup.is_none());
 
         // A stackup without `double_sided` (older shape) defaults to single-sided.
