@@ -53,32 +53,38 @@ fn mtime(path: &Path) -> Result<SystemTime> {
 /// entry; otherwise returns the stored bytes instantly.
 pub fn preview_png(path: &Path, max_px: u32) -> Result<(Vec<u8>, RenderInfo, String)> {
     let m = mtime(path)?;
-    if let Some(e) = preview_cache().lock().unwrap().get(path) {
-        if e.mtime == m && e.max_px == max_px {
-            return Ok((e.png.clone(), e.info, format!("{} (cached)", e.summary)));
+    if !crate::diskcache::cache_disabled() {
+        if let Some(e) = preview_cache().lock().unwrap().get(path) {
+            if e.mtime == m && e.max_px == max_px {
+                return Ok((e.png.clone(), e.info, format!("{} (cached)", e.summary)));
+            }
         }
     }
     // Render outside the lock so parallel renders of distinct files don't serialize.
     let (png, info, summary) = gerber::render_preview_png(path, max_px)?;
-    preview_cache().lock().unwrap().insert(
-        path.to_owned(),
-        PreviewEntry {
-            mtime: m,
-            max_px,
-            png: png.clone(),
-            info,
-            summary: summary.clone(),
-        },
-    );
+    if !crate::diskcache::cache_disabled() {
+        preview_cache().lock().unwrap().insert(
+            path.to_owned(),
+            PreviewEntry {
+                mtime: m,
+                max_px,
+                png: png.clone(),
+                info,
+                summary: summary.clone(),
+            },
+        );
+    }
     Ok((png, info, summary))
 }
 
 /// Cached native-pitch mask for compositing the exposure.
 pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
     let m = mtime(path)?;
-    if let Some(e) = mask_cache().lock().unwrap().get(path) {
-        if e.mtime == m {
-            return Ok(e.mask.clone());
+    if !crate::diskcache::cache_disabled() {
+        if let Some(e) = mask_cache().lock().unwrap().get(path) {
+            if e.mtime == m {
+                return Ok(e.mask.clone());
+            }
         }
     }
     let commands = gerber::parse_file(path)?;
@@ -92,12 +98,14 @@ pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
         w: info.px_w,
         h: info.px_h,
     });
-    mask_cache().lock().unwrap().insert(
-        path.to_owned(),
-        MaskEntry {
-            mtime: m,
-            mask: mask.clone(),
-        },
-    );
+    if !crate::diskcache::cache_disabled() {
+        mask_cache().lock().unwrap().insert(
+            path.to_owned(),
+            MaskEntry {
+                mtime: m,
+                mask: mask.clone(),
+            },
+        );
+    }
     Ok(mask)
 }

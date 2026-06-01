@@ -10,9 +10,23 @@
 //! first). Both are passed in by the caller (see the config block in `main.rs`).
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
 use md5::{Digest, Md5};
+
+/// Parse a `CUPRUM_NO_CACHE` value. Pure and testable.
+pub(crate) fn parse_no_cache(value: Option<&str>) -> bool {
+    matches!(value.map(str::trim), Some("1") | Some("on") | Some("true"))
+}
+
+/// True if caching is globally disabled this run (read once from `CUPRUM_NO_CACHE`).
+/// Forces a cold path for profiling — both the disk cache here and the in-memory
+/// caches in `cache.rs` honor it. Results are unchanged (recompute vs. serve).
+pub fn cache_disabled() -> bool {
+    static OFF: OnceLock<bool> = OnceLock::new();
+    *OFF.get_or_init(|| parse_no_cache(std::env::var("CUPRUM_NO_CACHE").ok().as_deref()))
+}
 
 /// Streaming key builder — hash large inputs (multi-MB gerbers) without cloning.
 pub struct Hasher(Md5);
@@ -64,6 +78,9 @@ fn entry_path(dir: &Path, key: &str) -> PathBuf {
 /// is "time since last use" and eviction is least-recently-USED.
 #[tracing::instrument(skip_all, fields(hit = tracing::field::Empty))]
 pub fn get(dir: &Path, key: &str, ttl: Duration) -> Option<Vec<u8>> {
+    if cache_disabled() {
+        return None;
+    }
     let result = get_inner(dir, key, ttl);
     tracing::Span::current().record("hit", result.is_some());
     result
@@ -87,6 +104,9 @@ fn get_inner(dir: &Path, key: &str, ttl: Duration) -> Option<Vec<u8>> {
 /// is swallowed (a cache failure must never break the command).
 #[tracing::instrument(skip_all, fields(bytes = bytes.len()))]
 pub fn put(dir: &Path, key: &str, bytes: &[u8], max_bytes: u64, ttl: Duration) {
+    if cache_disabled() {
+        return;
+    }
     if std::fs::create_dir_all(dir).is_err() {
         return;
     }
@@ -150,6 +170,18 @@ fn prune(dir: &Path, max_bytes: u64, ttl: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_no_cache_maps_values() {
+        assert!(!parse_no_cache(None));
+        assert!(!parse_no_cache(Some("")));
+        assert!(!parse_no_cache(Some("0")));
+        assert!(!parse_no_cache(Some("off")));
+        assert!(parse_no_cache(Some("1")));
+        assert!(parse_no_cache(Some("on")));
+        assert!(parse_no_cache(Some("true")));
+        assert!(parse_no_cache(Some("  1  ")));
+    }
 
     #[test]
     fn put_get_roundtrip_and_budget_evicts_lru() {
