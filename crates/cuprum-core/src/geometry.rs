@@ -709,13 +709,7 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
     let max_gap = cell * 2.0; // matches the ±2-cell neighbour search radius
     let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
     let mut budget = DIST_BUDGET;
-    let sweep_span = tracing::info_span!(
-        "sweep",
-        edges = edges.len(),
-        seg_pairs = tracing::field::Empty
-    );
-    let mut seg_pairs: u64 = 0;
-    let _sw = sweep_span.clone().entered();
+    let _sw = tracing::info_span!("sweep", edges = edges.len()).entered();
     'sweep: for (ei, e) in edges.iter().enumerate() {
         let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
         let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
@@ -741,7 +735,6 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
                         break 'sweep;
                     }
                     budget -= 1;
-                    seg_pairs += 1;
                     let (pa, pb, d) = seg_seg_closest(e.a, e.b, f.a, f.b);
                     if d > max_gap {
                         continue;
@@ -800,7 +793,6 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
         }
     }
     drop(_sw);
-    sweep_span.record("seg_pairs", seg_pairs);
     // Persistence filter (drops trace-bend / pad-seam false necks) is O(edges)
     // per candidate, so run it ONLY on the final reported set — never in the hot
     // sweep above (a dense pour yields tens of thousands of candidates). Each
