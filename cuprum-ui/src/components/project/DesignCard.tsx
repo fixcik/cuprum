@@ -7,6 +7,7 @@ import { api, type ProjectDesign } from "@/lib/api";
 import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export function DesignCard({
   design,
@@ -24,6 +25,8 @@ export function DesignCard({
   const profile = useSettings((s) => s.profile);
   const [layers, setLayers] = useState<StackLayer[]>([]);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const { fmtLen } = useUnitFormat();
 
   // Content-based key (path + type per gerber). Effects depend on this string, not
   // the `design` object, so an unrelated manifest replace (which hands every card
@@ -66,24 +69,28 @@ export function DesignCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
   }, [workingDir, gerbersKey, layerColors]);
 
-  // DFM verdict badge (lazy, cached on disk). Skipped until the outline is assigned.
+  // Board size + DFM verdict badge (lazy, cached on disk). Metrics give the real
+  // board extent, so the size chip shows even for an incomplete design; the verdict
+  // dot, however, stays null until the required layers (outline + copper) are present.
   useEffect(() => {
     let cancelled = false;
     if (!workingDir) return;
-    if (missingRequired(design.gerbers.map((g) => g.layer_type)).length > 0) {
-      setVerdict(null);
-      return;
-    }
+    const hasRequired =
+      missingRequired(design.gerbers.map((g) => g.layer_type)).length === 0;
     api
       .projectBoardMetrics(
         workingDir,
         design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
       )
       .then((m) => {
-        if (!cancelled) setVerdict(overallVerdict(evaluate(m, profile, panel)));
+        if (cancelled) return;
+        setSize({ w: m.board.widthMm, h: m.board.heightMm });
+        setVerdict(hasRequired ? overallVerdict(evaluate(m, profile, panel)) : null);
       })
       .catch(() => {
-        if (!cancelled) setVerdict(null);
+        if (cancelled) return;
+        setSize(null);
+        setVerdict(null);
       });
     return () => {
       cancelled = true;
@@ -111,11 +118,18 @@ export function DesignCard({
           {layers.length > 0 && <LayerStack layers={layers} side="top" chrome={false} />}
           <span className={`absolute right-2 top-2 size-2.5 rounded-full ${dotClass}`} aria-hidden />
         </div>
-        <div className="flex flex-col gap-0.5 p-3">
-          <div className="truncate text-[13px] font-medium text-foreground">{design.source_name}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {t("designs.layerCount", { count: design.gerbers.length })}
+        <div className="flex items-end justify-between gap-2 p-3">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="truncate text-[13px] font-medium text-foreground">{design.source_name}</div>
+            <div className="text-[11px] text-muted-foreground">
+              {t("designs.layerCount", { count: design.gerbers.length })}
+            </div>
           </div>
+          {size && (
+            <div className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+              {fmtLen(size.w)} × {fmtLen(size.h)}
+            </div>
+          )}
         </div>
       </button>
       {/* Delete is a sibling overlay (not nested in the card button — that'd be
