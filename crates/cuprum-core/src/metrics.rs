@@ -355,6 +355,7 @@ fn drill_metrics(layers: &[MetricLayerInput]) -> DrillMetrics {
 }
 
 /// Parse gerber bytes into a `GerberLayer` (same triple as `geometry`/`mesh`).
+#[tracing::instrument(skip_all)]
 fn parse_layer(bytes: &[u8]) -> Option<GerberLayer> {
     let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
     let doc = gerber_viewer::gerber_parser::parse(reader).ok()?;
@@ -496,6 +497,7 @@ const HIGHLIGHT_CAP: usize = 4000;
 /// a min-width check, as a side-tagged hotspot (endpoints + width). The frontend
 /// draws ALL of these as the failing-feature highlight (and clusters them itself
 /// for the stepper), so nothing is dropped to clustering here. Thinnest first.
+#[tracing::instrument(skip_all, fields(role = ?role))]
 fn thin_stroke_hotspots(layers: &[MetricLayerInput], role: Role) -> Vec<Hotspot> {
     let mut hots: Vec<Hotspot> = Vec::new();
     for l in layers.iter().filter(|l| l.role == role) {
@@ -551,6 +553,7 @@ fn stroke_hotspots(layer: &GerberLayer) -> Vec<geometry::Hot> {
 /// Per-plated-hole annular hotspots: hole centre → nearest pad edge, value =
 /// annular ring (pad radius − hole radius). A hole with no pad yields a zero
 /// hotspot at the hole. Worst-first, capped. Through-holes → side "both".
+#[tracing::instrument(skip_all)]
 fn annular_hotspots(
     copper_layers: &[(&str, Vec<Poly>)],
     plated_holes: &[[f64; 3]],
@@ -592,41 +595,73 @@ fn copper_clearance_width_hotspots(
     // `clearance_width_hotspots` call is pure, so the concatenated result is
     // identical to a sequential pass (bit-for-bit), guarded by
     // `copper_hotspots_match_sequential_reference`.
-    let clear_hots: Vec<Hotspot> = copper_layers
-        .par_iter()
-        .map(|(side, polys)| {
-            let (c, _) = geometry::clearance_width_hotspots(polys);
-            top_n(c, 40)
-                .into_iter()
-                .map(|h| to_hotspot(h, side))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .flatten()
-        .collect();
+    //
+    // Propagate the current tracing dispatcher + span onto the rayon workers so the
+    // per-layer spans (and their `grid_build`/`sweep`/`width_filter` children) are
+    // captured in the operation's trace instead of vanishing on worker threads.
+    let dispatch = tracing::dispatcher::get_default(|d| d.clone());
+    let span = tracing::Span::current();
 
-    let width_hots: Vec<Hotspot> = layers
-        .par_iter()
-        .filter(|l| l.role == Role::Copper)
-        .filter_map(|l| {
-            let region = geometry::region_polygons(l.bytes, &[]).ok()?;
-            if region.is_empty() {
-                return None;
-            }
-            let side = layer_side(l);
-            let (_, w) = geometry::clearance_width_hotspots(&region);
-            Some(
-                top_n(w, 40)
-                    .into_iter()
-                    .map(|h| to_hotspot(h, side))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .flatten()
-        .collect();
+    // Clearance and width are independent (full-copper polys vs region polys,
+    // separate outputs), so run the two parallel collections concurrently via
+    // `rayon::join` — all per-layer calls of both contend for the pool at once,
+    // instead of clearance-loop-then-width-loop with a barrier between. Order
+    // within each is still preserved → bit-identical.
+    let (clear_hots, width_hots): (Vec<Hotspot>, Vec<Hotspot>) = rayon::join(
+        || {
+            copper_layers
+                .par_iter()
+                .map(|(side, polys)| {
+                    tracing::dispatcher::with_default(&dispatch, || {
+                        span.in_scope(|| {
+                            let (c, _) = geometry::clearance_width_hotspots(polys);
+                            top_n(c, 40)
+                                .into_iter()
+                                .map(|h| to_hotspot(h, side))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flatten()
+                .collect()
+        },
+        || {
+            // `par_iter().map()` over the slice stays an *indexed* parallel iterator,
+            // so `collect` preserves input order by API contract (unlike `filter`,
+            // which drops to an unindexed iterator). Non-copper / empty-region layers
+            // contribute an empty Vec that `flatten` drops — same result as filtering,
+            // but with a guaranteed order → bit-identical regardless of rayon version.
+            layers
+                .par_iter()
+                .map(|l| {
+                    tracing::dispatcher::with_default(&dispatch, || {
+                        span.in_scope(|| {
+                            if l.role != Role::Copper {
+                                return Vec::new();
+                            }
+                            let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
+                                return Vec::new();
+                            };
+                            if region.is_empty() {
+                                return Vec::new();
+                            }
+                            let side = layer_side(l);
+                            let (_, w) = geometry::clearance_width_hotspots(&region);
+                            top_n(w, 40)
+                                .into_iter()
+                                .map(|h| to_hotspot(h, side))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flatten()
+                .collect()
+        },
+    );
 
     (clear_hots, width_hots)
 }
@@ -689,13 +724,16 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     // Conductor model: connected routed-stroke runs per copper layer. Neck = the
     // thin-trace value; count + total length feed the metrics tab.
     let mut runs: Vec<(crate::conductor::Conductor, &'static str)> = Vec::new();
-    for l in layers.iter().filter(|l| l.role == Role::Copper) {
-        let Some(lay) = parse_layer(l.bytes) else {
-            continue;
-        };
-        let side = layer_side(l);
-        for c in crate::conductor::conductors(&lay) {
-            runs.push((c, side));
+    {
+        let _cm = tracing::info_span!("conductor_model").entered();
+        for l in layers.iter().filter(|l| l.role == Role::Copper) {
+            let Some(lay) = parse_layer(l.bytes) else {
+                continue;
+            };
+            let side = layer_side(l);
+            for c in crate::conductor::conductors(&lay) {
+                runs.push((c, side));
+            }
         }
     }
     let trace_count = runs.len() as u32;
