@@ -661,7 +661,20 @@ fn dedup_top(hots: Vec<Hot>) -> Vec<Hot> {
             .or_insert(h);
     }
     let mut v: Vec<Hot> = best.into_values().collect();
-    v.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    // Worst-first by distance, then a coordinate tie-break so the order (and thus
+    // the truncated top-N set) is fully deterministic — independent of the HashMap
+    // iteration order above. Equal distances are common on real boards (uniform pad
+    // pitch, parallel traces); without the tie-break the result varies per run and
+    // per thread, which would break the disk cache and the parallel/sequential
+    // equivalence the metrics path relies on.
+    v.sort_by(|a, b| {
+        a.2.partial_cmp(&b.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0[0].total_cmp(&b.0[0]))
+            .then(a.0[1].total_cmp(&b.0[1]))
+            .then(a.1[0].total_cmp(&b.1[0]))
+            .then(a.1[1].total_cmp(&b.1[1]))
+    });
     v.truncate(HOT_N);
     v
 }

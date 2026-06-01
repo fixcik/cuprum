@@ -586,9 +586,11 @@ fn copper_clearance_width_hotspots(
     copper_layers: &[(&str, Vec<Poly>)],
     layers: &[MetricLayerInput],
 ) -> (Vec<Hotspot>, Vec<Hotspot>) {
-    // Per-layer work runs in parallel. `par_iter().map(...).collect()` preserves
-    // input order, and each `clearance_width_hotspots` call is pure, so the
-    // concatenated result is identical to a sequential pass (bit-for-bit) — see
+    // Per-layer work runs in parallel. rayon preserves input order on `collect`
+    // — for the indexed `map` path AND the filtered `width` path (implementation
+    // behavior, exercised by rayon's own test suite) — and each
+    // `clearance_width_hotspots` call is pure, so the concatenated result is
+    // identical to a sequential pass (bit-for-bit), guarded by
     // `copper_hotspots_match_sequential_reference`.
     let clear_hots: Vec<Hotspot> = copper_layers
         .par_iter()
@@ -947,7 +949,10 @@ mod tests {
 
         assert_eq!(clear, ref_clear, "clearance hotspots must match sequential");
         assert_eq!(width, ref_width, "width hotspots must match sequential");
-        // Sanity: the fixtures actually produce hotspots, so the test is meaningful.
+        // Sanity: at least one path yields hotspots on these fixtures (here it's
+        // the width path), so the equivalence check above compares real data, not
+        // two empty vectors. (clearance is empty here — the two shapes sit beyond
+        // the DRC gap radius — so don't tighten this to `!clear.is_empty()`.)
         assert!(
             !clear.is_empty() || !width.is_empty(),
             "fixtures should yield at least one hotspot"
