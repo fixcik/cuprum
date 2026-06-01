@@ -95,12 +95,34 @@ export interface Stackup {
   double_sided: boolean;
 }
 
+export type LayerRef = "Top" | "Bottom";
+export type ToolingHoleRole = "registration" | "flip" | "unused";
+
+export interface BoardInstance {
+  id: string;
+  design_id: string;
+  x_mm: number;
+  y_mm: number;
+  rotation_deg: number;
+  layer_ref: LayerRef;
+}
+
+export interface ToolingHole {
+  id: string;
+  x_mm: number;
+  y_mm: number;
+  diameter_mm: number;
+  role: ToolingHoleRole;
+}
+
 export interface PanelDoc {
   schema_version: number;
   width_mm: number;
   height_mm: number;
   origin_x_mm: number;
   origin_y_mm: number;
+  instances: BoardInstance[];
+  tooling_holes: ToolingHole[];
 }
 
 export interface Manifest {
@@ -109,7 +131,6 @@ export interface Manifest {
   description: string;
   designs: ProjectDesign[];
   exposure: unknown | null;
-  placements: unknown[];
   layer_colors: Record<string, string>;
   stackup: Stackup | null;
   panel: PanelDoc | null;

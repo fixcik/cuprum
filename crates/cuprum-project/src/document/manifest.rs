@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 /// Bump when the on-disk shape changes incompatibly. v2: gerbers carry a layer
 /// type. v3: `imports` renamed to `designs`. v4: the FR4 blank (`PanelDoc`) moved
 /// from a separate `panel.json` entry into this manifest's `panel` field.
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+/// v5: dead `placements` removed (replaced by `panel.instances`).
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Manifest {
@@ -23,9 +24,6 @@ pub struct Manifest {
     /// Exposure settings — filled when the editor is wired in. Optional now.
     #[serde(default)]
     pub exposure: Option<Exposure>,
-    /// Placements on the board — filled when the editor is wired in.
-    #[serde(default)]
-    pub placements: Vec<Placement>,
     /// Optional per-layer-type colour overrides (hex like "#b87333"); empty = use
     /// the UI's default palette. Visibility is UI-only and not persisted.
     #[serde(default)]
@@ -48,7 +46,6 @@ impl Manifest {
             description: String::new(),
             designs: Vec::new(),
             exposure: None,
-            placements: Vec::new(),
             layer_colors: BTreeMap::new(),
             stackup: None,
             panel: None,
@@ -96,15 +93,6 @@ pub struct Exposure {
     pub pwm: u16,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Placement {
-    /// Relative path to the Gerber inside the container.
-    pub gerber: String,
-    pub x_mm: f32,
-    pub y_mm: f32,
-    pub rotation_deg: u16,
-}
-
 #[cfg(test)]
 mod manifest_panel_tests {
     use super::*;
@@ -126,6 +114,8 @@ mod manifest_panel_tests {
         let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
         let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.panel.is_none());
+        // v3 → current: the version bump must happen on read.
+        assert_eq!(m.schema_version, CURRENT_SCHEMA_VERSION);
     }
 }
 
@@ -164,7 +154,6 @@ mod tests {
         let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.description.is_empty());
         assert!(m.exposure.is_none());
-        assert!(m.placements.is_empty());
         assert!(m.layer_colors.is_empty());
     }
 

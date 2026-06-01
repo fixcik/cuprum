@@ -262,7 +262,6 @@ pub fn import_zips(
     manifest.layer_colors = existing.layer_colors;
     manifest.designs = manifest_designs;
     manifest.exposure = existing.exposure;
-    manifest.placements = existing.placements;
     manifest.stackup = existing.stackup.clone();
     manifest.panel = existing.panel.clone();
 
