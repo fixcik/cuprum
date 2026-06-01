@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
@@ -27,6 +28,16 @@ cuprum-project = { path = "../../crates/cuprum-project" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.24"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSString",
+    "NSURL",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSDocumentController",
+] }
 
 [profile.release]
 opt-level = "s"

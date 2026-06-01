@@ -35,6 +35,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["cu", "cuprum"],
+        "name": "Cuprum project",
+        "description": "Cuprum CAM project",
+        "role": "Editor"
+      }
     ]
   },
   "plugins": {}
