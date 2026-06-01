@@ -48,6 +48,22 @@ CUPRUM_TRACE=1 cargo run -p cuprum-cli -- render testdata/board.gbr -o /tmp/out.
 cd cuprum-ui && CUPRUM_TRACE=1 pnpm tauri dev
 ```
 
+### Forcing a cold path: `CUPRUM_NO_CACHE`
+
+For repeatable profiling set `CUPRUM_NO_CACHE=1` to bypass **all** caches — the disk
+artifact cache (`diskcache`) and the in-memory preview/mask caches (`cache.rs`) — so
+every operation recomputes from cold instead of serving a cached result. Results are
+unchanged (recompute vs. serve). Combine with tracing to capture cold traces:
+
+```sh
+cd cuprum-ui && CUPRUM_TRACE=1 CUPRUM_NO_CACHE=1 pnpm tauri dev
+```
+
+With the cache bypassed, repeated/duplicate computations each recompute and write
+their own trace — e.g. React StrictMode double-invokes effects in dev, and several
+components may request metrics for the same design — so you'll see more trace files
+than with the cache on.
+
 Mechanism: `cuprum_core::trace::operation(name, dir, f)` runs `f` under a
 thread-scoped subscriber + `tracing-chrome` layer. Spans are created with
 `#[tracing::instrument]` / `info_span!` in `cuprum-core` and are near-zero when no
@@ -66,7 +82,7 @@ span on the parent thread (we don't instrument per-iteration).
 | `render`  | UI `render_preview`, CLI `render` | `gerber::parse_file`, `render_preview_png` |
 | `compose` | UI `run_print`, CLI `prepare`/`render` | `compose::compose_layout` (+ `rasterize`/`invert` spans), `goo::single_layer_exposure`/`serialize` |
 | `mesh`    | UI `project_board_mesh` (cache miss) | `mesh::board_geometry` (+ `triangulate_parallel`), polygon builders |
-| `metrics` | UI `project_board_metrics` (cache miss) | `metrics::board_metrics`, `geometry::clearance_width_hotspots` |
+| `metrics` | UI `project_board_metrics` (cache miss) | `metrics::board_metrics`; per-layer `geometry::clearance_width_hotspots` run in parallel (rayon) |
 | `svg`     | UI `render_gerber_svg` (cache miss) | `svg::render_layer_svg` |
 | `gerber-info` | CLI `gerber-info` | `gerber::parse_file` |
 
@@ -78,7 +94,8 @@ is nothing to profile.
 
 - `gerber.rs`: `parse_file`, `render_preview_png`
 - `geometry.rs`: `layer_polygons`, `copper_polygons`, `region_polygons`,
-  `mask_polygons`, `fill_polygons`, `clearance_width_hotspots`
+  `mask_polygons`, `fill_polygons`, `clearance_width_hotspots` (with internal
+  `grid_build` / `sweep` / `width_filter` sub-spans)
 - `metrics.rs`: `board_metrics`
 - `mesh.rs`: `board_geometry` + `triangulate_parallel` (the rayon section)
 - `compose.rs`: `compose_layout` + `rasterize` + `invert` (the rayon sections)
@@ -88,6 +105,13 @@ is nothing to profile.
 
 Heavy inner loops (e.g. `geometry::seg_seg_closest`) are intentionally not
 instrumented per-iteration — only the enclosing phase span is.
+
+Caveat: `metrics` runs its per-layer `clearance_width_hotspots` calls on rayon
+worker threads, which don't carry the thread-scoped subscriber — so those calls
+(and their `grid_build`/`sweep`/`width_filter` sub-spans) do **not** appear inside
+the `metrics` trace; only the `metrics` operation total does. To inspect the
+internal breakdown, profile `clearance_width_hotspots` on a path where it runs on
+the operation's own thread.
 
 ## CI & releases
 

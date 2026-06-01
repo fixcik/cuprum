@@ -941,7 +941,7 @@ async fn project_board_metrics(
                 loaded.push((g.rel.clone(), g.layer_type, bytes));
             }
             let mut hasher = cuprum_core::diskcache::Hasher::new();
-            hasher.add(b"metrics-v12");
+            hasher.add(b"metrics-v13");
             for (rel, t, bytes) in &loaded {
                 hasher.add(format!("{t:?}").as_bytes());
                 hasher.add(rel.to_lowercase().as_bytes()); // plating inferred from the name

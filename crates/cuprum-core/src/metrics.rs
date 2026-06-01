@@ -18,6 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::{self, Poly};
@@ -54,7 +55,7 @@ pub struct BoardMetrics {
 /// | "both") tells the frontend which 2D face the issue lives on, so a bottom-
 /// side marker isn't drawn while the top is being viewed (and vice versa). Holes
 /// and other through-features are "both".
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hotspot {
     pub a: [f32; 2],
@@ -576,6 +577,60 @@ fn annular_hotspots(
     top_n(hots, 40)
 }
 
+/// Per-copper-layer clearance + width hotspots. Clearance from each layer's full
+/// copper polygons; copper-WIDTH necks from REGION copper only (pads + zone fills,
+/// no routed strokes — a trace's width is its aperture, judged by the conductor
+/// model). Split out so the per-layer work can be parallelized while keeping the
+/// reported order identical to a sequential pass (layer order preserved).
+fn copper_clearance_width_hotspots(
+    copper_layers: &[(&str, Vec<Poly>)],
+    layers: &[MetricLayerInput],
+) -> (Vec<Hotspot>, Vec<Hotspot>) {
+    // Per-layer work runs in parallel. rayon preserves input order on `collect`
+    // — for the indexed `map` path AND the filtered `width` path (implementation
+    // behavior, exercised by rayon's own test suite) — and each
+    // `clearance_width_hotspots` call is pure, so the concatenated result is
+    // identical to a sequential pass (bit-for-bit), guarded by
+    // `copper_hotspots_match_sequential_reference`.
+    let clear_hots: Vec<Hotspot> = copper_layers
+        .par_iter()
+        .map(|(side, polys)| {
+            let (c, _) = geometry::clearance_width_hotspots(polys);
+            top_n(c, 40)
+                .into_iter()
+                .map(|h| to_hotspot(h, side))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flatten()
+        .collect();
+
+    let width_hots: Vec<Hotspot> = layers
+        .par_iter()
+        .filter(|l| l.role == Role::Copper)
+        .filter_map(|l| {
+            let region = geometry::region_polygons(l.bytes, &[]).ok()?;
+            if region.is_empty() {
+                return None;
+            }
+            let side = layer_side(l);
+            let (_, w) = geometry::clearance_width_hotspots(&region);
+            Some(
+                top_n(w, 40)
+                    .into_iter()
+                    .map(|h| to_hotspot(h, side))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flatten()
+        .collect();
+
+    (clear_hots, width_hots)
+}
+
 /// Geometric DFM measurements (clearance, copper width, annular, coverage, silk,
 /// mask dam, overshoot, slots). Pure measurements; the frontend judges them.
 fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
@@ -629,23 +684,7 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     // necks from REGION copper only (pads + zone fills, no routed strokes): a
     // trace's width is its aperture (judged by the conductor model below), so
     // cross-measuring unioned trace bends here only produced artefacts.
-    let mut clear_hots: Vec<Hotspot> = Vec::new();
-    let mut width_hots: Vec<Hotspot> = Vec::new();
-    for (side, polys) in &copper_layers {
-        let (c, _) = geometry::clearance_width_hotspots(polys);
-        clear_hots.extend(top_n(c, 40).into_iter().map(|h| to_hotspot(h, side)));
-    }
-    for l in layers.iter().filter(|l| l.role == Role::Copper) {
-        let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
-            continue;
-        };
-        if region.is_empty() {
-            continue;
-        }
-        let side = layer_side(l);
-        let (_, w) = geometry::clearance_width_hotspots(&region);
-        width_hots.extend(top_n(w, 40).into_iter().map(|h| to_hotspot(h, side)));
-    }
+    let (clear_hots, width_hots) = copper_clearance_width_hotspots(&copper_layers, layers);
 
     // Conductor model: connected routed-stroke runs per copper layer. Neck = the
     // thin-trace value; count + total length feed the metrics tab.
@@ -852,6 +891,72 @@ mod tests {
             plated: false,
             bytes,
         }
+    }
+
+    // Real multi-primitive gerbers → non-trivial clearance/width hotspots.
+    const CU_LAYER_A: &[u8] = include_bytes!("../../../testdata/gerber/two_square_boxes.gbr");
+    const CU_LAYER_B: &[u8] =
+        include_bytes!("../../../testdata/gerber/polarities_and_apertures.gbr");
+
+    // Bit-identical guard for the parallelized hotspot loops (Phase 1): the
+    // production helper must match an in-process SEQUENTIAL recomputation exactly
+    // — same per-layer order, same values. In-process so it is platform-independent
+    // (float results cancel) and catches any reordering/divergence from rayon.
+    #[test]
+    fn copper_hotspots_match_sequential_reference() {
+        let copper = |bytes: &'static [u8], side: Side| MetricLayerInput {
+            role: Role::Copper,
+            side,
+            inner: false,
+            plated: false,
+            bytes,
+        };
+        let layers = vec![
+            copper(CU_LAYER_A, Side::Top),
+            copper(CU_LAYER_B, Side::Bottom),
+        ];
+        let copper_layers: Vec<(&str, Vec<Poly>)> = layers
+            .iter()
+            .filter_map(|l| {
+                geometry::layer_polygons(l.bytes, &[])
+                    .ok()
+                    .map(|p| (layer_side(l), p))
+            })
+            .filter(|(_, p)| !p.is_empty())
+            .collect();
+
+        // Production path (parallel after Phase 1).
+        let (clear, width) = copper_clearance_width_hotspots(&copper_layers, &layers);
+
+        // Sequential reference, recomputed here in the same process.
+        let mut ref_clear: Vec<Hotspot> = Vec::new();
+        for (side, polys) in &copper_layers {
+            let (c, _) = geometry::clearance_width_hotspots(polys);
+            ref_clear.extend(top_n(c, 40).into_iter().map(|h| to_hotspot(h, side)));
+        }
+        let mut ref_width: Vec<Hotspot> = Vec::new();
+        for l in layers.iter().filter(|l| l.role == Role::Copper) {
+            let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
+                continue;
+            };
+            if region.is_empty() {
+                continue;
+            }
+            let side = layer_side(l);
+            let (_, w) = geometry::clearance_width_hotspots(&region);
+            ref_width.extend(top_n(w, 40).into_iter().map(|h| to_hotspot(h, side)));
+        }
+
+        assert_eq!(clear, ref_clear, "clearance hotspots must match sequential");
+        assert_eq!(width, ref_width, "width hotspots must match sequential");
+        // Sanity: at least one path yields hotspots on these fixtures (here it's
+        // the width path), so the equivalence check above compares real data, not
+        // two empty vectors. (clearance is empty here — the two shapes sit beyond
+        // the DRC gap radius — so don't tighten this to `!clear.is_empty()`.)
+        assert!(
+            !clear.is_empty() || !width.is_empty(),
+            "fixtures should yield at least one hotspot"
+        );
     }
 
     #[test]
