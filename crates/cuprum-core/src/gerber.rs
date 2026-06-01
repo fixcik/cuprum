@@ -18,6 +18,7 @@ use tiny_skia::{
 };
 
 /// Parse a `.gbr` file into a flat list of Gerber commands.
+#[tracing::instrument(skip_all, fields(path = %path.display()))]
 pub fn parse_file(path: &Path) -> Result<Vec<Command>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -252,6 +253,7 @@ pub fn bounds_mm(commands: &[Command]) -> Result<(f32, f32)> {
 /// the longest side ≈ `max_px`), returning the PNG bytes plus the true mm size.
 /// The preview uses a square pitch (anisotropy only matters for the exposure
 /// raster); the UI stretches the image into its true mm box, so geometry stays 1:1.
+#[tracing::instrument(skip_all, fields(max_px))]
 pub fn render_preview_png(path: &Path, max_px: u32) -> Result<(Vec<u8>, RenderInfo, String)> {
     let t0 = Instant::now();
     let commands = parse_file(path)?;

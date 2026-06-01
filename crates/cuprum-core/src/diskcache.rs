@@ -62,7 +62,14 @@ fn entry_path(dir: &Path, key: &str) -> PathBuf {
 /// Read a cached blob; `None` on miss or if the entry is older than `ttl`
 /// (expired entries are deleted). Bumps the entry's mtime on a hit, so the TTL
 /// is "time since last use" and eviction is least-recently-USED.
+#[tracing::instrument(skip_all, fields(hit = tracing::field::Empty))]
 pub fn get(dir: &Path, key: &str, ttl: Duration) -> Option<Vec<u8>> {
+    let result = get_inner(dir, key, ttl);
+    tracing::Span::current().record("hit", result.is_some());
+    result
+}
+
+fn get_inner(dir: &Path, key: &str, ttl: Duration) -> Option<Vec<u8>> {
     let p = entry_path(dir, key);
     let meta = std::fs::metadata(&p).ok()?;
     if expired(&meta, ttl) {
@@ -78,6 +85,7 @@ pub fn get(dir: &Path, key: &str, ttl: Duration) -> Option<Vec<u8>> {
 
 /// Store a blob, then prune (expired + over-budget). Best-effort: any IO error
 /// is swallowed (a cache failure must never break the command).
+#[tracing::instrument(skip_all, fields(bytes = bytes.len()))]
 pub fn put(dir: &Path, key: &str, bytes: &[u8], max_bytes: u64, ttl: Duration) {
     if std::fs::create_dir_all(dir).is_err() {
         return;

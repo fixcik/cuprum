@@ -448,6 +448,7 @@ fn build_surface_layer(
 /// - Edge layer → stitched into the board outline (perimeter + inner cutouts).
 /// - Surface layers (copper/mask/silk/paste/other) → clean polygons
 ///   (drill-subtracted; mask = board minus openings) triangulated in parallel.
+#[tracing::instrument(skip_all, fields(layers = layers.len()))]
 pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
     // 1. Collect ALL drill holes (used to drill the substrate faces and cut fills).
     let mut holes: Vec<Hole> = Vec::new();
@@ -476,10 +477,13 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
     let substrate = build_substrate(&outline, &holes);
 
     // 4. Surface layers, triangulated in parallel (the heavy part).
-    let mut meshes: Vec<LayerMesh> = layers
-        .par_iter()
-        .filter_map(|l| build_surface_layer(l, &holes, &outline))
-        .collect();
+    let mut meshes: Vec<LayerMesh> = {
+        let _span = tracing::info_span!("triangulate_parallel").entered();
+        layers
+            .par_iter()
+            .filter_map(|l| build_surface_layer(l, &holes, &outline))
+            .collect()
+    };
 
     // 5. One barrel mesh per drill layer (keyed by that layer, so it toggles).
     for l in layers {

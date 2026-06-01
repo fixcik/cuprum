@@ -169,16 +169,21 @@ enum Command {
 }
 
 fn main() -> Result<()> {
+    let traces = std::path::PathBuf::from("cuprum-traces");
     match Cli::parse().command {
         Command::Discover => discover(),
-        Command::GerberInfo { file } => gerber_info(file),
+        Command::GerberInfo { file } => {
+            cuprum_core::trace::operation("gerber-info", &traces, || gerber_info(file))
+        }
         Command::Render {
             file,
             out,
             dpi,
             mirror,
             invert,
-        } => render(file, out, dpi, mirror, invert),
+        } => cuprum_core::trace::operation("render", &traces, || {
+            render(file, out, dpi, mirror, invert)
+        }),
         Command::Prepare {
             file,
             out,
@@ -190,9 +195,11 @@ fn main() -> Result<()> {
             off_y,
             preview,
             no_rotate,
-        } => prepare(
-            file, out, time, pwm, mirror, invert, off_x, off_y, preview, no_rotate,
-        ),
+        } => cuprum_core::trace::operation("prepare", &traces, || {
+            prepare(
+                file, out, time, pwm, mirror, invert, off_x, off_y, preview, no_rotate,
+            )
+        }),
         Command::Print {
             file,
             time,

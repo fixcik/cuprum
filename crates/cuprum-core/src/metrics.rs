@@ -184,6 +184,7 @@ pub struct DrillMetrics {
 }
 
 /// Measure every cheap manufacturing fact for the given layers.
+#[tracing::instrument(skip_all, fields(layers = layers.len()))]
 pub fn board_metrics(layers: &[MetricLayerInput]) -> BoardMetrics {
     BoardMetrics {
         board: board_dims(layers),

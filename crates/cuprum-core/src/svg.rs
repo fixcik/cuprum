@@ -31,6 +31,7 @@ const ARC_STEPS: usize = 96;
 
 /// Render raw Gerber bytes to an SVG fragment. `id` must be unique within the
 /// composed SVG document — it scopes the clear-polarity mask, if one is needed.
+#[tracing::instrument(skip_all, fields(id))]
 pub fn render_layer_svg(bytes: &[u8], id: &str) -> Result<LayerGeometry> {
     // Sanitize `id` so that arbitrary filenames (e.g. with `"`, `<`, `/`) cannot
     // escape an SVG attribute or poison a url(#…) reference.
