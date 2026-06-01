@@ -54,10 +54,10 @@ pub fn write(path: &Path, manifest: &Manifest, entries: &[(String, Vec<u8>)]) ->
     }
 }
 
-/// Read and parse `manifest.json`.
+/// Read and migrate `manifest.json`.
 pub fn read_manifest(path: &Path) -> Result<Manifest> {
     let bytes = read_entry(path, MANIFEST_NAME)?;
-    Ok(serde_json::from_slice(&bytes)?)
+    crate::document::migrate::manifest_from_slice(&bytes)
 }
 
 /// Read a single entry by its archive-relative name.

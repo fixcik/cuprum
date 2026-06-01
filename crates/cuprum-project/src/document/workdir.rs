@@ -37,10 +37,10 @@ pub fn read_marker(workdir: &Path) -> Result<SessionMarker> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-/// Read the live manifest from the working dir.
+/// Read and migrate the live manifest from the working dir.
 pub fn read_manifest(workdir: &Path) -> Result<Manifest> {
     let bytes = fs::read(workdir.join(MANIFEST_NAME))?;
-    Ok(serde_json::from_slice(&bytes)?)
+    crate::document::migrate::manifest_from_slice(&bytes)
 }
 
 /// Overwrite the working dir's manifest.json (called on every doc mutation).
