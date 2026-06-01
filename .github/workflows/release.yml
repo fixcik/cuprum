@@ -150,10 +150,15 @@ jobs:
         with:
           targets: ${{ matrix.rust-targets }}
 
+      # Restore only — never save. The Windows cache-save post-step is flaky
+      # (tar/zstd exits non-zero and fails the whole job), which skips `publish`
+      # and leaves the release stuck as a draft. Release builds are infrequent, so
+      # the lost cache write barely matters; CI keeps its own caches.
       - uses: Swatinem/rust-cache@v2
         with:
           key: build-${{ matrix.label }}
           workspaces: cuprum-ui/src-tauri
+          save-if: false
 
       - uses: pnpm/action-setup@v4
         with:
