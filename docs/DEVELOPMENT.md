@@ -96,7 +96,9 @@ is nothing to profile.
 - `geometry.rs`: `layer_polygons`, `copper_polygons`, `region_polygons`,
   `mask_polygons`, `fill_polygons`, `clearance_width_hotspots` (with internal
   `grid_build` / `sweep` / `width_filter` sub-spans)
-- `metrics.rs`: `board_metrics`
+- `metrics.rs`: `board_metrics`; sub-analyses `parse_layer`, `conductor_model`,
+  `thin_stroke_hotspots`, `annular_hotspots`. The per-layer
+  `clearance_width_hotspots` clearance and width passes run concurrently (rayon).
 - `mesh.rs`: `board_geometry` + `triangulate_parallel` (the rayon section)
 - `compose.rs`: `compose_layout` + `rasterize` + `invert` (the rayon sections)
 - `goo.rs`: `single_layer_exposure`, `serialize`
@@ -106,12 +108,11 @@ is nothing to profile.
 Heavy inner loops (e.g. `geometry::seg_seg_closest`) are intentionally not
 instrumented per-iteration — only the enclosing phase span is.
 
-Caveat: `metrics` runs its per-layer `clearance_width_hotspots` calls on rayon
-worker threads, which don't carry the thread-scoped subscriber — so those calls
-(and their `grid_build`/`sweep`/`width_filter` sub-spans) do **not** appear inside
-the `metrics` trace; only the `metrics` operation total does. To inspect the
-internal breakdown, profile `clearance_width_hotspots` on a path where it runs on
-the operation's own thread.
+The `metrics` per-layer `clearance_width_hotspots` calls run on rayon worker
+threads. The operation's tracing dispatcher + current span are propagated onto
+those workers (see `copper_clearance_width_hotspots`), so their spans — and the
+`grid_build`/`sweep`/`width_filter` children — **are** captured in the `metrics`
+trace, appearing on the worker threads' tracks in Perfetto.
 
 ## CI & releases
 
