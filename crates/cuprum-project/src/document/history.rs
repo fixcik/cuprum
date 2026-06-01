@@ -1,16 +1,18 @@
 //! Restore points: document snapshots kept inside the working dir under
 //! `history/<id>.json`. They ride into/out of the `.cuprum` via the normal
 //! `workdir::pack`/`extract` (which carry every file except the manifest and the
-//! session marker). A snapshot IS a `Manifest` (the whole document since the
-//! panel folded in).
+//! session marker). The embedded `manifest` is stored as a raw JSON `Value` so
+//! snapshots written by older app versions survive schema upgrades; callers must
+//! read through `migrate::manifest_from_value` (done by `history::read`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use crate::manifest::Manifest;
+use crate::document::manifest::Manifest;
 
 /// Max retained restore points; oldest beyond this are pruned on each write.
 pub const MAX_RESTORE_POINTS: usize = 50;
@@ -22,7 +24,7 @@ pub struct RestorePoint {
     pub id: String,
     pub label: Option<String>,
     pub created_at: i64,
-    pub manifest: Manifest,
+    pub manifest: Value,
 }
 
 /// Lightweight listing entry (no manifest body).
@@ -55,7 +57,9 @@ fn validate_id(id: &str) -> Result<()> {
 }
 
 /// Snapshot the working dir's current manifest into `history/<id>.json`, then
-/// prune to the newest `MAX_RESTORE_POINTS`. Returns the new point's metadata.
+/// prune to the newest `MAX_RESTORE_POINTS`. The manifest is migrated before
+/// being stored, so snapshots are always written at the current schema version.
+/// Returns the new point's metadata.
 pub fn write(
     workdir: &Path,
     id: &str,
@@ -63,12 +67,12 @@ pub fn write(
     created_at: i64,
 ) -> Result<RestorePointMeta> {
     validate_id(id)?;
-    let manifest: Manifest = serde_json::from_slice(&fs::read(workdir.join("manifest.json"))?)?;
+    let manifest = crate::document::workdir::read_manifest(workdir)?;
     let point = RestorePoint {
         id: id.to_string(),
         label: label.map(|s| s.to_string()),
         created_at,
-        manifest,
+        manifest: serde_json::to_value(&manifest)?,
     };
     let dir = history_dir(workdir);
     fs::create_dir_all(&dir)?;
@@ -110,12 +114,12 @@ pub fn list(workdir: &Path) -> Result<Vec<RestorePointMeta>> {
     Ok(metas)
 }
 
-/// The manifest captured by restore point `id`.
+/// The manifest captured by restore point `id`, migrated to the current schema.
 pub fn read(workdir: &Path, id: &str) -> Result<Manifest> {
     validate_id(id)?;
     let bytes = fs::read(history_dir(workdir).join(format!("{id}.json")))?;
     let point: RestorePoint = serde_json::from_slice(&bytes)?;
-    Ok(point.manifest)
+    crate::document::migrate::manifest_from_value(point.manifest)
 }
 
 /// Delete all but the newest `MAX_RESTORE_POINTS`.
@@ -131,7 +135,7 @@ fn prune(workdir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::Manifest;
+    use crate::document::manifest::Manifest;
 
     fn scratch(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("cuprum-hist-{tag}-{}", std::process::id()));
@@ -170,7 +174,7 @@ mod tests {
         let wd = scratch("unsafe");
         std::fs::write(
             wd.join("manifest.json"),
-            serde_json::to_vec(&crate::manifest::Manifest::new("x")).unwrap(),
+            serde_json::to_vec(&crate::document::manifest::Manifest::new("x")).unwrap(),
         )
         .unwrap();
         assert!(write(&wd, "../escape", None, 1).is_err());

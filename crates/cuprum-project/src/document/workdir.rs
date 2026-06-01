@@ -9,8 +9,8 @@ use std::path::Path;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::container::{self, MANIFEST_NAME, PANEL_NAME};
-use crate::manifest::Manifest;
+use crate::document::container::{self, MANIFEST_NAME, PANEL_NAME};
+use crate::document::manifest::Manifest;
 
 /// Marker file at the working-dir root, naming the source container and the
 /// owning process so orphans can be found after a crash.
@@ -37,10 +37,10 @@ pub fn read_marker(workdir: &Path) -> Result<SessionMarker> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-/// Read the live manifest from the working dir.
+/// Read and migrate the live manifest from the working dir.
 pub fn read_manifest(workdir: &Path) -> Result<Manifest> {
     let bytes = fs::read(workdir.join(MANIFEST_NAME))?;
-    Ok(serde_json::from_slice(&bytes)?)
+    crate::document::migrate::manifest_from_slice(&bytes)
 }
 
 /// Overwrite the working dir's manifest.json (called on every doc mutation).
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn manifest_round_trips_loose() {
-        use crate::manifest::Manifest;
+        use crate::document::manifest::Manifest;
         let wd = scratch("loose");
 
         let mut m = Manifest::new("demo");
@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn extract_lays_out_loose_files() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
         use crate::layer::LayerType;
-        use crate::manifest::{Design, GerberFile, Manifest};
         let root = scratch("extract");
         let cuprum = root.join("p.cu");
 
@@ -266,7 +266,7 @@ mod tests {
     fn extract_refuses_existing_dir() {
         let root = scratch("extract-exists");
         let cuprum = root.join("p.cu");
-        container::write(&cuprum, &crate::manifest::Manifest::new("x"), &[]).unwrap();
+        container::write(&cuprum, &crate::document::manifest::Manifest::new("x"), &[]).unwrap();
         let wd = root.join("wd");
         std::fs::create_dir_all(&wd).unwrap();
         let marker = SessionMarker {
@@ -280,8 +280,8 @@ mod tests {
 
     #[test]
     fn pack_drops_marker_and_legacy_panel() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
         use crate::layer::LayerType;
-        use crate::manifest::{Design, GerberFile, Manifest};
         let root = scratch("pack");
         let cuprum = root.join("p.cu");
 
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn scan_flags_dirty_and_gc_removes_clean() {
-        use crate::manifest::Manifest;
+        use crate::document::manifest::Manifest;
         let root = scratch("orphan");
         let base = root.join("base");
         std::fs::create_dir_all(&base).unwrap();

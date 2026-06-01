@@ -8,13 +8,14 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use zip::write::SimpleFileOptions;
 
-use crate::manifest::Manifest;
-use crate::panel::PanelDoc;
+use crate::document::manifest::Manifest;
+use crate::document::panel::PanelDoc;
 
 pub const MANIFEST_NAME: &str = "manifest.json";
 
-/// Panel settings live in their own container entry (written/read when the
-/// exposure editor is wired in), not embedded in the manifest.
+/// Archive entry name for the legacy panel file (schema ≤ v3).
+/// No longer written; used only for migration reads on open and for
+/// exclusion when packing the working directory.
 pub const PANEL_NAME: &str = "panel.json";
 
 /// Write a complete container: the manifest plus every entry in `entries`
@@ -53,10 +54,10 @@ pub fn write(path: &Path, manifest: &Manifest, entries: &[(String, Vec<u8>)]) ->
     }
 }
 
-/// Read and parse `manifest.json`.
+/// Read and migrate `manifest.json`.
 pub fn read_manifest(path: &Path) -> Result<Manifest> {
     let bytes = read_entry(path, MANIFEST_NAME)?;
-    Ok(serde_json::from_slice(&bytes)?)
+    crate::document::migrate::manifest_from_slice(&bytes)
 }
 
 /// Read a single entry by its archive-relative name.
@@ -109,8 +110,8 @@ pub fn read_legacy_panel(path: &Path) -> Result<Option<PanelDoc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::manifest::{Design, GerberFile, Manifest};
     use crate::layer::LayerType;
-    use crate::manifest::{Design, GerberFile, Manifest};
 
     #[test]
     fn write_then_read_round_trip() {
@@ -189,7 +190,7 @@ mod tests {
 
     #[test]
     fn legacy_panel_read() {
-        use crate::panel::PanelDoc;
+        use crate::document::panel::PanelDoc;
         let dir = std::env::temp_dir().join(format!("cuprum-legacy-panel-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.cuprum");

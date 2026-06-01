@@ -1,7 +1,7 @@
 //! Project manifest — the `manifest.json` inside a `.cuprum` container.
 
+use crate::document::panel::PanelDoc;
 use crate::layer::LayerType;
-use crate::panel::PanelDoc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -18,7 +18,7 @@ pub struct Manifest {
     #[serde(default)]
     pub description: String,
     /// Designs in the project: one imported Gerber package (board) per source ZIP.
-    #[serde(default, alias = "imports")]
+    #[serde(default)]
     pub designs: Vec<Design>,
     /// Exposure settings — filled when the editor is wired in. Optional now.
     #[serde(default)]
@@ -68,37 +68,12 @@ pub struct Design {
 }
 
 /// One gerber file inside the container plus its layer classification.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct GerberFile {
     /// Relative path inside the container, e.g. "gerbers/design-1/top.gbr".
     pub path: String,
+    #[serde(default)]
     pub layer_type: LayerType,
-}
-
-// Accept both v2 (`{path, layer_type}`) and v1 (bare `"path"` string) forms.
-impl<'de> Deserialize<'de> for GerberFile {
-    fn deserialize<D>(de: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Compat {
-            Legacy(String),
-            Full {
-                path: String,
-                #[serde(default)]
-                layer_type: LayerType,
-            },
-        }
-        Ok(match Compat::deserialize(de)? {
-            Compat::Legacy(path) => GerberFile {
-                path,
-                layer_type: LayerType::Other,
-            },
-            Compat::Full { path, layer_type } => GerberFile { path, layer_type },
-        })
-    }
 }
 
 /// The FR4 stackup of the project's Panel — depends on the physical blank.
@@ -111,14 +86,6 @@ pub struct Stackup {
     /// Whether the blank is copper-clad on both sides (vs single-sided).
     #[serde(default)]
     pub double_sided: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Panel {
-    pub w_mm: f32,
-    pub h_mm: f32,
-    pub x_mm: f32,
-    pub y_mm: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -141,7 +108,7 @@ pub struct Placement {
 #[cfg(test)]
 mod manifest_panel_tests {
     use super::*;
-    use crate::panel::PanelDoc;
+    use crate::document::panel::PanelDoc;
 
     #[test]
     fn manifest_round_trips_with_panel() {
@@ -157,7 +124,7 @@ mod manifest_panel_tests {
     fn panel_defaults_to_none_when_absent() {
         // A manifest written before the panel field existed (no `panel` key).
         let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
-        let m: Manifest = serde_json::from_str(json).unwrap();
+        let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.panel.is_none());
     }
 }
@@ -192,26 +159,9 @@ mod tests {
     }
 
     #[test]
-    fn reads_v1_gerbers_as_strings() {
-        // v1 stored gerbers as a bare string array (they must migrate to Other)
-        // under the legacy `imports` key (now read via serde alias -> `designs`).
-        let json = r#"{"schema_version":1,"name":"x","imports":[
-            {"id":"import-1","source_name":"a.zip","gerbers":["gerbers/import-1/a.gbr"]}
-        ]}"#;
-        let m: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(m.designs[0].gerbers.len(), 1);
-        assert_eq!(m.designs[0].gerbers[0].path, "gerbers/import-1/a.gbr");
-        assert_eq!(
-            m.designs[0].gerbers[0].layer_type,
-            crate::layer::LayerType::Other
-        );
-        assert!(m.layer_colors.is_empty());
-    }
-
-    #[test]
     fn missing_optional_fields_default() {
         let json = r#"{"schema_version":1,"name":"x","designs":[]}"#;
-        let m: Manifest = serde_json::from_str(json).unwrap();
+        let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.description.is_empty());
         assert!(m.exposure.is_none());
         assert!(m.placements.is_empty());
@@ -222,7 +172,7 @@ mod tests {
     fn manifest_stackup_round_trips_and_defaults_none() {
         // Old files without `stackup` deserialize to None.
         let json = r#"{"schema_version":3,"name":"x","designs":[]}"#;
-        let m: Manifest = serde_json::from_str(json).unwrap();
+        let m = crate::document::migrate::manifest_from_slice(json.as_bytes()).unwrap();
         assert!(m.stackup.is_none());
 
         // A stackup without `double_sided` (older shape) defaults to single-sided.
