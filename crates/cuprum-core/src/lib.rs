@@ -14,3 +14,4 @@ pub mod mesh;
 pub mod metrics;
 pub mod sdcp;
 pub mod svg;
+pub mod trace;
