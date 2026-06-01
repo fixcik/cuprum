@@ -63,7 +63,8 @@ mod tests {
 
     #[test]
     fn gerbers_object_left_untouched() {
-        let mut v = json!({ "designs": [{ "gerbers": [{ "path": "x", "layer_type": "topCopper" }] }] });
+        let mut v =
+            json!({ "designs": [{ "gerbers": [{ "path": "x", "layer_type": "topCopper" }] }] });
         gerber_strings_to_objects(&mut v);
         assert_eq!(v["designs"][0]["gerbers"][0]["layer_type"], "topCopper");
     }

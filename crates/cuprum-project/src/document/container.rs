@@ -110,8 +110,8 @@ pub fn read_legacy_panel(path: &Path) -> Result<Option<PanelDoc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layer::LayerType;
     use crate::document::manifest::{Design, GerberFile, Manifest};
+    use crate::layer::LayerType;
 
     #[test]
     fn write_then_read_round_trip() {

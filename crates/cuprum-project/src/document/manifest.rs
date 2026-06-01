@@ -1,7 +1,7 @@
 //! Project manifest — the `manifest.json` inside a `.cuprum` container.
 
-use crate::layer::LayerType;
 use crate::document::panel::PanelDoc;
+use crate::layer::LayerType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

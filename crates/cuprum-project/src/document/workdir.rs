@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn extract_lays_out_loose_files() {
-        use crate::layer::LayerType;
         use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
         let root = scratch("extract");
         let cuprum = root.join("p.cu");
 
@@ -280,8 +280,8 @@ mod tests {
 
     #[test]
     fn pack_drops_marker_and_legacy_panel() {
-        use crate::layer::LayerType;
         use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
         let root = scratch("pack");
         let cuprum = root.join("p.cu");
 

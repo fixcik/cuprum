@@ -15,10 +15,7 @@ use super::manifest::{Manifest, CURRENT_SCHEMA_VERSION};
 
 /// Migrate a raw JSON value to the current `Manifest`.
 pub fn manifest_from_value(mut v: Value) -> Result<Manifest> {
-    let from = v
-        .get("schema_version")
-        .and_then(Value::as_u64)
-        .unwrap_or(1) as u32;
+    let from = v.get("schema_version").and_then(Value::as_u64).unwrap_or(1) as u32;
 
     // Steps are ordered by dependency, not strictly by version number: the
     // imports→designs rename must run before gerber normalization, which only
