@@ -28,5 +28,5 @@ export const BUILTIN_PANEL_PRESETS: PanelPreset[] = [
 
 /** Build a fresh PanelDoc at origin (0,0). */
 export function newPanelDoc(widthMm: number, heightMm: number): PanelDoc {
-  return { schema_version: 1, width_mm: widthMm, height_mm: heightMm, origin_x_mm: 0, origin_y_mm: 0 };
+  return { schema_version: 2, width_mm: widthMm, height_mm: heightMm, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [] };
 }
