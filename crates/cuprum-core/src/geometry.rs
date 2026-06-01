@@ -52,6 +52,7 @@ pub struct Poly {
 /// 4. Subtract the drill holes.
 ///
 /// Returns outer-ring + holes polygons ready to triangulate on the frontend.
+#[tracing::instrument(skip_all, fields(holes = holes.len()))]
 pub fn layer_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
     let doc = gerber_viewer::gerber_parser::parse(reader)
@@ -63,6 +64,7 @@ pub fn layer_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
 
 /// Backwards-compatible alias for the original copper-only entry point. Copper
 /// is just a generic fill layer, so this forwards to [`layer_polygons`].
+#[tracing::instrument(skip_all, fields(holes = holes.len()))]
 pub fn copper_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     layer_polygons(bytes, holes)
 }
@@ -73,6 +75,7 @@ pub fn copper_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
 /// its aperture (measured via the conductor model), so unioning trace strokes and
 /// cross-measuring their concave bends only produced artefacts. Genuine necks live
 /// in zone fills, which this preserves.
+#[tracing::instrument(skip_all, fields(holes = holes.len()))]
 pub fn region_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
     let doc = gerber_viewer::gerber_parser::parse(reader)
@@ -99,6 +102,7 @@ pub fn region_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
 /// exposed pads). We build them as solid contours and subtract them from the
 /// board, so the result is the green soldermask film with the pad openings cut
 /// out — `difference(board_outline, openings)`.
+#[tracing::instrument(skip_all, fields(rings = outline_rings.len()))]
 pub fn mask_polygons(outline_rings: &[Vec<[f64; 2]>], mask_bytes: &[u8]) -> Result<Vec<Poly>> {
     let board: Vec<Vec<[f64; 2]>> = outline_rings
         .iter()
@@ -139,6 +143,7 @@ pub fn mask_polygons(outline_rings: &[Vec<[f64; 2]>], mask_bytes: &[u8]) -> Resu
 /// Build clean polygons from a set of (possibly overlapping / self-touching)
 /// solid contours and a set of drill holes to subtract. Layer-agnostic so
 /// other layers can reuse it.
+#[tracing::instrument(skip_all, fields(contours = contours.len()))]
 pub fn fill_polygons(contours: &[Vec<[f64; 2]>], holes: &[Hole]) -> Vec<Poly> {
     if contours.is_empty() {
         return Vec::new();
@@ -666,6 +671,7 @@ fn dedup_top(hots: Vec<Hot>) -> Vec<Hot> {
 /// non-adjacent edges of the SAME polygon). Each hotspot carries the two closest
 /// mm points + the distance. Only DRC-relevant gaps (≲ 2 cells ≈ diag/110) are
 /// collected; the frontend filters by the profile threshold. One pass feeds both.
+#[tracing::instrument(skip_all, fields(polys = polys.len()))]
 pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
     let edges = collect_edges(polys);
     if edges.len() < 2 {

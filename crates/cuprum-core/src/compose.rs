@@ -36,6 +36,7 @@ pub struct Placement {
 /// `mirror` flips the whole sheet horizontally (emulsion-down contact); `invert`
 /// swaps lit/dark (positive vs negative resist). `screen_rotate` applies the
 /// printer's native 180° orientation (leave true unless debugging).
+#[tracing::instrument(skip_all, fields(placements = placements.len(), mirror, invert))]
 pub fn compose_layout(
     placements: &[Placement],
     mirror: bool,
@@ -55,10 +56,13 @@ pub fn compose_layout(
             .filter(|p| seen.insert(p.clone()))
             .collect()
     };
-    let masks: HashMap<PathBuf, Arc<Mask>> = unique
-        .into_par_iter()
-        .map(|path| cache::native_mask(&path).map(|m| (path, m)))
-        .collect::<Result<_>>()?;
+    let masks: HashMap<PathBuf, Arc<Mask>> = {
+        let _span = tracing::info_span!("rasterize").entered();
+        unique
+            .into_par_iter()
+            .map(|path| cache::native_mask(&path).map(|m| (path, m)))
+            .collect::<Result<_>>()?
+    };
 
     // Blit sequentially: writes go to overlapping screen regions, and it's
     // memory-bound (cheap) compared to rasterization.
@@ -81,6 +85,7 @@ pub fn compose_layout(
         goo::flip_x(&mut screen, SCREEN_W, SCREEN_H);
     }
     if invert {
+        let _span = tracing::info_span!("invert").entered();
         screen.par_iter_mut().for_each(|b| *b = 255 - *b);
     }
     Ok(if screen_rotate {

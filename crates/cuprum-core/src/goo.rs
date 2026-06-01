@@ -69,6 +69,7 @@ impl Default for ExposureParams {
 ///
 /// Every pixel must be covered by the RLE: the printer decodes each layer into
 /// an uninitialized buffer, so an under-filled layer prints leftover garbage.
+#[tracing::instrument(skip_all)]
 pub fn single_layer_exposure(
     width: u32,
     height: u32,
@@ -143,6 +144,7 @@ fn encode_runs(encoder: &mut LayerEncoder, pixels: &[u8]) {
 }
 
 /// Serialize a `.goo` to bytes ready for upload.
+#[tracing::instrument(skip_all)]
 pub fn serialize(file: &GooFile) -> Vec<u8> {
     let mut ser = DynamicSerializer::new();
     file.serialize(&mut ser);
