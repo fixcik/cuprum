@@ -94,7 +94,12 @@ fn run_with_config<T>(
         .build();
     let filter = std::env::var("CUPRUM_TRACE_FILTER")
         .ok()
-        .and_then(|s| tracing_subscriber::EnvFilter::try_new(s).ok())
+        .map(|s| {
+            tracing_subscriber::EnvFilter::try_new(&s).unwrap_or_else(|e| {
+                eprintln!("cuprum: invalid CUPRUM_TRACE_FILTER {s:?}: {e}; capturing all spans");
+                tracing_subscriber::EnvFilter::new("trace")
+            })
+        })
         .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("trace"));
     let subscriber = tracing_subscriber::registry()
         .with(filter)
@@ -158,6 +163,39 @@ mod tests {
         serde_json::from_str::<serde_json::Value>(&body).expect("trace is valid JSON");
         assert!(body.contains("unit_op"), "root op name present");
         assert!(body.contains("inner_step"), "inner span present");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn operation_twice_on_same_thread_both_write() {
+        // Tokio's spawn_blocking reuses OS threads, so `operation` can run more
+        // than once on the same thread. Each call must restore the thread-local
+        // subscriber cleanly and produce its own valid trace file.
+        let tmp = std::env::temp_dir().join(format!("cuprum-trace-twice-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        for i in 0..2 {
+            let r = run_with_config(&cfg, "twice_op", &tmp, || {
+                let _s = tracing::info_span!("inner").entered();
+                i
+            });
+            assert_eq!(r, i);
+        }
+
+        let files: Vec<_> = std::fs::read_dir(&tmp)
+            .expect("trace dir exists")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+            .collect();
+        assert_eq!(files.len(), 2, "each call writes its own trace file");
+        for f in &files {
+            let body = std::fs::read_to_string(f).unwrap();
+            serde_json::from_str::<serde_json::Value>(&body).expect("trace is valid JSON");
+            assert!(body.contains("inner"), "span present in {f:?}");
+        }
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
