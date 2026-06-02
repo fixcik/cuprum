@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Crosshair, Maximize, Minus, Plus, Ruler } from "lucide-react";
+import { Crosshair, Loader2, Maximize, Minus, Plus, Ruler } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { BBox, Hole, LayerType } from "@/lib/api";
 import { LAYER_Z } from "@/lib/layerColors";
@@ -104,6 +104,7 @@ export function LayerStack({
   markers = [],
   focusTarget = null,
   chrome = true,
+  loading = false,
 }: {
   layers: StackLayer[];
   holes?: Hole[];
@@ -117,6 +118,8 @@ export function LayerStack({
   /** Interactive chrome (rulers, zoom toolbar, board-size badge, pan/zoom). When
    *  false the viewer is a static, fit-to-board thumbnail with none of that. */
   chrome?: boolean;
+  /** Show a centered spinner instead of the empty-state text while layers load. */
+  loading?: boolean;
 }) {
   const { t } = useTranslation("import");
   const { fmtLen } = useUnitFormat();
@@ -297,7 +300,11 @@ export function LayerStack({
         ref={setContainer}
         className="flex h-full w-full items-center justify-center text-[12px] text-muted-foreground"
       >
-        {t("viewer.noLayers")}
+        {loading ? (
+          <Loader2 className="size-6 animate-spin text-primary" />
+        ) : (
+          t("viewer.noLayers")
+        )}
       </div>
     );
   }

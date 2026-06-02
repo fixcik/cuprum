@@ -58,6 +58,7 @@ export function PreviewPane({
   facing = null,
   onFacingChange,
   snapNonce = 0,
+  loading,
 }: {
   layers: StackLayer[];
   /** Drill holes to show in 2D (already filtered by the visible drill layers). */
@@ -101,6 +102,8 @@ export function PreviewPane({
   onFacingChange?: (f: "top" | "bottom" | null) => void;
   /** Bumped on a side pick → tells Board3D to snap the camera onto that side. */
   snapNonce?: number;
+  /** Forwarded to LayerStack: spinner while 2D layers load. */
+  loading?: boolean;
 }) {
   const { t } = useTranslation("common");
   // The 2D view's current px/mm scale, carried over so 3D opens at the same size.
@@ -117,6 +120,7 @@ export function PreviewPane({
             onScale={setScale2d}
             markers={showDrc ? markers : []}
             focusTarget={showDrc ? focusTarget : null}
+            loading={loading}
           />
         ) : (
           <Board3D
