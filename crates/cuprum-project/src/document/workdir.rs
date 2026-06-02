@@ -675,8 +675,7 @@ mod tests {
         use crate::document::manifest::{Design, GerberFile, Manifest};
         use crate::layer::LayerType;
 
-        let base = std::env::temp_dir()
-            .join(format!("cuprum-pack-art-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("cuprum-pack-art-{}", std::process::id()));
         let wd = base.join("wd");
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(wd.join("gerbers/d1")).unwrap();
