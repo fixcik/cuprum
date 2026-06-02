@@ -73,6 +73,19 @@ fn to_hotspot(h: geometry::Hot, side: &str) -> Hotspot {
     }
 }
 
+/// Total order on hotspots, worst-first (ascending `v`), with a coordinate
+/// tie-break so equal-value hotspots have a deterministic order independent of
+/// upstream iteration order (e.g. `conductor::conductors` is HashMap-ordered).
+/// Without the tie-break, `board_metrics` output (and thus the disk cache) varies
+/// run-to-run. For descending order (overshoot: worst = largest), compare reversed.
+fn hotspot_cmp(a: &Hotspot, b: &Hotspot) -> std::cmp::Ordering {
+    a.v.total_cmp(&b.v)
+        .then(a.a[0].total_cmp(&b.a[0]))
+        .then(a.a[1].total_cmp(&b.a[1]))
+        .then(a.b[0].total_cmp(&b.b[0]))
+        .then(a.b[1].total_cmp(&b.b[1]))
+}
+
 /// The 2D face a layer's issues belong to. Inner copper maps to "top" (its
 /// stacking side); it isn't shown separately in the 2D preview.
 fn layer_side(l: &MetricLayerInput) -> &'static str {
@@ -511,7 +524,7 @@ fn thin_stroke_hotspots(layers: &[MetricLayerInput], role: Role) -> Vec<Hotspot>
             }
         }
     }
-    hots.sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(std::cmp::Ordering::Equal));
+    hots.sort_by(hotspot_cmp);
     hots.truncate(HIGHLIGHT_CAP);
     hots
 }
@@ -743,8 +756,7 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         .filter(|(c, _)| c.neck_mm <= HIGHLIGHT_MAX_W)
         .map(|(c, side)| to_hotspot((c.min, c.max, c.neck_mm), side))
         .collect();
-    thin_trace_conductors
-        .sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(std::cmp::Ordering::Equal));
+    thin_trace_conductors.sort_by(hotspot_cmp);
     thin_trace_conductors.truncate(HIGHLIGHT_CAP);
     let min_clear = clear_hots
         .iter()
@@ -823,7 +835,7 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
             );
         }
     }
-    mask_hots.sort_by(|a, b| a.v.partial_cmp(&b.v).unwrap_or(std::cmp::Ordering::Equal));
+    mask_hots.sort_by(hotspot_cmp);
     let min_mask_dam = mask_hots.first().map(|h| h.v);
 
     // Overshoot: per non-edge layer, where its bbox sticks out past the board edge.
@@ -866,7 +878,7 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         }
     }
     // Overshoot is "worst = largest" → sort descending.
-    overshoot_hots.sort_by(|a, b| b.v.partial_cmp(&a.v).unwrap_or(std::cmp::Ordering::Equal));
+    overshoot_hots.sort_by(|a, b| hotspot_cmp(b, a));
     overshoot_hots.truncate(40);
     let layer_overshoot = overshoot_hots.first().map(|h| h.v);
 
@@ -994,6 +1006,55 @@ mod tests {
         assert!(
             !clear.is_empty() || !width.is_empty(),
             "fixtures should yield at least one hotspot"
+        );
+    }
+
+    // Whole-`board_metrics` guard for the parse-once / zone3 fan-out refactor:
+    // (a) deterministic — recomputing yields a byte-identical result (catches any
+    //     non-determinism from parallelism); (b) structural invariants on a rich
+    //     multi-role fixture (catches gross wiring breakage). Clearance/width float
+    //     values are covered bit-exactly by `copper_hotspots_match_sequential_reference`.
+    fn rich_fixture() -> Vec<MetricLayerInput<'static>> {
+        let mk = |role, side, bytes: &'static [u8], plated| MetricLayerInput {
+            role,
+            side,
+            inner: false,
+            plated,
+            bytes,
+        };
+        vec![
+            edge(EDGE_SQUARE),
+            mk(Role::Copper, Side::Top, CU_LAYER_A, false),
+            mk(Role::Copper, Side::Bottom, CU_LAYER_B, false),
+            mk(Role::Drill, Side::Both, PTH, true),
+            mk(Role::Mask, Side::Top, CU_LAYER_A, false),
+            mk(Role::Silk, Side::Top, CU_TRACE, false),
+        ]
+    }
+
+    #[test]
+    fn board_metrics_deterministic_and_structured() {
+        let layers = rich_fixture();
+        let a = serde_json::to_string(&board_metrics(&layers)).unwrap();
+        let b = serde_json::to_string(&board_metrics(&layers)).unwrap();
+        assert_eq!(a, b, "board_metrics must be deterministic across runs");
+
+        // Topological invariants (counts, not float-threshold-dependent → arch-robust):
+        // catch gross wiring breakage from the parse-once / zone3 fan-out refactor.
+        let m = board_metrics(&layers);
+        assert_eq!(m.copper.len(), 2, "two copper layers");
+        assert_eq!(m.layers.copper_layer_count, 2);
+        assert_eq!(m.geo.trace_count, 7, "conductor model run count");
+        assert_eq!(m.geo.drill_hotspots.len(), 3, "3 drill holes");
+        assert_eq!(
+            m.geo.annular_hotspots.len(),
+            3,
+            "3 plated holes → 3 annular"
+        );
+        assert_eq!(m.geo.slot_count, 0);
+        assert!(
+            !m.geo.copper_width_hotspots.is_empty(),
+            "width hotspots present"
         );
     }
 
