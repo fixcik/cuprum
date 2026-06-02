@@ -25,6 +25,8 @@ tungstenite = { version = "0.21", default-features = false, features = ["handsha
 ctrlc = "3"
 gerber_viewer = { path = "vendor/gerber-viewer", default-features = false, features = ["types", "parser"] }
 tiny-skia = "0.12"
+resvg = "0.45"
+usvg = "0.45"
 rayon = "1"
 png = "0.17"
 rusqlite = { version = "0.31", features = ["bundled"] }
