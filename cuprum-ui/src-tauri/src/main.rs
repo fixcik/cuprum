@@ -533,6 +533,12 @@ fn configure_panel(
 
 // ---- Working-dir gerber inspection (drill holes, SVG geometry) ----
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewDto {
+    png_data_url: String,
+}
+
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct HoleDto {
@@ -1022,6 +1028,54 @@ async fn project_board_metrics(
     .map_err(|e| e.to_string())?
 }
 
+/// Render a design's composite preview PNG into the project artifact cache
+/// (`<workdir>/artifacts/preview`) and return it as a data URL for a card `<img>`.
+/// Non-drill layers only (no holes), top side — matches the card's old LayerStack
+/// thumbnail. Persistent + content-keyed, so it ships in the `.cuprum` and only
+/// recomputes when gerbers or colors change.
+#[tauri::command]
+async fn render_design_preview(
+    app: AppHandle,
+    working_dir: String,
+    design_id: String,
+    gerbers: Vec<GerberRef>,
+    layer_colors: Option<std::collections::HashMap<String, String>>,
+) -> Result<PreviewDto, String> {
+    let _ = &design_id; // label/trace only
+    let overrides = layer_colors.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || -> Result<PreviewDto, String> {
+        let mut layers: Vec<cuprum_core::preview::PreviewLayer> = Vec::new();
+        for g in &gerbers {
+            // IPC camelCase string (e.g. "topCopper"/"drill") — MUST match the
+            // pack-gc key reconstruction in cuprum-project (serde repr, not Debug).
+            let lt = serde_json::to_value(g.layer_type)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_else(|| "other".to_string());
+            if lt == "drill" {
+                continue;
+            }
+            let bytes = read_workdir_file(&working_dir, &g.rel)?;
+            layers.push(cuprum_core::preview::PreviewLayer {
+                layer_type: lt,
+                bytes,
+            });
+        }
+        let dir = std::path::Path::new(&working_dir).join("artifacts");
+        let traces = traces_dir(&app);
+        let png = cuprum_core::trace::operation("preview", &traces, || {
+            cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, 512)
+        })
+        .map_err(|e| e.to_string())?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+        Ok(PreviewDto {
+            png_data_url: format!("data:image/png;base64,{b64}"),
+        })
+    })
+    .await
+    .map_err(|e| format!("preview join error: {e}"))?
+}
+
 // ---- Real display DPI (macOS native, cached once per launch) ----
 
 /// CSS reference: 96 CSS px == 1 inch == 25.4 mm.
@@ -1117,6 +1171,7 @@ fn main() {
             add_design_from_zip,
             render_gerber_svg,
             render_layers_svg,
+            render_design_preview,
             copper_polygons,
             layer_polygons,
             mask_polygons,
