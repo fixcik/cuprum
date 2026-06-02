@@ -60,6 +60,14 @@ fn svg_cache() -> &'static Mutex<HashMap<String, LayerGeometry>> {
     C.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Per-key locks to de-duplicate concurrent cache misses (single-flight): two
+/// threads missing the same key render once; the loser waits and reads the
+/// winner's result from the in-memory cache. Distinct keys never serialize.
+fn svg_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
+    static C: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Render a gerber layer to SVG, going through the in-memory and disk caches.
 /// Order: in-memory → disk → render. On a render, both caches are populated.
 /// Keyed by `hash(SVG_CACHE_TAG + bytes)` so a layer is never recomputed while
@@ -69,10 +77,29 @@ fn svg_cache() -> &'static Mutex<HashMap<String, LayerGeometry>> {
 /// the clear-polarity mask).
 pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8], id: &str) -> anyhow::Result<LayerGeometry> {
     let key = crate::diskcache::key_for(&[SVG_CACHE_TAG, bytes]);
+    layer_svg_cached_inner(cache_dir, &key, || svg::render_layer_svg(bytes, id))
+}
 
+/// Cache + single-flight core, with the render step injected so tests can prove
+/// it runs exactly once under concurrency.
+///
+/// Lock discipline (no deadlock): the `svg_inflight` registry lock is released
+/// before taking the per-key `flight` lock; the `svg_cache` lock is only ever
+/// held briefly for a get/insert and never across `render()` or `flight.lock()`.
+///
+/// Note: if `render` panics (not returns Err), its in-flight entry leaks and the
+/// per-key lock is poisoned — bounded by the number of distinct keys; acceptable.
+fn layer_svg_cached_inner<F>(
+    cache_dir: &Path,
+    key: &str,
+    render: F,
+) -> anyhow::Result<LayerGeometry>
+where
+    F: FnOnce() -> anyhow::Result<LayerGeometry>,
+{
     // 1. In-memory.
     if !crate::diskcache::cache_disabled() {
-        if let Some(g) = svg_cache().lock().unwrap().get(&key) {
+        if let Some(g) = svg_cache().lock().unwrap().get(key) {
             return Ok(g.clone());
         }
     }
@@ -80,23 +107,69 @@ pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8], id: &str) -> anyhow::Res
     // 2. Disk. The `cache_disabled()` gate here is load-bearing: it also skips
     //    populating the in-memory layer below. (diskcache::get/put self-gate too.)
     if !crate::diskcache::cache_disabled() {
-        if let Some(blob) = crate::diskcache::get(cache_dir, &key, SVG_DISK_TTL) {
+        if let Some(blob) = crate::diskcache::get(cache_dir, key, SVG_DISK_TTL) {
             if let Ok(g) = serde_json::from_slice::<LayerGeometry>(&blob) {
-                svg_cache().lock().unwrap().insert(key.clone(), g.clone());
+                svg_cache()
+                    .lock()
+                    .unwrap()
+                    .insert(key.to_owned(), g.clone());
                 return Ok(g);
             }
         }
     }
 
-    // 3. Render (outside any lock so parallel renders of distinct layers don't
-    //    serialize), then populate both caches.
-    let g = svg::render_layer_svg(bytes, id)?;
-    if !crate::diskcache::cache_disabled() {
-        if let Ok(blob) = serde_json::to_vec(&g) {
-            crate::diskcache::put(cache_dir, &key, &blob, SVG_DISK_MAX_BYTES, SVG_DISK_TTL);
-        }
-        svg_cache().lock().unwrap().insert(key, g.clone());
+    // When caching is off (cold-path profiling) skip single-flight entirely:
+    // every caller renders, nothing is serialized or stored.
+    if crate::diskcache::cache_disabled() {
+        return render();
     }
+
+    // 3. Single-flight: serialize same-key renders on a per-key lock. Take the
+    //    registry lock only long enough to clone (or create) the per-key lock,
+    //    then drop it before waiting on the per-key lock itself.
+    let flight = {
+        let mut reg = svg_inflight().lock().unwrap();
+        reg.entry(key.to_owned())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    };
+    let _flight = flight.lock().unwrap();
+
+    // Double-check: the winner may have just populated the cache while we waited.
+    if let Some(g) = svg_cache().lock().unwrap().get(key) {
+        return Ok(g.clone());
+    }
+
+    // Remove our own in-flight entry (Arc::ptr_eq so we never clobber a
+    // successor generation's entry). Called on both the Ok and Err render
+    // outcomes so a failed render doesn't leak its registry slot.
+    let drop_inflight = || {
+        let mut reg = svg_inflight().lock().unwrap();
+        if let Some(existing) = reg.get(key) {
+            if Arc::ptr_eq(existing, &flight) {
+                reg.remove(key);
+            }
+        }
+    };
+
+    // We are the winner: render once.
+    let g = match render() {
+        Ok(g) => g,
+        Err(e) => {
+            drop_inflight();
+            return Err(e);
+        }
+    };
+    // Populate BEFORE cleanup: a fresh Arc for this key must not be minted until
+    // the value is in the cache (preserves the single-render guarantee).
+    if let Ok(blob) = serde_json::to_vec(&g) {
+        crate::diskcache::put(cache_dir, key, &blob, SVG_DISK_MAX_BYTES, SVG_DISK_TTL);
+    }
+    svg_cache()
+        .lock()
+        .unwrap()
+        .insert(key.to_owned(), g.clone());
+    drop_inflight();
     Ok(g)
 }
 
@@ -197,6 +270,59 @@ mod tests {
         // Different aperture diameter → different geometry: distinct bytes are not
         // conflated into one cache entry.
         assert_ne!(a.bbox, b.bbox, "distinct gerbers yield distinct geometry");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn single_flight_renders_once_under_concurrency() {
+        use crate::svg::BBox;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let dir = std::env::temp_dir().join(format!("cuprum-svcflight-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let key = "svgflightkey";
+        // The global caches outlive other tests; clear this key so the start is a
+        // guaranteed miss regardless of test order.
+        svg_cache().lock().unwrap().remove(key);
+        svg_inflight().lock().unwrap().remove(key);
+        let renders = Arc::new(AtomicUsize::new(0));
+        let geom = LayerGeometry {
+            svg_body: "<g></g>".to_string(),
+            bbox: BBox {
+                min_x: 0.0,
+                min_y: 0.0,
+                max_x: 1.0,
+                max_y: 1.0,
+            },
+            snap: vec![],
+        };
+        let mut handles = vec![];
+        for _ in 0..8 {
+            let dir = dir.clone();
+            let renders = Arc::clone(&renders);
+            let geom = geom.clone();
+            handles.push(std::thread::spawn(move || {
+                layer_svg_cached_inner(&dir, key, || {
+                    renders.fetch_add(1, Ordering::SeqCst);
+                    // simulate work so threads actually overlap on the per-key lock
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    Ok(geom)
+                })
+                .expect("ok")
+            }));
+        }
+        for h in handles {
+            let g = h.join().expect("thread ok");
+            assert_eq!(
+                g.svg_body, "<g></g>",
+                "all callers get the rendered geometry"
+            );
+        }
+        assert_eq!(
+            renders.load(Ordering::SeqCst),
+            1,
+            "render happens exactly once under single-flight"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
