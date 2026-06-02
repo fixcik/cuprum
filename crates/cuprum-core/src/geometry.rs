@@ -689,8 +689,20 @@ fn dedup_top(hots: Vec<Hot>) -> Vec<Hot> {
 /// non-adjacent edges of the SAME polygon). Each hotspot carries the two closest
 /// mm points + the distance. Only DRC-relevant gaps (≲ 2 cells ≈ diag/110) are
 /// collected; the frontend filters by the profile threshold. One pass feeds both.
+/// Which side(s) of the clearance/width sweep to compute. Each caller uses only
+/// one: the full-union path needs Clearance, the region path needs Width. Skipping
+/// the other side avoids its per-pair work — crucially the O(ring) `point_in_ring`
+/// interiorness test of the width branch, which on a dense full-union pour
+/// dominated the sweep (~1.5 s of a ~1.9 s call) and was then discarded.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Want {
+    Clearance,
+    Width,
+    Both,
+}
+
 #[tracing::instrument(skip_all, fields(polys = polys.len()))]
-pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
+fn hotspots(polys: &[Poly], want: Want) -> (Vec<Hot>, Vec<Hot>) {
     let edges = collect_edges(polys);
     if edges.len() < 2 {
         return (Vec::new(), Vec::new());
@@ -752,8 +764,17 @@ pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
                     visited[ej] = visit_gen;
                     let f = &edges[ej];
                     let cross = e.poly != f.poly;
-                    let same_nonadj = e.poly == f.poly && !adjacent(e, f);
-                    if !cross && !same_nonadj {
+                    // Only the requested side's pairs are processed; the other
+                    // side's classification AND per-pair work (incl. the expensive
+                    // `adjacent` + `point_in_ring`) are skipped entirely. Bit-
+                    // identical: `clear` depends only on `cross` pairs, `width` only
+                    // on same-poly non-adjacent pairs — independent outputs.
+                    let want_this = match want {
+                        Want::Clearance => cross,
+                        Want::Width => !cross && !adjacent(e, f),
+                        Want::Both => cross || !adjacent(e, f),
+                    };
+                    if !want_this {
                         continue;
                     }
                     if budget == 0 {
@@ -917,9 +938,22 @@ pub fn min_clearance_and_width(polys: &[Poly]) -> (Option<f64>, Option<f64>) {
     (c.first().map(|h| h.2), w.first().map(|h| h.2))
 }
 
-/// Clearance hotspots between distinct polygons only (e.g. mask openings).
+/// Both sides at once. Retained for `min_clearance_and_width` and the bit-identical
+/// guard tests; hot callers use the one-sided `clearance_hotspots` / `width_hotspots`.
+pub fn clearance_width_hotspots(polys: &[Poly]) -> (Vec<Hot>, Vec<Hot>) {
+    hotspots(polys, Want::Both)
+}
+
+/// Clearance hotspots only (cross-polygon gaps) — e.g. the full copper union, mask
+/// openings. Skips the copper-width branch entirely.
 pub fn clearance_hotspots(polys: &[Poly]) -> Vec<Hot> {
-    clearance_width_hotspots(polys).0
+    hotspots(polys, Want::Clearance).0
+}
+
+/// Copper-width (neck) hotspots only — e.g. the region copper set. Skips the
+/// clearance branch entirely.
+pub fn width_hotspots(polys: &[Poly]) -> Vec<Hot> {
+    hotspots(polys, Want::Width).1
 }
 
 /// Min clearance between distinct polygons only (e.g. for mask openings).
@@ -1271,6 +1305,33 @@ mod tests {
             (width.unwrap() - 0.1).abs() < 0.02,
             "width ≈ 0.1: {width:?}"
         );
+    }
+
+    // Bit-identical guard for the Want-split: computing only one side must yield
+    // EXACTLY the side that the combined `Both` path produces. In-process float
+    // equality → platform-independent. Uses real multi-primitive fixtures so the
+    // clearance AND width sets are both non-trivial.
+    #[test]
+    fn split_matches_both() {
+        const A: &[u8] = include_bytes!("../../../testdata/gerber/two_square_boxes.gbr");
+        const B: &[u8] = include_bytes!("../../../testdata/gerber/polarities_and_apertures.gbr");
+        for bytes in [A, B] {
+            let polys = layer_polygons(bytes, &[]).unwrap();
+            let (both_c, both_w) = hotspots(&polys, Want::Both);
+            let (clear_only, empty_w) = hotspots(&polys, Want::Clearance);
+            let (empty_c, width_only) = hotspots(&polys, Want::Width);
+            assert_eq!(clear_only, both_c, "Clearance-only must equal Both.0");
+            assert!(empty_w.is_empty(), "Clearance mode yields no width");
+            assert_eq!(width_only, both_w, "Width-only must equal Both.1");
+            assert!(empty_c.is_empty(), "Width mode yields no clearance");
+            // The public wrappers must match the core.
+            assert_eq!(
+                clearance_hotspots(&polys),
+                both_c,
+                "clearance_hotspots == Both.0"
+            );
+            assert_eq!(width_hotspots(&polys), both_w, "width_hotspots == Both.1");
+        }
     }
 
     #[test]

@@ -627,7 +627,7 @@ fn copper_clearance_width_hotspots(
                 .map(|(side, polys)| {
                     tracing::dispatcher::with_default(&dispatch, || {
                         span.in_scope(|| {
-                            let (c, _) = geometry::clearance_width_hotspots(polys);
+                            let c = geometry::clearance_hotspots(polys);
                             top_n(c, 40)
                                 .into_iter()
                                 .map(|h| to_hotspot(h, side))
@@ -661,7 +661,7 @@ fn copper_clearance_width_hotspots(
                                 return Vec::new();
                             }
                             let side = layer_side(l);
-                            let (_, w) = geometry::clearance_width_hotspots(&region);
+                            let w = geometry::width_hotspots(&region);
                             top_n(w, 40)
                                 .into_iter()
                                 .map(|h| to_hotspot(h, side))
