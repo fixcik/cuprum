@@ -73,11 +73,14 @@ fn svg_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
 /// Keyed by `hash(SVG_CACHE_TAG + bytes)` so a layer is never recomputed while
 /// its gerber bytes are unchanged. Honors `diskcache::cache_disabled()`.
 ///
-/// `cache_dir` is the disk-cache directory; `id` is the SVG element id (scopes
-/// the clear-polarity mask).
-pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8], id: &str) -> anyhow::Result<LayerGeometry> {
+/// `cache_dir` is the disk-cache directory. The SVG element id (scopes the
+/// clear-polarity mask) is derived internally from the content hash.
+pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerGeometry> {
     let key = crate::diskcache::key_for(&[SVG_CACHE_TAG, bytes]);
-    layer_svg_cached_inner(cache_dir, &key, || svg::render_layer_svg(bytes, id))
+    // SVG element id derived from the content hash — unique per gerber content,
+    // scopes the clear-polarity mask. Derived here so the tag lives in one place.
+    let id = format!("ly{}", &key[..8]);
+    layer_svg_cached_inner(cache_dir, &key, || svg::render_layer_svg(bytes, &id))
 }
 
 /// Cache + single-flight core, with the render step injected so tests can prove
@@ -250,10 +253,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cuprum-svgcache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         // First call: miss → render + populate both caches.
-        let a = layer_svg_cached(&dir, GBR, "ly_test").expect("render ok");
+        let a = layer_svg_cached(&dir, GBR).expect("render ok");
         // Wipe the disk cache: a second hit now can only come from the in-memory layer.
         let _ = std::fs::remove_dir_all(&dir);
-        let b = layer_svg_cached(&dir, GBR, "ly_test").expect("memory hit ok");
+        let b = layer_svg_cached(&dir, GBR).expect("memory hit ok");
         assert_eq!(a.svg_body, b.svg_body, "in-memory cached svg identical");
         assert_eq!(a.bbox, b.bbox, "in-memory cached bbox identical");
         assert_eq!(a.snap, b.snap, "in-memory cached snap identical");
@@ -265,8 +268,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cuprum-svgcache2-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let other: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\nD10*\nX0Y0D03*\nM02*\n";
-        let a = layer_svg_cached(&dir, GBR, "ly_a").expect("ok");
-        let b = layer_svg_cached(&dir, other, "ly_b").expect("ok");
+        let a = layer_svg_cached(&dir, GBR).expect("ok");
+        let b = layer_svg_cached(&dir, other).expect("ok");
         // Different aperture diameter → different geometry: distinct bytes are not
         // conflated into one cache entry.
         assert_ne!(a.bbox, b.bbox, "distinct gerbers yield distinct geometry");

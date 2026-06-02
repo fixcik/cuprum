@@ -737,10 +737,8 @@ fn traces_dir(app: &AppHandle) -> PathBuf {
 /// regardless of which layer/index requested it.
 fn render_or_cache_svg(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
     let dir = artifact_cache_dir(app).ok_or_else(|| "no cache dir available".to_string())?;
-    let key = cuprum_core::diskcache::key_for(&[b"svg-v1", bytes]);
-    let id = format!("ly{}", &key[..8]);
     let g = cuprum_core::trace::operation("svg", &traces_dir(app), || {
-        cuprum_core::cache::layer_svg_cached(&dir, bytes, &id)
+        cuprum_core::cache::layer_svg_cached(&dir, bytes)
     })
     .map_err(|e| e.to_string())?;
     Ok(LayerGeometryDto {
