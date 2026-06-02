@@ -10,9 +10,10 @@
 //! Run: `cargo bench -p cuprum-core --bench board_metrics`
 
 use criterion::{criterion_group, criterion_main, Criterion};
+use cuprum_core::dfm;
+use cuprum_core::dfm::{board_metrics, MetricLayerInput};
 use cuprum_core::geometry;
 use cuprum_core::mesh::{Role, Side};
-use cuprum_core::dfm::{board_metrics, MetricLayerInput};
 
 const F_CU: &[u8] = include_bytes!("../../../testdata/gerber/plaid/plaid-F_Cu.gtl");
 const B_CU: &[u8] = include_bytes!("../../../testdata/gerber/plaid/plaid-B_Cu.gbl");
@@ -69,7 +70,7 @@ fn bench_sweep(c: &mut Criterion) {
     let mut g = c.benchmark_group("sweep");
     g.sample_size(10);
     g.bench_function("clearance_width/plaid_F_Cu", |b| {
-        b.iter(|| geometry::clearance_width_hotspots(&polys))
+        b.iter(|| dfm::clearance_width_hotspots(&polys))
     });
     g.finish();
 }

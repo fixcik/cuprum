@@ -21,6 +21,7 @@ use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::sweep;
 use crate::geometry::{self, Poly};
 use crate::mesh::{Role, Side};
 
@@ -64,7 +65,7 @@ pub struct Hotspot {
     pub side: String,
 }
 
-fn to_hotspot(h: geometry::Hot, side: &str) -> Hotspot {
+fn to_hotspot(h: sweep::Hot, side: &str) -> Hotspot {
     Hotspot {
         a: [h.0[0] as f32, h.0[1] as f32],
         b: [h.1[0] as f32, h.1[1] as f32],
@@ -434,7 +435,7 @@ fn ring_area_abs(ring: &[[f64; 2]]) -> f64 {
 }
 
 /// Sort hotspots worst-first (smallest value) and cap the count.
-fn top_n(mut v: Vec<geometry::Hot>, n: usize) -> Vec<geometry::Hot> {
+fn top_n(mut v: Vec<sweep::Hot>, n: usize) -> Vec<sweep::Hot> {
     v.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
     v.truncate(n);
     v
@@ -444,15 +445,15 @@ fn top_n(mut v: Vec<geometry::Hot>, n: usize) -> Vec<geometry::Hot> {
 const MERGE_PAD_MM: f64 = 0.1;
 
 /// Longer side of a hotspot's bounding box (mm) — its "extent".
-fn hot_extent(h: &geometry::Hot) -> f64 {
+fn hot_extent(h: &sweep::Hot) -> f64 {
     (h.0[0] - h.1[0]).abs().max((h.0[1] - h.1[1]).abs())
 }
 
 /// Do two hotspots' (padded) bounding boxes overlap? Used to fold the two arms of
 /// an L-shaped silk/trace stroke that meet at a corner into a single marker
 /// instead of two stacked boxes.
-fn hots_overlap(a: &geometry::Hot, b: &geometry::Hot, pad: f64) -> bool {
-    let bb = |h: &geometry::Hot| {
+fn hots_overlap(a: &sweep::Hot, b: &sweep::Hot, pad: f64) -> bool {
+    let bb = |h: &sweep::Hot| {
         (
             h.0[0].min(h.1[0]) - pad,
             h.0[1].min(h.1[1]) - pad,
@@ -467,13 +468,13 @@ fn hots_overlap(a: &geometry::Hot, b: &geometry::Hot, pad: f64) -> bool {
 
 /// Drop hotspots whose box overlaps one already kept (longest-first), so two
 /// markers that visually intersect collapse into one.
-fn merge_overlapping(mut v: Vec<geometry::Hot>) -> Vec<geometry::Hot> {
+fn merge_overlapping(mut v: Vec<sweep::Hot>) -> Vec<sweep::Hot> {
     v.sort_by(|a, b| {
         hot_extent(b)
             .partial_cmp(&hot_extent(a))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let mut kept: Vec<geometry::Hot> = Vec::new();
+    let mut kept: Vec<sweep::Hot> = Vec::new();
     for h in v {
         if !kept.iter().any(|k| hots_overlap(k, &h, MERGE_PAD_MM)) {
             kept.push(h);
@@ -483,7 +484,7 @@ fn merge_overlapping(mut v: Vec<geometry::Hot>) -> Vec<geometry::Hot> {
 }
 
 /// Midpoint of a hotspot's two points.
-fn hot_mid(h: &geometry::Hot) -> [f64; 2] {
+fn hot_mid(h: &sweep::Hot) -> [f64; 2] {
     [(h.0[0] + h.1[0]) / 2.0, (h.0[1] + h.1[1]) / 2.0]
 }
 
@@ -491,13 +492,13 @@ fn hot_mid(h: &geometry::Hot) -> [f64; 2] {
 /// already-kept one — keeping the longest as the representative. Collapses a
 /// swarm of nearby strokes (e.g. every glyph of a silk text block) into a few
 /// markers instead of one per letter.
-fn cluster_by_radius(mut v: Vec<geometry::Hot>, radius: f64) -> Vec<geometry::Hot> {
+fn cluster_by_radius(mut v: Vec<sweep::Hot>, radius: f64) -> Vec<sweep::Hot> {
     v.sort_by(|a, b| {
         hot_extent(b)
             .partial_cmp(&hot_extent(a))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let mut kept: Vec<geometry::Hot> = Vec::new();
+    let mut kept: Vec<sweep::Hot> = Vec::new();
     for h in v {
         let m = hot_mid(&h);
         if !kept.iter().any(|k| {
@@ -518,12 +519,12 @@ fn cluster_by_radius(mut v: Vec<geometry::Hot>, radius: f64) -> Vec<geometry::Ho
 /// `cluster_mm` sets how aggressively nearby instances collapse (≈3 mm for silk
 /// text, ≈1 mm for traces/holes).
 fn dedup_by_value(
-    hots: Vec<geometry::Hot>,
+    hots: Vec<sweep::Hot>,
     per_value: usize,
     side: &str,
     cluster_mm: f64,
 ) -> Vec<Hotspot> {
-    let mut by_v: BTreeMap<u32, Vec<geometry::Hot>> = BTreeMap::new();
+    let mut by_v: BTreeMap<u32, Vec<sweep::Hot>> = BTreeMap::new();
     for h in hots {
         by_v.entry((h.2 * 1000.0).round() as u32)
             .or_default()
@@ -578,7 +579,7 @@ fn thin_stroke_hotspots(
 
 /// Each routed stroke (Line/Arc, Add) as a hotspot: its endpoints + width. Used
 /// to LOCATE thin silk/trace features (the box marker bounds the stroke).
-fn stroke_hotspots(layer: &GerberLayer) -> Vec<geometry::Hot> {
+fn stroke_hotspots(layer: &GerberLayer) -> Vec<sweep::Hot> {
     let mut hots = Vec::new();
     for prim in layer.primitives() {
         match prim {
@@ -619,8 +620,8 @@ fn stroke_hotspots(layer: &GerberLayer) -> Vec<geometry::Hot> {
 fn annular_hotspots<'a>(
     copper_layers: &'a [(&'a str, Vec<Poly>)],
     plated_holes: &[[f64; 3]],
-) -> Vec<(geometry::Hot, &'a str)> {
-    let mut hots: Vec<(geometry::Hot, &'a str)> = Vec::new();
+) -> Vec<(sweep::Hot, &'a str)> {
+    let mut hots: Vec<(sweep::Hot, &'a str)> = Vec::new();
     for h in plated_holes {
         let p = [h[0], h[1]];
         let hole_r = h[2] / 2.0;
@@ -684,7 +685,7 @@ fn copper_clearance_width_hotspots(
                 .par_iter()
                 .map(|(side, polys)| {
                     dh.run(|| {
-                        let c = geometry::clearance_hotspots(polys);
+                        let c = sweep::clearance_hotspots(polys);
                         top_n(c, 40)
                             .into_iter()
                             .map(|h| to_hotspot(h, side))
@@ -716,7 +717,7 @@ fn copper_clearance_width_hotspots(
                             return Vec::new();
                         }
                         let side = layer_side(l);
-                        let w = geometry::width_hotspots(&region);
+                        let w = sweep::width_hotspots(&region);
                         top_n(w, 40)
                             .into_iter()
                             .map(|h| to_hotspot(h, side))
@@ -871,7 +872,7 @@ fn compute_zone3(
             .collect();
         if openings.len() >= 2 {
             mask_hots.extend(
-                geometry::clearance_hotspots(&openings)
+                sweep::clearance_hotspots(&openings)
                     .into_iter()
                     .map(|h| to_hotspot(h, face)),
             );
@@ -1153,7 +1154,7 @@ mod tests {
         // Sequential reference, recomputed here in the same process.
         let mut ref_clear: Vec<Hotspot> = Vec::new();
         for (side, polys) in &copper_layers {
-            let (c, _) = geometry::clearance_width_hotspots(polys);
+            let (c, _) = sweep::clearance_width_hotspots(polys);
             ref_clear.extend(top_n(c, 40).into_iter().map(|h| to_hotspot(h, side)));
         }
         let mut ref_width: Vec<Hotspot> = Vec::new();
@@ -1165,7 +1166,7 @@ mod tests {
                 continue;
             }
             let side = layer_side(l);
-            let (_, w) = geometry::clearance_width_hotspots(&region);
+            let (_, w) = sweep::clearance_width_hotspots(&region);
             ref_width.extend(top_n(w, 40).into_iter().map(|h| to_hotspot(h, side)));
         }
 

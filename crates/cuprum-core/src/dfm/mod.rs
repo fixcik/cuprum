@@ -4,5 +4,10 @@
 
 mod conductor;
 mod metrics;
+mod sweep;
 
 pub use metrics::{board_metrics, BoardMetrics, Hotspot, MetricLayerInput};
+pub use sweep::{
+    clearance_hotspots, clearance_width_hotspots, min_clearance_and_width, min_island_clearance,
+    width_hotspots, Hot,
+};
