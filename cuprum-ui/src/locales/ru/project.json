@@ -16,7 +16,8 @@
     "dropHintShort": "или перетащите ZIP сюда",
     "delete": "Удалить дизайн",
     "rename": "Переименовать",
-    "renameTitle": "Переименовать дизайн"
+    "renameTitle": "Переименовать дизайн",
+    "preparingArtifacts": "Готовлю артефакты {{done}}/{{total}}"
   },
   "tab": {
     "panel": "Панель",

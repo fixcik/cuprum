@@ -16,7 +16,8 @@
     "dropHintShort": "or drop a ZIP here",
     "delete": "Remove design",
     "rename": "Rename",
-    "renameTitle": "Rename design"
+    "renameTitle": "Rename design",
+    "preparingArtifacts": "Preparing artifacts {{done}}/{{total}}"
   },
   "tab": {
     "panel": "Panel",
