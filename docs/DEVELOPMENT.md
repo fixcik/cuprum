@@ -51,7 +51,7 @@ cd cuprum-ui && CUPRUM_TRACE=1 pnpm tauri dev
 ### Forcing a cold path: `CUPRUM_NO_CACHE`
 
 For repeatable profiling set `CUPRUM_NO_CACHE=1` to bypass **all** caches — the disk
-artifact cache (`diskcache`) and the in-memory preview/mask caches (`cache.rs`) — so
+artifact cache (`diskcache`) and the in-memory preview/mask/SVG caches (`cache.rs`) — so
 every operation recomputes from cold instead of serving a cached result. Results are
 unchanged (recompute vs. serve). Combine with tracing to capture cold traces:
 
@@ -83,12 +83,24 @@ span on the parent thread (we don't instrument per-iteration).
 | `compose` | UI `run_print`, CLI `prepare`/`render` | `compose::compose_layout` (+ `rasterize`/`invert` spans), `goo::single_layer_exposure`/`serialize` |
 | `mesh`    | UI `project_board_mesh` (cache miss) | `mesh::board_geometry` (+ `triangulate_parallel`), polygon builders |
 | `metrics` | UI `project_board_metrics` (cache miss) | `metrics::board_metrics`; per-layer `geometry::clearance_width_hotspots` run in parallel (rayon) |
-| `svg`     | UI `render_gerber_svg` (cache miss) | `svg::render_layer_svg` |
+| `svg`     | UI `render_layers_svg` / `render_gerber_svg` (cache miss) | `svg::render_layer_svg` |
 | `gerber-info` | CLI `gerber-info` | `gerber::parse_file` |
 
-UI operations that go through the artifact disk cache (`mesh`/`metrics`/`svg`)
-only write a trace on a **cache miss** — a cache hit does no heavy work, so there
-is nothing to profile.
+UI operations that go through the artifact cache (`mesh`/`metrics`/`svg`) only
+write a trace on a **cache miss** (in-memory or disk) — a cache hit does no heavy
+work, so there is nothing to profile.
+
+### Кеш SVG-слоёв
+
+Рендер слоя в SVG кешируется в core (`cache.rs`, `layer_svg_cached`): сначала
+in-memory, затем дисковый кеш, иначе рендер. Ключ — content-hash гербера
+(`hash("svg-v1" + bytes)`), поэтому неизменённый файл не пересчитывается.
+Параллельные промахи по одному ключу дедуплицируются (single-flight): рендерит
+один поток, остальные ждут и берут готовый результат; рендеры разных слоёв идут
+параллельно. Первичная загрузка слоёв в UI идёт пакетной командой
+`render_layers_svg` (rayon, один IPC-вызов вместо одного на слой); одиночный
+`render_gerber_svg` оставлен для точечного переотображения отдельного слоя.
+Вывод SVG это не меняет — тег `svg-vN` поднимать не нужно.
 
 ### Instrumented spans (in `cuprum-core`)
 
