@@ -612,32 +612,43 @@ fn stroke_hotspots(layer: &GerberLayer) -> Vec<geometry::Hot> {
 
 /// Per-plated-hole annular hotspots: hole centre → nearest pad edge, value =
 /// annular ring (pad radius − hole radius). A hole with no pad yields a zero
-/// hotspot at the hole. Worst-first, capped. Through-holes → side "both".
+/// hotspot at the hole. Worst-first, capped. Each hotspot carries the copper
+/// side of the pad that was chosen (largest-radius pad across all copper layers);
+/// bare holes with no covering pad anywhere are tagged "both".
 #[tracing::instrument(skip_all)]
-fn annular_hotspots(
-    copper_layers: &[(&str, Vec<Poly>)],
+fn annular_hotspots<'a>(
+    copper_layers: &'a [(&'a str, Vec<Poly>)],
     plated_holes: &[[f64; 3]],
-) -> Vec<geometry::Hot> {
-    let mut hots: Vec<geometry::Hot> = Vec::new();
+) -> Vec<(geometry::Hot, &'a str)> {
+    let mut hots: Vec<(geometry::Hot, &'a str)> = Vec::new();
     for h in plated_holes {
         let p = [h[0], h[1]];
         let hole_r = h[2] / 2.0;
-        // The covering pad with the largest radius (across copper layers).
-        let mut best: Option<([f64; 2], f64)> = None;
-        for (_side, polys) in copper_layers {
+        // The covering pad with the largest radius, and the copper side it sits on.
+        let mut best: Option<([f64; 2], f64, &'a str)> = None;
+        for (side, polys) in copper_layers {
             if let Some(poly) = geometry::poly_containing(polys, p) {
                 let (q, d) = geometry::point_ring_closest(p, &poly.outer);
-                if best.is_none_or(|(_, r)| d > r) {
-                    best = Some((q, d));
+                if best.is_none_or(|(_, r, _)| d > r) {
+                    best = Some((q, d, *side));
                 }
             }
         }
         match best {
-            Some((edge, pad_r)) => hots.push((p, edge, pad_r - hole_r)),
-            None => hots.push((p, p, 0.0)),
+            Some((edge, pad_r, side)) => hots.push(((p, edge, pad_r - hole_r), side)),
+            // No covering pad anywhere → a bare through-hole, not side-specific.
+            None => hots.push(((p, p, 0.0), "both")),
         }
     }
-    top_n(hots, 40)
+    // Worst (smallest annular) first, capped — same ordering as `top_n`, on the
+    // hotspot value (`.0.2`); stable so equal values keep plated-hole order.
+    hots.sort_by(|a, b| {
+        a.0 .2
+            .partial_cmp(&b.0 .2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    hots.truncate(40);
+    hots
 }
 
 /// Per-copper-layer clearance + width hotspots. Clearance from each layer's full
@@ -800,7 +811,7 @@ fn compute_zone3(
         .collect();
     let annular_hots: Vec<Hotspot> = annular_hotspots(copper_layers, &plated_holes)
         .into_iter()
-        .map(|h| to_hotspot(h, "both"))
+        .map(|(h, side)| to_hotspot(h, side))
         .collect();
     let min_annular = annular_hots.first().map(|h| h.v);
 
@@ -1217,6 +1228,19 @@ mod tests {
             !m.geo.copper_width_hotspots.is_empty(),
             "width hotspots present"
         );
+        // The CU_LAYER_A/B shapes do not cover the PTH drill positions, so all
+        // three holes are bare through-holes → side "both". This is the expected
+        // fixture reality; the side-propagation path (pad present → copper side)
+        // is exercised by `annular_hotspot_side_attribution`.
+        assert!(
+            m.geo.annular_hotspots.iter().all(|h| h.side == "both"),
+            "bare through-holes must be tagged 'both': {:?}",
+            m.geo
+                .annular_hotspots
+                .iter()
+                .map(|h| &h.side)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1449,6 +1473,58 @@ mod tests {
             g.trace_total_length_mm > 4.0,
             "routed length: {}",
             g.trace_total_length_mm
+        );
+    }
+
+    #[test]
+    fn annular_hotspot_side_attribution() {
+        // Guards that annular_hotspots threads the copper side through to the
+        // Hotspot.side field when the hole IS covered by a pad.
+        //
+        // Setup: one top copper layer with a 1 mm diameter circular pad (radius
+        // 0.5 mm) flashed at (1.0, 1.0), and one PTH hole at (1.0, 1.0) with
+        // drill diameter 0.3 mm (radius 0.15 mm) → annular ring = 0.35 mm.
+        // The hole is covered by the top pad, so the hotspot must carry side="top".
+        //
+        // A second hole at (9.0, 9.0) has no pad on any layer → side="both".
+        const CU_PAD_TOP: &[u8] =
+            b"%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX1000000Y1000000D03*\nM02*\n";
+        // PTH drill: T1=0.3 mm at (1.0,1.0), T2=0.3 mm at (9.0,9.0) — no pad there.
+        const PTH2: &[u8] = b"M48\nMETRIC,TZ\nT1C0.300\n%\nT1\nX1.0Y1.0\nX9.0Y9.0\nM30\n";
+        let layers = vec![
+            MetricLayerInput {
+                role: Role::Copper,
+                side: Side::Top,
+                inner: false,
+                plated: false,
+                bytes: CU_PAD_TOP,
+            },
+            MetricLayerInput {
+                role: Role::Drill,
+                side: Side::Both,
+                inner: false,
+                plated: true,
+                bytes: PTH2,
+            },
+        ];
+        let m = board_metrics(&layers);
+        assert_eq!(m.geo.annular_hotspots.len(), 2, "two plated holes");
+        // Worst annular first: the bare hole (v=0) comes before the padded one.
+        let sides: Vec<&str> = m
+            .geo
+            .annular_hotspots
+            .iter()
+            .map(|h| h.side.as_str())
+            .collect();
+        assert!(
+            sides.contains(&"top"),
+            "pad-covered hole must be attributed to 'top', got {:?}",
+            sides
+        );
+        assert!(
+            sides.contains(&"both"),
+            "bare through-hole must be tagged 'both', got {:?}",
+            sides
         );
     }
 

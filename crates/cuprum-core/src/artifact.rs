@@ -14,7 +14,8 @@
 pub const SVG_VERSION: &[u8] = b"svg-v1";
 
 /// Bump when `metrics::board_metrics` output changes (was hard-coded in main.rs).
-pub const METRICS_VERSION: &[u8] = b"metrics-v14";
+/// v15: annular hotspots now carry the pad's copper side instead of hardcoded "both".
+pub const METRICS_VERSION: &[u8] = b"metrics-v15";
 
 /// Bump when the preview composition/palette/size changes.
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
