@@ -24,9 +24,6 @@ fn default_true() -> bool {
     true
 }
 
-/// Max retained restore points; oldest beyond this are pruned on each write.
-pub const MAX_RESTORE_POINTS: usize = 50;
-
 /// A persisted document snapshot: metadata plus the full manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -69,8 +66,8 @@ fn validate_id(id: &str) -> Result<()> {
 }
 
 /// Snapshot the working dir's current manifest into `history/<id>.json`, then
-/// prune to the newest `MAX_RESTORE_POINTS`. The manifest is migrated before
-/// being stored, so snapshots are always written at the current schema version.
+/// prune via the retention policy. The manifest is migrated before being stored,
+/// so snapshots are always written at the current schema version.
 /// Returns the new point's metadata.
 pub fn write(
     workdir: &Path,
@@ -217,12 +214,47 @@ pub fn select_pruned(
     to_delete
 }
 
-/// Delete all but the newest `MAX_RESTORE_POINTS`.
-fn prune(workdir: &Path, _now: i64) -> Result<()> {
-    let metas = list(workdir)?; // newest-first
+/// Design ids referenced by a snapshot's manifest (migrated to current schema so
+/// old `imports`-shaped snapshots still resolve). Empty on parse failure → the
+/// point reads as stale (the safe, prunable default).
+fn point_design_ids(value: &Value) -> BTreeSet<String> {
+    match crate::document::migrate::manifest_from_value(value.clone()) {
+        Ok(m) => m.designs.into_iter().map(|d| d.id).collect(),
+        Err(_) => BTreeSet::new(),
+    }
+}
+
+/// Apply the retention policy (see `select_pruned`). `now` is the current epoch
+/// (the just-written point's `created_at`). Reads each point's `auto` + design ids
+/// and the live manifest's design set.
+fn prune(workdir: &Path, now: i64) -> Result<()> {
     let dir = history_dir(workdir);
-    for m in metas.into_iter().skip(MAX_RESTORE_POINTS) {
-        fs::remove_file(dir.join(format!("{}.json", m.id))).ok();
+    if !dir.exists() {
+        return Ok(());
+    }
+    let mut infos: Vec<PruneInfo> = Vec::new();
+    for ent in fs::read_dir(&dir)? {
+        let path = ent?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&path) else { continue };
+        let Ok(p) = serde_json::from_slice::<RestorePoint>(&bytes) else {
+            continue;
+        };
+        infos.push(PruneInfo {
+            id: p.id,
+            created_at: p.created_at,
+            auto: p.auto,
+            design_ids: point_design_ids(&p.manifest),
+        });
+    }
+    let current: BTreeSet<String> = match crate::document::workdir::read_manifest(workdir) {
+        Ok(m) => m.designs.into_iter().map(|d| d.id).collect(),
+        Err(_) => BTreeSet::new(),
+    };
+    for id in select_pruned(&infos, &current, now) {
+        fs::remove_file(dir.join(format!("{id}.json"))).ok();
     }
     Ok(())
 }
@@ -282,21 +314,26 @@ mod tests {
     }
 
     #[test]
-    fn prune_keeps_newest_max() {
-        let wd = scratch("prune");
-        std::fs::write(
-            wd.join("manifest.json"),
-            serde_json::to_vec(&Manifest::new("x")).unwrap(),
-        )
-        .unwrap();
-        // Write MAX_RESTORE_POINTS + 5 points with increasing timestamps.
-        for i in 0..(MAX_RESTORE_POINTS + 5) {
-            write(&wd, &format!("rp-{i}"), None, 1000 + i as i64, true).unwrap();
-        }
-        let metas = list(&wd).unwrap();
-        assert_eq!(metas.len(), MAX_RESTORE_POINTS);
-        // Oldest (rp-0..rp-4) pruned; newest retained.
-        assert!(metas.iter().all(|m| m.created_at >= 1005));
+    fn prune_keeps_manual_and_fresh_auto() {
+        let wd = scratch("prune-smart");
+        let m = Manifest::new("demo");
+        std::fs::write(wd.join("manifest.json"), serde_json::to_vec(&m).unwrap()).unwrap();
+        let now = 100 * DAY;
+        // Old manual → kept; fresh auto → kept; ancient auto (>8wk) → pruned.
+        write(&wd, "manual-old", Some("milestone"), now - 40 * DAY, false).unwrap();
+        write(&wd, "auto-fresh", None, now - HOUR, true).unwrap();
+        write(&wd, "auto-ancient", None, now - 60 * DAY, true).unwrap();
+        // Re-run prune deterministically at `now` (write already pruned at its own
+        // created_at; call once more so all three are evaluated against the same now).
+        prune(&wd, now).unwrap();
+        let ids: std::collections::HashSet<String> =
+            list(&wd).unwrap().into_iter().map(|m| m.id).collect();
+        assert!(ids.contains("manual-old"), "manual kept regardless of age");
+        assert!(ids.contains("auto-fresh"), "fresh auto kept");
+        assert!(
+            !ids.contains("auto-ancient"),
+            "auto older than 8 weeks pruned"
+        );
     }
 
     #[test]
