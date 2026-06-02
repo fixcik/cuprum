@@ -14,6 +14,15 @@ use serde_json::Value;
 
 use crate::document::manifest::Manifest;
 
+/// Legacy restore points (written before retention v2) have no `auto` field.
+/// Default them to `auto = true` so the smart prune can thin pre-existing history
+/// — before this feature, manual saves were also label-less, so an old manual
+/// point is indistinguishable from an auto one; treating legacy as auto lets
+/// accumulated bloat be discharged. New points carry an explicit flag.
+fn default_true() -> bool {
+    true
+}
+
 /// Max retained restore points; oldest beyond this are pruned on each write.
 pub const MAX_RESTORE_POINTS: usize = 50;
 
@@ -24,6 +33,8 @@ pub struct RestorePoint {
     pub id: String,
     pub label: Option<String>,
     pub created_at: i64,
+    #[serde(default = "default_true")]
+    pub auto: bool,
     pub manifest: Value,
 }
 
@@ -65,6 +76,7 @@ pub fn write(
     id: &str,
     label: Option<&str>,
     created_at: i64,
+    auto: bool,
 ) -> Result<RestorePointMeta> {
     validate_id(id)?;
     let manifest = crate::document::workdir::read_manifest(workdir)?;
@@ -72,6 +84,7 @@ pub fn write(
         id: id.to_string(),
         label: label.map(|s| s.to_string()),
         created_at,
+        auto,
         manifest: serde_json::to_value(&manifest)?,
     };
     let dir = history_dir(workdir);
@@ -80,7 +93,7 @@ pub fn write(
         dir.join(format!("{id}.json")),
         serde_json::to_vec_pretty(&point)?,
     )?;
-    prune(workdir)?;
+    prune(workdir, created_at)?;
     Ok(RestorePointMeta {
         id: point.id,
         label: point.label,
@@ -123,7 +136,7 @@ pub fn read(workdir: &Path, id: &str) -> Result<Manifest> {
 }
 
 /// Delete all but the newest `MAX_RESTORE_POINTS`.
-fn prune(workdir: &Path) -> Result<()> {
+fn prune(workdir: &Path, _now: i64) -> Result<()> {
     let metas = list(workdir)?; // newest-first
     let dir = history_dir(workdir);
     for m in metas.into_iter().skip(MAX_RESTORE_POINTS) {
@@ -151,10 +164,10 @@ mod tests {
         let mut m = Manifest::new("demo");
         std::fs::write(wd.join("manifest.json"), serde_json::to_vec(&m).unwrap()).unwrap();
 
-        let a = write(&wd, "rp-1", Some("first"), 1000).unwrap();
+        let a = write(&wd, "rp-1", Some("first"), 1000, true).unwrap();
         m.name = "changed".into();
         std::fs::write(wd.join("manifest.json"), serde_json::to_vec(&m).unwrap()).unwrap();
-        let b = write(&wd, "rp-2", None, 2000).unwrap();
+        let b = write(&wd, "rp-2", None, 2000, true).unwrap();
 
         // Listed newest-first.
         let metas = list(&wd).unwrap();
@@ -177,13 +190,13 @@ mod tests {
             serde_json::to_vec(&crate::document::manifest::Manifest::new("x")).unwrap(),
         )
         .unwrap();
-        assert!(write(&wd, "../escape", None, 1).is_err());
-        assert!(write(&wd, "a/b", None, 1).is_err());
+        assert!(write(&wd, "../escape", None, 1, true).is_err());
+        assert!(write(&wd, "a/b", None, 1, true).is_err());
         assert!(read(&wd, "../escape").is_err());
         // Windows drive-relative form must also be rejected.
-        assert!(write(&wd, "C:evil", None, 1).is_err());
+        assert!(write(&wd, "C:evil", None, 1, true).is_err());
         // A normal generated-style id still works.
-        assert!(write(&wd, "rp-100-0", None, 1).is_ok());
+        assert!(write(&wd, "rp-100-0", None, 1, true).is_ok());
     }
 
     #[test]
@@ -196,11 +209,31 @@ mod tests {
         .unwrap();
         // Write MAX_RESTORE_POINTS + 5 points with increasing timestamps.
         for i in 0..(MAX_RESTORE_POINTS + 5) {
-            write(&wd, &format!("rp-{i}"), None, 1000 + i as i64).unwrap();
+            write(&wd, &format!("rp-{i}"), None, 1000 + i as i64, true).unwrap();
         }
         let metas = list(&wd).unwrap();
         assert_eq!(metas.len(), MAX_RESTORE_POINTS);
         // Oldest (rp-0..rp-4) pruned; newest retained.
         assert!(metas.iter().all(|m| m.created_at >= 1005));
+    }
+
+    #[test]
+    fn auto_defaults_true_for_legacy_points() {
+        // A legacy point JSON without the `auto` field must deserialize as auto=true.
+        let legacy = r#"{"id":"rp-old","label":null,"createdAt":1000,"manifest":{}}"#;
+        let p: RestorePoint = serde_json::from_str(legacy).unwrap();
+        assert!(
+            p.auto,
+            "legacy point (no `auto` field) defaults to auto=true"
+        );
+        let np = RestorePoint {
+            id: "x".into(),
+            label: None,
+            created_at: 1,
+            auto: false,
+            manifest: serde_json::json!({}),
+        };
+        let s = serde_json::to_string(&np).unwrap();
+        assert!(!serde_json::from_str::<RestorePoint>(&s).unwrap().auto);
     }
 }
