@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { missingRequired } from "@/lib/layerColors";
 import { api, type ProjectDesign } from "@/lib/api";
@@ -7,6 +7,7 @@ import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
+import { RenameDesignModal } from "@/components/project/RenameDesignModal";
 
 export function DesignCard({
   design,
@@ -25,6 +26,7 @@ export function DesignCard({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const { fmtLen } = useUnitFormat();
 
   // Content-based key (path + type per gerber). Effects depend on this string, not
@@ -132,17 +134,29 @@ export function DesignCard({
           )}
         </div>
       </button>
-      {/* Delete is a sibling overlay (not nested in the card button — that'd be
-          invalid HTML). Removal is undoable, so no confirm dialog. */}
-      <button
-        type="button"
-        onClick={onDelete}
-        aria-label={t("designs.delete")}
-        title={t("designs.delete")}
-        className="absolute left-2 top-2 cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-      >
-        <Trash2 className="size-4" />
-      </button>
+      {/* Overlay actions are siblings (not nested in the card button — that'd be
+          invalid HTML). Rename opens a dialog; removal is undoable, so no confirm. */}
+      <div className="absolute left-2 top-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={() => setRenaming(true)}
+          aria-label={t("designs.rename")}
+          title={t("designs.rename")}
+          className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+        >
+          <Settings className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label={t("designs.delete")}
+          title={t("designs.delete")}
+          className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground shadow-sm transition-colors hover:text-destructive"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
+      <RenameDesignModal open={renaming} onClose={() => setRenaming(false)} design={design} />
     </div>
   );
 }
