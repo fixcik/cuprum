@@ -671,6 +671,59 @@ mod tests {
     }
 
     #[test]
+    fn pack_includes_artifacts_with_valid_keys() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+
+        let base = std::env::temp_dir()
+            .join(format!("cuprum-pack-art-{}", std::process::id()));
+        let wd = base.join("wd");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(wd.join("gerbers/d1")).unwrap();
+
+        let gerber_bytes: &[u8] = b"%FSLAX26Y26*%\nM02*\n";
+        let gerber_rel = "gerbers/d1/x.gbr";
+        std::fs::write(wd.join(gerber_rel), gerber_bytes).unwrap();
+
+        // Build a manifest with one design referencing the gerber as TopCopper.
+        let mut manifest = Manifest::new("art-pack-test");
+        manifest.designs.push(Design {
+            id: "d1".into(),
+            source_name: "test.zip".into(),
+            gerbers: vec![GerberFile {
+                path: gerber_rel.into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        });
+        write_manifest(&wd, &manifest).unwrap();
+
+        // Place a dummy SVG artifact blob keyed to the gerber content.
+        let key = cuprum_core::cache::svg_artifact_key(gerber_bytes);
+        std::fs::create_dir_all(wd.join("artifacts/svg")).unwrap();
+        std::fs::write(wd.join(format!("artifacts/svg/{key}.bin")), b"dummy-svg").unwrap();
+
+        // Pack the working dir into a container.
+        let container = base.join("out.cuprum");
+        pack(&wd, &container).unwrap();
+
+        // Extract into a fresh destination and verify the artifact is present.
+        let dest = base.join("dest");
+        let marker = SessionMarker {
+            source_path: container.to_string_lossy().into(),
+            pid: std::process::id(),
+            opened_at: 0,
+        };
+        extract(&container, &dest, &marker).unwrap();
+
+        assert!(
+            dest.join(format!("artifacts/svg/{key}.bin")).exists(),
+            "valid SVG artifact must survive gc and be present after extract"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn scan_flags_dirty_and_gc_removes_clean() {
         use crate::document::manifest::Manifest;
         let root = scratch("orphan");
