@@ -32,7 +32,7 @@ interface ShellStore {
   canRedo: () => boolean;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
-  makeRestorePoint: (label?: string) => Promise<void>;
+  makeRestorePoint: (label?: string, auto?: boolean) => Promise<void>;
   restoreTo: (id: string) => Promise<void>;
   refreshRestorePoints: () => Promise<void>;
   /** Private: persist a manifest as the new document (working-dir + .cuprum). */
@@ -317,7 +317,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       }
     }
     try {
-      await get().makeRestorePoint();
+      await get().makeRestorePoint(undefined, true);
     } catch {
       /* auto restore point is best-effort */
     }
@@ -393,14 +393,14 @@ export const useShell = create<ShellStore>((set, get) => ({
     }
   },
 
-  makeRestorePoint: async (label) => {
+  makeRestorePoint: async (label, auto = false) => {
     if (get().historyBusy) return;
     const { workingDir, currentPath } = get();
     if (!workingDir || !currentPath) return;
     set({ historyBusy: true });
     try {
       // Snapshot reads the working-dir manifest, which _mirrorManifest keeps current.
-      await api.makeRestorePoint(workingDir, label);
+      await api.makeRestorePoint(workingDir, label, auto);
       await api.saveProject(workingDir, currentPath); // flush so the .cuprum carries it
       await get().refreshRestorePoints();
     } catch (e) {

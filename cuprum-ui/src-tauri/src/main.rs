@@ -481,10 +481,17 @@ fn cleanup_workdir(app: AppHandle, working_dir: String) -> Result<(), String> {
 fn make_restore_point(
     working_dir: String,
     label: Option<String>,
+    auto: bool,
 ) -> Result<cuprum_project::RestorePointMeta, String> {
     let id = new_restore_point_id();
-    cuprum_project::history::write(Path::new(&working_dir), &id, label.as_deref(), now_epoch())
-        .map_err(|e| e.to_string())
+    cuprum_project::history::write(
+        Path::new(&working_dir),
+        &id,
+        label.as_deref(),
+        now_epoch(),
+        auto,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// List restore points (newest first), without their manifest bodies.
