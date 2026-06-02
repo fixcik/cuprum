@@ -172,6 +172,10 @@ export interface LayerSvgResult {
   error: string | null;
 }
 
+export interface PreviewResultDto {
+  pngDataUrl: string;
+}
+
 export interface Hole {
   x: number;
   y: number;
@@ -303,6 +307,18 @@ export const api = {
     invoke<LayerGeometry>("render_gerber_svg", { workingDir, gerberRel }),
   renderLayersSvg: (workingDir: string, rels: string[]) =>
     invoke<LayerSvgResult[]>("render_layers_svg", { workingDir, rels }),
+  renderDesignPreview: (
+    workingDir: string,
+    designId: string,
+    gerbers: { rel: string; layerType: LayerType }[],
+    layerColors?: Record<string, string>,
+  ) =>
+    invoke<PreviewResultDto>("render_design_preview", {
+      workingDir,
+      designId,
+      gerbers,
+      layerColors: layerColors ?? null,
+    }),
   readDrill: (workingDir: string, gerberRel: string) =>
     invoke<Hole[]>("read_drill", { workingDir, gerberRel }),
   copperPolygons: (workingDir: string, gerberRel: string, holes: Hole[]) =>

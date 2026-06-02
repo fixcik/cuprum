@@ -589,6 +589,10 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     [gerbers, files, hidden, overrides, mode, side],
   );
 
+  // 2D viewer is loading when SVG layers are still being rendered and none are
+  // ready yet — show a spinner instead of the "no layers" empty state.
+  const layersLoading = mode === "2d" && layers.length === 0 && svgTotal > 0 && svgSettled < svgTotal;
+
   // index = position in gerbers[]; map to the rel-path before touching the store
   // (layer-type edit, persisted + undoable) or the UI-only hidden rel-path set.
   const onType = (index: number, type: LayerType) => {
@@ -725,6 +729,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
               onShowDrcChange={onShowDrcChange}
               issues={issues}
               issueIndex={issueIndex}
+              loading={layersLoading}
             />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">

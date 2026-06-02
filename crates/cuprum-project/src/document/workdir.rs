@@ -57,9 +57,75 @@ pub fn write_manifest(workdir: &Path, manifest: &Manifest) -> Result<()> {
 /// preserved). Reuses `container::write` (temp-file + atomic rename).
 pub fn pack(workdir: &Path, container: &Path) -> Result<()> {
     let manifest = read_manifest(workdir)?;
+    // Sweep stale artifact blobs (post version-bump / recolor / design removal)
+    // before packing, so the `.cuprum` ships only current artifacts.
+    let valid = valid_artifact_keys(workdir, &manifest);
+    cuprum_core::artifact::gc(&workdir.join("artifacts"), &valid);
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     collect_entries(workdir, workdir, &mut entries)?;
     container::write(container, &manifest, &entries)
+}
+
+/// The IPC/camelCase string for a manifest layer type (the repr the preview
+/// command + frontend use). Keep in sync with `LayerType`'s serde rename.
+fn layer_type_ipc(t: &crate::layer::LayerType) -> String {
+    serde_json::to_value(t)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "other".to_string())
+}
+
+/// Content-hash keys of every artifact the current manifest still references:
+/// an SVG key per gerber + a metrics key per design + a preview key per design.
+/// Gerber bytes are read from the workdir; a missing/unreadable gerber is
+/// skipped (its artifacts then look orphaned and get swept — correct).
+fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections::HashSet<String> {
+    let mut keys = std::collections::HashSet::new();
+    // Convert manifest color overrides (BTreeMap<LayerType, String>) to
+    // HashMap<String, String> keyed by IPC camelCase, as preview_key expects.
+    let manifest_colors: std::collections::HashMap<String, String> = manifest
+        .layer_colors
+        .iter()
+        .map(|(lt, c)| (layer_type_ipc(lt), c.clone()))
+        .collect();
+    for design in &manifest.designs {
+        let mut metrics_layers: Vec<(String, String, Vec<u8>)> = Vec::new();
+        let mut preview_layers: Vec<cuprum_core::preview::PreviewLayer> = Vec::new();
+        for g in &design.gerbers {
+            let Ok(bytes) = fs::read(workdir.join(&g.path)) else {
+                continue;
+            };
+            keys.insert(cuprum_core::cache::svg_artifact_key(&bytes));
+            // Tuple order matches how project_board_metrics builds key_layers:
+            // (rel, format!("{t:?}"), bytes) — rel is g.path (the same string
+            // the frontend sends as GerberRef.rel after mapping g.path → rel).
+            metrics_layers.push((g.path.clone(), format!("{:?}", g.layer_type), bytes.clone()));
+            // Preview key: non-drill layers (the card preview has no holes),
+            // colored from the manifest overrides. Must match
+            // `preview::render_design_preview`.
+            if !matches!(g.layer_type, crate::layer::LayerType::Drill) {
+                let ipc = layer_type_ipc(&g.layer_type);
+                preview_layers.push(cuprum_core::preview::PreviewLayer {
+                    layer_type: ipc,
+                    bytes,
+                });
+            }
+        }
+        if !metrics_layers.is_empty() {
+            keys.insert(cuprum_core::cache::metrics_artifact_key(
+                metrics_layers
+                    .iter()
+                    .map(|(rel, t, b)| (rel.as_str(), t.as_str(), b.as_slice())),
+            ));
+        }
+        if !preview_layers.is_empty() {
+            keys.insert(cuprum_core::preview::preview_key(
+                &preview_layers,
+                &manifest_colors,
+            ));
+        }
+    }
+    keys
 }
 
 /// Walk `dir` recursively, pushing (archive-relative path, bytes) for every file
@@ -330,6 +396,101 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn pack_gcs_orphan_artifacts() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+        let base = std::env::temp_dir().join(format!("cuprum-packgc-{}", std::process::id()));
+        let wd = base.join("wd");
+        std::fs::create_dir_all(wd.join("gerbers/design-1")).unwrap();
+        std::fs::create_dir_all(wd.join("artifacts/svg")).unwrap();
+
+        let gbr = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
+        std::fs::write(wd.join("gerbers/design-1/a.gbr"), gbr).unwrap();
+
+        // Valid svg artifact (key matches the referenced gerber) + an orphan blob.
+        let valid_key = cuprum_core::cache::svg_artifact_key(gbr);
+        std::fs::write(wd.join(format!("artifacts/svg/{valid_key}.bin")), b"valid").unwrap();
+        std::fs::write(wd.join("artifacts/svg/deadbeef.bin"), b"orphan").unwrap();
+
+        // Minimal manifest: one design referencing the one gerber.
+        let mut manifest = Manifest::new("gc-test");
+        manifest.designs.push(Design {
+            id: "design-1".into(),
+            source_name: "test.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/design-1/a.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        });
+        write_manifest(&wd, &manifest).unwrap();
+
+        let container = base.join("out.cuprum");
+        pack(&wd, &container).unwrap();
+
+        assert!(
+            !wd.join("artifacts/svg/deadbeef.bin").exists(),
+            "orphan swept by gc"
+        );
+        assert!(
+            wd.join(format!("artifacts/svg/{valid_key}.bin")).exists(),
+            "valid kept"
+        );
+        let packed = crate::document::container::read_entry(
+            &container,
+            &format!("artifacts/svg/{valid_key}.bin"),
+        )
+        .unwrap();
+        assert_eq!(packed, b"valid", "valid artifact shipped inside .cuprum");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn pack_keeps_valid_preview_blob() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+        let base = std::env::temp_dir().join(format!("cuprum-packprev-{}", std::process::id()));
+        let wd = base.join("wd");
+        std::fs::create_dir_all(wd.join("gerbers/design-1")).unwrap();
+        std::fs::create_dir_all(wd.join("artifacts/preview")).unwrap();
+        let gbr = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
+        std::fs::write(wd.join("gerbers/design-1/a.gbr"), gbr).unwrap();
+
+        // Build the preview key the SAME way the implementation will: one non-drill
+        // layer (topCopper), colors from the (empty) manifest overrides.
+        let layers = vec![cuprum_core::preview::PreviewLayer {
+            layer_type: "topCopper".to_string(),
+            bytes: gbr.to_vec(),
+        }];
+        let colors = std::collections::HashMap::new();
+        let pkey = cuprum_core::preview::preview_key(&layers, &colors);
+        std::fs::write(wd.join(format!("artifacts/preview/{pkey}.bin")), b"png").unwrap();
+        std::fs::write(wd.join("artifacts/preview/orphan.bin"), b"stale").unwrap();
+
+        // Manifest: one design, one topCopper gerber, no layer_colors override.
+        let mut manifest = Manifest::new("prev-test");
+        manifest.designs.push(Design {
+            id: "design-1".into(),
+            source_name: "test.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/design-1/a.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        });
+        write_manifest(&wd, &manifest).unwrap();
+
+        pack(&wd, &base.join("out.cuprum")).unwrap();
+        assert!(
+            wd.join(format!("artifacts/preview/{pkey}.bin")).exists(),
+            "valid preview kept"
+        );
+        assert!(
+            !wd.join("artifacts/preview/orphan.bin").exists(),
+            "orphan preview swept"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

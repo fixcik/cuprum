@@ -533,6 +533,12 @@ fn configure_panel(
 
 // ---- Working-dir gerber inspection (drill holes, SVG geometry) ----
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewDto {
+    png_data_url: String,
+}
+
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct HoleDto {
@@ -590,7 +596,9 @@ fn render_gerber_svg(
     gerber_rel: String,
 ) -> Result<LayerGeometryDto, String> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
-    cuprum_core::trace::operation("svg", &traces_dir(&app), || render_svg_dto(&app, &bytes))
+    cuprum_core::trace::operation("svg", &traces_dir(&app), || {
+        render_svg_dto(&working_dir, &bytes)
+    })
 }
 
 /// Render many gerbers' SVG in one IPC round-trip. Async + spawn_blocking
@@ -615,7 +623,7 @@ async fn render_layers_svg(
                 .map(|rel| {
                     dh.run(|| {
                         let res = read_workdir_file(&working_dir, rel)
-                            .and_then(|bytes| render_svg_dto(&app, &bytes));
+                            .and_then(|bytes| render_svg_dto(&working_dir, &bytes));
                         match res {
                             Ok(geometry) => LayerSvgResult {
                                 rel: rel.clone(),
@@ -741,14 +749,15 @@ fn traces_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
-/// Render one gerber's SVG, going through core's in-memory + disk cache. The SVG
-/// element-id is derived from the content hash so a cached entry is valid
-/// regardless of which layer/index requested it. Tracing is the caller's
-/// responsibility (`render_gerber_svg` wraps in `operation("svg", …)`;
-/// `render_layers_svg` wraps the whole batch in `operation("svg_batch", …)`).
-fn render_svg_dto(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
-    let dir = artifact_cache_dir(app).ok_or_else(|| "no cache dir available".to_string())?;
-    let g = cuprum_core::cache::layer_svg_cached(&dir, bytes).map_err(|e| e.to_string())?;
+/// Render one gerber's SVG into the PROJECT artifact cache
+/// (`<workdir>/artifacts/svg`), going through core's in-memory + persistent disk
+/// cache. The blob ships inside the `.cuprum` (packed by `workdir::pack`) so a
+/// transferred project never re-renders. Tracing is the caller's responsibility.
+fn render_svg_dto(working_dir: &str, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
+    let dir = std::path::Path::new(working_dir)
+        .join("artifacts")
+        .join("svg");
+    let g = cuprum_core::cache::layer_svg_artifact(&dir, bytes).map_err(|e| e.to_string())?;
     Ok(LayerGeometryDto {
         svg_body: g.svg_body,
         bbox: BBoxDto {
@@ -973,14 +982,16 @@ async fn project_board_metrics(
                 let bytes = read_workdir_file(&working_dir, &g.rel)?;
                 loaded.push((g.rel.clone(), g.layer_type, bytes));
             }
-            let mut hasher = cuprum_core::diskcache::Hasher::new();
-            hasher.add(b"metrics-v14");
-            for (rel, t, bytes) in &loaded {
-                hasher.add(format!("{t:?}").as_bytes());
-                hasher.add(rel.to_lowercase().as_bytes()); // plating inferred from the name
-                hasher.add(bytes);
-            }
-            let key = hasher.finish();
+            // Key built in core so `artifact::gc` can reconstruct the same set.
+            // Precompute small type strings once; pass borrowed byte slices to avoid
+            // cloning multi-MB gerber buffers on the hot path.
+            let type_strs: Vec<String> = loaded.iter().map(|(_, t, _)| format!("{t:?}")).collect();
+            let key = cuprum_core::cache::metrics_artifact_key(
+                loaded
+                    .iter()
+                    .zip(&type_strs)
+                    .map(|((rel, _, bytes), ts)| (rel.as_str(), ts.as_str(), bytes.as_slice())),
+            );
             // Build metric inputs from the loaded layers. Done inside the render
             // closure (see below) so a cache hit skips this entirely; the result
             // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.
@@ -1004,17 +1015,11 @@ async fn project_board_metrics(
                     })
                     .collect()
             }
-            let Some(dir) = artifact_cache_dir(&app) else {
-                // No cache dir: compute directly, no caching (matches prior behavior).
-                let inputs = build_inputs(&loaded);
-                return Ok(cuprum_core::trace::operation(
-                    "metrics",
-                    &traces_dir(&app),
-                    || cuprum_core::metrics::board_metrics(&inputs),
-                ));
-            };
+            let dir = std::path::Path::new(&working_dir)
+                .join("artifacts")
+                .join("metrics");
             let traces = traces_dir(&app);
-            let metrics = cuprum_core::cache::board_metrics_cached(&dir, &key, move || {
+            let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
                 let inputs = build_inputs(&loaded);
                 cuprum_core::trace::operation("metrics", &traces, || {
                     cuprum_core::metrics::board_metrics(&inputs)
@@ -1025,6 +1030,54 @@ async fn project_board_metrics(
     )
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Render a design's composite preview PNG into the project artifact cache
+/// (`<workdir>/artifacts/preview`) and return it as a data URL for a card `<img>`.
+/// Non-drill layers only (no holes), top side — matches the card's old LayerStack
+/// thumbnail. Persistent + content-keyed, so it ships in the `.cuprum` and only
+/// recomputes when gerbers or colors change.
+#[tauri::command]
+async fn render_design_preview(
+    app: AppHandle,
+    working_dir: String,
+    design_id: String,
+    gerbers: Vec<GerberRef>,
+    layer_colors: Option<std::collections::HashMap<String, String>>,
+) -> Result<PreviewDto, String> {
+    let _ = &design_id; // label/trace only
+    let overrides = layer_colors.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || -> Result<PreviewDto, String> {
+        let mut layers: Vec<cuprum_core::preview::PreviewLayer> = Vec::new();
+        for g in &gerbers {
+            // IPC camelCase string (e.g. "topCopper"/"drill") — MUST match the
+            // pack-gc key reconstruction in cuprum-project (serde repr, not Debug).
+            let lt = serde_json::to_value(g.layer_type)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_else(|| "other".to_string());
+            if lt == "drill" {
+                continue;
+            }
+            let bytes = read_workdir_file(&working_dir, &g.rel)?;
+            layers.push(cuprum_core::preview::PreviewLayer {
+                layer_type: lt,
+                bytes,
+            });
+        }
+        let dir = std::path::Path::new(&working_dir).join("artifacts");
+        let traces = traces_dir(&app);
+        let png = cuprum_core::trace::operation("preview", &traces, || {
+            cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, 512)
+        })
+        .map_err(|e| e.to_string())?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+        Ok(PreviewDto {
+            png_data_url: format!("data:image/png;base64,{b64}"),
+        })
+    })
+    .await
+    .map_err(|e| format!("preview join error: {e}"))?
 }
 
 // ---- Real display DPI (macOS native, cached once per launch) ----
@@ -1122,6 +1175,7 @@ fn main() {
             add_design_from_zip,
             render_gerber_svg,
             render_layers_svg,
+            render_design_preview,
             copper_polygons,
             layer_polygons,
             mask_polygons,
