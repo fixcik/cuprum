@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { LayerStack, type StackLayer } from "@/components/import/LayerStack";
-import { colorFor, sideOf, missingRequired } from "@/lib/layerColors";
+import { missingRequired } from "@/lib/layerColors";
 import { api, type ProjectDesign } from "@/lib/api";
 import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
@@ -23,7 +22,7 @@ export function DesignCard({
   const layerColors = useShell((s) => s.currentManifest?.layer_colors);
   const panel = useShell((s) => s.currentManifest?.panel ?? null);
   const profile = useSettings((s) => s.profile);
-  const [layers, setLayers] = useState<StackLayer[]>([]);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const { fmtLen } = useUnitFormat();
@@ -36,38 +35,28 @@ export function DesignCard({
     [design],
   );
 
-  // 2D thumbnail: render each non-drill gerber's SVG once (top side only — a card
-  // is a glance, not the inspector). Reuse the same progressive pattern as the
-  // inspector but without holes/3D.
+  // Card thumbnail: one backend-composited preview PNG (cached in the project),
+  // not a live multi-layer SVG — a grid of full SVG stacks is what bogs the
+  // frontend down at scale.
   useEffect(() => {
     let cancelled = false;
     if (!workingDir) return;
-    const gs = design.gerbers.filter((g) => g.layer_type !== "drill");
-    const slots: (StackLayer | null)[] = gs.map(() => null);
-    setLayers([]);
+    const gerbers = design.gerbers
+      .filter((g) => g.layer_type !== "drill")
+      .map((g) => ({ rel: g.path, layerType: g.layer_type }));
+    if (gerbers.length === 0) {
+      setPreviewUrl(null);
+      return;
+    }
+    setPreviewUrl(null);
     api
-      .renderLayersSvg(
-        workingDir,
-        gs.map((g) => g.path),
-      )
-      .then((results) => {
-        if (cancelled) return;
-        results.forEach((r, i) => {
-          if (!r.geometry) return;
-          const g = gs[i];
-          slots[i] = {
-            key: g.path,
-            svgBody: r.geometry.svgBody,
-            bbox: r.geometry.bbox,
-            color: colorFor(g.layer_type, layerColors),
-            visible: sideOf(g.layer_type) !== "bottom",
-            type: g.layer_type,
-            snap: r.geometry.snap,
-          };
-        });
-        setLayers(slots.filter(Boolean) as StackLayer[]);
+      .renderDesignPreview(workingDir, design.id, gerbers, layerColors ?? undefined)
+      .then((r) => {
+        if (!cancelled) setPreviewUrl(r.pngDataUrl);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setPreviewUrl(null);
+      });
     return () => {
       cancelled = true;
     };
@@ -120,7 +109,13 @@ export function DesignCard({
         className="flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-primary/50"
       >
         <div className="relative aspect-[4/3] w-full bg-muted/30">
-          {layers.length > 0 && <LayerStack layers={layers} side="top" chrome={false} />}
+          {previewUrl && (
+            <img
+              src={previewUrl}
+              alt={design.source_name}
+              className="h-full w-full object-contain"
+            />
+          )}
           <span className={`absolute right-2 top-2 size-2.5 rounded-full ${dotClass}`} aria-hidden />
         </div>
         <div className="flex items-end justify-between gap-2 p-3">
