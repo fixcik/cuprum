@@ -200,12 +200,14 @@ pub struct DrillMetrics {
 /// Measure every cheap manufacturing fact for the given layers.
 #[tracing::instrument(skip_all, fields(layers = layers.len()))]
 pub fn board_metrics(layers: &[MetricLayerInput]) -> BoardMetrics {
+    let parsed = parse_all(layers);
+    let drills = parse_all_drills(layers);
     BoardMetrics {
         board: board_dims(layers),
         layers: layer_summary(layers),
-        copper: copper_metrics(layers),
-        drill: drill_metrics(layers),
-        geo: geo_metrics(layers),
+        copper: copper_metrics(layers, &parsed),
+        drill: drill_metrics(layers, &drills),
+        geo: geo_metrics(layers, &parsed, &drills),
     }
 }
 
@@ -284,11 +286,15 @@ fn layer_summary(layers: &[MetricLayerInput]) -> LayerSummary {
 }
 
 /// Per-copper-layer minimum trace width + primitive count.
-fn copper_metrics(layers: &[MetricLayerInput]) -> Vec<CopperLayerMetric> {
+fn copper_metrics(
+    layers: &[MetricLayerInput],
+    parsed: &[Option<GerberLayer>],
+) -> Vec<CopperLayerMetric> {
     layers
         .iter()
-        .filter(|l| l.role == Role::Copper)
-        .map(|l| {
+        .enumerate()
+        .filter(|(_, l)| l.role == Role::Copper)
+        .map(|(i, l)| {
             let side = if l.inner {
                 "inner"
             } else if l.side == Side::Bottom {
@@ -296,9 +302,9 @@ fn copper_metrics(layers: &[MetricLayerInput]) -> Vec<CopperLayerMetric> {
             } else {
                 "top"
             };
-            let (min_trace_mm, trace_widths_mm, primitive_count) = match parse_layer(l.bytes) {
+            let (min_trace_mm, trace_widths_mm, primitive_count) = match parsed[i].as_ref() {
                 Some(layer) => {
-                    let ws = stroke_widths(&layer);
+                    let ws = stroke_widths(layer);
                     (
                         ws.first().copied().map(|w| w as f32),
                         ws.iter().map(|w| *w as f32).collect(),
@@ -338,13 +344,19 @@ fn stroke_widths(layer: &GerberLayer) -> Vec<f64> {
 }
 
 /// Aggregate drill statistics across all drill files.
-fn drill_metrics(layers: &[MetricLayerInput]) -> DrillMetrics {
+fn drill_metrics(layers: &[MetricLayerInput], drills: &[Option<DrillData>]) -> DrillMetrics {
     // Bucket by diameter in integer micrometres to dedupe float noise.
     let mut hist: BTreeMap<u32, u32> = BTreeMap::new();
     let mut m = DrillMetrics::default();
-    for l in layers.iter().filter(|l| l.role == Role::Drill) {
-        let holes = crate::drill::parse_drill(l.bytes).unwrap_or_default();
-        for h in &holes {
+    for (i, l) in layers
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.role == Role::Drill)
+    {
+        let Some(d) = drills[i].as_ref() else {
+            continue;
+        };
+        for h in &d.holes {
             if h.d_mm <= 0.0 {
                 continue;
             }
@@ -373,6 +385,37 @@ fn parse_layer(bytes: &[u8]) -> Option<GerberLayer> {
     let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
     let doc = gerber_viewer::gerber_parser::parse(reader).ok()?;
     Some(GerberLayer::new(doc.into_commands()))
+}
+
+/// All layers parsed once, indexed parallel to the `layers` slice (`None` where a
+/// layer failed to parse — same skip semantics as calling `parse_layer` inline).
+/// Parsed in parallel: wall ≈ the single largest layer, not the serial sum.
+#[tracing::instrument(skip_all)]
+fn parse_all(layers: &[MetricLayerInput]) -> Vec<Option<GerberLayer>> {
+    let dh = crate::trace::capture_dispatch();
+    layers
+        .par_iter()
+        .map(|l| dh.run(|| parse_layer(l.bytes)))
+        .collect()
+}
+
+/// Excellon data parsed once per drill layer (holes + slots), indexed parallel to
+/// `layers` (`None` for non-drill layers).
+struct DrillData {
+    holes: Vec<crate::drill::Hole>,
+    slots: Vec<crate::drill::Slot>,
+}
+
+fn parse_all_drills(layers: &[MetricLayerInput]) -> Vec<Option<DrillData>> {
+    layers
+        .iter()
+        .map(|l| {
+            (l.role == Role::Drill).then(|| DrillData {
+                holes: crate::drill::parse_drill(l.bytes).unwrap_or_default(),
+                slots: crate::drill::parse_slots(l.bytes),
+            })
+        })
+        .collect()
 }
 
 /// |shoelace area| of a ring.
@@ -511,14 +554,18 @@ const HIGHLIGHT_CAP: usize = 4000;
 /// draws ALL of these as the failing-feature highlight (and clusters them itself
 /// for the stepper), so nothing is dropped to clustering here. Thinnest first.
 #[tracing::instrument(skip_all, fields(role = ?role))]
-fn thin_stroke_hotspots(layers: &[MetricLayerInput], role: Role) -> Vec<Hotspot> {
+fn thin_stroke_hotspots(
+    layers: &[MetricLayerInput],
+    parsed: &[Option<GerberLayer>],
+    role: Role,
+) -> Vec<Hotspot> {
     let mut hots: Vec<Hotspot> = Vec::new();
-    for l in layers.iter().filter(|l| l.role == role) {
-        let Some(lay) = parse_layer(l.bytes) else {
+    for (i, l) in layers.iter().enumerate().filter(|(_, l)| l.role == role) {
+        let Some(lay) = parsed[i].as_ref() else {
             continue;
         };
         let side = layer_side(l);
-        for h in stroke_hotspots(&lay) {
+        for h in stroke_hotspots(lay) {
             if h.2 <= HIGHLIGHT_MAX_W {
                 hots.push(to_hotspot(h, side));
             }
@@ -601,6 +648,7 @@ fn annular_hotspots(
 fn copper_clearance_width_hotspots(
     copper_layers: &[(&str, Vec<Poly>)],
     layers: &[MetricLayerInput],
+    parsed: &[Option<GerberLayer>],
 ) -> (Vec<Hotspot>, Vec<Hotspot>) {
     // Per-layer work runs in parallel. rayon preserves input order on `collect`
     // — for the indexed `map` path AND the filtered `width` path (implementation
@@ -638,21 +686,21 @@ fn copper_clearance_width_hotspots(
                 .collect()
         },
         || {
-            // `par_iter().map()` over the slice stays an *indexed* parallel iterator,
-            // so `collect` preserves input order by API contract (unlike `filter`,
-            // which drops to an unindexed iterator). Non-copper / empty-region layers
-            // contribute an empty Vec that `flatten` drops — same result as filtering,
-            // but with a guaranteed order → bit-identical regardless of rayon version.
+            // Indexed parallel iterator (`enumerate` keeps order) so `collect`
+            // preserves input order → bit-identical. Reuses the once-parsed layer
+            // via `region_polygons_from` instead of re-parsing the bytes.
             layers
                 .par_iter()
-                .map(|l| {
+                .enumerate()
+                .map(|(i, l)| {
                     dh.run(|| {
                         if l.role != Role::Copper {
                             return Vec::new();
                         }
-                        let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
+                        let Some(layer) = parsed[i].as_ref() else {
                             return Vec::new();
                         };
+                        let region = geometry::region_polygons_from(layer, &[]);
                         if region.is_empty() {
                             return Vec::new();
                         }
@@ -706,18 +754,24 @@ fn compute_zone3(
     layers: &[MetricLayerInput],
     copper_layers: &[(&str, Vec<Poly>)],
     board_bbox: Option<[f64; 4]>,
+    parsed: &[Option<GerberLayer>],
+    drills: &[Option<DrillData>],
 ) -> Zone3 {
     // Conductor model: connected routed-stroke runs per copper layer. Neck = the
     // thin-trace value; count + total length feed the metrics tab.
     let mut runs: Vec<(crate::conductor::Conductor, &'static str)> = Vec::new();
     {
         let _cm = tracing::info_span!("conductor_model").entered();
-        for l in layers.iter().filter(|l| l.role == Role::Copper) {
-            let Some(lay) = parse_layer(l.bytes) else {
+        for (i, l) in layers
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.role == Role::Copper)
+        {
+            let Some(lay) = parsed[i].as_ref() else {
                 continue;
             };
             let side = layer_side(l);
-            for c in crate::conductor::conductors(&lay) {
+            for c in crate::conductor::conductors(lay) {
                 runs.push((c, side));
             }
         }
@@ -735,9 +789,14 @@ fn compute_zone3(
     // Annular ring: plated holes vs solid copper pads. Through-holes → side "both".
     let plated_holes: Vec<[f64; 3]> = layers
         .iter()
-        .filter(|l| l.role == Role::Drill && l.plated)
-        .flat_map(|l| crate::drill::parse_drill(l.bytes).unwrap_or_default())
-        .map(|h| [h.x_mm as f64, h.y_mm as f64, h.d_mm as f64])
+        .enumerate()
+        .filter(|(_, l)| l.role == Role::Drill && l.plated)
+        .filter_map(|(i, _)| drills[i].as_ref())
+        .flat_map(|d| {
+            d.holes
+                .iter()
+                .map(|h| [h.x_mm as f64, h.y_mm as f64, h.d_mm as f64])
+        })
         .collect();
     let annular_hots: Vec<Hotspot> = annular_hotspots(copper_layers, &plated_holes)
         .into_iter()
@@ -747,9 +806,13 @@ fn compute_zone3(
 
     // Silk stroke widths (distinct, sorted) across silk layers.
     let mut silk_set: BTreeSet<u32> = BTreeSet::new();
-    for l in layers.iter().filter(|l| l.role == Role::Silk) {
-        if let Some(lay) = parse_layer(l.bytes) {
-            for w in stroke_widths(&lay) {
+    for (i, _l) in layers
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.role == Role::Silk)
+    {
+        if let Some(lay) = parsed[i].as_ref() {
+            for w in stroke_widths(lay) {
                 silk_set.insert((w * 1000.0).round() as u32);
             }
         }
@@ -762,16 +825,18 @@ fn compute_zone3(
     // clustered representatives — and the frontend clusters only for navigation).
     // Strokes wider than `HIGHLIGHT_MAX_W` can't fail any realistic min-width, so
     // they're skipped to bound the volume; the whole set is capped as a backstop.
-    let silk_hots = thin_stroke_hotspots(layers, Role::Silk);
-    let trace_hots = thin_stroke_hotspots(layers, Role::Copper);
+    let silk_hots = thin_stroke_hotspots(layers, parsed, Role::Silk);
+    let trace_hots = thin_stroke_hotspots(layers, parsed, Role::Copper);
 
     // Drill holes (box markers): each hole's bbox + diameter, per-diameter sample.
     // Holes go through the board → side "both".
     let drill_hots = dedup_by_value(
         layers
             .iter()
-            .filter(|l| l.role == Role::Drill)
-            .flat_map(|l| crate::drill::parse_drill(l.bytes).unwrap_or_default())
+            .enumerate()
+            .filter(|(_, l)| l.role == Role::Drill)
+            .filter_map(|(i, _)| drills[i].as_ref())
+            .flat_map(|d| d.holes.iter().copied())
             .filter(|h| h.d_mm > 0.0)
             .map(|h| {
                 let (x, y, r) = (h.x_mm as f64, h.y_mm as f64, (h.d_mm / 2.0) as f64);
@@ -788,9 +853,10 @@ fn compute_zone3(
     for face in ["top", "bottom", "both"] {
         let openings: Vec<Poly> = layers
             .iter()
-            .filter(|l| l.role == Role::Mask && layer_side(l) == face)
-            .filter_map(|l| geometry::layer_polygons(l.bytes, &[]).ok())
-            .flatten()
+            .enumerate()
+            .filter(|(_, l)| l.role == Role::Mask && layer_side(l) == face)
+            .filter_map(|(i, _)| parsed[i].as_ref())
+            .flat_map(|lay| geometry::layer_polygons_from(lay, &[]))
             .collect();
         if openings.len() >= 2 {
             mask_hots.extend(
@@ -806,8 +872,12 @@ fn compute_zone3(
     // Overshoot: per non-edge layer, where its bbox sticks out past the board edge.
     let mut overshoot_hots: Vec<Hotspot> = Vec::new();
     if let Some(bb) = board_bbox {
-        for l in layers.iter().filter(|l| l.role != Role::Edge) {
-            let Some(lay) = parse_layer(l.bytes) else {
+        for (i, l) in layers
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.role != Role::Edge)
+        {
+            let Some(lay) = parsed[i].as_ref() else {
                 continue;
             };
             let Some(b) = lay.try_bounding_box() else {
@@ -850,8 +920,10 @@ fn compute_zone3(
     // Routed slots from drill layers.
     let slots: Vec<crate::drill::Slot> = layers
         .iter()
-        .filter(|l| l.role == Role::Drill)
-        .flat_map(|l| crate::drill::parse_slots(l.bytes))
+        .enumerate()
+        .filter(|(_, l)| l.role == Role::Drill)
+        .filter_map(|(i, _)| drills[i].as_ref())
+        .flat_map(|d| d.slots.iter().copied())
         .collect();
     let slot_count = slots.len() as u32;
     let min_slot_width_mm = slots
@@ -881,7 +953,11 @@ fn compute_zone3(
 
 /// Geometric DFM measurements (clearance, copper width, annular, coverage, silk,
 /// mask dam, overshoot, slots). Pure measurements; the frontend judges them.
-fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
+fn geo_metrics(
+    layers: &[MetricLayerInput],
+    parsed: &[Option<GerberLayer>],
+    drills: &[Option<DrillData>],
+) -> GeoMetrics {
     // Board area + outline bbox from Edge_Cuts (perimeter minus inner cutouts).
     let (board_area, board_bbox) = match layers.iter().find(|l| l.role == Role::Edge) {
         Some(e) => {
@@ -909,11 +985,12 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     // layer's 2D side so the frontend can hide markers for the hidden face.
     let copper_layers: Vec<(&str, Vec<Poly>)> = layers
         .iter()
-        .filter(|l| l.role == Role::Copper)
-        .filter_map(|l| {
-            geometry::layer_polygons(l.bytes, &[])
-                .ok()
-                .map(|p| (layer_side(l), p))
+        .enumerate()
+        .filter(|(_, l)| l.role == Role::Copper)
+        .filter_map(|(i, l)| {
+            parsed[i]
+                .as_ref()
+                .map(|layer| (layer_side(l), geometry::layer_polygons_from(layer, &[])))
         })
         .filter(|(_, p)| !p.is_empty())
         .collect();
@@ -944,8 +1021,8 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     // operation's trace instead of vanishing.
     let dh = crate::trace::capture_dispatch();
     let ((clear_hots, width_hots), zone3) = rayon::join(
-        || dh.run(|| copper_clearance_width_hotspots(&copper_layers, layers)),
-        || dh.run(|| compute_zone3(layers, &copper_layers, board_bbox)),
+        || dh.run(|| copper_clearance_width_hotspots(&copper_layers, layers, parsed)),
+        || dh.run(|| compute_zone3(layers, &copper_layers, board_bbox, parsed, drills)),
     );
 
     let min_clear = clear_hots
@@ -1059,7 +1136,8 @@ mod tests {
             .collect();
 
         // Production path (parallel after Phase 1).
-        let (clear, width) = copper_clearance_width_hotspots(&copper_layers, &layers);
+        let parsed = parse_all(&layers);
+        let (clear, width) = copper_clearance_width_hotspots(&copper_layers, &layers, &parsed);
 
         // Sequential reference, recomputed here in the same process.
         let mut ref_clear: Vec<Hotspot> = Vec::new();
@@ -1349,7 +1427,9 @@ mod tests {
             plated: false,
             bytes: CU,
         }];
-        let g = geo_metrics(&inputs);
+        let parsed = parse_all(&inputs);
+        let drills = parse_all_drills(&inputs);
+        let g = geo_metrics(&inputs, &parsed, &drills);
         assert!(
             g.trace_count >= 1,
             "expected a conductor: {}",
