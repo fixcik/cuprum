@@ -71,6 +71,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   const workingDir = useShell((s) => s.workingDir);
   const setDesignLayerType = useShell((s) => s.setDesignLayerType);
   const renameDesign = useShell((s) => s.renameDesign);
+  const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
   const design = manifest?.designs.find((d) => d.id === designId) ?? null;
   const gerbers = useMemo(() => design?.gerbers ?? [], [design]);
 
@@ -212,6 +213,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
             }
           });
           flush();
+          scheduleArtifactFlush(results.some((r) => r.fresh));
         })
         .catch(() => {
           if (cancelled) return;
@@ -282,7 +284,10 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     (async () => {
       try {
         const m = await api.projectBoardMetrics(workingDir, refs);
-        if (!cancelled) setMetrics(m);
+        if (!cancelled) {
+          setMetrics(m.metrics);
+          scheduleArtifactFlush(m.fresh);
+        }
       } catch {
         if (!cancelled) setMetrics(null);
       } finally {
