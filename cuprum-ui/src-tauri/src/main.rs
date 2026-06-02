@@ -590,7 +590,9 @@ fn render_gerber_svg(
     gerber_rel: String,
 ) -> Result<LayerGeometryDto, String> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
-    cuprum_core::trace::operation("svg", &traces_dir(&app), || render_svg_dto(&app, &bytes))
+    cuprum_core::trace::operation("svg", &traces_dir(&app), || {
+        render_svg_dto(&working_dir, &bytes)
+    })
 }
 
 /// Render many gerbers' SVG in one IPC round-trip. Async + spawn_blocking
@@ -615,7 +617,7 @@ async fn render_layers_svg(
                 .map(|rel| {
                     dh.run(|| {
                         let res = read_workdir_file(&working_dir, rel)
-                            .and_then(|bytes| render_svg_dto(&app, &bytes));
+                            .and_then(|bytes| render_svg_dto(&working_dir, &bytes));
                         match res {
                             Ok(geometry) => LayerSvgResult {
                                 rel: rel.clone(),
@@ -741,14 +743,15 @@ fn traces_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
-/// Render one gerber's SVG, going through core's in-memory + disk cache. The SVG
-/// element-id is derived from the content hash so a cached entry is valid
-/// regardless of which layer/index requested it. Tracing is the caller's
-/// responsibility (`render_gerber_svg` wraps in `operation("svg", …)`;
-/// `render_layers_svg` wraps the whole batch in `operation("svg_batch", …)`).
-fn render_svg_dto(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
-    let dir = artifact_cache_dir(app).ok_or_else(|| "no cache dir available".to_string())?;
-    let g = cuprum_core::cache::layer_svg_cached(&dir, bytes).map_err(|e| e.to_string())?;
+/// Render one gerber's SVG into the PROJECT artifact cache
+/// (`<workdir>/artifacts/svg`), going through core's in-memory + persistent disk
+/// cache. The blob ships inside the `.cuprum` (packed by `workdir::pack`) so a
+/// transferred project never re-renders. Tracing is the caller's responsibility.
+fn render_svg_dto(working_dir: &str, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
+    let dir = std::path::Path::new(working_dir)
+        .join("artifacts")
+        .join("svg");
+    let g = cuprum_core::cache::layer_svg_artifact(&dir, bytes).map_err(|e| e.to_string())?;
     Ok(LayerGeometryDto {
         svg_body: g.svg_body,
         bbox: BBoxDto {
@@ -973,14 +976,12 @@ async fn project_board_metrics(
                 let bytes = read_workdir_file(&working_dir, &g.rel)?;
                 loaded.push((g.rel.clone(), g.layer_type, bytes));
             }
-            let mut hasher = cuprum_core::diskcache::Hasher::new();
-            hasher.add(b"metrics-v14");
-            for (rel, t, bytes) in &loaded {
-                hasher.add(format!("{t:?}").as_bytes());
-                hasher.add(rel.to_lowercase().as_bytes()); // plating inferred from the name
-                hasher.add(bytes);
-            }
-            let key = hasher.finish();
+            // Key built in core so `artifact::gc` can reconstruct the same set.
+            let key_layers: Vec<(String, String, Vec<u8>)> = loaded
+                .iter()
+                .map(|(rel, t, bytes)| (rel.clone(), format!("{t:?}"), bytes.clone()))
+                .collect();
+            let key = cuprum_core::cache::metrics_artifact_key(&key_layers);
             // Build metric inputs from the loaded layers. Done inside the render
             // closure (see below) so a cache hit skips this entirely; the result
             // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.
@@ -1004,17 +1005,11 @@ async fn project_board_metrics(
                     })
                     .collect()
             }
-            let Some(dir) = artifact_cache_dir(&app) else {
-                // No cache dir: compute directly, no caching (matches prior behavior).
-                let inputs = build_inputs(&loaded);
-                return Ok(cuprum_core::trace::operation(
-                    "metrics",
-                    &traces_dir(&app),
-                    || cuprum_core::metrics::board_metrics(&inputs),
-                ));
-            };
+            let dir = std::path::Path::new(&working_dir)
+                .join("artifacts")
+                .join("metrics");
             let traces = traces_dir(&app);
-            let metrics = cuprum_core::cache::board_metrics_cached(&dir, &key, move || {
+            let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
                 let inputs = build_inputs(&loaded);
                 cuprum_core::trace::operation("metrics", &traces, || {
                     cuprum_core::metrics::board_metrics(&inputs)
