@@ -118,6 +118,29 @@ pub fn put(dir: &Path, key: &str, bytes: &[u8], max_bytes: u64, ttl: Duration) {
     prune(dir, max_bytes, ttl);
 }
 
+/// Persistent variants for PROJECT artifacts: no TTL (never age out) and no size
+/// budget (never evicted). Used for the `<workdir>/artifacts/**` cache that ships
+/// inside the `.cuprum` — those entries are reclaimed by `artifact::gc`, not here.
+/// Still honors `cache_disabled()` so cold profiling works.
+pub fn get_persistent(dir: &Path, key: &str) -> Option<Vec<u8>> {
+    get(dir, key, Duration::MAX)
+}
+
+/// Store a persistent blob (no prune). Best-effort: IO errors are swallowed.
+pub fn put_persistent(dir: &Path, key: &str, bytes: &[u8]) {
+    if cache_disabled() {
+        return;
+    }
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let tmp = dir.join(format!("{key}.tmp"));
+    if std::fs::write(&tmp, bytes).is_err() {
+        return;
+    }
+    let _ = std::fs::rename(&tmp, entry_path(dir, key));
+}
+
 fn expired(meta: &std::fs::Metadata, ttl: Duration) -> bool {
     let mt = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
     SystemTime::now()
@@ -233,5 +256,31 @@ mod tests {
     fn key_is_order_and_boundary_sensitive() {
         assert_ne!(key_for(&[b"ab", b"c"]), key_for(&[b"a", b"bc"]));
         assert_eq!(key_for(&[b"x", b"y"]), key_for(&[b"x", b"y"]));
+    }
+
+    #[test]
+    fn persistent_survives_age_and_budget() {
+        let dir =
+            std::env::temp_dir().join(format!("cuprum-diskcache-persist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Write a persistent entry, then backdate its mtime far past any TTL.
+        put_persistent(&dir, "keep", &[9u8; 100]);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(entry_path(&dir, "keep"))
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(10 * 365 * 24 * 60 * 60))
+            .unwrap();
+
+        // A second persistent write of a large blob must NOT evict "keep"
+        // (persistent has no budget), and "keep" must NOT be expired by age.
+        put_persistent(&dir, "big", &[1u8; 10_000]);
+        assert_eq!(
+            get_persistent(&dir, "keep").as_deref(),
+            Some(&[9u8; 100][..]),
+            "persistent entry survives age + a large later write"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
