@@ -86,10 +86,12 @@ export function EditableText({
   }
 
   return (
+    // No aria-label here: the visible {value} (the design name) IS the button's
+    // accessible name. ariaLabel describes the action and lives only in `title`
+    // (tooltip) + on the input, which has no visible label. (WCAG 2.5.3)
     <button
       type="button"
       title={title}
-      aria-label={ariaLabel}
       onClick={() => setEditing(true)}
       className={cn(
         "cursor-text truncate rounded px-1 text-left hover:bg-foreground/5",
