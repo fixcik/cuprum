@@ -166,6 +166,12 @@ export interface LayerGeometry {
   snap: [number, number][];
 }
 
+export interface LayerSvgResult {
+  rel: string;
+  geometry: LayerGeometry | null;
+  error: string | null;
+}
+
 export interface Hole {
   x: number;
   y: number;
@@ -295,6 +301,8 @@ export const api = {
     invoke<ProjectDesign>("add_design_from_zip", { workingDir, zipPath }),
   renderGerberSvg: (workingDir: string, gerberRel: string) =>
     invoke<LayerGeometry>("render_gerber_svg", { workingDir, gerberRel }),
+  renderLayersSvg: (workingDir: string, rels: string[]) =>
+    invoke<LayerSvgResult[]>("render_layers_svg", { workingDir, rels }),
   readDrill: (workingDir: string, gerberRel: string) =>
     invoke<Hole[]>("read_drill", { workingDir, gerberRel }),
   copperPolygons: (workingDir: string, gerberRel: string, holes: Hole[]) =>
