@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { missingRequired } from "@/lib/layerColors";
@@ -26,6 +26,7 @@ export function DesignCard({
   const panel = useShell((s) => s.currentManifest?.panel ?? null);
   const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
   const reportArtifactProgress = useShell((s) => s.reportArtifactProgress);
+  const clearArtifactProgress = useShell((s) => s.clearArtifactProgress);
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -138,6 +139,19 @@ export function DesignCard({
   useEffect(() => {
     reportArtifactProgress(design.id, fraction);
   }, [design.id, fraction, reportArtifactProgress]);
+
+  // Latest fraction for the unmount cleanup (kept in a ref so the cleanup runs
+  // only on unmount / design switch, not on every fraction change).
+  const fractionRef = useRef(fraction);
+  fractionRef.current = fraction;
+  useEffect(() => {
+    return () => {
+      // Card unmounted (e.g. tab switch) while still preparing → drop its entry
+      // so the global chip doesn't freeze at a partial fraction. A finished
+      // entry (==1) stays, so returning to the gallery doesn't re-flash the chip.
+      if (fractionRef.current < 1) clearArtifactProgress(design.id);
+    };
+  }, [design.id, clearArtifactProgress]);
 
   const dotClass =
     verdict === "block"

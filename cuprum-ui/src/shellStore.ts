@@ -100,6 +100,9 @@ interface ShellStore {
   reportArtifactProgress: (designId: string, fraction: number) => void;
   /** Drop progress entries for designs no longer in the manifest (and on close). */
   pruneArtifactProgress: (liveIds: string[]) => void;
+  /** Remove one design's progress entry — e.g. its card unmounted mid-prep, so
+   *  the global chip shouldn't freeze at that design's partial fraction. */
+  clearArtifactProgress: (designId: string) => void;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -584,6 +587,14 @@ export const useShell = create<ShellStore>((set, get) => ({
       for (const [id, f] of Object.entries(s.artifactProgress)) {
         if (live.has(id)) next[id] = f;
       }
+      return { artifactProgress: next };
+    });
+  },
+  clearArtifactProgress: (designId) => {
+    set((s) => {
+      if (!(designId in s.artifactProgress)) return s;
+      const next = { ...s.artifactProgress };
+      delete next[designId];
       return { artifactProgress: next };
     });
   },

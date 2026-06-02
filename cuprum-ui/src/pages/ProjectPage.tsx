@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, type LucideIcon } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
@@ -32,11 +32,13 @@ export function ProjectPage() {
   const pruneArtifactProgress = useShell((s) => s.pruneArtifactProgress);
   const prep = overallProgress(artifactProgress);
 
-  const designIds = manifest?.designs.map((d) => d.id) ?? [];
+  const designIds = useMemo(
+    () => manifest?.designs.map((d) => d.id) ?? [],
+    [manifest?.designs],
+  );
   useEffect(() => {
     pruneArtifactProgress(designIds);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designIds.join(",")]);
+  }, [designIds, pruneArtifactProgress]);
 
   // Keyboard shortcuts: ⌘/Ctrl+Z = undo, ⌘/Ctrl+Shift+Z = redo, ⌘/Ctrl+S = save point.
   useEffect(() => {
