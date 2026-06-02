@@ -59,8 +59,14 @@ pub fn layer_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     let doc = gerber_viewer::gerber_parser::parse(reader)
         .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
     let layer = GerberLayer::new(doc.into_commands());
+    Ok(layer_polygons_from(&layer, holes))
+}
+
+/// Like [`layer_polygons`] but from an already-parsed layer — used by callers that
+/// parse each layer once and share it across analyses (see `metrics`'s parse-once).
+pub fn layer_polygons_from(layer: &GerberLayer, holes: &[Hole]) -> Vec<Poly> {
     let contours = contours_of(layer.primitives());
-    Ok(fill_polygons(&contours, holes))
+    fill_polygons(&contours, holes)
 }
 
 /// Backwards-compatible alias for the original copper-only entry point. Copper
@@ -82,6 +88,11 @@ pub fn region_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     let doc = gerber_viewer::gerber_parser::parse(reader)
         .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
     let layer = GerberLayer::new(doc.into_commands());
+    Ok(region_polygons_from(&layer, holes))
+}
+
+/// Like [`region_polygons`] (FILL primitives only) but from an already-parsed layer.
+pub fn region_polygons_from(layer: &GerberLayer, holes: &[Hole]) -> Vec<Poly> {
     let mut contours: Vec<Vec<[f64; 2]>> = Vec::new();
     for prim in layer.primitives() {
         if matches!(prim, GerberPrimitive::Line(_) | GerberPrimitive::Arc(_)) {
@@ -89,7 +100,7 @@ pub fn region_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
         }
         contours_for(prim, &mut contours);
     }
-    Ok(fill_polygons(&contours, holes))
+    fill_polygons(&contours, holes)
 }
 
 /// Compute the soldermask geometry: the board region MINUS the mask openings.
@@ -992,6 +1003,41 @@ pub fn min_island_clearance(polys: &[Poly]) -> Option<f64> {
 mod tests {
     use super::*;
 
+    // Shared Gerber fixture: a 1 mm pad flash (D10/D03) plus a 0.1 mm trace draw
+    // (D11/D01). Used by region_polygons_excludes_trace_strokes and the from-layer
+    // equivalence tests below.
+    const PAD_AND_TRACE: &[u8] = b"%FSLAX46Y46*%\n%MOMM*%\n\
+        %ADD10C,1.0*%\n%ADD11C,0.1*%\n\
+        D10*\nX0Y0D03*\n\
+        D11*\nX0Y0D02*\nX5000000Y0D01*\nM02*\n";
+
+    #[test]
+    fn layer_polygons_from_matches_bytes() {
+        let reader = std::io::BufReader::new(std::io::Cursor::new(PAD_AND_TRACE));
+        let doc = gerber_viewer::gerber_parser::parse(reader).unwrap();
+        let layer = GerberLayer::new(doc.into_commands());
+        let from_layer = layer_polygons_from(&layer, &[]);
+        let from_bytes = layer_polygons(PAD_AND_TRACE, &[]).unwrap();
+        assert_eq!(
+            from_layer, from_bytes,
+            "layer_polygons_from must equal the bytes path"
+        );
+        assert!(!from_layer.is_empty(), "fixture should yield polygons");
+    }
+
+    #[test]
+    fn region_polygons_from_matches_bytes() {
+        let reader = std::io::BufReader::new(std::io::Cursor::new(PAD_AND_TRACE));
+        let doc = gerber_viewer::gerber_parser::parse(reader).unwrap();
+        let layer = GerberLayer::new(doc.into_commands());
+        let from_layer = region_polygons_from(&layer, &[]);
+        let from_bytes = region_polygons(PAD_AND_TRACE, &[]).unwrap();
+        assert_eq!(
+            from_layer, from_bytes,
+            "region_polygons_from must equal the bytes path"
+        );
+    }
+
     /// Two overlapping unit squares should union into a SINGLE polygon.
     #[test]
     fn two_overlapping_rects_become_one_polygon() {
@@ -1302,10 +1348,6 @@ mod tests {
     fn region_polygons_excludes_trace_strokes() {
         // A pad flash (D03) plus a thin trace draw (D01). region_polygons must keep
         // the pad and drop the trace → no thin neck to find on the region set.
-        const PAD_AND_TRACE: &[u8] = b"%FSLAX46Y46*%\n%MOMM*%\n\
-            %ADD10C,1.0*%\n%ADD11C,0.1*%\n\
-            D10*\nX0Y0D03*\n\
-            D11*\nX0Y0D02*\nX5000000Y0D01*\nM02*\n";
         let regions = region_polygons(PAD_AND_TRACE, &[]).unwrap();
         let full = layer_polygons(PAD_AND_TRACE, &[]).unwrap();
         let (_c, full_w) = clearance_width_hotspots(&full);
