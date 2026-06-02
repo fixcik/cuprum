@@ -22,6 +22,7 @@ export function DesignCard({
   const workingDir = useShell((s) => s.workingDir);
   const layerColors = useShell((s) => s.currentManifest?.layer_colors);
   const panel = useShell((s) => s.currentManifest?.panel ?? null);
+  const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -54,7 +55,10 @@ export function DesignCard({
     api
       .renderDesignPreview(workingDir, design.id, gerbers, layerColors ?? undefined)
       .then((r) => {
-        if (!cancelled) setPreviewUrl(r.pngDataUrl);
+        if (!cancelled) {
+          setPreviewUrl(r.pngDataUrl);
+          scheduleArtifactFlush(r.fresh);
+        }
       })
       .catch(() => {
         if (!cancelled) setPreviewUrl(null);
@@ -80,8 +84,9 @@ export function DesignCard({
       )
       .then((m) => {
         if (cancelled) return;
-        setSize({ w: m.board.widthMm, h: m.board.heightMm });
-        setVerdict(hasRequired ? overallVerdict(evaluate(m, profile, panel)) : null);
+        setSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
+        setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panel)) : null);
+        scheduleArtifactFlush(m.fresh);
       })
       .catch(() => {
         if (cancelled) return;

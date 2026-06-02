@@ -3,6 +3,18 @@ import i18n from "@/i18n";
 import { api, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
+/** Debounce window before flushing freshly-computed artifacts into the .cuprum. */
+const ARTIFACT_FLUSH_MS = 1500;
+let _flushTimer: ReturnType<typeof setTimeout> | null = null;
+/** Serialize ALL packs (mutations, restore points, artifact flush): two concurrent
+ *  packs race on the container write + gc_gerbers vs collect_entries. */
+let _packChain: Promise<unknown> = Promise.resolve();
+function serializePack(fn: () => Promise<void>): Promise<void> {
+  const next = _packChain.then(fn, fn);
+  _packChain = next.catch(() => {});
+  return next;
+}
+
 export type View = "home" | "project" | "printer" | "settings";
 
 interface ShellStore {
@@ -43,6 +55,9 @@ interface ShellStore {
    *  from the newest existing point, so reopening an unchanged project does not
    *  stack duplicate auto points. */
   _maybeAutoOpenPoint: () => Promise<void>;
+  /** Schedule a debounced repack to flush freshly-computed artifacts into the
+   *  .cuprum. No-op when `fresh` is false (artifact was served from cache). */
+  scheduleArtifactFlush: (fresh: boolean) => void;
 
   /** CSS px per mm for the host display; defaults to the 96dpi CSS reference. */
   pxPerMm: number;
@@ -102,6 +117,23 @@ export const useShell = create<ShellStore>((set, get) => ({
   historyBusy: false,
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
+
+  scheduleArtifactFlush: (fresh) => {
+    if (!fresh) return;
+    const { workingDir, currentPath } = get();
+    if (!workingDir || !currentPath) return;
+    const path = currentPath;
+    if (_flushTimer) clearTimeout(_flushTimer);
+    _flushTimer = setTimeout(() => {
+      _flushTimer = null;
+      const s = get();
+      if (s.currentPath !== path || !s.workingDir) return; // project changed/closed
+      const wd = s.workingDir;
+      void serializePack(() => api.saveProject(wd, path)).catch(() => {
+        /* best-effort; the next fresh artifact reschedules */
+      });
+    }, ARTIFACT_FLUSH_MS);
+  },
 
   loadDisplayScale: async () => {
     // Cache once per launch; the native value never changes mid-session.
@@ -332,7 +364,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     const { workingDir, currentPath } = get();
     if (!workingDir || !currentPath) return;
     await api.writeWorkingManifest(workingDir, manifest);
-    await api.saveProject(workingDir, currentPath);
+    await serializePack(() => api.saveProject(workingDir, currentPath));
   },
 
   canUndo: () => get().undoStack.length > 0,
@@ -404,7 +436,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     try {
       // Snapshot reads the working-dir manifest, which _mirrorManifest keeps current.
       await api.makeRestorePoint(workingDir, label, auto);
-      await api.saveProject(workingDir, currentPath); // flush so the .cuprum carries it
+      await serializePack(() => api.saveProject(workingDir, currentPath)); // flush so the .cuprum carries it
       await get().refreshRestorePoints();
     } catch (e) {
       set({ error: String(e) });

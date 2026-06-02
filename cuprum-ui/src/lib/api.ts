@@ -170,10 +170,18 @@ export interface LayerSvgResult {
   rel: string;
   geometry: LayerGeometry | null;
   error: string | null;
+  fresh: boolean;
 }
 
 export interface PreviewResultDto {
   pngDataUrl: string;
+  fresh: boolean;
+}
+
+/** project_board_metrics return: metrics + whether they were freshly computed. */
+export interface BoardMetricsResult {
+  metrics: BoardMetrics;
+  fresh: boolean;
 }
 
 export interface Hole {
@@ -341,7 +349,7 @@ export const api = {
   projectBoardMetrics: (
     workingDir: string,
     gerbers: { rel: string; layerType: LayerType }[],
-  ) => invoke<BoardMetrics>("project_board_metrics", { workingDir, gerbers }),
+  ) => invoke<BoardMetricsResult>("project_board_metrics", { workingDir, gerbers }),
 
   displayPxPerMm: () => invoke<number>("display_px_per_mm"),
 

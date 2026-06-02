@@ -544,6 +544,8 @@ fn configure_panel(
 #[serde(rename_all = "camelCase")]
 struct PreviewDto {
     png_data_url: String,
+    /// True when the artifact blob did not exist on disk before this call.
+    fresh: bool,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -587,13 +589,15 @@ struct LayerGeometryDto {
 
 /// Per-layer batch render result, in input order. Exactly one of `geometry` /
 /// `error` is set: success carries geometry, a broken/missing gerber carries an
-/// error string — one bad layer never sinks the batch.
+/// error string — one bad layer never sinks the batch. `fresh` is true when the
+/// artifact blob did not exist on disk before this call.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LayerSvgResult {
     rel: String,
     geometry: Option<LayerGeometryDto>,
     error: Option<String>,
+    fresh: bool,
 }
 
 #[tauri::command]
@@ -604,7 +608,7 @@ fn render_gerber_svg(
 ) -> Result<LayerGeometryDto, String> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     cuprum_core::trace::operation("svg", &traces_dir(&app), || {
-        render_svg_dto(&working_dir, &bytes)
+        render_svg_dto(&working_dir, &bytes).map(|(dto, _)| dto)
     })
 }
 
@@ -632,15 +636,17 @@ async fn render_layers_svg(
                         let res = read_workdir_file(&working_dir, rel)
                             .and_then(|bytes| render_svg_dto(&working_dir, &bytes));
                         match res {
-                            Ok(geometry) => LayerSvgResult {
+                            Ok((geometry, fresh)) => LayerSvgResult {
                                 rel: rel.clone(),
                                 geometry: Some(geometry),
                                 error: None,
+                                fresh,
                             },
                             Err(e) => LayerSvgResult {
                                 rel: rel.clone(),
                                 geometry: None,
                                 error: Some(e),
+                                fresh: false,
                             },
                         }
                     })
@@ -756,25 +762,38 @@ fn traces_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
+/// Returns `true` when the artifact blob (`<kind_dir>/<key>.bin`) does NOT yet
+/// exist on disk — i.e. the next cache call will produce a new artifact. Lets
+/// callers decide whether a `.cuprum` repack is warranted.
+fn artifact_fresh(kind_dir: &std::path::Path, key: &str) -> bool {
+    !kind_dir.join(format!("{key}.bin")).exists()
+}
+
 /// Render one gerber's SVG into the PROJECT artifact cache
 /// (`<workdir>/artifacts/svg`), going through core's in-memory + persistent disk
 /// cache. The blob ships inside the `.cuprum` (packed by `workdir::pack`) so a
 /// transferred project never re-renders. Tracing is the caller's responsibility.
-fn render_svg_dto(working_dir: &str, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
+/// Returns `(dto, fresh)` where `fresh` indicates the artifact was not cached on disk.
+fn render_svg_dto(working_dir: &str, bytes: &[u8]) -> Result<(LayerGeometryDto, bool), String> {
     let dir = std::path::Path::new(working_dir)
         .join("artifacts")
         .join("svg");
+    let key = cuprum_core::cache::svg_artifact_key(bytes);
+    let fresh = artifact_fresh(&dir, &key);
     let g = cuprum_core::cache::layer_svg_artifact(&dir, bytes).map_err(|e| e.to_string())?;
-    Ok(LayerGeometryDto {
-        svg_body: g.svg_body,
-        bbox: BBoxDto {
-            min_x: g.bbox.min_x,
-            min_y: g.bbox.min_y,
-            max_x: g.bbox.max_x,
-            max_y: g.bbox.max_y,
+    Ok((
+        LayerGeometryDto {
+            svg_body: g.svg_body,
+            bbox: BBoxDto {
+                min_x: g.bbox.min_x,
+                min_y: g.bbox.min_y,
+                max_x: g.bbox.max_x,
+                max_y: g.bbox.max_y,
+            },
+            snap: g.snap,
         },
-        snap: g.snap,
-    })
+        fresh,
+    ))
 }
 
 // ---- 3D board mesh (triangulated in Rust, returned as a binary blob) ----
@@ -970,6 +989,16 @@ async fn project_board_mesh(
     Ok(tauri::ipc::Response::new(blob))
 }
 
+/// Wraps `BoardMetrics` with a `fresh` flag so the frontend can trigger a repack
+/// only when the artifact was newly computed (not served from disk cache).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BoardMetricsDto {
+    metrics: cuprum_core::metrics::BoardMetrics,
+    /// True when the artifact blob did not exist on disk before this call.
+    fresh: bool,
+}
+
 /// Measure manufacturing facts (DFM) for a COMMITTED design: read each gerber
 /// from the working dir under its current layer-type assignment. Cached by
 /// content hash (filename + type + bytes) — a pure measurement, so it stays valid
@@ -979,62 +1008,61 @@ async fn project_board_metrics(
     app: AppHandle,
     working_dir: String,
     gerbers: Vec<GerberRef>,
-) -> Result<cuprum_core::metrics::BoardMetrics, String> {
+) -> Result<BoardMetricsDto, String> {
     // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
     // main thread so concurrent calls (one per design card) don't serialize.
-    tauri::async_runtime::spawn_blocking(
-        move || -> Result<cuprum_core::metrics::BoardMetrics, String> {
-            let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
-            for g in &gerbers {
-                let bytes = read_workdir_file(&working_dir, &g.rel)?;
-                loaded.push((g.rel.clone(), g.layer_type, bytes));
-            }
-            // Key built in core so `artifact::gc` can reconstruct the same set.
-            // Precompute small type strings once; pass borrowed byte slices to avoid
-            // cloning multi-MB gerber buffers on the hot path.
-            let type_strs: Vec<String> = loaded.iter().map(|(_, t, _)| format!("{t:?}")).collect();
-            let key = cuprum_core::cache::metrics_artifact_key(
-                loaded
-                    .iter()
-                    .zip(&type_strs)
-                    .map(|((rel, _, bytes), ts)| (rel.as_str(), ts.as_str(), bytes.as_slice())),
-            );
-            // Build metric inputs from the loaded layers. Done inside the render
-            // closure (see below) so a cache hit skips this entirely; the result
-            // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.
-            // A nested `fn` (not a closure) so the input/output lifetime is tied.
-            fn build_inputs(
-                loaded: &[(String, cuprum_project::LayerType, Vec<u8>)],
-            ) -> Vec<cuprum_core::metrics::MetricLayerInput<'_>> {
-                loaded
-                    .iter()
-                    .map(|(rel, t, bytes)| {
-                        let (role, side) = role_side(t);
-                        cuprum_core::metrics::MetricLayerInput {
-                            role,
-                            side,
-                            inner: matches!(t, cuprum_project::LayerType::InnerCopper),
-                            // Excellon can't carry plating; NPTH is known only from the filename.
-                            plated: role == cuprum_core::mesh::Role::Drill
-                                && !rel.to_lowercase().contains("npth"),
-                            bytes,
-                        }
-                    })
-                    .collect()
-            }
-            let dir = std::path::Path::new(&working_dir)
-                .join("artifacts")
-                .join("metrics");
-            let traces = traces_dir(&app);
-            let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
-                let inputs = build_inputs(&loaded);
-                cuprum_core::trace::operation("metrics", &traces, || {
-                    cuprum_core::metrics::board_metrics(&inputs)
+    tauri::async_runtime::spawn_blocking(move || -> Result<BoardMetricsDto, String> {
+        let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
+        for g in &gerbers {
+            let bytes = read_workdir_file(&working_dir, &g.rel)?;
+            loaded.push((g.rel.clone(), g.layer_type, bytes));
+        }
+        // Key built in core so `artifact::gc` can reconstruct the same set.
+        // Precompute small type strings once; pass borrowed byte slices to avoid
+        // cloning multi-MB gerber buffers on the hot path.
+        let type_strs: Vec<String> = loaded.iter().map(|(_, t, _)| format!("{t:?}")).collect();
+        let key = cuprum_core::cache::metrics_artifact_key(
+            loaded
+                .iter()
+                .zip(&type_strs)
+                .map(|((rel, _, bytes), ts)| (rel.as_str(), ts.as_str(), bytes.as_slice())),
+        );
+        // Build metric inputs from the loaded layers. Done inside the render
+        // closure (see below) so a cache hit skips this entirely; the result
+        // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.
+        // A nested `fn` (not a closure) so the input/output lifetime is tied.
+        fn build_inputs(
+            loaded: &[(String, cuprum_project::LayerType, Vec<u8>)],
+        ) -> Vec<cuprum_core::metrics::MetricLayerInput<'_>> {
+            loaded
+                .iter()
+                .map(|(rel, t, bytes)| {
+                    let (role, side) = role_side(t);
+                    cuprum_core::metrics::MetricLayerInput {
+                        role,
+                        side,
+                        inner: matches!(t, cuprum_project::LayerType::InnerCopper),
+                        // Excellon can't carry plating; NPTH is known only from the filename.
+                        plated: role == cuprum_core::mesh::Role::Drill
+                            && !rel.to_lowercase().contains("npth"),
+                        bytes,
+                    }
                 })
-            });
-            Ok(metrics)
-        },
-    )
+                .collect()
+        }
+        let dir = std::path::Path::new(&working_dir)
+            .join("artifacts")
+            .join("metrics");
+        let fresh = artifact_fresh(&dir, &key);
+        let traces = traces_dir(&app);
+        let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
+            let inputs = build_inputs(&loaded);
+            cuprum_core::trace::operation("metrics", &traces, || {
+                cuprum_core::metrics::board_metrics(&inputs)
+            })
+        });
+        Ok(BoardMetricsDto { metrics, fresh })
+    })
     .await
     .map_err(|e| e.to_string())?
 }
@@ -1073,6 +1101,8 @@ async fn render_design_preview(
             });
         }
         let dir = std::path::Path::new(&working_dir).join("artifacts");
+        let key = cuprum_core::preview::preview_key(&layers, &overrides);
+        let fresh = artifact_fresh(&dir.join("preview"), &key);
         let traces = traces_dir(&app);
         let png = cuprum_core::trace::operation("preview", &traces, || {
             cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, 512)
@@ -1081,6 +1111,7 @@ async fn render_design_preview(
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(PreviewDto {
             png_data_url: format!("data:image/png;base64,{b64}"),
+            fresh,
         })
     })
     .await
