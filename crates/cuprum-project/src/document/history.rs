@@ -5,6 +5,7 @@
 //! snapshots written by older app versions survive schema upgrades; callers must
 //! read through `migrate::manifest_from_value` (done by `history::read`).
 
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -135,6 +136,87 @@ pub fn read(workdir: &Path, id: &str) -> Result<Manifest> {
     crate::document::migrate::manifest_from_value(point.manifest)
 }
 
+/// Retention constants. Auto points are thinned by a GFS-style time ladder;
+/// manual points are kept up to a generous cap.
+const MAX_MANUAL_POINTS: usize = 100;
+pub const HOUR: i64 = 3600;
+pub const DAY: i64 = 24 * HOUR;
+const WEEK: i64 = 7 * DAY;
+const KEEP_ALL_AUTO: i64 = DAY; // auto points younger than this are all kept
+const DAILY_UNTIL: i64 = WEEK; // [1d, 7d): keep newest per calendar day
+const WEEKLY_UNTIL: i64 = 8 * WEEK; // [7d, 8wk): keep newest per week; older dropped
+const STALE_AUTO_HORIZON: i64 = 2 * DAY; // stale auto older than this is dropped
+
+/// Pure inputs for the retention decision (no IO).
+#[derive(Debug, Clone)]
+pub struct PruneInfo {
+    pub id: String,
+    pub created_at: i64,
+    pub auto: bool,
+    /// Design ids this snapshot references (migrated).
+    pub design_ids: BTreeSet<String>,
+}
+
+/// Decide which restore-point ids to delete. Pure + deterministic.
+///
+/// - Manual (`!auto`): never time-thinned; only the oldest beyond
+///   `MAX_MANUAL_POINTS` are dropped.
+/// - Auto: GFS ladder — keep all younger than `KEEP_ALL_AUTO`, then the newest
+///   per calendar day until `DAILY_UNTIL`, then the newest per week until
+///   `WEEKLY_UNTIL`, then drop. A "stale" auto point (references no design still
+///   in the project) is dropped once older than `STALE_AUTO_HORIZON`, regardless
+///   of the ladder — low value and it pins orphaned gerbers.
+pub fn select_pruned(
+    points: &[PruneInfo],
+    current_designs: &BTreeSet<String>,
+    now: i64,
+) -> Vec<String> {
+    let mut to_delete = Vec::new();
+
+    let mut manual: Vec<&PruneInfo> = points.iter().filter(|p| !p.auto).collect();
+    manual.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    for p in manual.iter().skip(MAX_MANUAL_POINTS) {
+        to_delete.push(p.id.clone());
+    }
+
+    let mut auto: Vec<&PruneInfo> = points.iter().filter(|p| p.auto).collect();
+    auto.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    let mut seen: HashSet<(u8, i64)> = HashSet::new();
+    for p in auto {
+        let age = now - p.created_at;
+        let stale = current_designs.is_disjoint(&p.design_ids);
+        if stale && age >= STALE_AUTO_HORIZON {
+            to_delete.push(p.id.clone());
+            continue;
+        }
+        if age < KEEP_ALL_AUTO {
+            continue;
+        }
+        if age < DAILY_UNTIL {
+            if !seen.insert((1, age / DAY)) {
+                to_delete.push(p.id.clone());
+            }
+            continue;
+        }
+        if age < WEEKLY_UNTIL {
+            if !seen.insert((2, age / WEEK)) {
+                to_delete.push(p.id.clone());
+            }
+            continue;
+        }
+        to_delete.push(p.id.clone());
+    }
+    to_delete
+}
+
 /// Delete all but the newest `MAX_RESTORE_POINTS`.
 fn prune(workdir: &Path, _now: i64) -> Result<()> {
     let metas = list(workdir)?; // newest-first
@@ -235,5 +317,83 @@ mod tests {
         };
         let s = serde_json::to_string(&np).unwrap();
         assert!(!serde_json::from_str::<RestorePoint>(&s).unwrap().auto);
+    }
+
+    fn info(id: &str, created_at: i64, auto: bool, designs: &[&str]) -> PruneInfo {
+        PruneInfo {
+            id: id.into(),
+            created_at,
+            auto,
+            design_ids: designs.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn manual_points_survive_thinning() {
+        let now = 100 * DAY;
+        let pts = vec![
+            info("m1", now - 50 * DAY, false, &["d1"]),
+            info("m2", now - 90 * DAY, false, &["d1"]),
+        ];
+        let cur: std::collections::BTreeSet<String> = ["d1".to_string()].into_iter().collect();
+        assert!(
+            select_pruned(&pts, &cur, now).is_empty(),
+            "manual points are never time-thinned"
+        );
+    }
+
+    #[test]
+    fn auto_recent_all_kept_old_bucketed() {
+        let now = 100 * DAY;
+        let cur: std::collections::BTreeSet<String> = ["d1".to_string()].into_iter().collect();
+        let pts = vec![
+            info("a_now1", now - HOUR, true, &["d1"]),
+            info("a_now2", now - 2 * HOUR, true, &["d1"]),
+            info("a_d_new", now - 2 * DAY, true, &["d1"]),
+            info("a_d_old", now - 2 * DAY - 3 * HOUR, true, &["d1"]),
+            info("a_ancient", now - 30 * DAY, true, &["d1"]),
+            info("a_too_old", now - 60 * DAY, true, &["d1"]),
+        ];
+        let drop = select_pruned(&pts, &cur, now);
+        assert!(
+            drop.contains(&"a_d_old".to_string()),
+            "older point in same day-bucket dropped"
+        );
+        assert!(
+            drop.contains(&"a_too_old".to_string()),
+            "auto older than 8 weeks dropped"
+        );
+        assert!(
+            !drop.contains(&"a_now1".to_string()) && !drop.contains(&"a_now2".to_string()),
+            "recent auto kept"
+        );
+        assert!(
+            !drop.contains(&"a_d_new".to_string()),
+            "newest in day-bucket kept"
+        );
+    }
+
+    #[test]
+    fn stale_auto_dropped_after_48h() {
+        let now = 100 * DAY;
+        let cur: std::collections::BTreeSet<String> = ["d1".to_string()].into_iter().collect();
+        let pts = vec![
+            info("stale_recent", now - 12 * HOUR, true, &["gone"]),
+            info("stale_old", now - 3 * DAY, true, &["gone"]),
+            info("live_old", now - 3 * DAY, true, &["d1"]),
+        ];
+        let drop = select_pruned(&pts, &cur, now);
+        assert!(
+            !drop.contains(&"stale_recent".to_string()),
+            "stale but recent auto kept"
+        );
+        assert!(
+            drop.contains(&"stale_old".to_string()),
+            "stale auto older than 48h dropped"
+        );
+        assert!(
+            !drop.contains(&"live_old".to_string()),
+            "non-stale auto of same age kept"
+        );
     }
 }
