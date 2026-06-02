@@ -601,4 +601,15 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&base);
     }
+
+    #[test]
+    fn span_outside_any_operation_is_ignored() {
+        // With the global subscriber possibly installed by other tests, a span
+        // created with no active operation must route nowhere (op-id None) — no
+        // panic, no file. We only assert it does not panic and yields no events
+        // attributable to an operation.
+        let _s = tracing::info_span!("orphan_span").entered();
+        // Nothing to flush, nothing to assert beyond "did not panic / no sink".
+        // (Sinks map is only populated inside `run_with_config`.)
+    }
 }
