@@ -23,4 +23,3 @@ i_overlay = "4"
 earcutr = "0.4"
 tracing.workspace = true
 tracing-subscriber.workspace = true
-tracing-chrome.workspace = true

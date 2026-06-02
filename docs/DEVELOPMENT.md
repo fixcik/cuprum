@@ -64,13 +64,22 @@ their own trace — e.g. React StrictMode double-invokes effects in dev, and sev
 components may request metrics for the same design — so you'll see more trace files
 than with the cache on.
 
-Mechanism: `cuprum_core::trace::operation(name, dir, f)` runs `f` under a
-thread-scoped subscriber + `tracing-chrome` layer. Spans are created with
-`#[tracing::instrument]` / `info_span!` in `cuprum-core` and are near-zero when no
-subscriber is active. Because the work runs synchronously on one thread, all its
-spans land in that operation's file; parallel UI operations run on distinct
-threads and so get distinct files. Rayon parallel loops are wrapped by a single
-span on the parent thread (we don't instrument per-iteration).
+Mechanism: `cuprum_core::trace::operation(name, dir, f)` installs ONE
+process-global subscriber (once per process, via
+`tracing::subscriber::set_global_default`) carrying a custom `RoutingLayer`. Each
+call registers an `OpSink` (its own file) under a unique monotonic `op_id`, then
+enters a root span that carries that id. `RoutingLayer` resolves a span's op-id
+(the root span's own field, else inherited from the parent span's cached
+metadata) and writes Chrome `B`/`E` events to that op's file on span
+enter/exit. Spans are created with `#[tracing::instrument]` / `info_span!` in
+`cuprum-core` and are near-zero when tracing is disabled. Concurrent UI
+operations get distinct files (routing is by `op_id`, not by thread), so they no
+longer cross-contaminate. Rayon worker spans are routed correctly: capture the
+current span on the parent thread with `capture_dispatch()` and re-enter it on
+each worker via `DispatchHandle::run` — worker spans then inherit the op-id and
+land in the right file. (A process-global subscriber is required here: a
+thread-scoped one is silently bypassed on shared rayon pool workers under
+concurrency, dropping their spans.)
 
 **Tracing does not change derived output**, so the cache version tags above do
 **not** need bumping when you add or move spans.
