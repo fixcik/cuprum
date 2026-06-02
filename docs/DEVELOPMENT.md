@@ -5,17 +5,30 @@
 Derived artifacts are cached on disk, keyed by a hash of `(source + version tag)`
 — see `crates/cuprum-core/src/diskcache.rs`. **If you change logic that affects
 the output, you must bump the corresponding version tag**, otherwise users will
-get a stale result from the cache. The tags live in
-`cuprum-ui/src-tauri/src/main.rs`:
+get a stale result from the cache. The tags live in one place,
+`crates/cuprum-core/src/artifact.rs` (`SVG_VERSION` / `METRICS_VERSION` /
+`PREVIEW_VERSION`) — except `mesh-vN`, still built in `cuprum-ui/src-tauri/src/main.rs`:
 
 | Tag          | Covers                        | Bump when editing |
 |--------------|-------------------------------|-------------------|
 | `svg-vN`     | layer rendering to SVG        | `svg.rs` |
-| `mesh-vN`    | 3D mesh triangulation         | `mesh.rs`, `geometry.rs` (polygons: `layer_polygons` / `fill_polygons` / `contours_of`) |
 | `metrics-vN` | DFM measurements (`BoardMetrics`) | `metrics.rs`, `geometry.rs` (measurements: `clearance_width_hotspots` / `seg_seg_closest` / `*_hotspots`), `drill.rs` |
+| `preview-vN` | design-card preview PNG composition | `preview.rs` (palette / z-order / mask coverage / `PREVIEW_MAX_PX`) |
+| `mesh-vN`    | 3D mesh triangulation         | `mesh.rs`, `geometry.rs` (polygons: `layer_polygons` / `fill_polygons` / `contours_of`) |
 
 A change in `geometry.rs` can touch **both** mesh (if polygons are affected)
 **and** metrics (if measurements are affected) — bump both relevant tags.
+
+### Project-embedded artifacts (`<workdir>/artifacts/`)
+
+`svg`, `metrics`, and `preview` artifacts are **persistent** (no TTL/eviction) and
+live under `<workdir>/artifacts/{svg,metrics,preview}/<key>.bin`, so they are packed
+into the `.cuprum` by `workdir::pack` and a transferred project never recomputes
+them. Invalidation is purely by content-hash key (the version tag is part of the
+filename): bump a `*_VERSION` and the old blobs simply stop matching, get
+regenerated on read, and are swept on the next `pack` by `artifact::gc` (which keeps
+only keys the current manifest still references). `mesh` stays in the global OS
+app-cache (TTL + LRU). `CUPRUM_NO_CACHE` bypasses the project artifacts too.
 
 ## Tracing / profiling
 
@@ -93,23 +106,30 @@ concurrency, dropping their spans.)
 | `mesh`    | UI `project_board_mesh` (cache miss) | `mesh::board_geometry` (+ `triangulate_parallel`), polygon builders |
 | `metrics` | UI `project_board_metrics` (cache miss) | `metrics::board_metrics`; per-layer `geometry::clearance_width_hotspots` run in parallel (rayon) |
 | `svg`     | UI `render_layers_svg` / `render_gerber_svg` (cache miss) | `svg::render_layer_svg` |
+| `preview` | UI `render_design_preview` (cache miss) | `preview::render_design_preview` (compose + `resvg` raster) |
 | `gerber-info` | CLI `gerber-info` | `gerber::parse_file` |
 
 UI operations that go through the artifact cache (`mesh`/`metrics`/`svg`) only
 write a trace on a **cache miss** (in-memory or disk) — a cache hit does no heavy
 work, so there is nothing to profile.
 
-### Кеш SVG-слоёв
+### Кеш SVG-слоёв и preview
 
-Рендер слоя в SVG кешируется в core (`cache.rs`, `layer_svg_cached`): сначала
-in-memory, затем дисковый кеш, иначе рендер. Ключ — content-hash гербера
-(`hash("svg-v1" + bytes)`), поэтому неизменённый файл не пересчитывается.
-Параллельные промахи по одному ключу дедуплицируются (single-flight): рендерит
-один поток, остальные ждут и берут готовый результат; рендеры разных слоёв идут
-параллельно. Первичная загрузка слоёв в UI идёт пакетной командой
-`render_layers_svg` (rayon, один IPC-вызов вместо одного на слой); одиночный
-`render_gerber_svg` оставлен для точечного переотображения отдельного слоя.
-Вывод SVG это не меняет — тег `svg-vN` поднимать не нужно.
+Рендер слоя в SVG кешируется в core (`cache.rs`, `layer_svg_artifact`): сначала
+in-memory, затем **персистентный** дисковый кеш в `<workdir>/artifacts/svg`, иначе
+рендер. Ключ — content-hash гербера (`hash(SVG_VERSION + bytes)`), поэтому
+неизменённый файл не пересчитывается, а блоб едет в `.cuprum`. Параллельные промахи
+по одному ключу дедуплицируются (single-flight): рендерит один поток, остальные
+ждут и берут готовый результат; рендеры разных слоёв идут параллельно. Первичная
+загрузка слоёв в UI (инспектор) идёт пакетной командой `render_layers_svg` (rayon,
+один IPC-вызов вместо одного на слой); одиночный `render_gerber_svg` — для точечного
+переотображения слоя.
+
+Карточка дизайна показывает не живой SVG-стек, а готовое растровое превью: команда
+`render_design_preview` собирает в core (`preview.rs`) цветной композит top-стороны
+(FR4-подложка + слои в z-порядке; маска — инвертированное покрытие платы минус
+вскрытия), растеризует через `resvg` в PNG (`PREVIEW_MAX_PX`) и персистит в
+`<workdir>/artifacts/preview`. Трейс-операция — `preview`.
 
 ### Instrumented spans (in `cuprum-core`)
 
