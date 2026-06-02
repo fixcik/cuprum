@@ -762,13 +762,14 @@ fn traces_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
-/// Render one gerber's SVG into the PROJECT artifact cache
-/// An artifact is "fresh" (newly produced this call) when its blob did NOT exist
-/// on disk before the cache call. Used to decide whether a repack is warranted.
+/// Returns `true` when the artifact blob (`<kind_dir>/<key>.bin`) does NOT yet
+/// exist on disk — i.e. the next cache call will produce a new artifact. Lets
+/// callers decide whether a `.cuprum` repack is warranted.
 fn artifact_fresh(kind_dir: &std::path::Path, key: &str) -> bool {
     !kind_dir.join(format!("{key}.bin")).exists()
 }
 
+/// Render one gerber's SVG into the PROJECT artifact cache
 /// (`<workdir>/artifacts/svg`), going through core's in-memory + persistent disk
 /// cache. The blob ships inside the `.cuprum` (packed by `workdir::pack`) so a
 /// transferred project never re-renders. Tracing is the caller's responsibility.
