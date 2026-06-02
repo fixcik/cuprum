@@ -770,7 +770,7 @@ fn compute_zone3(
 ) -> Zone3 {
     // Conductor model: connected routed-stroke runs per copper layer. Neck = the
     // thin-trace value; count + total length feed the metrics tab.
-    let mut runs: Vec<(crate::conductor::Conductor, &'static str)> = Vec::new();
+    let mut runs: Vec<(super::conductor::Conductor, &'static str)> = Vec::new();
     {
         let _cm = tracing::info_span!("conductor_model").entered();
         for (i, l) in layers
@@ -782,7 +782,7 @@ fn compute_zone3(
                 continue;
             };
             let side = layer_side(l);
-            for c in crate::conductor::conductors(lay) {
+            for c in super::conductor::conductors(lay) {
                 runs.push((c, side));
             }
         }
@@ -1115,9 +1115,9 @@ mod tests {
     }
 
     // Real multi-primitive gerbers → non-trivial clearance/width hotspots.
-    const CU_LAYER_A: &[u8] = include_bytes!("../../../testdata/gerber/two_square_boxes.gbr");
+    const CU_LAYER_A: &[u8] = include_bytes!("../../../../testdata/gerber/two_square_boxes.gbr");
     const CU_LAYER_B: &[u8] =
-        include_bytes!("../../../testdata/gerber/polarities_and_apertures.gbr");
+        include_bytes!("../../../../testdata/gerber/polarities_and_apertures.gbr");
 
     // Bit-identical guard for the parallelized hotspot loops (Phase 1): the
     // production helper must match an in-process SEQUENTIAL recomputation exactly

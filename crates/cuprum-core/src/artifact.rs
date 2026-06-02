@@ -13,7 +13,7 @@
 /// Bump when `svg::render_layer_svg` output changes.
 pub const SVG_VERSION: &[u8] = b"svg-v1";
 
-/// Bump when `metrics::board_metrics` output changes (was hard-coded in main.rs).
+/// Bump when `dfm::board_metrics` output changes (was hard-coded in main.rs).
 /// v15: annular hotspots now carry the pad's copper side instead of hardcoded "both".
 pub const METRICS_VERSION: &[u8] = b"metrics-v15";
 

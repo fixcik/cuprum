@@ -236,8 +236,8 @@ const METRICS_MEM_CAP: usize = 128;
 const METRICS_DISK_MAX_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
 const METRICS_DISK_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-fn metrics_cache() -> &'static Mutex<LruCache<String, crate::metrics::BoardMetrics>> {
-    static C: OnceLock<Mutex<LruCache<String, crate::metrics::BoardMetrics>>> = OnceLock::new();
+fn metrics_cache() -> &'static Mutex<LruCache<String, crate::dfm::BoardMetrics>> {
+    static C: OnceLock<Mutex<LruCache<String, crate::dfm::BoardMetrics>>> = OnceLock::new();
     C.get_or_init(|| Mutex::new(LruCache::new(NonZeroUsize::new(METRICS_MEM_CAP).unwrap())))
 }
 fn metrics_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
@@ -252,8 +252,8 @@ fn metrics_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
 pub fn board_metrics_cached(
     cache_dir: &Path,
     key: &str,
-    render: impl FnOnce() -> crate::metrics::BoardMetrics,
-) -> crate::metrics::BoardMetrics {
+    render: impl FnOnce() -> crate::dfm::BoardMetrics,
+) -> crate::dfm::BoardMetrics {
     cached_single_flight(
         metrics_cache(),
         metrics_inflight(),
@@ -289,8 +289,8 @@ pub fn metrics_artifact_key<'a>(
 pub fn board_metrics_artifact(
     artifacts_metrics_dir: &Path,
     key: &str,
-    render: impl FnOnce() -> crate::metrics::BoardMetrics,
-) -> crate::metrics::BoardMetrics {
+    render: impl FnOnce() -> crate::dfm::BoardMetrics,
+) -> crate::dfm::BoardMetrics {
     cached_single_flight_persistent(
         metrics_cache(),
         metrics_inflight(),

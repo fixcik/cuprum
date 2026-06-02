@@ -12,7 +12,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use cuprum_core::geometry;
 use cuprum_core::mesh::{Role, Side};
-use cuprum_core::metrics::{board_metrics, MetricLayerInput};
+use cuprum_core::dfm::{board_metrics, MetricLayerInput};
 
 const F_CU: &[u8] = include_bytes!("../../../testdata/gerber/plaid/plaid-F_Cu.gtl");
 const B_CU: &[u8] = include_bytes!("../../../testdata/gerber/plaid/plaid-B_Cu.gbl");
