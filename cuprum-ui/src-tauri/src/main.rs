@@ -981,44 +981,45 @@ async fn project_board_metrics(
                 hasher.add(bytes);
             }
             let key = hasher.finish();
-            if let Some(dir) = artifact_cache_dir(&app) {
-                if let Some(blob) = cuprum_core::diskcache::get(&dir, &key, ARTIFACT_CACHE_TTL) {
-                    if let Ok(m) =
-                        serde_json::from_slice::<cuprum_core::metrics::BoardMetrics>(&blob)
-                    {
-                        return Ok(m);
-                    }
-                }
+            // Build metric inputs from the loaded layers. Done inside the render
+            // closure (see below) so a cache hit skips this entirely; the result
+            // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.
+            // A nested `fn` (not a closure) so the input/output lifetime is tied.
+            fn build_inputs(
+                loaded: &[(String, cuprum_project::LayerType, Vec<u8>)],
+            ) -> Vec<cuprum_core::metrics::MetricLayerInput<'_>> {
+                loaded
+                    .iter()
+                    .map(|(rel, t, bytes)| {
+                        let (role, side) = role_side(t);
+                        cuprum_core::metrics::MetricLayerInput {
+                            role,
+                            side,
+                            inner: matches!(t, cuprum_project::LayerType::InnerCopper),
+                            // Excellon can't carry plating; NPTH is known only from the filename.
+                            plated: role == cuprum_core::mesh::Role::Drill
+                                && !rel.to_lowercase().contains("npth"),
+                            bytes,
+                        }
+                    })
+                    .collect()
             }
-            let inputs: Vec<cuprum_core::metrics::MetricLayerInput> = loaded
-                .iter()
-                .map(|(rel, t, bytes)| {
-                    let (role, side) = role_side(t);
-                    cuprum_core::metrics::MetricLayerInput {
-                        role,
-                        side,
-                        inner: matches!(t, cuprum_project::LayerType::InnerCopper),
-                        // Excellon can't carry plating; NPTH is known only from the filename.
-                        plated: role == cuprum_core::mesh::Role::Drill
-                            && !rel.to_lowercase().contains("npth"),
-                        bytes,
-                    }
+            let Some(dir) = artifact_cache_dir(&app) else {
+                // No cache dir: compute directly, no caching (matches prior behavior).
+                let inputs = build_inputs(&loaded);
+                return Ok(cuprum_core::trace::operation(
+                    "metrics",
+                    &traces_dir(&app),
+                    || cuprum_core::metrics::board_metrics(&inputs),
+                ));
+            };
+            let traces = traces_dir(&app);
+            let metrics = cuprum_core::cache::board_metrics_cached(&dir, &key, move || {
+                let inputs = build_inputs(&loaded);
+                cuprum_core::trace::operation("metrics", &traces, || {
+                    cuprum_core::metrics::board_metrics(&inputs)
                 })
-                .collect();
-            let metrics = cuprum_core::trace::operation("metrics", &traces_dir(&app), || {
-                cuprum_core::metrics::board_metrics(&inputs)
             });
-            if let Some(dir) = artifact_cache_dir(&app) {
-                if let Ok(blob) = serde_json::to_vec(&metrics) {
-                    cuprum_core::diskcache::put(
-                        &dir,
-                        &key,
-                        &blob,
-                        ARTIFACT_CACHE_MAX_BYTES,
-                        ARTIFACT_CACHE_TTL,
-                    );
-                }
-            }
             Ok(metrics)
         },
     )
