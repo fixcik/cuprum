@@ -572,6 +572,17 @@ struct LayerGeometryDto {
     snap: Vec<[f32; 2]>,
 }
 
+/// Per-layer batch render result, in input order. Exactly one of `geometry` /
+/// `error` is set: success carries geometry, a broken/missing gerber carries an
+/// error string — one bad layer never sinks the batch.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LayerSvgResult {
+    rel: String,
+    geometry: Option<LayerGeometryDto>,
+    error: Option<String>,
+}
+
 #[tauri::command]
 fn render_gerber_svg(
     app: AppHandle,
@@ -580,6 +591,41 @@ fn render_gerber_svg(
 ) -> Result<LayerGeometryDto, String> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     render_or_cache_svg(&app, &bytes)
+}
+
+/// Render many gerbers' SVG in one IPC round-trip. Async + spawn_blocking
+/// (CPU-bound) and rayon `par_iter` so layers render in parallel; results are
+/// returned in input order, per-layer tolerant (one bad gerber doesn't fail the
+/// batch). Each layer goes through core's in-memory + disk cache.
+#[tauri::command]
+async fn render_layers_svg(
+    app: AppHandle,
+    working_dir: String,
+    rels: Vec<String>,
+) -> Result<Vec<LayerSvgResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use rayon::prelude::*;
+        rels.par_iter()
+            .map(|rel| {
+                let res = read_workdir_file(&working_dir, rel)
+                    .and_then(|bytes| render_or_cache_svg(&app, &bytes));
+                match res {
+                    Ok(geometry) => LayerSvgResult {
+                        rel: rel.clone(),
+                        geometry: Some(geometry),
+                        error: None,
+                    },
+                    Err(e) => LayerSvgResult {
+                        rel: rel.clone(),
+                        geometry: None,
+                        error: Some(e),
+                    },
+                }
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| format!("batch svg join error: {e}"))
 }
 
 // ---- Copper polygons (2D boolean booleans in Rust core) ----
@@ -1068,6 +1114,7 @@ fn main() {
             configure_panel,
             add_design_from_zip,
             render_gerber_svg,
+            render_layers_svg,
             copper_polygons,
             layer_polygons,
             mask_polygons,
