@@ -136,8 +136,8 @@ pub fn read(workdir: &Path, id: &str) -> Result<Manifest> {
 /// Retention constants. Auto points are thinned by a GFS-style time ladder;
 /// manual points are kept up to a generous cap.
 const MAX_MANUAL_POINTS: usize = 100;
-pub const HOUR: i64 = 3600;
-pub const DAY: i64 = 24 * HOUR;
+const HOUR: i64 = 3600;
+const DAY: i64 = 24 * HOUR;
 const WEEK: i64 = 7 * DAY;
 const KEEP_ALL_AUTO: i64 = DAY; // auto points younger than this are all kept
 const DAILY_UNTIL: i64 = WEEK; // [1d, 7d): keep newest per calendar day
@@ -150,8 +150,12 @@ pub struct PruneInfo {
     pub id: String,
     pub created_at: i64,
     pub auto: bool,
-    /// Design ids this snapshot references (migrated).
-    pub design_ids: BTreeSet<String>,
+    /// Design ids this snapshot references (migrated). `Some(set)` lists the
+    /// references (empty set = references nothing); `None` means the snapshot
+    /// could not be migrated (e.g. written by a newer app version) — callers
+    /// must fail toward RETENTION (never staleness-prune an unreadable point;
+    /// normal age-based thinning still applies).
+    pub design_ids: Option<BTreeSet<String>>,
 }
 
 /// Decide which restore-point ids to delete. Pure + deterministic.
@@ -189,7 +193,7 @@ pub fn select_pruned(
     let mut seen: HashSet<(u8, i64)> = HashSet::new();
     for p in auto {
         let age = now - p.created_at;
-        let stale = current_designs.is_disjoint(&p.design_ids);
+        let stale = matches!(&p.design_ids, Some(ids) if current_designs.is_disjoint(ids));
         if stale && age >= STALE_AUTO_HORIZON {
             to_delete.push(p.id.clone());
             continue;
@@ -214,14 +218,15 @@ pub fn select_pruned(
     to_delete
 }
 
-/// Design ids referenced by a snapshot's manifest (migrated to current schema so
-/// old `imports`-shaped snapshots still resolve). Empty on parse failure → the
-/// point reads as stale (the safe, prunable default).
-fn point_design_ids(value: &Value) -> BTreeSet<String> {
-    match crate::document::migrate::manifest_from_value(value.clone()) {
-        Ok(m) => m.designs.into_iter().map(|d| d.id).collect(),
-        Err(_) => BTreeSet::new(),
-    }
+/// Design ids referenced by a snapshot's manifest, migrated to the current
+/// schema. `Some(set)` lists the references (empty set = references nothing);
+/// `None` means the snapshot could not be migrated (e.g. written by a newer app
+/// version) — callers must fail toward RETENTION (never staleness-prune an
+/// unreadable point; normal age-based thinning still applies).
+fn point_design_ids(value: &Value) -> Option<BTreeSet<String>> {
+    crate::document::migrate::manifest_from_value(value.clone())
+        .ok()
+        .map(|m| m.designs.into_iter().map(|d| d.id).collect())
 }
 
 /// Apply the retention policy (see `select_pruned`). `now` is the current epoch
@@ -361,7 +366,7 @@ mod tests {
             id: id.into(),
             created_at,
             auto,
-            design_ids: designs.iter().map(|s| s.to_string()).collect(),
+            design_ids: Some(designs.iter().map(|s| s.to_string()).collect()),
         }
     }
 
@@ -407,6 +412,26 @@ mod tests {
         assert!(
             !drop.contains(&"a_d_new".to_string()),
             "newest in day-bucket kept"
+        );
+    }
+
+    #[test]
+    fn unknown_design_set_is_not_stale_pruned() {
+        let now = 100 * DAY;
+        let cur: std::collections::BTreeSet<String> = ["d1".to_string()].into_iter().collect();
+        // Auto point, 3 days old, design set UNKNOWN (migration failed). Must NOT be
+        // dropped by the 48h staleness rule. (It IS still subject to GFS week-bucketing,
+        // but as the only point in its week-bucket it survives.)
+        let pts = vec![PruneInfo {
+            id: "unknown".into(),
+            created_at: now - 3 * DAY,
+            auto: true,
+            design_ids: None,
+        }];
+        let drop = select_pruned(&pts, &cur, now);
+        assert!(
+            !drop.contains(&"unknown".to_string()),
+            "unmigratable point not staleness-pruned"
         );
     }
 
