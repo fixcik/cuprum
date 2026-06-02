@@ -13,6 +13,7 @@ pub mod gerber;
 pub mod goo;
 pub mod mesh;
 pub mod metrics;
+pub mod preview;
 pub mod sdcp;
 pub mod svg;
 pub mod trace;
