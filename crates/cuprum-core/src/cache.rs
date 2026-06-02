@@ -50,9 +50,8 @@ fn mask_cache() -> &'static Mutex<HashMap<PathBuf, MaskEntry>> {
     C.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// SVG cache key tag. Bump when SVG render output changes. Content-hash of the
-/// gerber bytes + this tag is the cache key.
-const SVG_CACHE_TAG: &[u8] = b"svg-v1";
+/// SVG cache key tag — single source of truth in `crate::artifact`.
+const SVG_CACHE_TAG: &[u8] = crate::artifact::SVG_VERSION;
 
 /// Disk cache budget/TTL for SVG entries. Centralized here now that SVG disk
 /// caching lives in core.
@@ -96,6 +95,24 @@ pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerG
     )
 }
 
+/// The content-hash key for a gerber's SVG artifact. Shared by the cache and by
+/// `artifact::gc` so the valid-key set matches what's written.
+pub fn svg_artifact_key(bytes: &[u8]) -> String {
+    crate::diskcache::key_for(&[SVG_CACHE_TAG, bytes])
+}
+
+/// Project-scoped, PERSISTENT SVG render (no TTL/eviction): in-memory → persistent
+/// disk → single-flight → render. Same key/output as `layer_svg_cached`; only the
+/// disk tier differs (these blobs live in `<workdir>/artifacts/svg` and ship in the
+/// `.cuprum`, reclaimed by `artifact::gc`).
+pub fn layer_svg_artifact(artifacts_svg_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerGeometry> {
+    let key = svg_artifact_key(bytes);
+    let id = format!("ly{}", &key[..8]);
+    cached_single_flight_persistent(svg_cache(), svg_inflight(), artifacts_svg_dir, &key, || {
+        svg::render_layer_svg(bytes, &id)
+    })
+}
+
 /// In-memory (LRU) + disk cache with single-flight de-dup of concurrent misses.
 /// Order: in-memory → disk → (NO_CACHE bypass) → per-key flight → render once.
 /// `mem` is the typed LRU store; `inflight` the per-key lock registry; `render`
@@ -118,13 +135,59 @@ fn cached_single_flight<T>(
 where
     T: Clone + Serialize + DeserializeOwned,
 {
+    cached_single_flight_with(
+        mem,
+        inflight,
+        key,
+        |k| crate::diskcache::get(cache_dir, k, disk_ttl),
+        |k, blob| crate::diskcache::put(cache_dir, k, blob, disk_max_bytes, disk_ttl),
+        render,
+    )
+}
+
+fn cached_single_flight_persistent<T>(
+    mem: &Mutex<LruCache<String, T>>,
+    inflight: &Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    dir: &Path,
+    key: &str,
+    render: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T>
+where
+    T: Clone + Serialize + DeserializeOwned,
+{
+    cached_single_flight_with(
+        mem,
+        inflight,
+        key,
+        |k| crate::diskcache::get_persistent(dir, k),
+        |k, blob| crate::diskcache::put_persistent(dir, k, blob),
+        render,
+    )
+}
+
+/// Shared in-memory + single-flight engine, parameterized over the disk tier
+/// (read/write closures). See lock discipline below: the `inflight` registry lock
+/// is released before taking the per-key `flight` lock; `mem` is locked only
+/// briefly, never across `render()` or `flight.lock()`. On `render` panic the
+/// inflight entry leaks (bounded by distinct keys) — acceptable.
+fn cached_single_flight_with<T>(
+    mem: &Mutex<LruCache<String, T>>,
+    inflight: &Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    key: &str,
+    disk_get: impl Fn(&str) -> Option<Vec<u8>>,
+    disk_put: impl Fn(&str, &[u8]),
+    render: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T>
+where
+    T: Clone + Serialize + DeserializeOwned,
+{
     if !crate::diskcache::cache_disabled() {
         if let Some(v) = mem.lock().unwrap().get(key) {
             return Ok(v.clone());
         }
     }
     if !crate::diskcache::cache_disabled() {
-        if let Some(blob) = crate::diskcache::get(cache_dir, key, disk_ttl) {
+        if let Some(blob) = disk_get(key) {
             if let Ok(v) = serde_json::from_slice::<T>(&blob) {
                 mem.lock().unwrap().put(key.to_owned(), v.clone());
                 return Ok(v);
@@ -160,7 +223,7 @@ where
         }
     };
     if let Ok(blob) = serde_json::to_vec(&v) {
-        crate::diskcache::put(cache_dir, key, &blob, disk_max_bytes, disk_ttl);
+        disk_put(key, &blob);
     }
     mem.lock().unwrap().put(key.to_owned(), v.clone());
     drop_inflight();
@@ -361,6 +424,29 @@ mod tests {
             1,
             "render happens exactly once under single-flight"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn layer_svg_artifact_persists_and_keys_match() {
+        // Use a fixture distinct from GBR so this test does not race with other
+        // tests that also render GBR and share the same svg_cache() globals.
+        const GBR2: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,3.0*%\nD10*\nX0Y0D03*\nM02*\n";
+        let dir = std::env::temp_dir().join(format!("cuprum-svgart-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let key = svg_artifact_key(GBR2);
+        svg_cache().lock().unwrap().pop(&key);
+        // Render → blob lands at <dir>/<svg_artifact_key>.bin (persistent).
+        let g = layer_svg_artifact(&dir, GBR2).expect("render ok");
+        let blob_path = dir.join(format!("{key}.bin"));
+        assert!(
+            blob_path.exists(),
+            "persistent svg blob written at the keyed path"
+        );
+        // Wipe in-memory cache for this key so the next read can only come from disk.
+        svg_cache().lock().unwrap().pop(&key);
+        let g2 = layer_svg_artifact(&dir, GBR2).expect("disk hit ok");
+        assert_eq!(g.svg_body, g2.svg_body, "disk-persisted svg identical");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
