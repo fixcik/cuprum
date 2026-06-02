@@ -113,7 +113,7 @@ export function DesignCard({
             <img
               src={previewUrl}
               alt={design.source_name}
-              className="h-full w-full object-contain"
+              className="h-full w-full object-contain p-3"
             />
           )}
           <span className={`absolute right-2 top-2 size-2.5 rounded-full ${dotClass}`} aria-hidden />
