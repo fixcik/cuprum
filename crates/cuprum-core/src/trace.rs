@@ -57,6 +57,42 @@ fn millis_stamp() -> u128 {
         .unwrap_or(0)
 }
 
+/// Capture the current thread's tracing `Dispatch` and active `Span` so that
+/// closures executed on rayon worker threads still land in the same trace file.
+///
+/// `trace::operation` installs a thread-local subscriber; rayon worker threads
+/// do not inherit it. Call `capture_dispatch()` on the OUTER thread (inside the
+/// `operation` closure, before spawning rayon work), then call
+/// `handle.run(f)` inside each worker closure so the spans are recorded in the
+/// single operation file as per-thread tracks.
+///
+/// No-op overhead when tracing is disabled (the default dispatch is a no-op
+/// subscriber).
+pub fn capture_dispatch() -> DispatchHandle {
+    DispatchHandle {
+        dispatch: tracing::dispatcher::get_default(|d| d.clone()),
+        span: tracing::Span::current(),
+    }
+}
+
+/// An opaque handle holding a captured `Dispatch` + parent `Span`. Obtained via
+/// [`capture_dispatch`]; cheaply cloneable (the inner `Arc`s are shared).
+/// Call [`run`](DispatchHandle::run) on any thread to execute a closure with
+/// the captured subscriber restored.
+#[derive(Clone)]
+pub struct DispatchHandle {
+    dispatch: tracing::Dispatch,
+    span: tracing::Span,
+}
+
+impl DispatchHandle {
+    /// Execute `f` with the captured subscriber and span re-established on the
+    /// calling thread (which may be a rayon worker).
+    pub fn run<R>(&self, f: impl FnOnce() -> R) -> R {
+        tracing::dispatcher::with_default(&self.dispatch, || self.span.in_scope(f))
+    }
+}
+
 /// Run `f` as a traced operation. When tracing is disabled this is just `f()`.
 /// When enabled, a thread-scoped subscriber writes one Chrome-trace JSON file for
 /// this operation to the configured directory (or `default_dir`).
@@ -207,5 +243,41 @@ mod tests {
         let result = run_with_config(&TraceConfig::Off, "unit_op", &tmp, || 7);
         assert_eq!(result, 7);
         assert!(!tmp.exists(), "no trace dir created when disabled");
+    }
+
+    #[test]
+    fn parallel_spans_land_in_single_trace_via_dispatch() {
+        use rayon::prelude::*;
+        let tmp = std::env::temp_dir().join(format!("cuprum-trace-par-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        run_with_config(&cfg, "batch_op", &tmp, || {
+            // Capture dispatch + current span on the OUTER thread (inside the
+            // `operation` scope where the subscriber is installed), then hand
+            // the handle to rayon workers so their spans land in this file.
+            let handle = super::capture_dispatch();
+            (0..4).into_par_iter().for_each(|i| {
+                handle.run(|| {
+                    let _s = tracing::info_span!("worker_layer", i = i as u64).entered();
+                });
+            });
+        });
+
+        let files: Vec<_> = std::fs::read_dir(&tmp)
+            .expect("trace dir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+            .collect();
+        assert_eq!(files.len(), 1, "exactly one trace file for the whole batch");
+        let body = std::fs::read_to_string(&files[0]).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON");
+        assert!(body.contains("batch_op"), "root op present");
+        assert!(
+            body.contains("worker_layer"),
+            "worker-thread spans captured in the single file"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

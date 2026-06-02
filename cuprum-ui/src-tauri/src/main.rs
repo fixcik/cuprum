@@ -572,6 +572,17 @@ struct LayerGeometryDto {
     snap: Vec<[f32; 2]>,
 }
 
+/// Per-layer batch render result, in input order. Exactly one of `geometry` /
+/// `error` is set: success carries geometry, a broken/missing gerber carries an
+/// error string — one bad layer never sinks the batch.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LayerSvgResult {
+    rel: String,
+    geometry: Option<LayerGeometryDto>,
+    error: Option<String>,
+}
+
 #[tauri::command]
 fn render_gerber_svg(
     app: AppHandle,
@@ -579,7 +590,51 @@ fn render_gerber_svg(
     gerber_rel: String,
 ) -> Result<LayerGeometryDto, String> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
-    render_or_cache_svg(&app, &bytes)
+    cuprum_core::trace::operation("svg", &traces_dir(&app), || render_svg_dto(&app, &bytes))
+}
+
+/// Render many gerbers' SVG in one IPC round-trip. Async + spawn_blocking
+/// (CPU-bound) and rayon `par_iter` so layers render in parallel; results are
+/// returned in input order, per-layer tolerant (one bad gerber doesn't fail the
+/// batch). Each layer goes through core's in-memory + disk cache.
+/// All layers share ONE trace file (`svg_batch`) with per-thread tracks.
+#[tauri::command]
+async fn render_layers_svg(
+    app: AppHandle,
+    working_dir: String,
+    rels: Vec<String>,
+) -> Result<Vec<LayerSvgResult>, String> {
+    let traces = traces_dir(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        cuprum_core::trace::operation("svg_batch", &traces, || {
+            use rayon::prelude::*;
+            // Capture dispatch + parent span on the outer thread so worker
+            // threads can record into the same trace file.
+            let dh = cuprum_core::trace::capture_dispatch();
+            rels.par_iter()
+                .map(|rel| {
+                    dh.run(|| {
+                        let res = read_workdir_file(&working_dir, rel)
+                            .and_then(|bytes| render_svg_dto(&app, &bytes));
+                        match res {
+                            Ok(geometry) => LayerSvgResult {
+                                rel: rel.clone(),
+                                geometry: Some(geometry),
+                                error: None,
+                            },
+                            Err(e) => LayerSvgResult {
+                                rel: rel.clone(),
+                                geometry: None,
+                                error: Some(e),
+                            },
+                        }
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+    })
+    .await
+    .map_err(|e| format!("batch svg join error: {e}"))
 }
 
 // ---- Copper polygons (2D boolean booleans in Rust core) ----
@@ -686,25 +741,15 @@ fn traces_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
-/// Render one gerber's SVG, going through the disk cache. The SVG element-id is
-/// derived from the content hash so a cached entry is valid regardless of which
-/// layer/index requested it.
-fn render_or_cache_svg(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
-    let key = cuprum_core::diskcache::key_for(&[b"svg-v1", bytes]);
-    let dir = artifact_cache_dir(app);
-    if let Some(d) = &dir {
-        if let Some(blob) = cuprum_core::diskcache::get(d, &key, ARTIFACT_CACHE_TTL) {
-            if let Ok(dto) = serde_json::from_slice::<LayerGeometryDto>(&blob) {
-                return Ok(dto);
-            }
-        }
-    }
-    let id = format!("ly{}", &key[..8]);
-    let g = cuprum_core::trace::operation("svg", &traces_dir(app), || {
-        cuprum_core::svg::render_layer_svg(bytes, &id)
-    })
-    .map_err(|e| e.to_string())?;
-    let dto = LayerGeometryDto {
+/// Render one gerber's SVG, going through core's in-memory + disk cache. The SVG
+/// element-id is derived from the content hash so a cached entry is valid
+/// regardless of which layer/index requested it. Tracing is the caller's
+/// responsibility (`render_gerber_svg` wraps in `operation("svg", …)`;
+/// `render_layers_svg` wraps the whole batch in `operation("svg_batch", …)`).
+fn render_svg_dto(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
+    let dir = artifact_cache_dir(app).ok_or_else(|| "no cache dir available".to_string())?;
+    let g = cuprum_core::cache::layer_svg_cached(&dir, bytes).map_err(|e| e.to_string())?;
+    Ok(LayerGeometryDto {
         svg_body: g.svg_body,
         bbox: BBoxDto {
             min_x: g.bbox.min_x,
@@ -713,19 +758,7 @@ fn render_or_cache_svg(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto
             max_y: g.bbox.max_y,
         },
         snap: g.snap,
-    };
-    if let Some(d) = &dir {
-        if let Ok(blob) = serde_json::to_vec(&dto) {
-            cuprum_core::diskcache::put(
-                d,
-                &key,
-                &blob,
-                ARTIFACT_CACHE_MAX_BYTES,
-                ARTIFACT_CACHE_TTL,
-            );
-        }
-    }
-    Ok(dto)
+    })
 }
 
 // ---- 3D board mesh (triangulated in Rust, returned as a binary blob) ----
@@ -1087,6 +1120,7 @@ fn main() {
             configure_panel,
             add_design_from_zip,
             render_gerber_svg,
+            render_layers_svg,
             copper_polygons,
             layer_polygons,
             mask_polygons,
