@@ -612,8 +612,7 @@ fn copper_clearance_width_hotspots(
     // Propagate the current tracing dispatcher + span onto the rayon workers so the
     // per-layer spans (and their `grid_build`/`sweep`/`width_filter` children) are
     // captured in the operation's trace instead of vanishing on worker threads.
-    let dispatch = tracing::dispatcher::get_default(|d| d.clone());
-    let span = tracing::Span::current();
+    let dh = crate::trace::capture_dispatch();
 
     // Clearance and width are independent (full-copper polys vs region polys,
     // separate outputs), so run the two parallel collections concurrently via
@@ -625,14 +624,12 @@ fn copper_clearance_width_hotspots(
             copper_layers
                 .par_iter()
                 .map(|(side, polys)| {
-                    tracing::dispatcher::with_default(&dispatch, || {
-                        span.in_scope(|| {
-                            let c = geometry::clearance_hotspots(polys);
-                            top_n(c, 40)
-                                .into_iter()
-                                .map(|h| to_hotspot(h, side))
-                                .collect::<Vec<_>>()
-                        })
+                    dh.run(|| {
+                        let c = geometry::clearance_hotspots(polys);
+                        top_n(c, 40)
+                            .into_iter()
+                            .map(|h| to_hotspot(h, side))
+                            .collect::<Vec<_>>()
                     })
                 })
                 .collect::<Vec<_>>()
@@ -649,24 +646,22 @@ fn copper_clearance_width_hotspots(
             layers
                 .par_iter()
                 .map(|l| {
-                    tracing::dispatcher::with_default(&dispatch, || {
-                        span.in_scope(|| {
-                            if l.role != Role::Copper {
-                                return Vec::new();
-                            }
-                            let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
-                                return Vec::new();
-                            };
-                            if region.is_empty() {
-                                return Vec::new();
-                            }
-                            let side = layer_side(l);
-                            let w = geometry::width_hotspots(&region);
-                            top_n(w, 40)
-                                .into_iter()
-                                .map(|h| to_hotspot(h, side))
-                                .collect::<Vec<_>>()
-                        })
+                    dh.run(|| {
+                        if l.role != Role::Copper {
+                            return Vec::new();
+                        }
+                        let Ok(region) = geometry::region_polygons(l.bytes, &[]) else {
+                            return Vec::new();
+                        };
+                        if region.is_empty() {
+                            return Vec::new();
+                        }
+                        let side = layer_side(l);
+                        let w = geometry::width_hotspots(&region);
+                        top_n(w, 40)
+                            .into_iter()
+                            .map(|h| to_hotspot(h, side))
+                            .collect::<Vec<_>>()
                     })
                 })
                 .collect::<Vec<_>>()
@@ -947,19 +942,10 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
     // `copper_hotspots_match_sequential_reference`). Propagate the tracing
     // dispatcher + span onto the worker threads so each branch's spans land in the
     // operation's trace instead of vanishing.
-    let dispatch = tracing::dispatcher::get_default(|d| d.clone());
-    let span = tracing::Span::current();
+    let dh = crate::trace::capture_dispatch();
     let ((clear_hots, width_hots), zone3) = rayon::join(
-        || {
-            tracing::dispatcher::with_default(&dispatch, || {
-                span.in_scope(|| copper_clearance_width_hotspots(&copper_layers, layers))
-            })
-        },
-        || {
-            tracing::dispatcher::with_default(&dispatch, || {
-                span.in_scope(|| compute_zone3(layers, &copper_layers, board_bbox))
-            })
-        },
+        || dh.run(|| copper_clearance_width_hotspots(&copper_layers, layers)),
+        || dh.run(|| compute_zone3(layers, &copper_layers, board_bbox)),
     );
 
     let min_clear = clear_hots

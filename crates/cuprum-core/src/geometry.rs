@@ -852,13 +852,10 @@ fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: usize) -> (Vec<Hot>, Ve
         .collect();
     let _sw = tracing::info_span!("sweep", edges = n, chunks = ranges.len()).entered();
     let parts: Vec<(Vec<Hot>, Vec<Hot>)> = {
-        let dispatch = tracing::dispatcher::get_default(|d| d.clone());
-        let span = tracing::Span::current();
+        let dh = crate::trace::capture_dispatch();
         ranges
             .into_par_iter()
-            .map(|r| {
-                tracing::dispatcher::with_default(&dispatch, || span.in_scope(|| sweep_range(r)))
-            })
+            .map(|r| dh.run(|| sweep_range(r)))
             .collect()
     };
     let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
