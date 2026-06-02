@@ -7,11 +7,15 @@
 //! file's mtime changes (you edited/re-exported the Gerber).
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
+use lru::LruCache;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use crate::gerber::{self, RenderInfo, RenderOptions};
 use crate::svg::{self, LayerGeometry};
@@ -55,9 +59,10 @@ const SVG_CACHE_TAG: &[u8] = b"svg-v1";
 const SVG_DISK_MAX_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
 const SVG_DISK_TTL: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
 
-fn svg_cache() -> &'static Mutex<HashMap<String, LayerGeometry>> {
-    static C: OnceLock<Mutex<HashMap<String, LayerGeometry>>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(HashMap::new()))
+const SVG_MEM_CAP: usize = 256;
+fn svg_cache() -> &'static Mutex<LruCache<String, LayerGeometry>> {
+    static C: OnceLock<Mutex<LruCache<String, LayerGeometry>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(LruCache::new(NonZeroUsize::new(SVG_MEM_CAP).unwrap())))
 }
 
 /// Per-key locks to de-duplicate concurrent cache misses (single-flight): two
@@ -80,100 +85,122 @@ pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerG
     // SVG element id derived from the content hash — unique per gerber content,
     // scopes the clear-polarity mask. Derived here so the tag lives in one place.
     let id = format!("ly{}", &key[..8]);
-    layer_svg_cached_inner(cache_dir, &key, || svg::render_layer_svg(bytes, &id))
+    cached_single_flight(
+        svg_cache(),
+        svg_inflight(),
+        cache_dir,
+        &key,
+        SVG_DISK_MAX_BYTES,
+        SVG_DISK_TTL,
+        || svg::render_layer_svg(bytes, &id),
+    )
 }
 
-/// Cache + single-flight core, with the render step injected so tests can prove
-/// it runs exactly once under concurrency.
+/// In-memory (LRU) + disk cache with single-flight de-dup of concurrent misses.
+/// Order: in-memory → disk → (NO_CACHE bypass) → per-key flight → render once.
+/// `mem` is the typed LRU store; `inflight` the per-key lock registry; `render`
+/// computes the value at most once per key under concurrency (the loser waits and
+/// reads the winner's result from `mem`). Honors `diskcache::cache_disabled()`.
 ///
-/// Lock discipline (no deadlock): the `svg_inflight` registry lock is released
-/// before taking the per-key `flight` lock; the `svg_cache` lock is only ever
-/// held briefly for a get/insert and never across `render()` or `flight.lock()`.
-///
-/// Note: if `render` panics (not returns Err), its in-flight entry leaks and the
-/// per-key lock is poisoned — bounded by the number of distinct keys; acceptable.
-fn layer_svg_cached_inner<F>(
+/// Lock discipline (no deadlock): the `inflight` registry lock is released before
+/// taking the per-key `flight` lock; `mem` is locked only briefly for get/insert,
+/// never across `render()` or `flight.lock()`. If `render` panics its inflight
+/// entry leaks (bounded by distinct keys) — acceptable.
+fn cached_single_flight<T>(
+    mem: &Mutex<LruCache<String, T>>,
+    inflight: &Mutex<HashMap<String, Arc<Mutex<()>>>>,
     cache_dir: &Path,
     key: &str,
-    render: F,
-) -> anyhow::Result<LayerGeometry>
+    disk_max_bytes: u64,
+    disk_ttl: Duration,
+    render: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T>
 where
-    F: FnOnce() -> anyhow::Result<LayerGeometry>,
+    T: Clone + Serialize + DeserializeOwned,
 {
-    // 1. In-memory.
     if !crate::diskcache::cache_disabled() {
-        if let Some(g) = svg_cache().lock().unwrap().get(key) {
-            return Ok(g.clone());
+        if let Some(v) = mem.lock().unwrap().get(key) {
+            return Ok(v.clone());
         }
     }
-
-    // 2. Disk. The `cache_disabled()` gate here is load-bearing: it also skips
-    //    populating the in-memory layer below. (diskcache::get/put self-gate too.)
     if !crate::diskcache::cache_disabled() {
-        if let Some(blob) = crate::diskcache::get(cache_dir, key, SVG_DISK_TTL) {
-            if let Ok(g) = serde_json::from_slice::<LayerGeometry>(&blob) {
-                svg_cache()
-                    .lock()
-                    .unwrap()
-                    .insert(key.to_owned(), g.clone());
-                return Ok(g);
+        if let Some(blob) = crate::diskcache::get(cache_dir, key, disk_ttl) {
+            if let Ok(v) = serde_json::from_slice::<T>(&blob) {
+                mem.lock().unwrap().put(key.to_owned(), v.clone());
+                return Ok(v);
             }
         }
     }
-
-    // When caching is off (cold-path profiling) skip single-flight entirely:
-    // every caller renders, nothing is serialized or stored.
     if crate::diskcache::cache_disabled() {
         return render();
     }
-
-    // 3. Single-flight: serialize same-key renders on a per-key lock. Take the
-    //    registry lock only long enough to clone (or create) the per-key lock,
-    //    then drop it before waiting on the per-key lock itself.
     let flight = {
-        let mut reg = svg_inflight().lock().unwrap();
+        let mut reg = inflight.lock().unwrap();
         reg.entry(key.to_owned())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     };
     let _flight = flight.lock().unwrap();
-
-    // Double-check: the winner may have just populated the cache while we waited.
-    if let Some(g) = svg_cache().lock().unwrap().get(key) {
-        return Ok(g.clone());
+    if let Some(v) = mem.lock().unwrap().get(key) {
+        return Ok(v.clone());
     }
-
-    // Remove our own in-flight entry (Arc::ptr_eq so we never clobber a
-    // successor generation's entry). Called on both the Ok and Err render
-    // outcomes so a failed render doesn't leak its registry slot.
     let drop_inflight = || {
-        let mut reg = svg_inflight().lock().unwrap();
+        let mut reg = inflight.lock().unwrap();
         if let Some(existing) = reg.get(key) {
             if Arc::ptr_eq(existing, &flight) {
                 reg.remove(key);
             }
         }
     };
-
-    // We are the winner: render once.
-    let g = match render() {
-        Ok(g) => g,
+    let v = match render() {
+        Ok(v) => v,
         Err(e) => {
             drop_inflight();
             return Err(e);
         }
     };
-    // Populate BEFORE cleanup: a fresh Arc for this key must not be minted until
-    // the value is in the cache (preserves the single-render guarantee).
-    if let Ok(blob) = serde_json::to_vec(&g) {
-        crate::diskcache::put(cache_dir, key, &blob, SVG_DISK_MAX_BYTES, SVG_DISK_TTL);
+    if let Ok(blob) = serde_json::to_vec(&v) {
+        crate::diskcache::put(cache_dir, key, &blob, disk_max_bytes, disk_ttl);
     }
-    svg_cache()
-        .lock()
-        .unwrap()
-        .insert(key.to_owned(), g.clone());
+    mem.lock().unwrap().put(key.to_owned(), v.clone());
     drop_inflight();
-    Ok(g)
+    Ok(v)
+}
+
+/// Metrics cache: in-memory LRU bound (metrics JSON blobs are larger than SVG —
+/// silk/trace hotspots can be many — so a tighter cap) + content-keyed disk.
+const METRICS_MEM_CAP: usize = 128;
+const METRICS_DISK_MAX_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
+const METRICS_DISK_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+fn metrics_cache() -> &'static Mutex<LruCache<String, crate::metrics::BoardMetrics>> {
+    static C: OnceLock<Mutex<LruCache<String, crate::metrics::BoardMetrics>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(LruCache::new(NonZeroUsize::new(METRICS_MEM_CAP).unwrap())))
+}
+fn metrics_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
+    static C: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Cached `board_metrics` with single-flight: in-memory LRU + disk, de-duping
+/// concurrent cold misses of the same board (designs page renders many cards).
+/// `key` is the caller-built content key (it owns the metrics version tag +
+/// layer hashing). `render` computes the metrics (infallible) on a miss.
+pub fn board_metrics_cached(
+    cache_dir: &Path,
+    key: &str,
+    render: impl FnOnce() -> crate::metrics::BoardMetrics,
+) -> crate::metrics::BoardMetrics {
+    cached_single_flight(
+        metrics_cache(),
+        metrics_inflight(),
+        cache_dir,
+        key,
+        METRICS_DISK_MAX_BYTES,
+        METRICS_DISK_TTL,
+        || Ok(render()),
+    )
+    .expect("board_metrics render is infallible")
 }
 
 fn mtime(path: &Path) -> Result<SystemTime> {
@@ -286,7 +313,7 @@ mod tests {
         let key = "svgflightkey";
         // The global caches outlive other tests; clear this key so the start is a
         // guaranteed miss regardless of test order.
-        svg_cache().lock().unwrap().remove(key);
+        svg_cache().lock().unwrap().pop(key);
         svg_inflight().lock().unwrap().remove(key);
         let renders = Arc::new(AtomicUsize::new(0));
         let geom = LayerGeometry {
@@ -305,12 +332,20 @@ mod tests {
             let renders = Arc::clone(&renders);
             let geom = geom.clone();
             handles.push(std::thread::spawn(move || {
-                layer_svg_cached_inner(&dir, key, || {
-                    renders.fetch_add(1, Ordering::SeqCst);
-                    // simulate work so threads actually overlap on the per-key lock
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    Ok(geom)
-                })
+                cached_single_flight(
+                    svg_cache(),
+                    svg_inflight(),
+                    &dir,
+                    key,
+                    SVG_DISK_MAX_BYTES,
+                    SVG_DISK_TTL,
+                    || {
+                        renders.fetch_add(1, Ordering::SeqCst);
+                        // simulate work so threads actually overlap on the per-key lock
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        Ok(geom)
+                    },
+                )
                 .expect("ok")
             }));
         }
@@ -325,6 +360,53 @@ mod tests {
             renders.load(Ordering::SeqCst),
             1,
             "render happens exactly once under single-flight"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cached_single_flight_memoizes_and_separates_keys() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = std::env::temp_dir().join(format!("cuprum-csflight-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Local, isolated registries so this test is order-independent.
+        let mem: Mutex<LruCache<String, u32>> =
+            Mutex::new(LruCache::new(NonZeroUsize::new(8).unwrap()));
+        let inflight: Mutex<HashMap<String, Arc<Mutex<()>>>> = Mutex::new(HashMap::new());
+        let calls = AtomicUsize::new(0);
+        let run = |key: &str, val: u32| {
+            cached_single_flight(
+                &mem,
+                &inflight,
+                &dir,
+                key,
+                1024 * 1024,
+                Duration::from_secs(60),
+                || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(val)
+                },
+            )
+            .expect("ok")
+        };
+        // (a) Same key twice → render runs once, value cached.
+        assert_eq!(run("k1", 42), 42);
+        assert_eq!(
+            run("k1", 99),
+            42,
+            "second call serves cached value, not re-render"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "render ran exactly once for k1"
+        );
+        // (b) Distinct key → render runs again.
+        assert_eq!(run("k2", 7), 7);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "distinct key triggers a separate render"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
