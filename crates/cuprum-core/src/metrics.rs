@@ -679,61 +679,39 @@ fn copper_clearance_width_hotspots(
     (clear_hots, width_hots)
 }
 
-/// Geometric DFM measurements (clearance, copper width, annular, coverage, silk,
-/// mask dam, overshoot, slots). Pure measurements; the frontend judges them.
-fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
-    // Board area + outline bbox from Edge_Cuts (perimeter minus inner cutouts).
-    let (board_area, board_bbox) = match layers.iter().find(|l| l.role == Role::Edge) {
-        Some(e) => {
-            let (loops, _) = crate::mesh::outline_info(e.bytes);
-            match loops.first() {
-                Some(perimeter) => {
-                    let area = ring_area_abs(perimeter)
-                        - loops.iter().skip(1).map(|r| ring_area_abs(r)).sum::<f64>();
-                    let mut bb = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
-                    for p in perimeter {
-                        bb[0] = bb[0].min(p[0]);
-                        bb[1] = bb[1].min(p[1]);
-                        bb[2] = bb[2].max(p[0]);
-                        bb[3] = bb[3].max(p[1]);
-                    }
-                    ((area > 0.0).then_some(area), Some(bb))
-                }
-                None => (None, None),
-            }
-        }
-        None => (None, None),
-    };
+/// Outputs of the "zone 3" DFM analyses: conductor model, annular ring, silk
+/// widths, thin-stroke locations, drill markers, mask dam, overshoot, slots.
+/// Bundled so `geo_metrics` can compute them in one closure concurrently with the
+/// clearance/width hotspot scan via `rayon::join`.
+struct Zone3 {
+    trace_count: u32,
+    trace_total_length_mm: f32,
+    thin_trace_conductors: Vec<Hotspot>,
+    annular_hots: Vec<Hotspot>,
+    min_annular: Option<f32>,
+    silk_line_widths: Vec<f32>,
+    min_silk_line: Option<f32>,
+    silk_hots: Vec<Hotspot>,
+    trace_hots: Vec<Hotspot>,
+    drill_hots: Vec<Hotspot>,
+    mask_hots: Vec<Hotspot>,
+    min_mask_dam: Option<f32>,
+    overshoot_hots: Vec<Hotspot>,
+    layer_overshoot: Option<f32>,
+    slot_count: u32,
+    min_slot_width_mm: Option<f32>,
+}
 
-    // Solid copper pads per copper layer (no drill subtraction), tagged with the
-    // layer's 2D side so the frontend can hide markers for the hidden face.
-    let copper_layers: Vec<(&str, Vec<Poly>)> = layers
-        .iter()
-        .filter(|l| l.role == Role::Copper)
-        .filter_map(|l| {
-            geometry::layer_polygons(l.bytes, &[])
-                .ok()
-                .map(|p| (layer_side(l), p))
-        })
-        .filter(|(_, p)| !p.is_empty())
-        .collect();
-
-    // Coverage = densest single copper layer's area / board area.
-    let copper_coverage_pct = board_area
-        .and_then(|ba| {
-            copper_layers
-                .iter()
-                .map(|(_, polys)| geometry::polys_area(polys) / ba * 100.0)
-                .fold(None::<f64>, |acc, v| Some(acc.map_or(v, |a| a.max(v))))
-        })
-        .map(|v| v as f32);
-
-    // Clearance (shorts) from the FULL union — needs all copper. Copper-WIDTH
-    // necks from REGION copper only (pads + zone fills, no routed strokes): a
-    // trace's width is its aperture (judged by the conductor model below), so
-    // cross-measuring unioned trace bends here only produced artefacts.
-    let (clear_hots, width_hots) = copper_clearance_width_hotspots(&copper_layers, layers);
-
+/// Everything in `GeoMetrics` that does NOT depend on the clearance/width hotspot
+/// scan. Pulled into its own function so `geo_metrics` can run it concurrently
+/// with `copper_clearance_width_hotspots` (the sweep-bound branch). Reads its
+/// inputs immutably and every sub-analysis is pure, so the result is bit-identical
+/// to inlining it — guarded by `board_metrics_deterministic_and_structured`.
+fn compute_zone3(
+    layers: &[MetricLayerInput],
+    copper_layers: &[(&str, Vec<Poly>)],
+    board_bbox: Option<[f64; 4]>,
+) -> Zone3 {
     // Conductor model: connected routed-stroke runs per copper layer. Neck = the
     // thin-trace value; count + total length feed the metrics tab.
     let mut runs: Vec<(crate::conductor::Conductor, &'static str)> = Vec::new();
@@ -758,14 +736,6 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         .collect();
     thin_trace_conductors.sort_by(hotspot_cmp);
     thin_trace_conductors.truncate(HIGHLIGHT_CAP);
-    let min_clear = clear_hots
-        .iter()
-        .map(|h| h.v)
-        .fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
-    let min_width = width_hots
-        .iter()
-        .map(|h| h.v)
-        .fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
 
     // Annular ring: plated holes vs solid copper pads. Through-holes → side "both".
     let plated_holes: Vec<[f64; 3]> = layers
@@ -774,7 +744,7 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         .flat_map(|l| crate::drill::parse_drill(l.bytes).unwrap_or_default())
         .map(|h| [h.x_mm as f64, h.y_mm as f64, h.d_mm as f64])
         .collect();
-    let annular_hots: Vec<Hotspot> = annular_hotspots(&copper_layers, &plated_holes)
+    let annular_hots: Vec<Hotspot> = annular_hotspots(copper_layers, &plated_holes)
         .into_iter()
         .map(|h| to_hotspot(h, "both"))
         .collect();
@@ -888,10 +858,137 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         .filter(|l| l.role == Role::Drill)
         .flat_map(|l| crate::drill::parse_slots(l.bytes))
         .collect();
+    let slot_count = slots.len() as u32;
     let min_slot_width_mm = slots
         .iter()
         .map(|s| s.w_mm)
         .fold(None::<f32>, |acc, v| Some(acc.map_or(v, |a| a.min(v))));
+
+    Zone3 {
+        trace_count,
+        trace_total_length_mm,
+        thin_trace_conductors,
+        annular_hots,
+        min_annular,
+        silk_line_widths,
+        min_silk_line,
+        silk_hots,
+        trace_hots,
+        drill_hots,
+        mask_hots,
+        min_mask_dam,
+        overshoot_hots,
+        layer_overshoot,
+        slot_count,
+        min_slot_width_mm,
+    }
+}
+
+/// Geometric DFM measurements (clearance, copper width, annular, coverage, silk,
+/// mask dam, overshoot, slots). Pure measurements; the frontend judges them.
+fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
+    // Board area + outline bbox from Edge_Cuts (perimeter minus inner cutouts).
+    let (board_area, board_bbox) = match layers.iter().find(|l| l.role == Role::Edge) {
+        Some(e) => {
+            let (loops, _) = crate::mesh::outline_info(e.bytes);
+            match loops.first() {
+                Some(perimeter) => {
+                    let area = ring_area_abs(perimeter)
+                        - loops.iter().skip(1).map(|r| ring_area_abs(r)).sum::<f64>();
+                    let mut bb = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                    for p in perimeter {
+                        bb[0] = bb[0].min(p[0]);
+                        bb[1] = bb[1].min(p[1]);
+                        bb[2] = bb[2].max(p[0]);
+                        bb[3] = bb[3].max(p[1]);
+                    }
+                    ((area > 0.0).then_some(area), Some(bb))
+                }
+                None => (None, None),
+            }
+        }
+        None => (None, None),
+    };
+
+    // Solid copper pads per copper layer (no drill subtraction), tagged with the
+    // layer's 2D side so the frontend can hide markers for the hidden face.
+    let copper_layers: Vec<(&str, Vec<Poly>)> = layers
+        .iter()
+        .filter(|l| l.role == Role::Copper)
+        .filter_map(|l| {
+            geometry::layer_polygons(l.bytes, &[])
+                .ok()
+                .map(|p| (layer_side(l), p))
+        })
+        .filter(|(_, p)| !p.is_empty())
+        .collect();
+
+    // Coverage = densest single copper layer's area / board area.
+    let copper_coverage_pct = board_area
+        .and_then(|ba| {
+            copper_layers
+                .iter()
+                .map(|(_, polys)| geometry::polys_area(polys) / ba * 100.0)
+                .fold(None::<f64>, |acc, v| Some(acc.map_or(v, |a| a.max(v))))
+        })
+        .map(|v| v as f32);
+
+    // Clearance (shorts) from the FULL union — needs all copper. Copper-WIDTH
+    // necks from REGION copper only (pads + zone fills, no routed strokes): a
+    // trace's width is its aperture (judged by the conductor model in zone 3), so
+    // cross-measuring unioned trace bends here only produced artefacts.
+    //
+    // Zones 1+2 (clearance/width, sweep-bound) run CONCURRENTLY with zone 3
+    // (conductor model, annular, silk, thin-stroke, drill, mask, overshoot, slots)
+    // via `rayon::join` — overlapping the serial "gray zone" with the pool-heavy
+    // hotspot scan. Both branches read the shared inputs immutably and every
+    // sub-analysis is pure, so the result is bit-identical to running them in
+    // sequence (guarded by `board_metrics_deterministic_and_structured` +
+    // `copper_hotspots_match_sequential_reference`). Propagate the tracing
+    // dispatcher + span onto the worker threads so each branch's spans land in the
+    // operation's trace instead of vanishing.
+    let dispatch = tracing::dispatcher::get_default(|d| d.clone());
+    let span = tracing::Span::current();
+    let ((clear_hots, width_hots), zone3) = rayon::join(
+        || {
+            tracing::dispatcher::with_default(&dispatch, || {
+                span.in_scope(|| copper_clearance_width_hotspots(&copper_layers, layers))
+            })
+        },
+        || {
+            tracing::dispatcher::with_default(&dispatch, || {
+                span.in_scope(|| compute_zone3(layers, &copper_layers, board_bbox))
+            })
+        },
+    );
+
+    let min_clear = clear_hots
+        .iter()
+        .map(|h| h.v)
+        .fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
+    let min_width = width_hots
+        .iter()
+        .map(|h| h.v)
+        .fold(None::<f32>, |a, v| Some(a.map_or(v, |a| a.min(v))));
+
+    let Zone3 {
+        trace_count,
+        trace_total_length_mm,
+        thin_trace_conductors,
+        annular_hots,
+        min_annular,
+        silk_line_widths,
+        min_silk_line,
+        silk_hots,
+        trace_hots,
+        drill_hots,
+        mask_hots,
+        min_mask_dam,
+        overshoot_hots,
+        layer_overshoot,
+        slot_count,
+        min_slot_width_mm,
+    } = zone3;
 
     GeoMetrics {
         copper_coverage_pct,
@@ -902,7 +999,7 @@ fn geo_metrics(layers: &[MetricLayerInput]) -> GeoMetrics {
         min_annular_mm: min_annular,
         min_mask_dam_mm: min_mask_dam,
         layer_overshoot_mm: layer_overshoot,
-        slot_count: slots.len() as u32,
+        slot_count,
         min_slot_width_mm,
         clearance_hotspots: clear_hots,
         copper_width_hotspots: width_hots,
