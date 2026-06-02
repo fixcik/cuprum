@@ -7,6 +7,7 @@
 use crate::svg::{BBox, LayerGeometry};
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::path::Path;
 
 /// Default per-type colors — keep in sync with `DEFAULT_LAYER_COLORS`
 /// (layerColors.ts). Keyed by the IPC `layer_type` camelCase string.
@@ -121,6 +122,81 @@ fn trim(v: f32) -> String {
     }
 }
 
+/// One layer feeding the composite: raw gerber bytes + its IPC layer-type string.
+#[derive(Clone)]
+pub struct PreviewLayer {
+    pub layer_type: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Content-hash key for a design's preview: version + each layer's
+/// (type, color, gerber-content), sorted by layer_type so input order doesn't
+/// change the key. Shared with `artifact::gc`'s valid set.
+pub fn preview_key(layers: &[PreviewLayer], overrides: &HashMap<String, String>) -> String {
+    let mut h = crate::diskcache::Hasher::new();
+    h.add(crate::artifact::PREVIEW_VERSION);
+    let mut sorted: Vec<&PreviewLayer> = layers.iter().collect();
+    sorted.sort_by(|a, b| a.layer_type.cmp(&b.layer_type));
+    for l in sorted {
+        h.add(l.layer_type.as_bytes());
+        h.add(resolve_color(&l.layer_type, overrides).as_bytes());
+        h.add(&l.bytes);
+    }
+    h.finish()
+}
+
+/// Render a design's composite preview to a PNG (longest side == `max_px`),
+/// caching it persistently under `<artifacts_dir>/preview/<key>.bin`. On a cache
+/// hit returns the stored bytes. Drill layers should be excluded by the caller
+/// (the card preview has no holes); composes top side only. Honors `cache_disabled()`.
+pub fn render_design_preview(
+    artifacts_dir: &Path,
+    layers: &[PreviewLayer],
+    overrides: &HashMap<String, String>,
+    max_px: u32,
+) -> anyhow::Result<Vec<u8>> {
+    let key = preview_key(layers, overrides);
+    let dir = artifacts_dir.join("preview");
+    if !crate::diskcache::cache_disabled() {
+        if let Some(png) = crate::diskcache::get_persistent(&dir, &key) {
+            return Ok(png);
+        }
+    }
+    // Render each layer's SVG fragment from the raw gerber bytes.
+    let mut composed: Vec<(String, LayerGeometry)> = Vec::with_capacity(layers.len());
+    for l in layers {
+        let id = format!("pv{}", &crate::diskcache::key_for(&[&l.bytes])[..8]);
+        let g = crate::svg::render_layer_svg(&l.bytes, &id)?;
+        composed.push((l.layer_type.clone(), g));
+    }
+    let doc = compose_svg(&composed, overrides);
+    let png = rasterize(&doc, max_px)?;
+    if !crate::diskcache::cache_disabled() {
+        crate::diskcache::put_persistent(&dir, &key, &png);
+    }
+    Ok(png)
+}
+
+/// Rasterize a standalone SVG document to PNG with resvg, scaled so the longest
+/// side equals `max_px`.
+fn rasterize(svg: &str, max_px: u32) -> anyhow::Result<Vec<u8>> {
+    let opt = usvg::Options::default();
+    let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| anyhow::anyhow!("usvg parse: {e}"))?;
+    let size = tree.size();
+    let longest = size.width().max(size.height()).max(1.0);
+    let scale = (max_px as f32) / longest;
+    let pw = (size.width() * scale).ceil().max(1.0) as u32;
+    let ph = (size.height() * scale).ceil().max(1.0) as u32;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(pw, ph)
+        .ok_or_else(|| anyhow::anyhow!("pixmap alloc {pw}x{ph}"))?;
+    let transform = resvg::tiny_skia::Transform::from_scale(scale, scale);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    let png = pixmap
+        .encode_png()
+        .map_err(|e| anyhow::anyhow!("encode_png: {e}"))?;
+    Ok(png)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +259,55 @@ mod tests {
             doc.contains("scale(1,-1)") || doc.contains("matrix"),
             "Y flip present"
         );
+    }
+
+    // A 1mm circle flashed at the origin — drawable geometry for a real raster.
+    const GBR: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
+
+    #[test]
+    fn render_design_preview_makes_a_sized_png_and_persists() {
+        let dir = std::env::temp_dir().join(format!("cuprum-preview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let layers = vec![PreviewLayer {
+            layer_type: "topCopper".to_string(),
+            bytes: GBR.to_vec(),
+        }];
+        let overrides = std::collections::HashMap::new();
+
+        let png = render_design_preview(&dir, &layers, &overrides, 128).expect("preview ok");
+        assert_eq!(
+            &png[..8],
+            &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
+            "png header"
+        );
+        assert!(png.len() > 100, "non-empty png");
+
+        let sub = dir.join("preview");
+        let n = std::fs::read_dir(&sub).map(|rd| rd.count()).unwrap_or(0);
+        assert_eq!(n, 1, "exactly one persistent preview blob written");
+        let png2 = render_design_preview(&dir, &layers, &overrides, 128).expect("cache hit ok");
+        assert_eq!(png, png2, "second call returns the cached bytes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn render_design_preview_key_depends_on_color() {
+        let dir = std::env::temp_dir().join(format!("cuprum-preview-c-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let layers = vec![PreviewLayer {
+            layer_type: "topCopper".to_string(),
+            bytes: GBR.to_vec(),
+        }];
+        let mut a = std::collections::HashMap::new();
+        a.insert("topCopper".to_string(), "#ff0000".to_string());
+        let mut b = std::collections::HashMap::new();
+        b.insert("topCopper".to_string(), "#00ff00".to_string());
+        let _ = render_design_preview(&dir, &layers, &a, 128).unwrap();
+        let _ = render_design_preview(&dir, &layers, &b, 128).unwrap();
+        let n = std::fs::read_dir(dir.join("preview"))
+            .map(|rd| rd.count())
+            .unwrap_or(0);
+        assert_eq!(n, 2, "different colors → different keys → two blobs");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
