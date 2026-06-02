@@ -45,24 +45,29 @@ export function DesignCard({
     const gs = design.gerbers.filter((g) => g.layer_type !== "drill");
     const slots: (StackLayer | null)[] = gs.map(() => null);
     setLayers([]);
-    gs.forEach((g, i) => {
-      api
-        .renderGerberSvg(workingDir, g.path)
-        .then((geo) => {
-          if (cancelled) return;
+    api
+      .renderLayersSvg(
+        workingDir,
+        gs.map((g) => g.path),
+      )
+      .then((results) => {
+        if (cancelled) return;
+        results.forEach((r, i) => {
+          if (!r.geometry) return;
+          const g = gs[i];
           slots[i] = {
             key: g.path,
-            svgBody: geo.svgBody,
-            bbox: geo.bbox,
+            svgBody: r.geometry.svgBody,
+            bbox: r.geometry.bbox,
             color: colorFor(g.layer_type, layerColors),
             visible: sideOf(g.layer_type) !== "bottom",
             type: g.layer_type,
-            snap: geo.snap,
+            snap: r.geometry.snap,
           };
-          setLayers(slots.filter(Boolean) as StackLayer[]);
-        })
-        .catch(() => {});
-    });
+        });
+        setLayers(slots.filter(Boolean) as StackLayer[]);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
