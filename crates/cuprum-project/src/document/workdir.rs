@@ -61,6 +61,11 @@ pub fn pack(workdir: &Path, container: &Path) -> Result<()> {
     // before packing, so the `.cuprum` ships only current artifacts.
     let valid = valid_artifact_keys(workdir, &manifest);
     cuprum_core::artifact::gc(&workdir.join("artifacts"), &valid);
+    // Reclaim gerber dirs no live manifest/restore-point references (deleted
+    // designs). Skip entirely if the live set can't be fully determined.
+    if let Some(live_dirs) = live_gerber_dirs(workdir, &manifest) {
+        gc_gerbers(workdir, &live_dirs);
+    }
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     collect_entries(workdir, workdir, &mut entries)?;
     container::write(container, &manifest, &entries)
@@ -126,6 +131,60 @@ fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections:
         }
     }
     keys
+}
+
+/// Directory names (the single path component right after `gerbers/`) referenced
+/// by the gerber files of a manifest's designs.
+fn referenced_gerber_dirs(manifest: &Manifest, out: &mut std::collections::HashSet<String>) {
+    for d in &manifest.designs {
+        for g in &d.gerbers {
+            let mut comps = std::path::Path::new(&g.path).components();
+            if comps.next().map(|c| c.as_os_str()) == Some(std::ffi::OsStr::new("gerbers")) {
+                if let Some(dir) = comps.next() {
+                    out.insert(dir.as_os_str().to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+}
+
+/// All gerber dirs that must survive: referenced by the current manifest OR by
+/// any restore point's (migrated) snapshot manifest. Returns `None` if the
+/// restore-point set could not be fully read (a `list`/`read`/migration failure)
+/// — the caller must then SKIP gerber GC, because an incomplete live set could
+/// delete gerbers a still-retained point needs (fail toward retention; an
+/// un-reclaimed orphan is harmless, a deleted-but-needed gerber is not).
+fn live_gerber_dirs(
+    workdir: &Path,
+    manifest: &Manifest,
+) -> Option<std::collections::HashSet<String>> {
+    let mut live = std::collections::HashSet::new();
+    referenced_gerber_dirs(manifest, &mut live);
+    // `list` returns Ok(empty) when there's no history dir; a real IO error → None.
+    let metas = crate::document::history::list(workdir).ok()?;
+    for meta in metas {
+        // A point we can't read/migrate (corrupt, or newer-schema snapshot) means
+        // we don't know which gerbers it needs → bail and skip GC entirely.
+        let snap = crate::document::history::read(workdir, &meta.id).ok()?;
+        referenced_gerber_dirs(&snap, &mut live);
+    }
+    Some(live)
+}
+
+/// Remove `gerbers/<dir>/` directories not in `live`. Best-effort.
+fn gc_gerbers(workdir: &Path, live: &std::collections::HashSet<String>) {
+    let gdir = workdir.join("gerbers");
+    let Ok(rd) = fs::read_dir(&gdir) else { return };
+    for ent in rd.flatten() {
+        let path = ent.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = ent.file_name().to_string_lossy().into_owned();
+        if !live.contains(&name) {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
 }
 
 /// Walk `dir` recursively, pushing (archive-relative path, bytes) for every file
@@ -489,6 +548,124 @@ mod tests {
         assert!(
             !wd.join("artifacts/preview/orphan.bin").exists(),
             "orphan preview swept"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn pack_reclaims_orphan_gerber_dirs() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+        let base = std::env::temp_dir().join(format!("cuprum-gerbgc-{}", std::process::id()));
+        let wd = base.join("wd");
+        for d in ["live/sub", "pinned", "dead"] {
+            std::fs::create_dir_all(wd.join("gerbers").join(d)).unwrap();
+        }
+        let gbr = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
+        std::fs::write(wd.join("gerbers/live/sub/a.gbr"), gbr).unwrap();
+        std::fs::write(wd.join("gerbers/pinned/b.gbr"), gbr).unwrap();
+        std::fs::write(wd.join("gerbers/dead/c.gbr"), gbr).unwrap();
+
+        // Live manifest references design "live".
+        let mut m = Manifest::new("demo");
+        m.designs = vec![Design {
+            id: "live".into(),
+            source_name: "live.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/live/sub/a.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        }];
+        write_manifest(&wd, &m).unwrap();
+
+        // A restore point whose snapshot references design "pinned".
+        std::fs::create_dir_all(wd.join("history")).unwrap();
+        let mut pm = Manifest::new("demo");
+        pm.designs = vec![Design {
+            id: "pinned".into(),
+            source_name: "pinned.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/pinned/b.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        }];
+        let snap = serde_json::json!({
+            "id": "rp1",
+            "label": null,
+            "createdAt": 1,
+            "auto": true,
+            "manifest": serde_json::to_value(&pm).unwrap()
+        });
+        std::fs::write(
+            wd.join("history/rp1.json"),
+            serde_json::to_vec(&snap).unwrap(),
+        )
+        .unwrap();
+
+        pack(&wd, &base.join("out.cuprum")).unwrap();
+
+        assert!(
+            wd.join("gerbers/live").exists(),
+            "current-manifest design kept"
+        );
+        assert!(
+            wd.join("gerbers/pinned").exists(),
+            "restore-point-referenced design kept"
+        );
+        assert!(
+            !wd.join("gerbers/dead").exists(),
+            "orphan gerber dir reclaimed"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn pack_skips_gerber_gc_when_a_restore_point_is_unreadable() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+        let base = std::env::temp_dir().join(format!("cuprum-gerbgc-safe-{}", std::process::id()));
+        let wd = base.join("wd");
+        std::fs::create_dir_all(wd.join("gerbers/live")).unwrap();
+        std::fs::create_dir_all(wd.join("gerbers/orphan")).unwrap();
+        let gbr = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
+        std::fs::write(wd.join("gerbers/live/a.gbr"), gbr).unwrap();
+        std::fs::write(wd.join("gerbers/orphan/b.gbr"), gbr).unwrap();
+
+        // Live manifest references only "live".
+        let mut m = Manifest::new("demo");
+        m.designs = vec![Design {
+            id: "live".into(),
+            source_name: "live.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/live/a.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        }];
+        write_manifest(&wd, &m).unwrap();
+
+        // A restore point whose snapshot manifest fails to migrate (future schema).
+        std::fs::create_dir_all(wd.join("history")).unwrap();
+        let snap = serde_json::json!({
+            "id": "rp-future",
+            "label": null,
+            "createdAt": 1,
+            "auto": true,
+            "manifest": { "schema_version": 99999 }
+        });
+        std::fs::write(
+            wd.join("history/rp-future.json"),
+            serde_json::to_vec(&snap).unwrap(),
+        )
+        .unwrap();
+
+        pack(&wd, &base.join("out.cuprum")).unwrap();
+
+        // GC was skipped (unreadable point) → BOTH dirs survive, including the
+        // would-be orphan. Fail toward retention.
+        assert!(wd.join("gerbers/live").exists(), "live design kept");
+        assert!(
+            wd.join("gerbers/orphan").exists(),
+            "GC skipped when a point is unreadable — orphan NOT deleted"
         );
         let _ = std::fs::remove_dir_all(&base);
     }

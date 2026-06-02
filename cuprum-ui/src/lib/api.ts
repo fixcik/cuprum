@@ -287,8 +287,8 @@ export const api = {
     invoke<void>("write_working_manifest", { workingDir, manifest }),
   scanRecoverable: () => invoke<Orphan[]>("scan_recoverable", {}),
   cleanupWorkdir: (workingDir: string) => invoke<void>("cleanup_workdir", { workingDir }),
-  makeRestorePoint: (workingDir: string, label?: string) =>
-    invoke<RestorePointMeta>("make_restore_point", { workingDir, label: label ?? null }),
+  makeRestorePoint: (workingDir: string, label?: string, auto = false) =>
+    invoke<RestorePointMeta>("make_restore_point", { workingDir, label: label ?? null, auto }),
   listRestorePoints: (workingDir: string) =>
     invoke<RestorePointMeta[]>("list_restore_points", { workingDir }),
   readRestorePoint: (workingDir: string, id: string) =>

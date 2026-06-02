@@ -30,6 +30,24 @@ regenerated on read, and are swept on the next `pack` by `artifact::gc` (which k
 only keys the current manifest still references). `mesh` stays in the global OS
 app-cache (TTL + LRU). `CUPRUM_NO_CACHE` bypasses the project artifacts too.
 
+### Restore-point retention & gerber GC
+
+Restore points (`history/<id>.json`) carry an `auto: bool` (legacy snapshots
+without the field default to `true`). `history::prune` (run on every `write`)
+applies `select_pruned` — a pure, testable policy: **manual** points (`auto=false`,
+the 💾 button) are pinned (kept up to `MAX_MANUAL_POINTS`), **auto** points
+(auto-on-open) are GFS-thinned by age (keep all <24h, newest per day to 7d, newest
+per week to 8wk, then drop), and an auto point that references **no design still in
+the live manifest** is dropped past 48h (low value, and it pins orphaned gerbers).
+Constants live atop `history.rs`. A snapshot that fails to migrate contributes an
+*unknown* design set and is never staleness-pruned (fail toward retention).
+
+`workdir::pack` then reclaims orphaned gerber dirs: `gc_gerbers` removes
+`gerbers/<id>/` not referenced by the current manifest **nor any retained restore
+point** (`live_gerber_dirs` unions both). If any restore point can't be read/
+migrated, `live_gerber_dirs` returns `None` and GC is skipped that pass — an
+un-reclaimed orphan is harmless, deleting a gerber a point still needs is not.
+
 ## Tracing / profiling
 
 Heavy pipeline phases are instrumented with [`tracing`](https://docs.rs/tracing)
