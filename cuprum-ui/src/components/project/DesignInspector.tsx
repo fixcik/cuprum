@@ -157,6 +157,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     const flush = () => {
       if (!cancelled) setFiles(slots.map((f) => ({ ...f })));
     };
+    // Drill layers stay per-call (cheap, separate command).
     gerbers.forEach((g, i) => {
       if (g.layer_type === "drill") {
         api
@@ -171,27 +172,45 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
             slots[i] = { ...slots[i], drillError: String(e) };
             flush();
           });
-      } else {
-        api
-          .renderGerberSvg(workingDir, g.path)
-          .then((geo) => {
-            if (cancelled) return;
-            slots[i] = {
-              ...slots[i],
-              svgBody: geo.svgBody,
-              bbox: geo.bbox,
-              snap: geo.snap,
-              svgStatus: "loaded",
-            };
-            flush();
-          })
-          .catch(() => {
-            if (cancelled) return;
-            slots[i] = { ...slots[i], svgStatus: "error" };
-            flush();
-          });
       }
     });
+
+    // All SVG layers in one batched IPC call (parallel render in Rust).
+    const svgIdx = gerbers
+      .map((g, i) => ({ g, i }))
+      .filter(({ g }) => g.layer_type !== "drill");
+    if (svgIdx.length > 0) {
+      api
+        .renderLayersSvg(
+          workingDir,
+          svgIdx.map(({ g }) => g.path),
+        )
+        .then((results) => {
+          if (cancelled) return;
+          results.forEach((r, k) => {
+            const i = svgIdx[k].i;
+            if (r.geometry) {
+              slots[i] = {
+                ...slots[i],
+                svgBody: r.geometry.svgBody,
+                bbox: r.geometry.bbox,
+                snap: r.geometry.snap,
+                svgStatus: "loaded",
+              };
+            } else {
+              slots[i] = { ...slots[i], svgStatus: "error" };
+            }
+          });
+          flush();
+        })
+        .catch(() => {
+          if (cancelled) return;
+          svgIdx.forEach(({ i }) => {
+            slots[i] = { ...slots[i], svgStatus: "error" };
+          });
+          flush();
+        });
+    }
     return () => {
       cancelled = true;
     };
