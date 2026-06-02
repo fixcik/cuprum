@@ -17,7 +17,8 @@ pub const SVG_VERSION: &[u8] = b"svg-v1";
 pub const METRICS_VERSION: &[u8] = b"metrics-v14";
 
 /// Bump when the preview composition/palette/size changes.
-pub const PREVIEW_VERSION: &[u8] = b"preview-v1";
+/// v2: FR4 substrate + inverted soldermask + top-side-only composition.
+pub const PREVIEW_VERSION: &[u8] = b"preview-v2";
 
 use std::collections::HashSet;
 use std::path::Path;

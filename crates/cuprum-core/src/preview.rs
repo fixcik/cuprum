@@ -23,6 +23,14 @@ fn default_color(layer_type: &str) -> &'static str {
     }
 }
 
+/// Bottom-side layer types — excluded from the (top-only) card thumbnail.
+fn is_bottom_side(layer_type: &str) -> bool {
+    matches!(
+        layer_type,
+        "bottomCopper" | "bottomMask" | "bottomSilk" | "bottomPaste"
+    )
+}
+
 /// Painter's order — keep in sync with `LAYER_Z` (layerColors.ts). Lower draws
 /// first (underneath). edgeCuts sits under everything.
 fn z_order(layer_type: &str) -> i32 {
@@ -63,32 +71,43 @@ fn union_bbox(layers: &[(String, LayerGeometry)]) -> Option<BBox> {
     })
 }
 
-/// Assemble a self-contained colored SVG document from per-layer fragments.
-/// Layers are drawn in `z_order` (lower first / underneath). Coordinates are mm;
-/// the root flips Y (gerber Y-up → SVG Y-down) via a translate+scale transform so
-/// the fragments' absolute-mm geometry renders upright.
+/// Assemble a self-contained colored SVG document from per-layer fragments,
+/// replicating the frontend `LayerStack` composition for design-card thumbnails:
+///
+/// 1. An opaque FR4 substrate rectangle over the full board bbox.
+/// 2. Top-side layers only (bottom-side excluded), drawn in z-order:
+///    - Regular layers: tinted with their layer color.
+///    - Soldermask (`topMask`): inverted coverage — the mask color covers the
+///      whole board at 82% opacity, with the gerber openings cut out via an SVG
+///      `<mask>`, so copper shows at pads and green everywhere else.
+///
+/// Coordinates are mm; the root flips Y (gerber Y-up → SVG Y-down) via a
+/// translate+scale transform so fragments' absolute-mm geometry renders upright.
 pub fn compose_svg(
     layers: &[(String, LayerGeometry)],
     overrides: &HashMap<String, String>,
 ) -> String {
+    // Union bbox over ALL layers for a stable board extent.
     let Some(bb) = union_bbox(layers) else {
         return r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>"#.to_string();
     };
     let w = (bb.max_x - bb.min_x).max(f32::MIN_POSITIVE);
     let h = (bb.max_y - bb.min_y).max(f32::MIN_POSITIVE);
+    let minx = trim(bb.min_x);
+    let miny = trim(bb.min_y);
+    let ws = trim(w);
+    let hs = trim(h);
 
-    // Draw order: indices sorted by z (stable for ties).
-    let mut idx: Vec<usize> = (0..layers.len()).collect();
+    // Draw order: top-side layers only, sorted by z-order (stable for ties).
+    let mut idx: Vec<usize> = (0..layers.len())
+        .filter(|&i| !is_bottom_side(&layers[i].0))
+        .collect();
     idx.sort_by_key(|&i| z_order(&layers[i].0));
 
     let mut out = String::new();
     let _ = write!(
         out,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{minx} {miny} {w} {h}">"#,
-        minx = trim(bb.min_x),
-        miny = trim(bb.min_y),
-        w = trim(w),
-        h = trim(h),
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{minx} {miny} {ws} {hs}">"#,
     );
     // Flip Y about the bbox: translate to top, scale Y by -1. Done as a group
     // transform so fragment coordinates stay in absolute mm.
@@ -97,15 +116,43 @@ pub fn compose_svg(
         r#"<g transform="translate(0,{ty}) scale(1,-1)">"#,
         ty = trim(bb.min_y + bb.max_y),
     );
-    for &i in &idx {
+
+    // FR4 substrate: opaque tan rectangle covering the full board extent.
+    out.push_str(&format!(
+        "<rect x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\" fill=\"#59512c\"/>",
+    ));
+
+    for (draw_idx, &i) in idx.iter().enumerate() {
         let (lt, g) = &layers[i];
         let color = resolve_color(lt, overrides);
-        let _ = write!(
-            out,
-            r#"<g fill="{c}" stroke="{c}" color="{c}">{body}</g>"#,
-            c = color,
-            body = g.svg_body,
-        );
+        if lt == "topMask" || lt == "bottomMask" {
+            // Inverted coverage: the mask color covers the whole board, with the
+            // gerber openings (pads/vias) cut out so copper shows through.
+            let mask_id = format!("mask-open-{draw_idx}");
+            out.push_str(&format!(
+                "<mask id=\"{mask_id}\" maskUnits=\"userSpaceOnUse\" \
+x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\">\
+<rect x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\" fill=\"#fff\"/>\
+<g fill=\"#000\" stroke=\"#000\" color=\"#000\">{body}</g>\
+</mask>\
+<rect x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\" \
+fill=\"{color}\" fill-opacity=\"0.82\" mask=\"url(#{mask_id})\"/>",
+                mask_id = mask_id,
+                minx = minx,
+                miny = miny,
+                ws = ws,
+                hs = hs,
+                body = g.svg_body,
+                color = color,
+            ));
+        } else {
+            let _ = write!(
+                out,
+                "<g fill=\"{c}\" stroke=\"{c}\" color=\"{c}\">{body}</g>",
+                c = color,
+                body = g.svg_body,
+            );
+        }
     }
     out.push_str("</g></svg>");
     out
@@ -163,11 +210,15 @@ pub fn render_design_preview(
         }
     }
     // Render each layer's SVG fragment from the raw gerber bytes.
+    // Skip layers whose gerber fails to parse (blank silk/paste is common) so
+    // one bad layer doesn't abort the whole preview.
     let mut composed: Vec<(String, LayerGeometry)> = Vec::with_capacity(layers.len());
     for l in layers {
         let id = format!("pv{}", &crate::diskcache::key_for(&[&l.bytes])[..8]);
-        let g = crate::svg::render_layer_svg(&l.bytes, &id)?;
-        composed.push((l.layer_type.clone(), g));
+        match crate::svg::render_layer_svg(&l.bytes, &id) {
+            Ok(g) => composed.push((l.layer_type.clone(), g)),
+            Err(_) => continue,
+        }
     }
     let doc = compose_svg(&composed, overrides);
     let png = rasterize(&doc, max_px)?;
@@ -250,14 +301,64 @@ mod tests {
             doc.contains("viewBox=\"0 0 10 8\""),
             "viewBox from union bbox: got {doc}"
         );
+        // FR4 substrate rect comes before any layer body.
+        let fr4 = doc.find("#59512c").expect("FR4 substrate color present");
         let edge = doc.find("<rect/>").expect("edge body present");
         let cu = doc.find("<circle/>").expect("copper body present");
+        assert!(fr4 < edge, "FR4 substrate drawn before edge cuts");
         assert!(edge < cu, "edgeCuts drawn before copper (under it)");
-        assert!(doc.contains("#59512c"), "edge color applied");
         assert!(doc.contains("#caa84a"), "copper color applied");
         assert!(
             doc.contains("scale(1,-1)") || doc.contains("matrix"),
             "Y flip present"
+        );
+    }
+
+    #[test]
+    fn compose_mask_is_inverted_coverage() {
+        let layers = vec![
+            (
+                "topCopper".to_string(),
+                geom("<circle/>", 0.0, 0.0, 10.0, 8.0),
+            ),
+            (
+                "topMask".to_string(),
+                geom("<circle/>", 0.0, 0.0, 10.0, 8.0),
+            ),
+        ];
+        let overrides = std::collections::HashMap::new();
+        let doc = compose_svg(&layers, &overrides);
+        // Mask renders as inverted coverage: a <mask> def + a coverage rect at 0.82.
+        assert!(
+            doc.contains("<mask"),
+            "mask layer uses an SVG <mask>: {doc}"
+        );
+        assert!(
+            doc.contains("fill-opacity=\"0.82\""),
+            "mask coverage at 0.82 opacity"
+        );
+        assert!(doc.contains("#257d55"), "soldermask green present");
+        // FR4 substrate present underneath.
+        assert!(doc.contains("#59512c"), "FR4 substrate present");
+    }
+
+    #[test]
+    fn compose_excludes_bottom_side() {
+        let layers = vec![
+            (
+                "topCopper".to_string(),
+                geom("<circle id=\"top\"/>", 0.0, 0.0, 10.0, 8.0),
+            ),
+            (
+                "bottomCopper".to_string(),
+                geom("<circle id=\"bot\"/>", 0.0, 0.0, 10.0, 8.0),
+            ),
+        ];
+        let doc = compose_svg(&layers, &std::collections::HashMap::new());
+        assert!(doc.contains("id=\"top\""), "top layer drawn");
+        assert!(
+            !doc.contains("id=\"bot\""),
+            "bottom layer excluded from top-only thumbnail"
         );
     }
 
