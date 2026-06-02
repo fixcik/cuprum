@@ -266,6 +266,38 @@ pub fn board_metrics_cached(
     .expect("board_metrics render is infallible")
 }
 
+/// Build the metrics artifact key from loaded layers. Mirrors the historical
+/// `main.rs` construction (now centralized): version tag + per-layer
+/// `{type-debug}` + lowercase rel (plating inferred from the name) + bytes.
+/// Shared by the command and `artifact::gc`. `layers` is `(rel, type_debug, bytes)`.
+pub fn metrics_artifact_key(layers: &[(String, String, Vec<u8>)]) -> String {
+    let mut h = crate::diskcache::Hasher::new();
+    h.add(crate::artifact::METRICS_VERSION);
+    for (rel, type_debug, bytes) in layers {
+        h.add(type_debug.as_bytes());
+        h.add(rel.to_lowercase().as_bytes());
+        h.add(bytes);
+    }
+    h.finish()
+}
+
+/// Project-scoped, PERSISTENT metrics (no TTL/eviction). `key` is built via
+/// `metrics_artifact_key`. `render` computes the metrics (infallible) on a miss.
+pub fn board_metrics_artifact(
+    artifacts_metrics_dir: &Path,
+    key: &str,
+    render: impl FnOnce() -> crate::metrics::BoardMetrics,
+) -> crate::metrics::BoardMetrics {
+    cached_single_flight_persistent(
+        metrics_cache(),
+        metrics_inflight(),
+        artifacts_metrics_dir,
+        key,
+        || Ok(render()),
+    )
+    .expect("board_metrics render is infallible")
+}
+
 fn mtime(path: &Path) -> Result<SystemTime> {
     Ok(std::fs::metadata(path)?.modified()?)
 }
@@ -448,6 +480,16 @@ mod tests {
         let g2 = layer_svg_artifact(&dir, GBR2).expect("disk hit ok");
         assert_eq!(g.svg_body, g2.svg_body, "disk-persisted svg identical");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn metrics_artifact_key_is_version_and_content_sensitive() {
+        // (rel, layer_type_debug, bytes) tuples — mirrors how main.rs builds the key.
+        let a = metrics_artifact_key(&[("top.gbr".into(), "TopCopper".into(), b"AAAA".to_vec())]);
+        let b = metrics_artifact_key(&[("top.gbr".into(), "TopCopper".into(), b"BBBB".to_vec())]);
+        let c = metrics_artifact_key(&[("top.gbr".into(), "TopCopper".into(), b"AAAA".to_vec())]);
+        assert_ne!(a, b, "different bytes → different key");
+        assert_eq!(a, c, "same inputs → same key (deterministic)");
     }
 
     #[test]
