@@ -994,7 +994,7 @@ async fn project_board_mesh(
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BoardMetricsDto {
-    metrics: cuprum_core::metrics::BoardMetrics,
+    metrics: cuprum_core::dfm::BoardMetrics,
     /// True when the artifact blob did not exist on disk before this call.
     fresh: bool,
 }
@@ -1033,12 +1033,12 @@ async fn project_board_metrics(
         // A nested `fn` (not a closure) so the input/output lifetime is tied.
         fn build_inputs(
             loaded: &[(String, cuprum_project::LayerType, Vec<u8>)],
-        ) -> Vec<cuprum_core::metrics::MetricLayerInput<'_>> {
+        ) -> Vec<cuprum_core::dfm::MetricLayerInput<'_>> {
             loaded
                 .iter()
                 .map(|(rel, t, bytes)| {
                     let (role, side) = role_side(t);
-                    cuprum_core::metrics::MetricLayerInput {
+                    cuprum_core::dfm::MetricLayerInput {
                         role,
                         side,
                         inner: matches!(t, cuprum_project::LayerType::InnerCopper),
@@ -1058,7 +1058,7 @@ async fn project_board_metrics(
         let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
             let inputs = build_inputs(&loaded);
             cuprum_core::trace::operation("metrics", &traces, || {
-                cuprum_core::metrics::board_metrics(&inputs)
+                cuprum_core::dfm::board_metrics(&inputs)
             })
         });
         Ok(BoardMetricsDto { metrics, fresh })
