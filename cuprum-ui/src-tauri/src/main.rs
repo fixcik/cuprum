@@ -983,11 +983,15 @@ async fn project_board_metrics(
                 loaded.push((g.rel.clone(), g.layer_type, bytes));
             }
             // Key built in core so `artifact::gc` can reconstruct the same set.
-            let key_layers: Vec<(String, String, Vec<u8>)> = loaded
-                .iter()
-                .map(|(rel, t, bytes)| (rel.clone(), format!("{t:?}"), bytes.clone()))
-                .collect();
-            let key = cuprum_core::cache::metrics_artifact_key(&key_layers);
+            // Precompute small type strings once; pass borrowed byte slices to avoid
+            // cloning multi-MB gerber buffers on the hot path.
+            let type_strs: Vec<String> = loaded.iter().map(|(_, t, _)| format!("{t:?}")).collect();
+            let key = cuprum_core::cache::metrics_artifact_key(
+                loaded
+                    .iter()
+                    .zip(&type_strs)
+                    .map(|((rel, _, bytes), ts)| (rel.as_str(), ts.as_str(), bytes.as_slice())),
+            );
             // Build metric inputs from the loaded layers. Done inside the render
             // closure (see below) so a cache hit skips this entirely; the result
             // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.

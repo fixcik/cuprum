@@ -177,13 +177,17 @@ pub struct PreviewLayer {
 }
 
 /// Content-hash key for a design's preview: version + each layer's
-/// (type, color, gerber-content), sorted by layer_type so input order doesn't
-/// change the key. Shared with `artifact::gc`'s valid set.
+/// (type, color, gerber-content), sorted by `(layer_type, bytes)` so input
+/// order never changes the key. Shared with `artifact::gc`'s valid set.
 pub fn preview_key(layers: &[PreviewLayer], overrides: &HashMap<String, String>) -> String {
     let mut h = crate::diskcache::Hasher::new();
     h.add(crate::artifact::PREVIEW_VERSION);
     let mut sorted: Vec<&PreviewLayer> = layers.iter().collect();
-    sorted.sort_by(|a, b| a.layer_type.cmp(&b.layer_type));
+    sorted.sort_by(|a, b| {
+        a.layer_type
+            .cmp(&b.layer_type)
+            .then_with(|| a.bytes.cmp(&b.bytes))
+    });
     for l in sorted {
         h.add(l.layer_type.as_bytes());
         h.add(resolve_color(&l.layer_type, overrides).as_bytes());
@@ -389,6 +393,28 @@ mod tests {
         let png2 = render_design_preview(&dir, &layers, &overrides, 128).expect("cache hit ok");
         assert_eq!(png, png2, "second call returns the cached bytes");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preview_key_is_order_independent() {
+        let a = vec![
+            PreviewLayer {
+                layer_type: "topCopper".into(),
+                bytes: b"AAAA".to_vec(),
+            },
+            PreviewLayer {
+                layer_type: "topMask".into(),
+                bytes: b"BBBB".to_vec(),
+            },
+        ];
+        let mut b = a.clone();
+        b.reverse();
+        let o = std::collections::HashMap::new();
+        assert_eq!(
+            preview_key(&a, &o),
+            preview_key(&b, &o),
+            "key independent of input order"
+        );
     }
 
     #[test]

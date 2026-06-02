@@ -103,8 +103,8 @@ fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections:
             // Preview key: non-drill layers (the card preview has no holes),
             // colored from the manifest overrides. Must match
             // `preview::render_design_preview`.
-            let ipc = layer_type_ipc(&g.layer_type);
-            if ipc != "drill" {
+            if !matches!(g.layer_type, crate::layer::LayerType::Drill) {
+                let ipc = layer_type_ipc(&g.layer_type);
                 preview_layers.push(cuprum_core::preview::PreviewLayer {
                     layer_type: ipc,
                     bytes,
@@ -112,7 +112,11 @@ fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections:
             }
         }
         if !metrics_layers.is_empty() {
-            keys.insert(cuprum_core::cache::metrics_artifact_key(&metrics_layers));
+            keys.insert(cuprum_core::cache::metrics_artifact_key(
+                metrics_layers
+                    .iter()
+                    .map(|(rel, t, b)| (rel.as_str(), t.as_str(), b.as_slice())),
+            ));
         }
         if !preview_layers.is_empty() {
             keys.insert(cuprum_core::preview::preview_key(

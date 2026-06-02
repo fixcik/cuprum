@@ -270,7 +270,10 @@ pub fn board_metrics_cached(
 /// `main.rs` construction (now centralized): version tag + per-layer
 /// `{type-debug}` + lowercase rel (plating inferred from the name) + bytes.
 /// Shared by the command and `artifact::gc`. `layers` is `(rel, type_debug, bytes)`.
-pub fn metrics_artifact_key(layers: &[(String, String, Vec<u8>)]) -> String {
+/// Takes borrowed byte slices to avoid cloning multi-MB gerber buffers on the hot path.
+pub fn metrics_artifact_key<'a>(
+    layers: impl IntoIterator<Item = (&'a str, &'a str, &'a [u8])>,
+) -> String {
     let mut h = crate::diskcache::Hasher::new();
     h.add(crate::artifact::METRICS_VERSION);
     for (rel, type_debug, bytes) in layers {
@@ -485,9 +488,10 @@ mod tests {
     #[test]
     fn metrics_artifact_key_is_version_and_content_sensitive() {
         // (rel, layer_type_debug, bytes) tuples — mirrors how main.rs builds the key.
-        let a = metrics_artifact_key(&[("top.gbr".into(), "TopCopper".into(), b"AAAA".to_vec())]);
-        let b = metrics_artifact_key(&[("top.gbr".into(), "TopCopper".into(), b"BBBB".to_vec())]);
-        let c = metrics_artifact_key(&[("top.gbr".into(), "TopCopper".into(), b"AAAA".to_vec())]);
+        let mk = |bytes: &'static [u8]| metrics_artifact_key([("top.gbr", "TopCopper", bytes)]);
+        let a = mk(b"AAAA");
+        let b = mk(b"BBBB");
+        let c = mk(b"AAAA");
         assert_ne!(a, b, "different bytes → different key");
         assert_eq!(a, c, "same inputs → same key (deterministic)");
     }
