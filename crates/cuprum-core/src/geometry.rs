@@ -19,6 +19,7 @@ use gerber_viewer::{GerberLayer, GerberPrimitive};
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::overlay::FloatOverlay;
+use rayon::prelude::*;
 
 /// Arc tessellation steps — matches the visual fidelity of [`crate::svg`].
 const ARC_STEPS: usize = 64;
@@ -694,15 +695,20 @@ fn dedup_top(hots: Vec<Hot>) -> Vec<Hot> {
 /// the other side avoids its per-pair work — crucially the O(ring) `point_in_ring`
 /// interiorness test of the width branch, which on a dense full-union pour
 /// dominated the sweep (~1.5 s of a ~1.9 s call) and was then discarded.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Want {
     Clearance,
     Width,
     Both,
 }
 
-#[tracing::instrument(skip_all, fields(polys = polys.len()))]
 fn hotspots(polys: &[Poly], want: Want) -> (Vec<Hot>, Vec<Hot>) {
+    let nchunks = rayon::current_num_threads().clamp(1, 16);
+    hotspots_chunked(polys, want, nchunks)
+}
+
+#[tracing::instrument(skip_all, fields(polys = polys.len()))]
+fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: usize) -> (Vec<Hot>, Vec<Hot>) {
     let edges = collect_edges(polys);
     if edges.len() < 2 {
         return (Vec::new(), Vec::new());
@@ -718,126 +724,150 @@ fn hotspots(polys: &[Poly], want: Want) -> (Vec<Hot>, Vec<Hot>) {
     }
     let diag = (maxx - minx).hypot(maxy - miny).max(1e-6);
     let cell = (diag / DIST_CELLS).clamp(0.2, 10.0);
+    // Cell index along each axis. `x >= minx` so indices are >= 0. `nx`/`ny` are
+    // sized to the max index inclusive, so every edge cell is in range.
     let key =
         |x: f64, y: f64| -> (i64, i64) { (((x - minx) / cell) as i64, ((y - miny) / cell) as i64) };
-
-    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
-        std::collections::HashMap::new();
+    let nx = (((maxx - minx) / cell) as i64 + 1).max(1);
+    let ny = (((maxy - miny) / cell) as i64 + 1).max(1);
+    // Flat grid: `Vec<Vec<usize>>` indexed by `gy * nx + gx` — no hashing in the
+    // hot loop. Same cells, same insertion order → identical buckets to the old
+    // HashMap, hence bit-identical sweep results.
+    let cell_at = |gx: i64, gy: i64| -> usize { (gy * nx + gx) as usize };
+    let mut grid: Vec<Vec<usize>> = vec![Vec::new(); (nx * ny) as usize];
     {
         let _gb = tracing::info_span!("grid_build", edges = edges.len()).entered();
         for (ei, e) in edges.iter().enumerate() {
             let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
             let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
+            // Clamp the high index (a coordinate exactly at max maps to nx/ny).
+            let cx1 = cx1.min(nx - 1);
+            let cy1 = cy1.min(ny - 1);
             for gx in cx0..=cx1 {
                 for gy in cy0..=cy1 {
-                    grid.entry((gx, gy)).or_default().push(ei);
+                    grid[cell_at(gx, gy)].push(ei);
                 }
             }
         }
     }
 
     let max_gap = cell * 2.0; // matches the ±2-cell neighbour search radius
-    let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
-    let mut budget = DIST_BUDGET;
-    // Per-edge dedup of `ej` (an edge spans several cells, so the same neighbour
-    // appears in multiple buckets). A generation-stamped array replaces a fresh
-    // `HashSet` per edge: bump `visit_gen` to "clear" it in O(1) — no per-edge
-    // allocation in the hot loop. Same membership semantics → identical results.
-    let mut visited = vec![0u32; edges.len()];
-    let mut visit_gen = 0u32;
-    let _sw = tracing::info_span!("sweep", edges = edges.len()).entered();
-    'sweep: for (ei, e) in edges.iter().enumerate() {
-        visit_gen += 1;
-        let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
-        let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
-        // ±2 cells: two edges within `cell` of each other can land 2 grid indices
-        // apart once float rounding nudges a coordinate past a cell boundary.
-        for gx in cx0 - 2..=cx1 + 2 {
-            for gy in cy0 - 2..=cy1 + 2 {
-                let Some(bucket) = grid.get(&(gx, gy)) else {
-                    continue;
-                };
-                for &ej in bucket {
-                    if ej <= ei || visited[ej] == visit_gen {
-                        continue;
-                    }
-                    visited[ej] = visit_gen;
-                    let f = &edges[ej];
-                    let cross = e.poly != f.poly;
-                    // Only the requested side's pairs are processed; the other
-                    // side's classification AND per-pair work (incl. the expensive
-                    // `adjacent` + `point_in_ring`) are skipped entirely. Bit-
-                    // identical: `clear` depends only on `cross` pairs, `width` only
-                    // on same-poly non-adjacent pairs — independent outputs.
-                    let want_this = match want {
-                        Want::Clearance => cross,
-                        Want::Width => !cross && !adjacent(e, f),
-                        Want::Both => cross || !adjacent(e, f),
-                    };
-                    if !want_this {
-                        continue;
-                    }
-                    if budget == 0 {
-                        break 'sweep;
-                    }
-                    budget -= 1;
-                    let (pa, pb, d) = seg_seg_closest(e.a, e.b, f.a, f.b);
-                    if d > max_gap {
-                        continue;
-                    }
-                    // Require persistence: a real thin gap/neck is bounded by two
-                    // edges that both run at least `MIN_FEATURE_EDGE`. A point-notch
-                    // from tessellation/aperture-macro seams has a tiny chord as one
-                    // of its edges — drop it (the shorter edge ≈ the chord length).
-                    let el = (e.a[0] - e.b[0]).hypot(e.a[1] - e.b[1]);
-                    let fl = (f.a[0] - f.b[0]).hypot(f.a[1] - f.b[1]);
-                    if el.min(fl) < MIN_FEATURE_EDGE {
-                        continue;
-                    }
-                    if cross {
-                        if clear.len() < HOT_COLLECT_CAP {
-                            clear.push((pa, pb, d));
+
+    // One contiguous ei-range, swept in ascending order against the shared grid,
+    // into LOCAL output in serial push order. Each invocation owns its `visited`
+    // (generation-stamped) and `budget`. Concatenating ranges in order reproduces
+    // the exact serial push sequence — see `chunked_sweep_matches_serial`.
+    let sweep_range = |range: std::ops::Range<usize>| -> (Vec<Hot>, Vec<Hot>) {
+        let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
+        let mut visited = vec![0u32; edges.len()];
+        let mut visit_gen = 0u32;
+        // Per-range copy of the safety cap. It guards against pathological O(n^2)
+        // blowup; real boards stay ~1.2M << DIST_BUDGET, so a per-range cap does
+        // not change results (never reached) while keeping ranges independent.
+        let mut budget = DIST_BUDGET;
+        'sweep: for ei in range {
+            let e = &edges[ei];
+            visit_gen += 1;
+            let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
+            let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
+            let gx_lo = (cx0 - 2).max(0);
+            let gx_hi = (cx1 + 2).min(nx - 1);
+            let gy_lo = (cy0 - 2).max(0);
+            let gy_hi = (cy1 + 2).min(ny - 1);
+            for gx in gx_lo..=gx_hi {
+                for gy in gy_lo..=gy_hi {
+                    let bucket = &grid[cell_at(gx, gy)];
+                    for &ej in bucket {
+                        if ej <= ei || visited[ej] == visit_gen {
+                            continue;
                         }
-                    } else {
-                        // Copper width (same-polygon neck). Two false-positive
-                        // classes dominate trace bends, so reject them here:
-                        // (1) BAY — the span runs through a VOID between two
-                        //     outward-facing faces of the piece (zigzag turns,
-                        //     trace↔own-pad gap, concave bend). Its midpoint is
-                        //     OUTSIDE the copper, so an interiorness test drops it.
-                        // (2) WEDGE/ARC — at an acute junction or a rounded pad,
-                        //     the two faces meet at an acute angle; the tiny
-                        //     cross-distance is geometry, not a thin trace. A real
-                        //     neck has anti-parallel faces (cos ≈ −1).
-                        // Cheap anti-parallel test FIRST (a few flops); it rejects
-                        // most wedges/pad-arcs, so the O(ring) interiorness ray-cast
-                        // below runs far less often. Order doesn't change the result.
-                        let de = [e.b[0] - e.a[0], e.b[1] - e.a[1]];
-                        let df = [f.b[0] - f.a[0], f.b[1] - f.a[1]];
-                        let (le2, lf2) = (de[0].hypot(de[1]), df[0].hypot(df[1]));
-                        let cos = if le2 > 1e-9 && lf2 > 1e-9 {
-                            (de[0] * df[0] + de[1] * df[1]) / (le2 * lf2)
-                        } else {
-                            0.0
+                        visited[ej] = visit_gen;
+                        let f = &edges[ej];
+                        let cross = e.poly != f.poly;
+                        let want_this = match want {
+                            Want::Clearance => cross,
+                            Want::Width => !cross && !adjacent(e, f),
+                            Want::Both => cross || !adjacent(e, f),
                         };
-                        if cos > NECK_ANTIPARALLEL_COS_MAX {
+                        if !want_this {
                             continue;
                         }
-                        let mid = [(pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0];
-                        let poly = &polys[e.poly as usize];
-                        let inside = point_in_ring(mid, &poly.outer)
-                            && !poly.holes.iter().any(|h| point_in_ring(mid, h));
-                        if !inside {
+                        if budget == 0 {
+                            break 'sweep;
+                        }
+                        budget -= 1;
+                        let (pa, pb, d) = seg_seg_closest(e.a, e.b, f.a, f.b);
+                        if d > max_gap {
                             continue;
                         }
-                        if width.len() < HOT_COLLECT_CAP {
-                            width.push((pa, pb, d));
+                        let el = (e.a[0] - e.b[0]).hypot(e.a[1] - e.b[1]);
+                        let fl = (f.a[0] - f.b[0]).hypot(f.a[1] - f.b[1]);
+                        if el.min(fl) < MIN_FEATURE_EDGE {
+                            continue;
+                        }
+                        if cross {
+                            if clear.len() < HOT_COLLECT_CAP {
+                                clear.push((pa, pb, d));
+                            }
+                        } else {
+                            let de = [e.b[0] - e.a[0], e.b[1] - e.a[1]];
+                            let df = [f.b[0] - f.a[0], f.b[1] - f.a[1]];
+                            let (le2, lf2) = (de[0].hypot(de[1]), df[0].hypot(df[1]));
+                            let cos = if le2 > 1e-9 && lf2 > 1e-9 {
+                                (de[0] * df[0] + de[1] * df[1]) / (le2 * lf2)
+                            } else {
+                                0.0
+                            };
+                            if cos > NECK_ANTIPARALLEL_COS_MAX {
+                                continue;
+                            }
+                            let mid = [(pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0];
+                            let poly = &polys[e.poly as usize];
+                            let inside = point_in_ring(mid, &poly.outer)
+                                && !poly.holes.iter().any(|h| point_in_ring(mid, h));
+                            if !inside {
+                                continue;
+                            }
+                            if width.len() < HOT_COLLECT_CAP {
+                                width.push((pa, pb, d));
+                            }
                         }
                     }
                 }
             }
         }
+        (clear, width)
+    };
+
+    // Split [0, n) into contiguous ei-chunks, sweep them in parallel, merge in
+    // chunk order → identical push sequence to a single serial pass. `dedup_top`
+    // is order-deterministic, and `HOT_COLLECT_CAP` truncation on the merged (in-
+    // order) sequence keeps the same first-N as serial.
+    let n = edges.len();
+    let nchunks = nchunks.clamp(1, n.max(1));
+    let chunk = n.div_ceil(nchunks).max(1);
+    let ranges: Vec<std::ops::Range<usize>> = (0..n)
+        .step_by(chunk)
+        .map(|s| s..(s + chunk).min(n))
+        .collect();
+    let _sw = tracing::info_span!("sweep", edges = n, chunks = ranges.len()).entered();
+    let parts: Vec<(Vec<Hot>, Vec<Hot>)> = {
+        let dispatch = tracing::dispatcher::get_default(|d| d.clone());
+        let span = tracing::Span::current();
+        ranges
+            .into_par_iter()
+            .map(|r| {
+                tracing::dispatcher::with_default(&dispatch, || span.in_scope(|| sweep_range(r)))
+            })
+            .collect()
+    };
+    let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
+    for (c, w) in parts {
+        clear.extend(c);
+        width.extend(w);
     }
+    clear.truncate(HOT_COLLECT_CAP);
+    width.truncate(HOT_COLLECT_CAP);
     drop(_sw);
     // Persistence filter (drops trace-bend / pad-seam false necks) is O(edges)
     // per candidate, so run it ONLY on the final reported set — never in the hot
@@ -1331,6 +1361,28 @@ mod tests {
                 "clearance_hotspots == Both.0"
             );
             assert_eq!(width_hotspots(&polys), both_w, "width_hotspots == Both.1");
+        }
+    }
+
+    // Parallel sweep with ordered-merge must equal a single serial pass, bit-for-bit,
+    // for ANY chunk count. Uses fixtures dense enough that several chunks each collect
+    // real candidates, so the merge order is actually exercised. In-process → arch-safe.
+    #[test]
+    fn chunked_sweep_matches_serial() {
+        const A: &[u8] = include_bytes!("../../../testdata/gerber/two_square_boxes.gbr");
+        const B: &[u8] = include_bytes!("../../../testdata/gerber/polarities_and_apertures.gbr");
+        for bytes in [A, B] {
+            let polys = layer_polygons(bytes, &[]).unwrap();
+            for want in [Want::Clearance, Want::Width, Want::Both] {
+                let serial = hotspots_chunked(&polys, want, 1);
+                for nchunks in [2usize, 3, 7, 16] {
+                    let parallel = hotspots_chunked(&polys, want, nchunks);
+                    assert_eq!(
+                        serial, parallel,
+                        "chunks={nchunks} must match serial for {want:?}"
+                    );
+                }
+            }
         }
     }
 
