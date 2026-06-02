@@ -686,25 +686,18 @@ fn traces_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
-/// Render one gerber's SVG, going through the disk cache. The SVG element-id is
-/// derived from the content hash so a cached entry is valid regardless of which
-/// layer/index requested it.
+/// Render one gerber's SVG, going through core's in-memory + disk cache. The SVG
+/// element-id is derived from the content hash so a cached entry is valid
+/// regardless of which layer/index requested it.
 fn render_or_cache_svg(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto, String> {
+    let dir = artifact_cache_dir(app).ok_or_else(|| "no cache dir available".to_string())?;
     let key = cuprum_core::diskcache::key_for(&[b"svg-v1", bytes]);
-    let dir = artifact_cache_dir(app);
-    if let Some(d) = &dir {
-        if let Some(blob) = cuprum_core::diskcache::get(d, &key, ARTIFACT_CACHE_TTL) {
-            if let Ok(dto) = serde_json::from_slice::<LayerGeometryDto>(&blob) {
-                return Ok(dto);
-            }
-        }
-    }
     let id = format!("ly{}", &key[..8]);
     let g = cuprum_core::trace::operation("svg", &traces_dir(app), || {
-        cuprum_core::svg::render_layer_svg(bytes, &id)
+        cuprum_core::cache::layer_svg_cached(&dir, bytes, &id)
     })
     .map_err(|e| e.to_string())?;
-    let dto = LayerGeometryDto {
+    Ok(LayerGeometryDto {
         svg_body: g.svg_body,
         bbox: BBoxDto {
             min_x: g.bbox.min_x,
@@ -713,19 +706,7 @@ fn render_or_cache_svg(app: &AppHandle, bytes: &[u8]) -> Result<LayerGeometryDto
             max_y: g.bbox.max_y,
         },
         snap: g.snap,
-    };
-    if let Some(d) = &dir {
-        if let Ok(blob) = serde_json::to_vec(&dto) {
-            cuprum_core::diskcache::put(
-                d,
-                &key,
-                &blob,
-                ARTIFACT_CACHE_MAX_BYTES,
-                ARTIFACT_CACHE_TTL,
-            );
-        }
-    }
-    Ok(dto)
+    })
 }
 
 // ---- 3D board mesh (triangulated in Rust, returned as a binary blob) ----
