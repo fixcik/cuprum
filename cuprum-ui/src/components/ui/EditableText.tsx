@@ -22,6 +22,18 @@ export function EditableText({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Latest prop, read inside commit/cancel — those capture the render's closure,
+  // so an external rename/undo while editing would otherwise compare to a stale
+  // `value`.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+  // Enter / Escape call setEditing(false), which unmounts the input and fires a
+  // synthetic blur on the way out — that blur would run commit() a SECOND time
+  // (double onCommit → double undo + persist), or turn an Escape into a commit.
+  // This latch makes the first commit/cancel of an edit session the only one.
+  const doneRef = useRef(false);
 
   // Keep the draft in sync with external changes (rename elsewhere, undo/redo)
   // while not actively editing.
@@ -31,16 +43,26 @@ export function EditableText({
 
   useEffect(() => {
     if (editing) {
+      doneRef.current = false;
       inputRef.current?.focus();
       inputRef.current?.select();
     }
   }, [editing]);
 
   const commit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
     setEditing(false);
     const next = draft.trim();
-    if (next && next !== value) onCommit(next);
-    else setDraft(value); // empty or unchanged → revert
+    if (next && next !== valueRef.current) onCommit(next);
+    else setDraft(valueRef.current); // empty or unchanged → revert
+  };
+
+  const cancel = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setEditing(false);
+    setDraft(valueRef.current);
   };
 
   if (editing) {
@@ -53,10 +75,7 @@ export function EditableText({
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit();
-          else if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
+          else if (e.key === "Escape") cancel();
         }}
         className={cn(
           "min-w-0 rounded border border-input bg-background px-1 outline-none focus-visible:ring-1 focus-visible:ring-ring",
