@@ -72,6 +72,9 @@ interface ShellStore {
   addDesignsFromPaths: (paths: string[]) => Promise<void>;
   /** Reassign one gerber's layer type within a design (undoable, persisted). */
   setDesignLayerType: (designId: string, gerberPath: string, type: LayerType) => Promise<void>;
+  /** Rename a design's display name (undoable, persisted). No-op on unknown id,
+   *  empty, or unchanged name. */
+  renameDesign: (designId: string, name: string) => Promise<void>;
   /** Remove a design from the project (undoable). Only the manifest reference is
    *  dropped; the gerber bytes stay on disk so undo/restore points stay valid. */
   removeDesign: (designId: string) => Promise<void>;
@@ -483,6 +486,27 @@ export const useShell = create<ShellStore>((set, get) => ({
             ),
           },
     );
+    const manifest: Manifest = { ...prev, designs };
+    try {
+      get()._recordUndo(prev);
+      set({ currentManifest: manifest, error: null });
+      await get()._persistManifest(manifest);
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  renameDesign: async (designId, name) => {
+    const prev = get().currentManifest;
+    if (!prev) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const designs = prev.designs.map((d) =>
+      d.id === designId && d.source_name !== trimmed ? { ...d, source_name: trimmed } : d,
+    );
+    // Unknown id or unchanged name → every entry kept its reference: no-op (don't
+    // churn the undo stack or rewrite the container).
+    if (designs.every((d, i) => d === prev.designs[i])) return;
     const manifest: Manifest = { ...prev, designs };
     try {
       get()._recordUndo(prev);
