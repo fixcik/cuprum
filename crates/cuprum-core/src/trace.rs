@@ -1,16 +1,26 @@
 //! Local, opt-in tracing for profiling heavy pipeline phases.
 //!
 //! Enabled at runtime via the `CUPRUM_TRACE` env var (see `parse_config`). When
-//! disabled, `operation` runs its closure with no subscriber and near-zero cost.
-//! When enabled, each call to `operation` writes one Chrome Trace Event JSON file
-//! (openable in <https://ui.perfetto.dev>) for that operation.
+//! enabled, ONE process-global subscriber is installed (once) and a custom
+//! `RoutingLayer` writes a separate Chrome Trace Event JSON file per `operation`,
+//! keyed by an operation id. A global subscriber (rather than a per-operation
+//! thread-scoped one) is required so spans created on shared rayon worker threads
+//! are always recorded — a thread-scoped subscriber is silently bypassed on pool
+//! workers under concurrency. See the design spec for the root-cause analysis.
 
+use std::collections::HashMap;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::ThreadId;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use tracing::field::{Field, Visit};
+use tracing::span::{Attributes, Id};
+use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::registry::LookupSpan;
 
 /// Where (and whether) traces should be written, decided once from the env.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +60,12 @@ fn next_seq() -> u64 {
     SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Monotonic operation id; routes a span's events to the right per-op file.
+fn next_op_id() -> u64 {
+    static OP: AtomicU64 = AtomicU64::new(1);
+    OP.fetch_add(1, Ordering::Relaxed)
+}
+
 fn millis_stamp() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -57,48 +73,246 @@ fn millis_stamp() -> u128 {
         .unwrap_or(0)
 }
 
-/// Capture the current thread's tracing `Dispatch` and active `Span` so that
-/// closures executed on rayon worker threads still land in the same trace file.
-///
-/// `trace::operation` installs a thread-local subscriber; rayon worker threads
-/// do not inherit it. Call `capture_dispatch()` on the OUTER thread (inside the
-/// `operation` closure, before spawning rayon work), then call
-/// `handle.run(f)` inside each worker closure so the spans are recorded in the
-/// single operation file as per-thread tracks.
-///
-/// No-op overhead when tracing is disabled (the default dispatch is a no-op
-/// subscriber).
+/// Span field carrying the operation id on the root `operation` span. Filtered
+/// out of the emitted `args` (internal routing key, not user data).
+const OP_ID_FIELD: &str = "cuprum_op_id";
+
+/// Per-operation Chrome-trace file writer. One thread track (`tid`) per OS thread
+/// seen, assigned lazily; events are Chrome Trace Event objects in a JSON array.
+struct OpSink {
+    w: BufWriter<std::fs::File>,
+    start: Instant,
+    wrote_any: bool,
+    tids: HashMap<ThreadId, usize>,
+    next_tid: usize,
+}
+
+impl OpSink {
+    fn new(path: &Path) -> std::io::Result<Self> {
+        let mut w = BufWriter::new(std::fs::File::create(path)?);
+        w.write_all(b"[\n")?;
+        Ok(Self {
+            w,
+            start: Instant::now(),
+            wrote_any: false,
+            tids: HashMap::new(),
+            next_tid: 0,
+        })
+    }
+
+    fn write_entry(&mut self, val: &serde_json::Value) {
+        if self.wrote_any {
+            let _ = self.w.write_all(b",\n");
+        }
+        self.wrote_any = true;
+        let _ = serde_json::to_writer(&mut self.w, val);
+    }
+
+    /// Resolve the current thread's per-file tid, emitting a `thread_name`
+    /// metadata event the first time a thread is seen.
+    fn tid(&mut self) -> usize {
+        let id = std::thread::current().id();
+        if let Some(&t) = self.tids.get(&id) {
+            return t;
+        }
+        let t = self.next_tid;
+        self.next_tid += 1;
+        self.tids.insert(id, t);
+        let name = std::thread::current()
+            .name()
+            .map(String::from)
+            .unwrap_or_else(|| format!("thread-{t}"));
+        let m = serde_json::json!({
+            "name": "thread_name", "ph": "M", "pid": 1, "tid": t, "args": {"name": name}
+        });
+        self.write_entry(&m);
+        t
+    }
+
+    /// Emit a Begin (`B`) or End (`E`) event for `meta` at the current instant.
+    fn event(&mut self, ph: &str, meta: &SpanMeta) {
+        let tid = self.tid();
+        let ts = self.start.elapsed().as_nanos() as f64 / 1000.0; // microseconds
+        let mut e = serde_json::json!({
+            "name": meta.name, "cat": meta.target, "ph": ph, "pid": 1, "tid": tid, "ts": ts
+        });
+        if let Some(f) = &meta.file {
+            e[".file"] = serde_json::Value::String(f.clone());
+        }
+        if let Some(l) = meta.line {
+            e[".line"] = serde_json::Value::from(l);
+        }
+        if !meta.args.is_empty() {
+            e["args"] = serde_json::Value::Object(meta.args.clone());
+        }
+        self.write_entry(&e);
+    }
+
+    fn finish(&mut self) {
+        let _ = self.w.write_all(b"\n]\n");
+        let _ = self.w.flush();
+    }
+}
+
+/// Active per-operation sinks, keyed by operation id.
+fn sinks() -> &'static Mutex<HashMap<u64, Arc<Mutex<OpSink>>>> {
+    static S: OnceLock<Mutex<HashMap<u64, Arc<Mutex<OpSink>>>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn sink_for(op_id: u64) -> Option<Arc<Mutex<OpSink>>> {
+    sinks().lock().unwrap().get(&op_id).cloned()
+}
+
+/// Reads the `cuprum_op_id` u64 field off a span's attributes (root op span).
+struct OpIdVisitor(Option<u64>);
+impl Visit for OpIdVisitor {
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        if field.name() == OP_ID_FIELD {
+            self.0 = Some(value);
+        }
+    }
+    fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {}
+}
+
+/// Collects span fields into Chrome `args` (Debug-formatted, matching
+/// `tracing-chrome`'s `include_args`), skipping the internal routing key.
+struct ArgsVisitor(serde_json::Map<String, serde_json::Value>);
+impl Visit for ArgsVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        if field.name() == OP_ID_FIELD {
+            return;
+        }
+        self.0.insert(
+            field.name().to_string(),
+            serde_json::Value::String(format!("{value:?}")),
+        );
+    }
+}
+
+/// Per-span data cached at creation for B/E emission + routing.
+struct SpanMeta {
+    op_id: u64,
+    name: &'static str,
+    target: String,
+    file: Option<String>,
+    line: Option<u32>,
+    args: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Global layer: routes each span's enter/exit to its operation's file.
+struct RoutingLayer;
+
+impl<S> Layer<S> for RoutingLayer
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else {
+            return;
+        };
+        // op-id: this span's own field (root op span), else inherit from parent.
+        let mut v = OpIdVisitor(None);
+        attrs.record(&mut v);
+        let op_id = v.0.or_else(|| {
+            span.parent()
+                .and_then(|p| p.extensions().get::<SpanMeta>().map(|m| m.op_id))
+        });
+        let Some(op_id) = op_id else {
+            return; // span created outside any operation → ignored
+        };
+        let mut av = ArgsVisitor(serde_json::Map::new());
+        attrs.record(&mut av);
+        let meta = span.metadata();
+        span.extensions_mut().insert(SpanMeta {
+            op_id,
+            name: meta.name(),
+            target: meta.target().to_string(),
+            file: meta.file().map(String::from),
+            line: meta.line(),
+            args: av.0,
+        });
+    }
+
+    fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else {
+            return;
+        };
+        let ext = span.extensions();
+        let Some(meta) = ext.get::<SpanMeta>() else {
+            return;
+        };
+        if let Some(sink) = sink_for(meta.op_id) {
+            sink.lock().unwrap().event("B", meta);
+        }
+    }
+
+    fn on_exit(&self, id: &Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else {
+            return;
+        };
+        let ext = span.extensions();
+        let Some(meta) = ext.get::<SpanMeta>() else {
+            return;
+        };
+        if let Some(sink) = sink_for(meta.op_id) {
+            sink.lock().unwrap().event("E", meta);
+        }
+    }
+}
+
+/// Install the process-global subscriber exactly once (first enabled operation).
+fn ensure_global_subscriber() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let filter = std::env::var("CUPRUM_TRACE_FILTER")
+            .ok()
+            .map(|s| {
+                tracing_subscriber::EnvFilter::try_new(&s).unwrap_or_else(|e| {
+                    eprintln!(
+                        "cuprum: invalid CUPRUM_TRACE_FILTER {s:?}: {e}; capturing all spans"
+                    );
+                    tracing_subscriber::EnvFilter::new("trace")
+                })
+            })
+            .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("trace"));
+        let subscriber = tracing_subscriber::registry()
+            .with(filter)
+            .with(RoutingLayer);
+        if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+            eprintln!("cuprum: could not install global trace subscriber: {e}");
+        }
+    });
+}
+
+/// Capture the current span so closures on rayon worker threads stay children of
+/// the operation's root span (and thus route to its file). With a global
+/// subscriber the dispatcher is already visible on every thread, so only the span
+/// parentage needs propagating.
 pub fn capture_dispatch() -> DispatchHandle {
     DispatchHandle {
-        dispatch: tracing::dispatcher::get_default(|d| d.clone()),
         span: tracing::Span::current(),
     }
 }
 
-/// An opaque handle holding a captured `Dispatch` + parent `Span`. Obtained via
-/// [`capture_dispatch`]; cheaply cloneable (the inner `Arc`s are shared).
-/// Call [`run`](DispatchHandle::run) on any thread to execute a closure with
-/// the captured subscriber restored.
+/// Handle to the captured parent span; re-enter it on any thread (e.g. a rayon
+/// worker) so spans created inside become its children.
 #[derive(Clone)]
 pub struct DispatchHandle {
-    dispatch: tracing::Dispatch,
     span: tracing::Span,
 }
 
 impl DispatchHandle {
-    /// Execute `f` with the captured subscriber and span re-established on the
-    /// calling thread (which may be a rayon worker).
+    /// Execute `f` with the captured span re-entered on the calling thread.
     pub fn run<R>(&self, f: impl FnOnce() -> R) -> R {
-        tracing::dispatcher::with_default(&self.dispatch, || self.span.in_scope(f))
+        self.span.in_scope(f)
     }
 }
 
 /// Run `f` as a traced operation. When tracing is disabled this is just `f()`.
-/// When enabled, a thread-scoped subscriber writes one Chrome-trace JSON file for
-/// this operation to the configured directory (or `default_dir`).
-///
-/// All spans created on the calling thread during `f` (including those in `core`
-/// functions it invokes synchronously) land in this operation's file.
+/// When enabled, a per-operation Chrome-trace JSON file is written via the global
+/// routing subscriber. All spans created during `f` — including on rayon workers
+/// reached via [`capture_dispatch`]/[`DispatchHandle::run`] — land in this file.
 pub fn operation<T>(name: &str, default_dir: &Path, f: impl FnOnce() -> T) -> T {
     run_with_config(config(), name, default_dir, f)
 }
@@ -121,31 +335,32 @@ fn run_with_config<T>(
         );
         return f();
     }
+    ensure_global_subscriber();
+
+    let op_id = next_op_id();
     let file_path = dir.join(format!("{name}_{:04}_{}.json", next_seq(), millis_stamp()));
+    let sink = match OpSink::new(&file_path) {
+        Ok(s) => Arc::new(Mutex::new(s)),
+        Err(e) => {
+            eprintln!(
+                "cuprum: cannot open trace file {}: {e}",
+                file_path.display()
+            );
+            return f();
+        }
+    };
+    sinks().lock().unwrap().insert(op_id, sink);
 
-    // ChromeLayerBuilder returns a flush guard that finalizes the file on drop.
-    let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
-        .file(&file_path)
-        .include_args(true)
-        .build();
-    let filter = std::env::var("CUPRUM_TRACE_FILTER")
-        .ok()
-        .map(|s| {
-            tracing_subscriber::EnvFilter::try_new(&s).unwrap_or_else(|e| {
-                eprintln!("cuprum: invalid CUPRUM_TRACE_FILTER {s:?}: {e}; capturing all spans");
-                tracing_subscriber::EnvFilter::new("trace")
-            })
-        })
-        .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("trace"));
-    let subscriber = tracing_subscriber::registry()
-        .with(filter)
-        .with(chrome_layer);
-
-    let result = tracing::subscriber::with_default(subscriber, || {
-        let _root = tracing::info_span!("operation", op = name).entered();
+    let result = {
+        // The root span carries the op-id; RoutingLayer associates it and all its
+        // children (incl. worker spans entered via `dh.run`) with this op's sink.
+        let _root = tracing::info_span!("operation", op = name, cuprum_op_id = op_id).entered();
         f()
-    });
-    drop(guard); // flush the JSON file before we log its path
+    };
+    // Root span has exited here (guard dropped), so its E event is written.
+    if let Some(sink) = sinks().lock().unwrap().remove(&op_id) {
+        sink.lock().unwrap().finish();
+    }
 
     let shown = file_path.canonicalize().unwrap_or(file_path);
     eprintln!("cuprum: trace → {}", shown.display());
@@ -341,10 +556,12 @@ mod tests {
                                 });
                             })
                         },
-                        || dh.run(|| {
-                            let _s = tracing::info_span!("m_zone3").entered();
-                            spin();
-                        }),
+                        || {
+                            dh.run(|| {
+                                let _s = tracing::info_span!("m_zone3").entered();
+                                spin();
+                            })
+                        },
                     );
                 });
             });
@@ -364,11 +581,23 @@ mod tests {
             hb.join().unwrap();
             let na = span_names(&a);
             let nb = span_names(&b);
-            assert!(na.contains("m_sweep"), "round {_round}: metrics lost worker spans: {na:?}");
-            assert!(nb.contains("svg_layer"), "round {_round}: svg lost worker spans: {nb:?}");
+            assert!(
+                na.contains("m_sweep"),
+                "round {_round}: metrics lost worker spans: {na:?}"
+            );
+            assert!(
+                nb.contains("svg_layer"),
+                "round {_round}: svg lost worker spans: {nb:?}"
+            );
             // Routing isolation: no cross-file leakage.
-            assert!(!nb.contains("m_sweep"), "round {_round}: metrics span leaked into svg file: {nb:?}");
-            assert!(!na.contains("svg_layer"), "round {_round}: svg span leaked into metrics file: {na:?}");
+            assert!(
+                !nb.contains("m_sweep"),
+                "round {_round}: metrics span leaked into svg file: {nb:?}"
+            );
+            assert!(
+                !na.contains("svg_layer"),
+                "round {_round}: svg span leaked into metrics file: {na:?}"
+            );
         }
         let _ = std::fs::remove_dir_all(&base);
     }
