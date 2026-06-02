@@ -1011,60 +1011,58 @@ async fn project_board_metrics(
 ) -> Result<BoardMetricsDto, String> {
     // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
     // main thread so concurrent calls (one per design card) don't serialize.
-    tauri::async_runtime::spawn_blocking(
-        move || -> Result<BoardMetricsDto, String> {
-            let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
-            for g in &gerbers {
-                let bytes = read_workdir_file(&working_dir, &g.rel)?;
-                loaded.push((g.rel.clone(), g.layer_type, bytes));
-            }
-            // Key built in core so `artifact::gc` can reconstruct the same set.
-            // Precompute small type strings once; pass borrowed byte slices to avoid
-            // cloning multi-MB gerber buffers on the hot path.
-            let type_strs: Vec<String> = loaded.iter().map(|(_, t, _)| format!("{t:?}")).collect();
-            let key = cuprum_core::cache::metrics_artifact_key(
-                loaded
-                    .iter()
-                    .zip(&type_strs)
-                    .map(|((rel, _, bytes), ts)| (rel.as_str(), ts.as_str(), bytes.as_slice())),
-            );
-            // Build metric inputs from the loaded layers. Done inside the render
-            // closure (see below) so a cache hit skips this entirely; the result
-            // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.
-            // A nested `fn` (not a closure) so the input/output lifetime is tied.
-            fn build_inputs(
-                loaded: &[(String, cuprum_project::LayerType, Vec<u8>)],
-            ) -> Vec<cuprum_core::metrics::MetricLayerInput<'_>> {
-                loaded
-                    .iter()
-                    .map(|(rel, t, bytes)| {
-                        let (role, side) = role_side(t);
-                        cuprum_core::metrics::MetricLayerInput {
-                            role,
-                            side,
-                            inner: matches!(t, cuprum_project::LayerType::InnerCopper),
-                            // Excellon can't carry plating; NPTH is known only from the filename.
-                            plated: role == cuprum_core::mesh::Role::Drill
-                                && !rel.to_lowercase().contains("npth"),
-                            bytes,
-                        }
-                    })
-                    .collect()
-            }
-            let dir = std::path::Path::new(&working_dir)
-                .join("artifacts")
-                .join("metrics");
-            let fresh = artifact_fresh(&dir, &key);
-            let traces = traces_dir(&app);
-            let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
-                let inputs = build_inputs(&loaded);
-                cuprum_core::trace::operation("metrics", &traces, || {
-                    cuprum_core::metrics::board_metrics(&inputs)
+    tauri::async_runtime::spawn_blocking(move || -> Result<BoardMetricsDto, String> {
+        let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
+        for g in &gerbers {
+            let bytes = read_workdir_file(&working_dir, &g.rel)?;
+            loaded.push((g.rel.clone(), g.layer_type, bytes));
+        }
+        // Key built in core so `artifact::gc` can reconstruct the same set.
+        // Precompute small type strings once; pass borrowed byte slices to avoid
+        // cloning multi-MB gerber buffers on the hot path.
+        let type_strs: Vec<String> = loaded.iter().map(|(_, t, _)| format!("{t:?}")).collect();
+        let key = cuprum_core::cache::metrics_artifact_key(
+            loaded
+                .iter()
+                .zip(&type_strs)
+                .map(|((rel, _, bytes), ts)| (rel.as_str(), ts.as_str(), bytes.as_slice())),
+        );
+        // Build metric inputs from the loaded layers. Done inside the render
+        // closure (see below) so a cache hit skips this entirely; the result
+        // borrows `loaded`'s bytes, hence `loaded` is moved into the closure.
+        // A nested `fn` (not a closure) so the input/output lifetime is tied.
+        fn build_inputs(
+            loaded: &[(String, cuprum_project::LayerType, Vec<u8>)],
+        ) -> Vec<cuprum_core::metrics::MetricLayerInput<'_>> {
+            loaded
+                .iter()
+                .map(|(rel, t, bytes)| {
+                    let (role, side) = role_side(t);
+                    cuprum_core::metrics::MetricLayerInput {
+                        role,
+                        side,
+                        inner: matches!(t, cuprum_project::LayerType::InnerCopper),
+                        // Excellon can't carry plating; NPTH is known only from the filename.
+                        plated: role == cuprum_core::mesh::Role::Drill
+                            && !rel.to_lowercase().contains("npth"),
+                        bytes,
+                    }
                 })
-            });
-            Ok(BoardMetricsDto { metrics, fresh })
-        },
-    )
+                .collect()
+        }
+        let dir = std::path::Path::new(&working_dir)
+            .join("artifacts")
+            .join("metrics");
+        let fresh = artifact_fresh(&dir, &key);
+        let traces = traces_dir(&app);
+        let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
+            let inputs = build_inputs(&loaded);
+            cuprum_core::trace::operation("metrics", &traces, || {
+                cuprum_core::metrics::board_metrics(&inputs)
+            })
+        });
+        Ok(BoardMetricsDto { metrics, fresh })
+    })
     .await
     .map_err(|e| e.to_string())?
 }
