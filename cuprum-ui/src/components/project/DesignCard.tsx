@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { missingRequired } from "@/lib/layerColors";
@@ -8,6 +8,8 @@ import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { RenameDesignModal } from "@/components/project/RenameDesignModal";
+import { ProgressRing } from "@/components/ui/ProgressRing";
+import { ringFraction } from "@/lib/artifactProgress";
 
 export function DesignCard({
   design,
@@ -23,11 +25,15 @@ export function DesignCard({
   const layerColors = useShell((s) => s.currentManifest?.layer_colors);
   const panel = useShell((s) => s.currentManifest?.panel ?? null);
   const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
+  const reportArtifactProgress = useShell((s) => s.reportArtifactProgress);
+  const clearArtifactProgress = useShell((s) => s.clearArtifactProgress);
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [svgReady, setSvgReady] = useState(false);
+  const [metricsReady, setMetricsReady] = useState(false);
   const { fmtLen } = useUnitFormat();
 
   // Content-based key (path + type per gerber). Effects depend on this string, not
@@ -87,17 +93,65 @@ export function DesignCard({
         setSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
         setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panel)) : null);
         scheduleArtifactFlush(m.fresh);
+        setMetricsReady(true);
       })
       .catch(() => {
         if (cancelled) return;
         setSize(null);
         setVerdict(null);
+        setMetricsReady(true); // settled-on-error so the ring completes
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
   }, [workingDir, gerbersKey, profile, panel]);
+
+  // Precompute per-layer SVG so it ships in the .cuprum and the inspector opens
+  // instantly — even though the card itself shows only the composite preview.
+  useEffect(() => {
+    let cancelled = false;
+    if (!workingDir) return;
+    const rels = design.gerbers.filter((g) => g.layer_type !== "drill").map((g) => g.path);
+    if (rels.length === 0) {
+      setSvgReady(true);
+      return;
+    }
+    setSvgReady(false);
+    api
+      .renderLayersSvg(workingDir, rels)
+      .then((results) => {
+        if (cancelled) return;
+        setSvgReady(true);
+        scheduleArtifactFlush(results.some((r) => r.fresh));
+      })
+      .catch(() => {
+        if (!cancelled) setSvgReady(true); // settled-on-error so the ring completes
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
+  }, [workingDir, gerbersKey]);
+
+  const fraction = ringFraction({ svg: svgReady, preview: previewUrl != null, metrics: metricsReady });
+
+  useEffect(() => {
+    reportArtifactProgress(design.id, fraction);
+  }, [design.id, fraction, reportArtifactProgress]);
+
+  // Latest fraction for the unmount cleanup (kept in a ref so the cleanup runs
+  // only on unmount / design switch, not on every fraction change).
+  const fractionRef = useRef(fraction);
+  fractionRef.current = fraction;
+  useEffect(() => {
+    return () => {
+      // Card unmounted (e.g. tab switch) while still preparing → drop its entry
+      // so the global chip doesn't freeze at a partial fraction. A finished
+      // entry (==1) stays, so returning to the gallery doesn't re-flash the chip.
+      if (fractionRef.current < 1) clearArtifactProgress(design.id);
+    };
+  }, [design.id, clearArtifactProgress]);
 
   const dotClass =
     verdict === "block"
@@ -116,12 +170,12 @@ export function DesignCard({
         className="flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-primary/50"
       >
         <div className="relative aspect-[4/3] w-full bg-muted/30">
-          {previewUrl && (
-            <img
-              src={previewUrl}
-              alt={design.source_name}
-              className="h-full w-full object-contain p-3"
-            />
+          {previewUrl ? (
+            <img src={previewUrl} alt={design.source_name} className="h-full w-full object-contain p-3" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <ProgressRing value={fraction} className="size-10 text-muted-foreground" />
+            </div>
           )}
           <span className={`absolute right-2 top-2 size-2.5 rounded-full ${dotClass}`} aria-hidden />
         </div>

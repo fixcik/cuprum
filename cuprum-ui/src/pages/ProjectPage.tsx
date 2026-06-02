@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, type LucideIcon } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
@@ -6,6 +6,8 @@ import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
 import { useShell } from "@/shellStore";
 import { relativeTime } from "@/i18n/relativeTime";
+import { overallProgress } from "@/lib/artifactProgress";
+import { ProgressRing } from "@/components/ui/ProgressRing";
 
 type ProjectTab = "panel" | "designs" | "operations";
 
@@ -25,6 +27,18 @@ export function ProjectPage() {
   const restoreTo = useShell((s) => s.restoreTo);
   const historyBusy = useShell((s) => s.historyBusy);
   const [pointsOpen, setPointsOpen] = useState(false);
+
+  const artifactProgress = useShell((s) => s.artifactProgress);
+  const pruneArtifactProgress = useShell((s) => s.pruneArtifactProgress);
+  const prep = overallProgress(artifactProgress);
+
+  const designIds = useMemo(
+    () => manifest?.designs.map((d) => d.id) ?? [],
+    [manifest?.designs],
+  );
+  useEffect(() => {
+    pruneArtifactProgress(designIds);
+  }, [designIds, pruneArtifactProgress]);
 
   // Keyboard shortcuts: ⌘/Ctrl+Z = undo, ⌘/Ctrl+Shift+Z = redo, ⌘/Ctrl+S = save point.
   useEffect(() => {
@@ -79,6 +93,12 @@ export function ProjectPage() {
             </button>
           );
         })}
+        {prep.total > 0 && prep.fraction < 1 && (
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <ProgressRing value={prep.fraction} className="size-4" />
+            {t("designs.preparingArtifacts", { done: prep.done, total: prep.total })}
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"

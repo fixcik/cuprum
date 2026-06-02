@@ -93,6 +93,16 @@ interface ShellStore {
   /** Remove a design from the project (undoable). Only the manifest reference is
    *  dropped; the gerber bytes stay on disk so undo/restore points stay valid. */
   removeDesign: (designId: string) => Promise<void>;
+
+  /** Per-design artifact-prep progress (0..1), keyed by designId. */
+  artifactProgress: Record<string, number>;
+  /** A card reports its ring fraction; store keeps the map for the global chip. */
+  reportArtifactProgress: (designId: string, fraction: number) => void;
+  /** Drop progress entries for designs no longer in the manifest (and on close). */
+  pruneArtifactProgress: (liveIds: string[]) => void;
+  /** Remove one design's progress entry — e.g. its card unmounted mid-prep, so
+   *  the global chip shouldn't freeze at that design's partial fraction. */
+  clearArtifactProgress: (designId: string) => void;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -117,6 +127,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   historyBusy: false,
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
+  artifactProgress: {},
 
   scheduleArtifactFlush: (fresh) => {
     if (!fresh) return;
@@ -564,5 +575,27 @@ export const useShell = create<ShellStore>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
     }
+  },
+
+  reportArtifactProgress: (designId, fraction) => {
+    set((s) => ({ artifactProgress: { ...s.artifactProgress, [designId]: fraction } }));
+  },
+  pruneArtifactProgress: (liveIds) => {
+    set((s) => {
+      const live = new Set(liveIds);
+      const next: Record<string, number> = {};
+      for (const [id, f] of Object.entries(s.artifactProgress)) {
+        if (live.has(id)) next[id] = f;
+      }
+      return { artifactProgress: next };
+    });
+  },
+  clearArtifactProgress: (designId) => {
+    set((s) => {
+      if (!(designId in s.artifactProgress)) return s;
+      const next = { ...s.artifactProgress };
+      delete next[designId];
+      return { artifactProgress: next };
+    });
   },
 }));
