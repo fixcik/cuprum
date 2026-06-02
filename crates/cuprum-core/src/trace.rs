@@ -280,4 +280,96 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    fn spin() {
+        let mut x = 0u64;
+        for i in 0..1_500_000u64 {
+            x = x.wrapping_add(i ^ (x >> 3));
+        }
+        std::hint::black_box(x);
+    }
+
+    fn span_names(dir: &std::path::Path) -> std::collections::BTreeSet<String> {
+        let file = std::fs::read_dir(dir)
+            .expect("trace dir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+            .expect("a json trace file");
+        let body = std::fs::read_to_string(&file).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON trace");
+        v.as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e.get("ph").and_then(|p| p.as_str()) == Some("B"))
+            .filter_map(|e| e.get("name").and_then(|n| n.as_str()).map(String::from))
+            .collect()
+    }
+
+    #[test]
+    fn concurrent_operations_keep_worker_spans() {
+        use rayon::prelude::*;
+        use std::sync::{Arc, Barrier};
+        let base = std::env::temp_dir().join(format!("cuprum-trace-conc-{}", std::process::id()));
+        let a = base.join("a");
+        let b = base.join("b");
+        let barrier = Arc::new(Barrier::new(2));
+        // Several rounds to hit the interleaving window reliably.
+        for _round in 0..15 {
+            let _ = std::fs::remove_dir_all(&a);
+            let _ = std::fs::remove_dir_all(&b);
+            let (ba, bb) = (barrier.clone(), barrier.clone());
+            let (ca, cb) = (a.clone(), b.clone());
+            let ha = std::thread::spawn(move || {
+                ba.wait();
+                run_with_config(&TraceConfig::Dir(ca.clone()), "metrics_like", &ca, || {
+                    let dh = super::capture_dispatch();
+                    rayon::join(
+                        || {
+                            dh.run(|| {
+                                let dh2 = super::capture_dispatch();
+                                (0..6).into_par_iter().for_each(|_| {
+                                    dh2.run(|| {
+                                        let dh3 = super::capture_dispatch();
+                                        (0..6).into_par_iter().for_each(|_| {
+                                            dh3.run(|| {
+                                                let _s = tracing::info_span!("m_sweep").entered();
+                                                spin();
+                                            });
+                                        });
+                                    });
+                                });
+                            })
+                        },
+                        || dh.run(|| {
+                            let _s = tracing::info_span!("m_zone3").entered();
+                            spin();
+                        }),
+                    );
+                });
+            });
+            let hb = std::thread::spawn(move || {
+                bb.wait();
+                run_with_config(&TraceConfig::Dir(cb.clone()), "svg_like", &cb, || {
+                    let dh = super::capture_dispatch();
+                    (0..12).into_par_iter().for_each(|_| {
+                        dh.run(|| {
+                            let _s = tracing::info_span!("svg_layer").entered();
+                            spin();
+                        });
+                    });
+                });
+            });
+            ha.join().unwrap();
+            hb.join().unwrap();
+            let na = span_names(&a);
+            let nb = span_names(&b);
+            assert!(na.contains("m_sweep"), "round {_round}: metrics lost worker spans: {na:?}");
+            assert!(nb.contains("svg_layer"), "round {_round}: svg lost worker spans: {nb:?}");
+            // Routing isolation: no cross-file leakage.
+            assert!(!nb.contains("m_sweep"), "round {_round}: metrics span leaked into svg file: {nb:?}");
+            assert!(!na.contains("svg_layer"), "round {_round}: svg span leaked into metrics file: {na:?}");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
