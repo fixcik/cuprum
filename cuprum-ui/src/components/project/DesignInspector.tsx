@@ -112,6 +112,14 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     setSnapNonce((n) => n + 1);
   }, []);
   const [mesh, setMesh] = useState<BoardMeshData | null>(null);
+  // Lazy 3D: the inspector opens in 2D, so don't pay for the (expensive) mesh
+  // build until the user actually opens the 3D view at least once. Latches true
+  // on the first switch to 3D and stays armed for the rest of the session, so
+  // returning to 3D is instant and edits keep the mesh fresh.
+  const [mesh3dArmed, setMesh3dArmed] = useState(false);
+  useEffect(() => {
+    if (mode === "3d") setMesh3dArmed(true);
+  }, [mode]);
   // Measured manufacturing facts (DFM) + their loading state.
   const [metrics, setMetrics] = useState<BoardMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
@@ -232,6 +240,8 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   const excludedKey = excludedDrillKeys.join(",");
   useEffect(() => {
     let cancelled = false;
+    // Lazy 3D: skip the mesh build entirely until the 3D view has been opened.
+    if (!mesh3dArmed) return;
     // No outline assigned → nothing valid to build; don't spend time on the mesh.
     if (!workingDir || gerbers.length === 0 || !hasRequired) {
       setMesh(null);
@@ -253,7 +263,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingDir, gerbersKey, excludedKey, hasRequired]);
+  }, [workingDir, gerbersKey, excludedKey, hasRequired, mesh3dArmed]);
 
   // Measure manufacturing facts (cheap, off-thread) whenever the gerber set or a
   // layer-type assignment changes, but only once the required outline is present
