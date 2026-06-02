@@ -713,13 +713,20 @@ enum Want {
     Both,
 }
 
+/// Target edges per sweep chunk in the auto path. Small enough that the heaviest
+/// (lowest-ei) chunk is a thin slice: each edge scans only `ej > ei`, so low-ei
+/// edges carry far more work — fine chunks let rayon work-stealing flatten that
+/// triangular load. Bigger = fewer tasks; smaller = finer balance.
+const TARGET_CHUNK_EDGES: usize = 512;
+/// Upper bound on the auto chunk count, capping task/merge overhead on huge boards.
+const MAX_SWEEP_CHUNKS: usize = 256;
+
 fn hotspots(polys: &[Poly], want: Want) -> (Vec<Hot>, Vec<Hot>) {
-    let nchunks = rayon::current_num_threads().clamp(1, 16);
-    hotspots_chunked(polys, want, nchunks)
+    hotspots_chunked(polys, want, None)
 }
 
 #[tracing::instrument(skip_all, fields(polys = polys.len()))]
-fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: usize) -> (Vec<Hot>, Vec<Hot>) {
+fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: Option<usize>) -> (Vec<Hot>, Vec<Hot>) {
     let edges = collect_edges(polys);
     if edges.len() < 2 {
         return (Vec::new(), Vec::new());
@@ -765,20 +772,24 @@ fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: usize) -> (Vec<Hot>, Ve
     let max_gap = cell * 2.0; // matches the ±2-cell neighbour search radius
 
     // One contiguous ei-range, swept in ascending order against the shared grid,
-    // into LOCAL output in serial push order. Each invocation owns its `visited`
-    // (generation-stamped) and `budget`. Concatenating ranges in order reproduces
-    // the exact serial push sequence — see `chunked_sweep_matches_serial`.
-    let sweep_range = |range: std::ops::Range<usize>| -> (Vec<Hot>, Vec<Hot>) {
+    // into LOCAL output in serial push order. `visited`/`visit_gen` are supplied by
+    // the caller and REUSED across the chunks one worker handles (see `map_init`
+    // below): `visit_gen` increments once per `ei` and is never reset, so a stamp
+    // equal to the current gen is unique to this edge's scan regardless of chunk
+    // boundaries — stale stamps from a prior chunk carry a smaller gen. `budget`
+    // stays per-range (pathological-blowup backstop, never reached on real boards).
+    // Concatenating ranges in order reproduces the exact serial push sequence — see
+    // `chunked_sweep_matches_serial`.
+    let sweep_range = |range: std::ops::Range<usize>,
+                       visited: &mut [u32],
+                       visit_gen: &mut u32|
+     -> (Vec<Hot>, Vec<Hot>) {
         let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
-        let mut visited = vec![0u32; edges.len()];
-        let mut visit_gen = 0u32;
-        // Per-range copy of the safety cap. It guards against pathological O(n^2)
-        // blowup; real boards stay ~1.2M << DIST_BUDGET, so a per-range cap does
-        // not change results (never reached) while keeping ranges independent.
         let mut budget = DIST_BUDGET;
         'sweep: for ei in range {
             let e = &edges[ei];
-            visit_gen += 1;
+            *visit_gen += 1;
+            let gen = *visit_gen;
             let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
             let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
             let gx_lo = (cx0 - 2).max(0);
@@ -789,10 +800,10 @@ fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: usize) -> (Vec<Hot>, Ve
                 for gy in gy_lo..=gy_hi {
                     let bucket = &grid[cell_at(gx, gy)];
                     for &ej in bucket {
-                        if ej <= ei || visited[ej] == visit_gen {
+                        if ej <= ei || visited[ej] == gen {
                             continue;
                         }
-                        visited[ej] = visit_gen;
+                        visited[ej] = gen;
                         let f = &edges[ej];
                         let cross = e.poly != f.poly;
                         let want_this = match want {
@@ -855,7 +866,11 @@ fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: usize) -> (Vec<Hot>, Ve
     // is order-deterministic, and `HOT_COLLECT_CAP` truncation on the merged (in-
     // order) sequence keeps the same first-N as serial.
     let n = edges.len();
-    let nchunks = nchunks.clamp(1, n.max(1));
+    let nchunks = nchunks
+        .unwrap_or_else(|| {
+            (n / TARGET_CHUNK_EDGES).clamp(rayon::current_num_threads(), MAX_SWEEP_CHUNKS)
+        })
+        .clamp(1, n.max(1));
     let chunk = n.div_ceil(nchunks).max(1);
     let ranges: Vec<std::ops::Range<usize>> = (0..n)
         .step_by(chunk)
@@ -866,7 +881,12 @@ fn hotspots_chunked(polys: &[Poly], want: Want, nchunks: usize) -> (Vec<Hot>, Ve
         let dh = crate::trace::capture_dispatch();
         ranges
             .into_par_iter()
-            .map(|r| dh.run(|| sweep_range(r)))
+            .map_init(
+                // One (visited, gen) buffer per rayon worker for this call, reused
+                // across the chunks that worker handles — no per-chunk allocation.
+                || (vec![0u32; n], 0u32),
+                |(visited, visit_gen), r| dh.run(|| sweep_range(r, visited, visit_gen)),
+            )
             .collect()
     };
     let (mut clear, mut width): (Vec<Hot>, Vec<Hot>) = (Vec::new(), Vec::new());
@@ -1413,14 +1433,42 @@ mod tests {
         for bytes in [A, B] {
             let polys = layer_polygons(bytes, &[]).unwrap();
             for want in [Want::Clearance, Want::Width, Want::Both] {
-                let serial = hotspots_chunked(&polys, want, 1);
-                for nchunks in [2usize, 3, 7, 16] {
-                    let parallel = hotspots_chunked(&polys, want, nchunks);
+                let serial = hotspots_chunked(&polys, want, Some(1));
+                for nchunks in [2usize, 3, 7, 16, 32, 64] {
+                    let parallel = hotspots_chunked(&polys, want, Some(nchunks));
                     assert_eq!(
                         serial, parallel,
                         "chunks={nchunks} must match serial for {want:?}"
                     );
                 }
+                // The production auto path (None) must also match serial.
+                let auto = hotspots_chunked(&polys, want, None);
+                assert_eq!(serial, auto, "auto chunking must match serial for {want:?}");
+            }
+        }
+    }
+
+    // A single-thread rayon pool forces ALL chunks onto one worker, which reuses
+    // its `visited` buffer across them — the case `map_init` introduces. The
+    // monotonic generation counter (never reset between chunks) must keep this
+    // bit-identical to a serial pass.
+    #[test]
+    fn visited_reuse_single_worker_matches_serial() {
+        const A: &[u8] = include_bytes!("../../../testdata/gerber/two_square_boxes.gbr");
+        const B: &[u8] = include_bytes!("../../../testdata/gerber/polarities_and_apertures.gbr");
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        for bytes in [A, B] {
+            let polys = layer_polygons(bytes, &[]).unwrap();
+            for want in [Want::Clearance, Want::Width, Want::Both] {
+                let serial = hotspots_chunked(&polys, want, Some(1));
+                let reused = pool.install(|| hotspots_chunked(&polys, want, Some(7)));
+                assert_eq!(
+                    serial, reused,
+                    "single-worker visited reuse must match serial for {want:?}"
+                );
             }
         }
     }
