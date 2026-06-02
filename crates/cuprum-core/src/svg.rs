@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
 
 /// Axis-aligned bounds in millimetres (Y up).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BBox {
     pub min_x: f32,
     pub min_y: f32,
@@ -20,7 +20,7 @@ pub struct BBox {
 
 /// A layer rendered to SVG: a self-contained `<g>…</g>` fragment, its bounds, and
 /// snap candidates (feature centers/corners/endpoints) in millimetres (Y up).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct LayerGeometry {
     pub svg_body: String,
     pub bbox: BBox,
