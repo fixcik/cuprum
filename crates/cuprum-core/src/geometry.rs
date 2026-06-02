@@ -718,19 +718,28 @@ fn hotspots(polys: &[Poly], want: Want) -> (Vec<Hot>, Vec<Hot>) {
     }
     let diag = (maxx - minx).hypot(maxy - miny).max(1e-6);
     let cell = (diag / DIST_CELLS).clamp(0.2, 10.0);
+    // Cell index along each axis. `x >= minx` so indices are >= 0. `nx`/`ny` are
+    // sized to the max index inclusive, so every edge cell is in range.
     let key =
         |x: f64, y: f64| -> (i64, i64) { (((x - minx) / cell) as i64, ((y - miny) / cell) as i64) };
-
-    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
-        std::collections::HashMap::new();
+    let nx = (((maxx - minx) / cell) as i64 + 1).max(1);
+    let ny = (((maxy - miny) / cell) as i64 + 1).max(1);
+    // Flat grid: `Vec<Vec<usize>>` indexed by `gy * nx + gx` — no hashing in the
+    // hot loop. Same cells, same insertion order → identical buckets to the old
+    // HashMap, hence bit-identical sweep results.
+    let cell_at = |gx: i64, gy: i64| -> usize { (gy * nx + gx) as usize };
+    let mut grid: Vec<Vec<usize>> = vec![Vec::new(); (nx * ny) as usize];
     {
         let _gb = tracing::info_span!("grid_build", edges = edges.len()).entered();
         for (ei, e) in edges.iter().enumerate() {
             let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
             let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
+            // Clamp the high index (a coordinate exactly at max maps to nx/ny).
+            let cx1 = cx1.min(nx - 1);
+            let cy1 = cy1.min(ny - 1);
             for gx in cx0..=cx1 {
                 for gy in cy0..=cy1 {
-                    grid.entry((gx, gy)).or_default().push(ei);
+                    grid[cell_at(gx, gy)].push(ei);
                 }
             }
         }
@@ -752,11 +761,13 @@ fn hotspots(polys: &[Poly], want: Want) -> (Vec<Hot>, Vec<Hot>) {
         let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
         // ±2 cells: two edges within `cell` of each other can land 2 grid indices
         // apart once float rounding nudges a coordinate past a cell boundary.
-        for gx in cx0 - 2..=cx1 + 2 {
-            for gy in cy0 - 2..=cy1 + 2 {
-                let Some(bucket) = grid.get(&(gx, gy)) else {
-                    continue;
-                };
+        let gx_lo = (cx0 - 2).max(0);
+        let gx_hi = (cx1 + 2).min(nx - 1);
+        let gy_lo = (cy0 - 2).max(0);
+        let gy_hi = (cy1 + 2).min(ny - 1);
+        for gx in gx_lo..=gx_hi {
+            for gy in gy_lo..=gy_hi {
+                let bucket = &grid[cell_at(gx, gy)];
                 for &ej in bucket {
                     if ej <= ei || visited[ej] == visit_gen {
                         continue;
