@@ -10,6 +10,7 @@ export function SelectionOverlay({
   sizes,
   selected,
   dragDelta,
+  rotPreview,
 }: {
   instances: BoardInstance[];
   sizes: Record<string, { w: number; h: number }>;
@@ -17,6 +18,8 @@ export function SelectionOverlay({
   // Live drag offset (mm) applied to selected instances so the highlight tracks
   // the moving Groups; null/absent when idle.
   dragDelta?: { dx: number; dy: number } | null;
+  // Live rotation delta (deg) applied to selected instances during a knob drag.
+  rotPreview?: number | null;
 }) {
   return (
     <>
@@ -30,7 +33,7 @@ export function SelectionOverlay({
             yMm: i.y_mm + shift.dy,
             boardW: sz.w,
             boardH: sz.h,
-            rotationDeg: i.rotation_deg,
+            rotationDeg: i.rotation_deg + (rotPreview ?? 0),
           });
           return (
             <Rect
