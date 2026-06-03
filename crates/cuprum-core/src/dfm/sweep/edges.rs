@@ -111,16 +111,6 @@ pub(super) fn collect_edges(polys: &[Poly]) -> Vec<GEdge> {
     edges
 }
 
-/// Two edges of the same ring that share a vertex (consecutive, cyclic).
-#[inline]
-pub(super) fn adjacent(x: &GEdge, y: &GEdge) -> bool {
-    if x.poly != y.poly || x.ring != y.ring {
-        return false;
-    }
-    let d = x.idx.abs_diff(y.idx);
-    d <= 1 || d == x.n - 1
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
