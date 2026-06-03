@@ -42,7 +42,10 @@
       "footerPick": "Pick a design",
       "cancel": "Cancel",
       "add": "Add to panel",
-      "notImpl": "Not implemented yet"
+      "notImpl": "Not implemented yet",
+      "importTitle": "Import design",
+      "importHint": "Drop a ZIP or click to choose",
+      "dropHint": "Release to import a Gerber package (.zip)"
     },
     "tool": {
       "select": "Select",

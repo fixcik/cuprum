@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
-import { X, Search } from "lucide-react";
+import { X, Search, UploadCloud, Download } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, type AddDesignSnapshot, type ProjectDesign } from "@/lib/api";
 import { DesignPickerRow } from "@/components/project/DesignPickerRow";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +14,9 @@ export function AddDesignWindow() {
   const [snap, setSnap] = useState<AddDesignSnapshot | null>(null);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const prevIdsRef = useRef<Set<string>>(new Set());
+  const snapReceivedRef = useRef(false);
 
   useEffect(() => {
     getCurrentWindow().setTitle(t("panel.add.window.title")).catch(() => {});
@@ -50,6 +55,41 @@ export function AddDesignWindow() {
   const selected =
     selectedId && designs.some((d) => d.id === selectedId) ? selectedId : null;
   const selectedDesign = designs.find((d) => d.id === selected) ?? null;
+
+  // Auto-select a freshly imported design when the snapshot updates with a new id.
+  useEffect(() => {
+    const ids = new Set(designs.map((d) => d.id));
+    const freshIds = designs.filter((d) => !prevIdsRef.current.has(d.id));
+    if (snapReceivedRef.current && freshIds.length > 0) {
+      // Select the most recently imported design (appended last).
+      setSelectedId(freshIds[freshIds.length - 1].id);
+    }
+    snapReceivedRef.current = true;
+    prevIdsRef.current = ids;
+  }, [designs]);
+
+  const pickZips = useCallback(async () => {
+    const picked = await openDialog({
+      multiple: true,
+      filters: [{ name: "ZIP", extensions: ["zip"] }],
+    });
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length > 0) void api.emitAddDesignImport(paths);
+  }, []);
+
+  // OS drag-and-drop: accept ZIP files dropped onto this window.
+  useEffect(() => {
+    const pending = getCurrentWebview().onDragDropEvent((e) => {
+      if (e.payload.type === "enter" || e.payload.type === "over") setDragOver(true);
+      else if (e.payload.type === "leave") setDragOver(false);
+      else if (e.payload.type === "drop") {
+        setDragOver(false);
+        const zips = e.payload.paths.filter((p) => p.toLowerCase().endsWith(".zip"));
+        if (zips.length > 0) void api.emitAddDesignImport(zips);
+      }
+    });
+    return () => void pending.then((un) => un());
+  }, []);
 
   return (
     <div className="relative flex h-screen w-screen flex-col bg-card text-foreground">
@@ -103,7 +143,17 @@ export function AddDesignWindow() {
               </li>
             )}
           </ul>
-          {/* import zone — wired in Task 4 */}
+          <div className="border-t border-border p-2">
+            <button
+              type="button"
+              onClick={() => void pickZips()}
+              className="flex w-full flex-col items-center gap-1 rounded-md border-2 border-dashed border-border px-3 py-3 text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            >
+              <UploadCloud className="size-5" />
+              <span className="text-[12px] font-medium">{t("panel.add.importTitle")}</span>
+              <span className="text-[11px] text-muted-foreground/70">{t("panel.add.importHint")}</span>
+            </button>
+          </div>
         </div>
 
         {/* right: light preview card (schematic render is Phase 3) */}
@@ -123,6 +173,15 @@ export function AddDesignWindow() {
           )}
         </div>
       </div>
+
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10">
+          <div className="flex flex-col items-center gap-2 text-primary">
+            <Download className="size-7" />
+            <span className="text-[13px] font-medium">{t("panel.add.dropHint")}</span>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
         <span className="text-[11px] text-muted-foreground">
