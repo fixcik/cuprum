@@ -235,7 +235,7 @@ Panel-модель ниже. Ведётся инкрементальными PR 
     - [x] Фаза 3 — схематичное превью «Дизайн» в окне (`LayerStack` без маски, 2D/3D, Верх/Низ,
           «Проверка») через общий хук `usePreviewData` (вынесен из `DesignInspector`, поведение 1:1);
           окно read-only (без правки слоёв/flush), маска исключена в 2D (layers) и 3D (visibleKeys)
-          (✅ 2026-06-04, PR #PLACEHOLDER)
+          (✅ 2026-06-04, [PR #69](https://github.com/fixcik/cuprum/pull/69))
     - [ ] (позже) интерактивный редактор: drag/rotate, Дублировать/Удалить, «Переразместить», tooling
     - [ ] **Единицы в редакторе панели/nesting.** `UnitField` (размер бланка/stackup в `PanelEditor`,
           зазоры/край/шаг в `NestingControls`) показывает и принимает сырые мм с литералом «mm», мимо
