@@ -51,6 +51,8 @@ export function PanelEditor() {
   const [substrate, setSubstrate] = useState(DEFAULT_STACKUP.substrate_thickness_mm);
   const [doubleSided, setDoubleSided] = useState(DEFAULT_STACKUP.double_sided);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Visible side of the blank, owned here so Ctrl+A can scope its selection to it.
+  const [side, setSide] = useState<"top" | "bottom">("top");
   const [presetOpen, setPresetOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
   // Board extents (mm) per placed design, from cached metrics — used only to warn
@@ -192,6 +194,9 @@ export function PanelEditor() {
   // panel dims are read via refs so the listener needn't re-bind on every edit.
   const panelDims = useRef({ w: width, h: height });
   panelDims.current = { w: width, h: height };
+  // Current visible side, read by the once-bound keydown listener (Ctrl+A scope).
+  const sideRef = useRef(side);
+  sideRef.current = side;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -207,7 +212,12 @@ export function PanelEditor() {
         usePanelSelection.getState().clear();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        const ids = useShell.getState().currentManifest?.panel?.instances.map((i) => i.id) ?? [];
+        // Only the visible side is selectable on-canvas; scope Ctrl+A to it so a
+        // following Delete can't silently drop hidden back-side instances.
+        const side = sideRef.current;
+        const ids = (useShell.getState().currentManifest?.panel?.instances ?? [])
+          .filter((i) => (i.layer_ref === "Bottom" ? "bottom" : "top") === side)
+          .map((i) => i.id);
         usePanelSelection.getState().set(ids);
       } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
         if (!sel.length) return;
@@ -333,7 +343,7 @@ export function PanelEditor() {
       </div>
 
       <div className="min-w-0 flex-1">
-        <PanelBlankCanvas widthMm={width || 1} heightMm={height || 1} doubleSided={doubleSided} />
+        <PanelBlankCanvas widthMm={width || 1} heightMm={height || 1} doubleSided={doubleSided} side={side} onSideChange={setSide} />
       </div>
 
       <Modal

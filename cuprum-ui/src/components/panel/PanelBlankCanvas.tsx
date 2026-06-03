@@ -29,10 +29,16 @@ export function PanelBlankCanvas({
   widthMm,
   heightMm,
   doubleSided,
+  side,
+  onSideChange,
 }: {
   widthMm: number;
   heightMm: number;
   doubleSided: boolean;
+  // Visible side is owned by PanelEditor so Ctrl+A can scope to it; the canvas
+  // drives the toggle through onSideChange.
+  side: "top" | "bottom";
+  onSideChange: (side: "top" | "bottom") => void;
 }) {
   const { t } = useTranslation(["project", "common"]);
   const pxPerMm = useShell((s) => s.pxPerMm);
@@ -51,7 +57,6 @@ export function PanelBlankCanvas({
   const fitGroupRef = useRef<Konva.Group>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [zoomPct, setZoomPct] = useState(100);
-  const [side, setSide] = useState<"top" | "bottom">("top");
   const [spaceDown, setSpaceDown] = useState(false);
   const [tool, setTool] = useState<PanelTool>("select");
   const panMode = tool === "pan" || spaceDown;
@@ -452,7 +457,7 @@ export function PanelBlankCanvas({
                 </Group>
               );
             })}
-            <SelectionOverlay instances={visibleInstances} sizes={sizes} selected={selected} />
+            <SelectionOverlay instances={visibleInstances} sizes={sizes} selected={selected} dragDelta={dragDelta} />
             {marquee && (
               <Rect
                 x={Math.min(marquee.x0, marquee.x1)}
@@ -476,7 +481,7 @@ export function PanelBlankCanvas({
       <div className="absolute left-20 top-3 z-10">
         <SegmentedControl<"top" | "bottom">
           value={side}
-          onChange={setSide}
+          onChange={onSideChange}
           options={[
             { value: "top", label: t("setup.sideTop") },
             { value: "bottom", label: t("setup.sideBottom") },

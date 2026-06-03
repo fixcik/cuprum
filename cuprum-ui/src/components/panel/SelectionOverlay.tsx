@@ -9,10 +9,14 @@ export function SelectionOverlay({
   instances,
   sizes,
   selected,
+  dragDelta,
 }: {
   instances: BoardInstance[];
   sizes: Record<string, { w: number; h: number }>;
   selected: Set<string>;
+  // Live drag offset (mm) applied to selected instances so the highlight tracks
+  // the moving Groups; null/absent when idle.
+  dragDelta?: { dx: number; dy: number } | null;
 }) {
   return (
     <>
@@ -20,9 +24,10 @@ export function SelectionOverlay({
         .filter((i) => selected.has(i.id) && sizes[i.design_id])
         .map((i) => {
           const sz = sizes[i.design_id];
+          const shift = dragDelta && selected.has(i.id) ? dragDelta : { dx: 0, dy: 0 };
           const b = instanceBounds({
-            xMm: i.x_mm,
-            yMm: i.y_mm,
+            xMm: i.x_mm + shift.dx,
+            yMm: i.y_mm + shift.dy,
             boardW: sz.w,
             boardH: sz.h,
             rotationDeg: i.rotation_deg,
