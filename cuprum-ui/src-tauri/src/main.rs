@@ -1261,22 +1261,21 @@ fn build_app_menu<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         ("Edit", "Window", "Check for Updates…")
     };
 
-    let mut app_b = SubmenuBuilder::new(handle, "Cuprum")
+    let app_b = SubmenuBuilder::new(handle, "Cuprum")
         .about(Some(AboutMetadata::default()))
         .separator()
         .text("check-updates", check_t)
         .separator();
-    // Services/Hide/Show All are macOS-only predefined items.
+    // Services/Hide/Show All are macOS-only predefined items (cfg'd shadowing keeps
+    // `app_b` un-`mut` so non-macOS builds don't trip the unused_mut lint).
     #[cfg(target_os = "macos")]
-    {
-        app_b = app_b
-            .services()
-            .separator()
-            .hide()
-            .hide_others()
-            .show_all()
-            .separator();
-    }
+    let app_b = app_b
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator();
     let app_menu = app_b.quit().build()?;
 
     let edit_menu = SubmenuBuilder::new(handle, edit_t)
