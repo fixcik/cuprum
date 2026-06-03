@@ -9,6 +9,9 @@ import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPa
 import { CadGrid } from "@/components/editor/CadGrid";
 import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
 import { useShell } from "@/shellStore";
+import { usePanelSelection } from "@/panelSelectionStore";
+import { instanceBounds, clampDeltaToPanel, marqueeHits } from "@/lib/panelPlacement";
+import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { api, type BoardInstance, type ProjectDesign } from "@/lib/api";
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
@@ -36,8 +39,16 @@ export function PanelBlankCanvas({
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
   const workingDir = useShell((s) => s.workingDir);
+  const moveInstances = useShell((s) => s.moveInstances);
+  const selected = usePanelSelection((s) => s.selected);
+  const setSelection = usePanelSelection((s) => s.set);
+  const toggleSelection = usePanelSelection((s) => s.toggle);
+  const clearSelection = usePanelSelection((s) => s.clear);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
+  // The mm fit-group: getRelativePointerPosition() maps the pointer into panel mm,
+  // accounting for the parent stage pan/zoom and this group's fit scale.
+  const fitGroupRef = useRef<Konva.Group>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [zoomPct, setZoomPct] = useState(100);
   const [side, setSide] = useState<"top" | "bottom">("top");
@@ -46,6 +57,14 @@ export function PanelBlankCanvas({
   const panMode = tool === "pan" || spaceDown;
   // Resolved board extents (mm) keyed by design id, fetched once per referenced design.
   const [sizes, setSizes] = useState<Record<string, { w: number; h: number }>>({});
+  // Live drag preview (mm). While dragging selected instances we shift their render
+  // by this delta and commit a single moveInstances on drag end; null when idle.
+  const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
+  // Pointer-mm position where the current instance drag started.
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
+  // Live marquee rect (mm), drawn while drag-selecting over empty canvas; null when idle.
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const marqueeStart = useRef<{ x: number; y: number } | null>(null);
 
   // Resolve board extents (mm) for placed instances (cached metrics). Keyed by
   // design id; fetched once per design referenced on the panel.
@@ -81,6 +100,23 @@ export function PanelBlankCanvas({
 
   // O(1) design lookup for the instance render loop + labels.
   const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
+
+  // Prune the ephemeral selection to ids still present (e.g. after a delete or an
+  // undo that dropped instances). Cheap; runs whenever the instance set changes.
+  useEffect(() => {
+    usePanelSelection.getState().retain(new Set(instances.map((i) => i.id)));
+  }, [instances]);
+
+  // Visible instances on the current side (with resolved extents) — the candidate
+  // set for marquee hit-testing and selection.
+  const visibleInstances = useMemo(
+    () =>
+      instances.filter((i) => {
+        const instSide = i.layer_ref === "Bottom" ? "bottom" : "top";
+        return instSide === side && sizes[i.design_id];
+      }),
+    [instances, side, sizes],
+  );
 
   const W = Math.max(widthMm, 1);
   const H = Math.max(heightMm, 1);
@@ -203,6 +239,119 @@ export function PanelBlankCanvas({
 
   const labelMm = Math.max(Math.min(W, H) * 0.08, 2);
 
+  // Pointer position in panel mm via the fit-group's local coordinate system.
+  const pointerMm = useCallback(() => fitGroupRef.current?.getRelativePointerPosition() ?? null, []);
+
+  // AABBs (mm) of the currently selected instances — used to clamp drags/marquee.
+  const selectedBoxes = useCallback(
+    () =>
+      instances
+        .filter((i) => selected.has(i.id) && sizes[i.design_id])
+        .map((i) => {
+          const sz = sizes[i.design_id];
+          return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg });
+        }),
+    [instances, selected, sizes],
+  );
+
+  // --- Instance interaction (select tool only) ---
+  const onInstanceClick = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
+    if (tool !== "select") return;
+    e.cancelBubble = true; // don't trigger the empty-canvas click → clear
+    const native = e.evt;
+    if (native.shiftKey || native.ctrlKey || native.metaKey) toggleSelection(id);
+    else setSelection([id]);
+  };
+
+  const onInstanceDragStart = (id: string) => (e: KonvaEventObject<DragEvent>) => {
+    if (tool !== "select") return;
+    e.cancelBubble = true;
+    if (!selected.has(id)) setSelection([id]);
+    dragStart.current = pointerMm();
+    setDragDelta({ dx: 0, dy: 0 });
+  };
+
+  const onInstanceDragMove = (e: KonvaEventObject<DragEvent>) => {
+    if (tool !== "select" || !dragStart.current) return;
+    e.cancelBubble = true;
+    const p = pointerMm();
+    if (!p) return;
+    let dx = p.x - dragStart.current.x;
+    let dy = p.y - dragStart.current.y;
+    // Snap the delta to 1 mm unless Alt is held (free move).
+    if (!e.evt.altKey) {
+      dx = Math.round(dx);
+      dy = Math.round(dy);
+    }
+    const clamped = clampDeltaToPanel(selectedBoxes(), dx, dy, W, H);
+    setDragDelta(clamped);
+    // The render shifts ALL selected instances (incl. this node) by dragDelta, so
+    // pin the dragged Konva node back to its committed pose — we drive movement
+    // purely through dragDelta to keep the whole selection in lock-step.
+    const node = e.target as Konva.Group;
+    const inst = instances.find((i) => i.id === node.id());
+    const sz = inst ? sizes[inst.design_id] : undefined;
+    if (inst && sz) {
+      node.x(inst.x_mm + sz.w / 2 + clamped.dx);
+      node.y(inst.y_mm + sz.h / 2 + clamped.dy);
+    }
+  };
+
+  const onInstanceDragEnd = (e: KonvaEventObject<DragEvent>) => {
+    if (tool !== "select") return;
+    e.cancelBubble = true;
+    const d = dragDelta;
+    dragStart.current = null;
+    setDragDelta(null);
+    if (d && (d.dx !== 0 || d.dy !== 0)) void moveInstances([...selected], d.dx, d.dy);
+  };
+
+  // --- Empty-canvas click + marquee (select tool only) ---
+  const isEmptyTarget = (e: KonvaEventObject<MouseEvent>) =>
+    e.target === e.target.getStage() || e.target.name() === "panel-bg";
+
+  const onBgMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+    if (panMode || tool !== "select" || !isEmptyTarget(e)) return;
+    const p = pointerMm();
+    if (!p) return;
+    marqueeStart.current = p;
+    setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+  };
+
+  const onBgMouseMove = () => {
+    if (!marqueeStart.current) return;
+    const p = pointerMm();
+    if (!p) return;
+    setMarquee({ x0: marqueeStart.current.x, y0: marqueeStart.current.y, x1: p.x, y1: p.y });
+  };
+
+  const onBgMouseUp = () => {
+    const start = marqueeStart.current;
+    const m = marquee;
+    marqueeStart.current = null;
+    setMarquee(null);
+    if (!start || !m) return;
+    const rect = {
+      minX: Math.min(m.x0, m.x1),
+      minY: Math.min(m.y0, m.y1),
+      maxX: Math.max(m.x0, m.x1),
+      maxY: Math.max(m.y0, m.y1),
+    };
+    // No meaningful drag (< 0.5 mm) → treat as an empty click → clear selection.
+    if (rect.maxX - rect.minX < 0.5 && rect.maxY - rect.minY < 0.5) {
+      clearSelection();
+      return;
+    }
+    const items = visibleInstances.map((i) => {
+      const sz = sizes[i.design_id];
+      return {
+        id: i.id,
+        box: instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg }),
+      };
+    });
+    setSelection(marqueeHits(items, rect));
+  };
+
   return (
     <div
       ref={containerRef}
@@ -215,13 +364,17 @@ export function PanelBlankCanvas({
         draggable={panMode}
         dragBoundFunc={dragBound}
         onWheel={onWheel}
+        onMouseDown={onBgMouseDown}
+        onMouseMove={onBgMouseMove}
+        onMouseUp={onBgMouseUp}
         onDragStart={() => setCursor("grabbing")}
         onDragEnd={() => setCursor(panMode ? "grab" : "")}
       >
         <Layer>
-          <Group x={0} y={0} scaleX={fit} scaleY={fit}>
+          <Group ref={fitGroupRef} x={0} y={0} scaleX={fit} scaleY={fit}>
             <CadGrid widthMm={W} heightMm={H} />
             <Rect
+              name="panel-bg"
               x={0}
               y={0}
               width={W}
@@ -249,19 +402,31 @@ export function PanelBlankCanvas({
               const instSide = inst.layer_ref === "Bottom" ? "bottom" : "top";
               if (!sz || instSide !== side) return null;
               const name = designById.get(inst.design_id)?.source_name ?? "";
+              const isSelected = selected.has(inst.id);
               // Centre-pivot: place the Group at the board centre, offset by half the
               // board so local (0,0) is the unrotated top-left, then rotate about that
               // centre. Matches instanceBounds / packLayout.
-              const cx = inst.x_mm + sz.w / 2;
-              const cy = inst.y_mm + sz.h / 2;
+              // While a drag is live, shift every selected instance by dragDelta for
+              // a lock-step preview; the single commit happens on drag end.
+              const shift = isSelected && dragDelta ? dragDelta : { dx: 0, dy: 0 };
+              const cx = inst.x_mm + sz.w / 2 + shift.dx;
+              const cy = inst.y_mm + sz.h / 2 + shift.dy;
               return (
                 <Group
                   key={inst.id}
+                  id={inst.id}
                   x={cx}
                   y={cy}
                   offsetX={sz.w / 2}
                   offsetY={sz.h / 2}
                   rotation={inst.rotation_deg}
+                  listening={tool === "select"}
+                  draggable={tool === "select"}
+                  onClick={onInstanceClick(inst.id)}
+                  onTap={onInstanceClick(inst.id)}
+                  onDragStart={onInstanceDragStart(inst.id)}
+                  onDragMove={onInstanceDragMove}
+                  onDragEnd={onInstanceDragEnd}
                 >
                   <Rect
                     width={sz.w}
@@ -287,6 +452,21 @@ export function PanelBlankCanvas({
                 </Group>
               );
             })}
+            <SelectionOverlay instances={visibleInstances} sizes={sizes} selected={selected} />
+            {marquee && (
+              <Rect
+                x={Math.min(marquee.x0, marquee.x1)}
+                y={Math.min(marquee.y0, marquee.y1)}
+                width={Math.abs(marquee.x1 - marquee.x0)}
+                height={Math.abs(marquee.y1 - marquee.y0)}
+                stroke="#5b9dff"
+                strokeWidth={1}
+                strokeScaleEnabled={false}
+                dash={[4, 3]}
+                fill="rgba(91,157,255,0.08)"
+                listening={false}
+              />
+            )}
           </Group>
         </Layer>
       </Stage>
