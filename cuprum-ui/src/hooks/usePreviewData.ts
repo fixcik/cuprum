@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { colorFor, sideOf, missingRequired } from "@/lib/layerColors";
 import {
@@ -137,6 +137,14 @@ export function usePreviewData(
     focusNonce = 0,
   } = opts;
 
+  // Keep the latest onArtifactFresh in a ref so the async effects (whose dep
+  // arrays intentionally omit it) always call the current callback, not a stale
+  // closure captured at effect-setup.
+  const onArtifactFreshRef = useRef(onArtifactFresh);
+  useEffect(() => {
+    onArtifactFreshRef.current = onArtifactFresh;
+  });
+
   const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers", "project"]);
   const { fmtLen, fmtLenPair } = useUnitFormat();
 
@@ -155,7 +163,6 @@ export function usePreviewData(
     },
     [t, fmtLen],
   );
-  const tr = useCallback((text?: I18nText): string => resolveText(text), [resolveText]);
   const trLen = useCallback(
     (text: I18nText | undefined, lenStr: string): string => resolveText(text, lenStr),
     [resolveText],
@@ -248,7 +255,7 @@ export function usePreviewData(
             }
           });
           flush();
-          onArtifactFresh?.(results.some((r) => r.fresh));
+          onArtifactFreshRef.current?.(results.some((r) => r.fresh));
         })
         .catch(() => {
           if (cancelled) return;
@@ -317,7 +324,7 @@ export function usePreviewData(
         const m = await api.projectBoardMetrics(workingDir, refs);
         if (!cancelled) {
           setMetrics(m.metrics);
-          onArtifactFresh?.(m.fresh);
+          onArtifactFreshRef.current?.(m.fresh);
         }
       } catch {
         if (!cancelled) setMetrics(null);
@@ -383,15 +390,15 @@ export function usePreviewData(
           .map(({ h, i }) => {
             const l = f.limit?.params?.len;
             const [vs, ls2] = typeof l === "number" ? fmtLenPair([h.v, l]) : [fmtLen(h.v), ""];
-            const limitStr = typeof l === "number" ? trLen(f.limit, ls2) : tr(f.limit);
+            const limitStr = typeof l === "number" ? trLen(f.limit, ls2) : resolveText(f.limit);
             return {
               key: `${f.id}#${i}`,
               a: h.a,
               b: h.b,
               value: vs,
-              label: tr(f.label),
+              label: resolveText(f.label),
               limit: limitStr,
-              detail: tr(f.detail) || undefined,
+              detail: resolveText(f.detail) || undefined,
               severity: f.severity,
               focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
               shape,
@@ -406,15 +413,15 @@ export function usePreviewData(
             const [valueStr, limitStr] =
               typeof l === "number"
                 ? (() => { const [vs, ls] = fmtLenPair([h.v, l]); return [vs, trLen(f.limit, ls)]; })()
-                : [fmtLen(h.v), tr(f.limit)];
+                : [fmtLen(h.v), resolveText(f.limit)];
             return {
               key: `${f.id}~hover#${i}`,
               a: h.a,
               b: h.b,
               value: valueStr,
-              label: tr(f.label),
+              label: resolveText(f.label),
               limit: limitStr,
-              detail: tr(f.detail) || undefined,
+              detail: resolveText(f.detail) || undefined,
               severity: f.severity,
               focused: focus?.fid === f.id && focus?.hi === i,
               shape: "hover" as const,
@@ -422,7 +429,7 @@ export function usePreviewData(
           });
         return [...visual, ...hovers];
       }),
-    [findings, focus, markerVisible, tr, trLen, fmtLen, fmtLenPair],
+    [findings, focus, markerVisible, resolveText, trLen, fmtLen, fmtLenPair],
   );
 
   // Flat list of navigable problems for the on-preview stepper.
@@ -436,21 +443,21 @@ export function usePreviewData(
           if (boxes.length > 0) {
             return boxes.flatMap((h, i) =>
               markerVisible(f.category, h.side)
-                ? [{ fid: f.id, hi: i, label: tr(f.label), value: fmtLen(h.v), severity: f.severity }]
+                ? [{ fid: f.id, hi: i, label: resolveText(f.label), value: fmtLen(h.v), severity: f.severity }]
                 : [],
             );
           }
           return markerVisible(f.category, hs[0].side)
-            ? [{ fid: f.id, hi: 0, label: tr(f.label), value: tr(f.measured), severity: f.severity }]
+            ? [{ fid: f.id, hi: 0, label: resolveText(f.label), value: resolveText(f.measured), severity: f.severity }]
             : [];
         }
         return hs.flatMap((h, i) =>
           markerVisible(f.category, h.side)
-            ? [{ fid: f.id, hi: i, label: tr(f.label), value: fmtLen(h.v), severity: f.severity }]
+            ? [{ fid: f.id, hi: i, label: resolveText(f.label), value: fmtLen(h.v), severity: f.severity }]
             : [],
         );
       }),
-    [findings, markerVisible, tr, fmtLen],
+    [findings, markerVisible, resolveText, fmtLen],
   );
 
   // Centre the 2D view on the focus target. `focusNonce` is bumped by the caller

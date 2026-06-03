@@ -125,7 +125,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
             filename: f?.filename ?? (g.path.split("/").pop() ?? g.path),
             type: g.layer_type,
             color: colorFor(g.layer_type, overrides),
-            visible: hasContent && pv.hidden && !pv.hidden.has(g.path) && (mode === "3d" || sideOf(g.layer_type) === side || sideOf(g.layer_type) === "both"),
+            visible: hasContent && !pv.hidden.has(g.path) && (mode === "3d" || sideOf(g.layer_type) === side || sideOf(g.layer_type) === "both"),
             hasPreview: hasContent,
             loading,
             drillError: f?.drillError,
