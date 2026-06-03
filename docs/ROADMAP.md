@@ -307,8 +307,18 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   перенесённые обёртки под историческими `cache::`-путями (project/UI/preview не тронуты). Чистое
   перемещение, вывод и кеш-теги не тронуты. (preview_png/native_mask — это и есть исходная суть
   `cache.rs` «path+mtime render cache», оставлены на месте.)
-- [ ] **PR5+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (движок single-flight при выносе
-  уедет в лист-крейт; каждый с разбивкой своего крупного файла)
+- [x] **PR5 — вынести движок single-flight в лист-крейт `cuprum-cache`** (✅ 2026-06-04):
+  generic-движок (`cached_single_flight`/`_persistent` + private `_with` + тест) → новый
+  лист-крейт `cuprum-cache` (зависит только от `cuprum-diskcache`), функции стали `pub`.
+  Вызовы в `svg`/`dfm` переключены на `cuprum_cache::…`. `cache.rs` в core теперь = только
+  path+mtime-кеши (`preview_png`/`native_mask`, зависят от `gerber`) + фасад. Это пререквизит
+  выноса тяжёлых крейтов: `svg`/`dfm`/`gerber` зовут движок, а core зависел бы от них при выносе.
+  Чистое перемещение, вывод и кеш-теги не тронуты.
+- [ ] **PR6+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (каждый с разбивкой своего
+  крупного файла: gerber+svg+geometry+strokes+drill, mesh.rs 836, dfm/metrics/mod 516).
+  Слоистость: `cuprum-gerber` → `cuprum-cache`; `cuprum-mesh` → `cuprum-gerber`; `cuprum-dfm`
+  → `cuprum-mesh`+`cuprum-gerber`. Открытый вопрос: `gerber → goo` (только за константами
+  `SCREEN_PX_PER_MM_*`) — вынести `goo` в лист-крейт либо переселить эти константы.
 
 ## Workstream: переосмысление CLI с нуля
 

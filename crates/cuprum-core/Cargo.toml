@@ -21,6 +21,7 @@ i_overlay = "4"
 earcutr = "0.4"
 cuprum-trace.workspace = true
 cuprum-diskcache.workspace = true
+cuprum-cache.workspace = true
 cuprum-sdcp.workspace = true
 tracing.workspace = true
 

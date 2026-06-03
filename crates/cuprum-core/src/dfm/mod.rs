@@ -35,7 +35,7 @@ use std::time::Duration;
 
 use lru::LruCache;
 
-use crate::cache::{cached_single_flight, cached_single_flight_persistent};
+use cuprum_cache::{cached_single_flight, cached_single_flight_persistent};
 
 const METRICS_MEM_CAP: usize = 128;
 const METRICS_DISK_MAX_BYTES: u64 = 256 * 1024 * 1024; // 256 MB

@@ -456,6 +456,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cuprum-cache"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "cuprum-diskcache",
+ "lru",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cuprum-cli"
 version = "0.3.0"
 dependencies = [
@@ -472,6 +483,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "criterion",
+ "cuprum-cache",
  "cuprum-diskcache",
  "cuprum-sdcp",
  "cuprum-trace",
