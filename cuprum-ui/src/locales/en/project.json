@@ -52,7 +52,31 @@
       },
       "importTitle": "Import design",
       "importHint": "Drop a ZIP or click to choose",
-      "dropHint": "Release to import a Gerber package (.zip)"
+      "dropHint": "Release to import a Gerber package (.zip)",
+      "nest": {
+        "title": "Auto-placement",
+        "hintOff": "off — one copy tucked into the corner",
+        "hintOn": "fill the panel with an array",
+        "fill": "Fill",
+        "copies": "Copies",
+        "percent": "Percent",
+        "gaps": "Gaps, mm",
+        "gapBoards": "Boards",
+        "gapEdge": "Edge",
+        "layout": "Layout",
+        "rotate": "Rotate",
+        "corner": "Corner",
+        "cornerTl": "Top-left",
+        "cornerTr": "Top-right",
+        "cornerBl": "Bottom-left",
+        "cornerBr": "Bottom-right",
+        "rows": "Rows",
+        "cols": "Columns",
+        "step": "Step",
+        "behavior": "Behavior",
+        "side": "Side",
+        "repack": "Re-pack"
+      }
     },
     "tool": {
       "select": "Select",
