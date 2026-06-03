@@ -338,3 +338,26 @@ describe("evaluate — via plating", () => {
     expect(findings.find((f) => f.id === "via.plating")).toBeUndefined();
   });
 });
+
+describe("evaluate — annular ring", () => {
+  it("blocks when a pad has no annular ring (≤ 0)", () => {
+    const metrics = makeMetrics({ geo: { minAnnularMm: -0.01 } });
+    const findings = evaluate(metrics, makeProfile());
+    const ann = findings.find((f) => f.id === "copper.annular");
+    expect(ann?.severity).toBe("block");
+  });
+
+  it("warns on a narrow annular ring below the minimum", () => {
+    const metrics = makeMetrics({ geo: { minAnnularMm: 0.1 } });
+    const findings = evaluate(metrics, makeProfile());
+    const ann = findings.find((f) => f.id === "copper.annular");
+    expect(ann?.severity).toBe("warn");
+  });
+
+  it("accepts an annular ring at or above the minimum", () => {
+    const metrics = makeMetrics({ geo: { minAnnularMm: 0.2 } });
+    const findings = evaluate(metrics, makeProfile());
+    const ann = findings.find((f) => f.id === "copper.annular");
+    expect(ann?.severity).toBe("ok");
+  });
+});
