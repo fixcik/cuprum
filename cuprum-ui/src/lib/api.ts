@@ -89,6 +89,13 @@ export interface ProjectDesign {
   gerbers: GerberFile[];
 }
 
+/** Wrapper returned by `add_design_from_zip` after Tasks 1-3: the new design
+ *  plus an opaque trace-session token (null when tracing is disabled). */
+export interface AddedDesign {
+  design: ProjectDesign;
+  traceSession: number | null;
+}
+
 export interface Stackup {
   copper_weight_oz: number;
   substrate_thickness_mm: number;
@@ -314,22 +321,24 @@ export const api = {
    *  (auto-classified) and return it; merge into the manifest + persist via the
    *  autosave path. */
   addDesignFromZip: (workingDir: string, zipPath: string) =>
-    invoke<ProjectDesign>("add_design_from_zip", { workingDir, zipPath }),
+    invoke<AddedDesign>("add_design_from_zip", { workingDir, zipPath }),
   renderGerberSvg: (workingDir: string, gerberRel: string) =>
     invoke<LayerGeometry>("render_gerber_svg", { workingDir, gerberRel }),
-  renderLayersSvg: (workingDir: string, rels: string[]) =>
-    invoke<LayerSvgResult[]>("render_layers_svg", { workingDir, rels }),
+  renderLayersSvg: (workingDir: string, rels: string[], traceSession?: number) =>
+    invoke<LayerSvgResult[]>("render_layers_svg", { workingDir, rels, traceSession }),
   renderDesignPreview: (
     workingDir: string,
     designId: string,
     gerbers: { rel: string; layerType: LayerType }[],
     layerColors?: Record<string, string>,
+    traceSession?: number,
   ) =>
     invoke<PreviewResultDto>("render_design_preview", {
       workingDir,
       designId,
       gerbers,
       layerColors: layerColors ?? null,
+      traceSession,
     }),
   readDrill: (workingDir: string, gerberRel: string) =>
     invoke<Hole[]>("read_drill", { workingDir, gerberRel }),
@@ -361,7 +370,8 @@ export const api = {
   projectBoardMetrics: (
     workingDir: string,
     gerbers: { rel: string; layerType: LayerType }[],
-  ) => invoke<BoardMetricsResult>("project_board_metrics", { workingDir, gerbers }),
+    traceSession?: number,
+  ) => invoke<BoardMetricsResult>("project_board_metrics", { workingDir, gerbers, traceSession }),
 
   displayPxPerMm: () => invoke<number>("display_px_per_mm"),
 
