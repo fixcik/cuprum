@@ -13,6 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 lru.workspace = true
 md-5.workspace = true
+xxhash-rust.workspace = true
 uuid.workspace = true
 tungstenite.workspace = true
 gerber_viewer.workspace = true
