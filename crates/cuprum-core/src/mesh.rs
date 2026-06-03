@@ -364,6 +364,7 @@ fn ring_area(ring: &[[f64; 2]]) -> f64 {
 /// Build the FR4 substrate: top + bottom faces (drilled through) and the
 /// perimeter + inner-cutout walls. Drill bores get copper barrels instead of
 /// FR4 walls (added per drill layer), so they don't z-fight.
+#[tracing::instrument(skip_all, fields(loops = loops.len(), holes = holes.len()))]
 fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
     let mut buf = Buffer::default();
     if loops.is_empty() {
@@ -377,16 +378,24 @@ fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
             clip.push(geometry::circle(h.x, h.y, h.d / 2.0, DRILL_SEGS));
         }
     }
-    let shapes = if clip.is_empty() {
-        FloatOverlay::with_subj(&outer).overlay(OverlayRule::Subject, FillRule::NonZero)
-    } else {
-        FloatOverlay::with_subj_and_clip(&outer, &clip)
-            .overlay(OverlayRule::Difference, FillRule::NonZero)
+    let board_polys = {
+        // Drilling the faces is a boolean difference against every hole circle —
+        // the suspect cost when a board has thousands of holes.
+        let _span = tracing::info_span!("drill_faces", clip = clip.len()).entered();
+        let shapes = if clip.is_empty() {
+            FloatOverlay::with_subj(&outer).overlay(OverlayRule::Subject, FillRule::NonZero)
+        } else {
+            FloatOverlay::with_subj_and_clip(&outer, &clip)
+                .overlay(OverlayRule::Difference, FillRule::NonZero)
+        };
+        geometry::shapes_to_polys(shapes)
     };
-    let board_polys = geometry::shapes_to_polys(shapes);
-    for p in &board_polys {
-        add_poly(&mut buf, p, FR4_THICK, 1.0); // top face
-        add_poly(&mut buf, p, 0.0, -1.0); // bottom face
+    {
+        let _span = tracing::info_span!("triangulate_faces", polys = board_polys.len()).entered();
+        for p in &board_polys {
+            add_poly(&mut buf, p, FR4_THICK, 1.0); // top face
+            add_poly(&mut buf, p, 0.0, -1.0); // bottom face
+        }
     }
     // Walls only for the perimeter + inner cutouts (NOT drills).
     add_wall(&mut buf, &loops[0], 0.0, FR4_THICK);
@@ -398,6 +407,7 @@ fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
 
 /// Triangulate one surface layer into a `LayerMesh`, or `None` if empty / not a
 /// surface (edge/drill handled elsewhere).
+#[tracing::instrument(skip_all, fields(key = %layer.key, role = ?layer.role))]
 fn build_surface_layer(
     layer: &LayerInput,
     holes: &[Hole],
@@ -410,13 +420,18 @@ fn build_surface_layer(
         Role::Paste | Role::Other => (KIND_OTHER, false),
         Role::Edge | Role::Drill => return None,
     };
-    let polys = if is_mask {
-        if outline.is_empty() {
-            return None;
+    // Boolean stage: fills/clears unioned, drill bores subtracted (mask = board
+    // minus openings). Usually the dominant cost per layer.
+    let polys = {
+        let _span = tracing::info_span!("polygons", is_mask).entered();
+        if is_mask {
+            if outline.is_empty() {
+                return None;
+            }
+            geometry::mask_polygons(outline, layer.bytes).ok()?
+        } else {
+            geometry::layer_polygons(layer.bytes, holes).ok()?
         }
-        geometry::mask_polygons(outline, layer.bytes).ok()?
-    } else {
-        geometry::layer_polygons(layer.bytes, holes).ok()?
     };
     if polys.is_empty() {
         return None;
@@ -428,8 +443,11 @@ fn build_surface_layer(
         1.0
     };
     let mut buf = Buffer::default();
-    for p in &polys {
-        add_poly(&mut buf, p, z, nz);
+    {
+        let _span = tracing::info_span!("triangulate", polys = polys.len()).entered();
+        for p in &polys {
+            add_poly(&mut buf, p, z, nz);
+        }
     }
     if buf.positions.is_empty() {
         return None;
@@ -452,26 +470,32 @@ fn build_surface_layer(
 pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
     // 1. Collect ALL drill holes (used to drill the substrate faces and cut fills).
     let mut holes: Vec<Hole> = Vec::new();
-    for l in layers {
-        if l.role == Role::Drill {
-            if let Ok(hs) = crate::drill::parse_drill(l.bytes) {
-                for h in hs {
-                    holes.push(Hole {
-                        x: h.x_mm as f64,
-                        y: h.y_mm as f64,
-                        d: h.d_mm as f64,
-                    });
+    {
+        let _span = tracing::info_span!("collect_holes").entered();
+        for l in layers {
+            if l.role == Role::Drill {
+                if let Ok(hs) = crate::drill::parse_drill(l.bytes) {
+                    for h in hs {
+                        holes.push(Hole {
+                            x: h.x_mm as f64,
+                            y: h.y_mm as f64,
+                            d: h.d_mm as f64,
+                        });
+                    }
                 }
             }
         }
     }
 
     // 2. Board outline from the Edge layer (if any).
-    let outline = layers
-        .iter()
-        .find(|l| l.role == Role::Edge)
-        .map(|e| outline_loops(e.bytes))
-        .unwrap_or_default();
+    let outline = {
+        let _span = tracing::info_span!("outline").entered();
+        layers
+            .iter()
+            .find(|l| l.role == Role::Edge)
+            .map(|e| outline_loops(e.bytes))
+            .unwrap_or_default()
+    };
 
     // 3. Substrate.
     let substrate = build_substrate(&outline, &holes);
@@ -479,32 +503,38 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
     // 4. Surface layers, triangulated in parallel (the heavy part).
     let mut meshes: Vec<LayerMesh> = {
         let _span = tracing::info_span!("triangulate_parallel").entered();
+        // Capture the current span so each layer's spans (created on rayon
+        // workers) stay its children and route to this operation's trace file.
+        let dh = crate::trace::capture_dispatch();
         layers
             .par_iter()
-            .filter_map(|l| build_surface_layer(l, &holes, &outline))
+            .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline)))
             .collect()
     };
 
     // 5. One barrel mesh per drill layer (keyed by that layer, so it toggles).
-    for l in layers {
-        if l.role != Role::Drill {
-            continue;
-        }
-        let Ok(hs) = crate::drill::parse_drill(l.bytes) else {
-            continue;
-        };
-        let mut buf = Buffer::default();
-        for h in &hs {
-            if h.d_mm > 0.0 {
-                add_barrel(&mut buf, h.x_mm, h.y_mm, h.d_mm / 2.0, 0.0, FR4_THICK);
+    {
+        let _span = tracing::info_span!("barrels").entered();
+        for l in layers {
+            if l.role != Role::Drill {
+                continue;
             }
-        }
-        if !buf.positions.is_empty() {
-            meshes.push(LayerMesh {
-                key: l.key.clone(),
-                kind: KIND_BARREL,
-                buffer: buf,
-            });
+            let Ok(hs) = crate::drill::parse_drill(l.bytes) else {
+                continue;
+            };
+            let mut buf = Buffer::default();
+            for h in &hs {
+                if h.d_mm > 0.0 {
+                    add_barrel(&mut buf, h.x_mm, h.y_mm, h.d_mm / 2.0, 0.0, FR4_THICK);
+                }
+            }
+            if !buf.positions.is_empty() {
+                meshes.push(LayerMesh {
+                    key: l.key.clone(),
+                    kind: KIND_BARREL,
+                    buffer: buf,
+                });
+            }
         }
     }
 
@@ -590,6 +620,73 @@ mod tests {
             !barrels[0].buffer.positions.is_empty(),
             "barrel should have wall verts"
         );
+    }
+
+    #[test]
+    fn board_geometry_emits_phase_spans_to_trace() {
+        // A board exercising every phase: copper surface, edge outline, a drill.
+        const DRL: &[u8] = b"M48\nMETRIC,TZ\nT1C0.300\n%\nT1\nX5.0Y5.0\nM30\n";
+        let layers = vec![
+            LayerInput {
+                key: "cu".into(),
+                role: Role::Copper,
+                side: Side::Top,
+                bytes: FLASH_PAD,
+            },
+            LayerInput {
+                key: "edge".into(),
+                role: Role::Edge,
+                side: Side::Both,
+                bytes: EDGE_SQUARE,
+            },
+            LayerInput {
+                key: "drl".into(),
+                role: Role::Drill,
+                side: Side::Both,
+                bytes: DRL,
+            },
+        ];
+
+        let tmp = std::env::temp_dir().join(format!("cuprum-mesh-trace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = crate::trace::TraceConfig::Dir(tmp.clone());
+        let board = crate::trace::run_with_config(&cfg, "mesh", &tmp, || board_geometry(&layers));
+        assert!(!board.substrate.positions.is_empty(), "board still built");
+
+        let file = std::fs::read_dir(&tmp)
+            .expect("trace dir exists")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+            .expect("a mesh trace file was written");
+        let body = std::fs::read_to_string(&file).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).expect("trace is valid JSON");
+
+        // Main-thread phase spans + substrate sub-phases.
+        for name in [
+            "collect_holes",
+            "outline",
+            "build_substrate",
+            "drill_faces",
+            "triangulate_faces",
+            "triangulate_parallel",
+            "barrels",
+        ] {
+            assert!(
+                body.contains(name),
+                "phase span `{name}` missing from trace"
+            );
+        }
+        // Per-layer spans run on rayon workers; their presence proves the
+        // `capture_dispatch`/`dh.run` propagation routes worker spans to the file.
+        for name in ["build_surface_layer", "polygons", "triangulate"] {
+            assert!(
+                body.contains(name),
+                "worker span `{name}` missing — dispatch propagation broken"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
