@@ -93,6 +93,13 @@
       "add": "Add design",
       "duplicate": "Duplicate",
       "delete": "Delete"
+    },
+    "menu": {
+      "duplicate": "Duplicate",
+      "rotateCw": "Rotate 90° clockwise",
+      "rotateCcw": "Rotate 90° counter-clockwise",
+      "resetRotation": "Reset rotation",
+      "delete": "Delete"
     }
   },
   "operations": {
