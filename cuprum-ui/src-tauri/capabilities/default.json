@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main window",
-  "windows": ["main"],
-  "permissions": ["core:default", "dialog:default", "core:window:allow-set-title"]
+  "description": "Capabilities for app windows",
+  "windows": ["main", "add-design"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "core:window:allow-set-title",
+    "core:window:allow-close"
+  ]
 }

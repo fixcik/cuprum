@@ -28,6 +28,12 @@
     "canvas": {
       "copper": "Cu",
       "noCopper": "нет меди"
+    },
+    "add": {
+      "window": {
+        "title": "Добавить дизайн на панель"
+      },
+      "close": "Закрыть"
     }
   },
   "operations": {

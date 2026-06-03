@@ -1211,6 +1211,27 @@ fn take_pending_open(state: tauri::State<PendingOpen>) -> Option<String> {
     state.0.lock().unwrap().take()
 }
 
+/// Open (or focus) the separate "Add design to panel" window. Same bundle as the
+/// main window; the SPA branches on the window label. Title is set by the JS side
+/// (localised), so we use a neutral one here.
+#[tauri::command]
+fn open_add_design_window(app: AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if let Some(w) = app.get_webview_window("add-design") {
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    WebviewWindowBuilder::new(&app, "add-design", WebviewUrl::App("index.html".into()))
+        .title("Cuprum")
+        .inner_size(980.0, 760.0)
+        .min_inner_size(720.0, 520.0)
+        .resizable(true)
+        .center()
+        .focused(true)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .manage(PendingOpen::default())
@@ -1266,7 +1287,8 @@ fn main() {
             project_board_metrics,
             read_drill,
             display_px_per_mm,
-            take_pending_open
+            take_pending_open,
+            open_add_design_window
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");

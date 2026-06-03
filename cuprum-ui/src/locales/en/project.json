@@ -28,6 +28,12 @@
     "canvas": {
       "copper": "Cu",
       "noCopper": "no copper"
+    },
+    "add": {
+      "window": {
+        "title": "Add design to panel"
+      },
+      "close": "Close"
     }
   },
   "operations": {

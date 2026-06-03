@@ -378,6 +378,9 @@ export const api = {
 
   displayPxPerMm: () => invoke<number>("display_px_per_mm"),
 
+  /** Open (or focus) the "Add design to panel" child window. */
+  openAddDesignWindow: () => invoke<void>("open_add_design_window"),
+
   // Dialogs for the project flows.
   pickZips: () =>
     open({ multiple: true, filters: [{ name: "ZIP", extensions: ["zip"] }] }) as Promise<
