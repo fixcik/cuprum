@@ -98,7 +98,24 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   появится размещение дизайнов на панели (`BoardInstance`), удаление дизайна должно
   снимать и его размещения с панели (и наоборот — нельзя удалить дизайн, «молча»
   оставив висящий placement).
-- [x] **Тесты для фронта (тест-раннер).** vitest заведён, `pnpm test` добавлен в `package.json`; покрыты юнит-тестами `feasibility.ts` (size/layers/thin-trace/overallVerdict, включая кейс «двусторонка на односторонней панели»); шаг `pnpm test` добавлен в CI (ui-job в `ci.yml`). (✅ 2026-06-03, PR #60) Покрытие `feasibility.evaluate` расширено на метрико-зависимые находки (зазор/ширина/поясок/сверловка/via/маска/шелк/overshoot + инвариант «info не эскалирует вердикт») (✅ 2026-06-03, PR #67).
+- [x] **Тесты для фронта (тест-раннер + покрытие чистой логики).** Заведён vitest
+  + jsdom (конфиг — блок `test` в `vite.config.ts`, алиас `@/`), `pnpm test` в
+  `package.json`; шаг `pnpm test` в CI (ui-job в `ci.yml`) + локальный хук
+  `cuprum-guard` гоняет его перед `gh pr create`, если ветка трогала фронт. На
+  `master` ~144 теста (16 файлов), покрыта вся чистая логика фронта:
+  - `feasibility.ts` — DFM-вердикты: size/layers/thin-trace/overallVerdict +
+    метрико-зависимые находки (зазор/ширина/поясок/сверловка/via/маска/шелк/overshoot,
+    инвариант «info не эскалирует вердикт») (✅ 2026-06-03, PR #60, #67).
+  - `layerColors`/`panel` (PR #71), `panelPlacement`/`nest` — grid-паковка, bbox с
+    поворотом, off-panel (PR #74), `artifactProgress`/`projectErrors` (PR #75),
+    `relativeTime`/`formatRelativeTime`/`resolveLanguage` (PR #78),
+    `boardMesh` (бинарный wire-парсинг) / `boardOutline` stitchLoops (PR #85) (✅ 2026-06-04).
+  - Единицы: useUnitFormat **отрефакторен** в чистое ядро `unitFormat.ts` (мм↔милы/дюймы)
+    + тесты (PR #82); стораы: `settingsStore` (PR #86), `store` (select/align/distribute/
+    autoArrange) (PR #91), `shellStore` sync-surface (view/прогресс артефактов/undo) (PR #93) (✅ 2026-06-04).
+  - **Дальше (по желанию):** async-флоу `shellStore` (open/save/import — нужна мок-инфра
+    `api`-слоя) и `outlineLoops`/`outlinePathD` (SVGLoader) — оставлены под отдельный
+    интеграционный заход.
 - **Автообновление приложения.** Tauri 2 updater plugin: проверка новой версии,
   скачивание и применение бандла. Стыкуется с `getVersion()` (версия в UI уже оттуда).
   - [x] **PR1 — ядро** (✅ 2026-06-03, PR #55): плагины updater+process, endpoint на
