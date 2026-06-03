@@ -473,24 +473,21 @@ dependencies = [
  "anyhow",
  "criterion",
  "cuprum-diskcache",
+ "cuprum-sdcp",
  "cuprum-trace",
  "earcutr",
  "gerber_viewer",
  "goo",
  "i_overlay",
  "lru",
- "md-5",
  "png 0.17.16",
  "rayon",
- "reqwest",
  "resvg",
  "serde",
  "serde_json",
  "tiny-skia 0.12.0",
  "tracing",
- "tungstenite",
  "usvg",
- "uuid",
 ]
 
 [[package]]
@@ -515,6 +512,19 @@ dependencies = [
  "serde_json",
  "tracing",
  "zip",
+]
+
+[[package]]
+name = "cuprum-sdcp"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "md-5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tungstenite",
+ "uuid",
 ]
 
 [[package]]
