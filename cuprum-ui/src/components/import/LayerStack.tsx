@@ -497,7 +497,7 @@ export function LayerStack({
             {boardClipD && (
               <defs>
                 <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
-                  <path d={boardClipD} />
+                  <path d={boardClipD} fillRule="evenodd" />
                 </clipPath>
               </defs>
             )}
