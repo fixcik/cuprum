@@ -12,13 +12,9 @@ import {
 } from "@/lib/api";
 import type { ProblemType, Severity } from "@/lib/feasibility";
 import { problemTypeOf, PROBLEM_TYPE_ORDER, VERDICT_KEY } from "@/lib/feasibility";
+import { worseSeverity } from "@/lib/severity";
 import { useSettings } from "@/settingsStore";
 import { usePreviewData } from "@/hooks/usePreviewData";
-
-/** Severity ranking for picking the worst across a problem-type's findings. */
-const SEV_RANK: Record<Severity, number> = { ok: 0, info: 1, warn: 2, block: 3 };
-const worseSeverity = (a: Severity | undefined, b: Severity): Severity =>
-  a === undefined || SEV_RANK[b] > SEV_RANK[a] ? b : a;
 
 interface DesignInspectorProps {
   designId: string;

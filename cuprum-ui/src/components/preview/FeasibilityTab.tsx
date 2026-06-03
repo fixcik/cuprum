@@ -1,58 +1,8 @@
-import { CheckCircle2, AlertTriangle, XCircle, Info, Loader2, MapPin } from "lucide-react";
+import { Loader2, MapPin } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { type Finding, type I18nText, type Severity } from "@/lib/feasibility";
-import { useUnitFormat } from "@/i18n/useUnitFormat";
-
-const ICON: Record<Severity, { Icon: typeof CheckCircle2; color: string }> = {
-  ok: { Icon: CheckCircle2, color: "text-success" },
-  warn: { Icon: AlertTriangle, color: "text-warning" },
-  block: { Icon: XCircle, color: "text-destructive" },
-  info: { Icon: Info, color: "text-muted-foreground" },
-};
-
-/** Param names carrying a RAW length in mm — formatted via fmtLen at render. */
-const LEN_PARAMS = new Set(["len", "w", "h"]);
-
-/** Hook returning renderers that resolve an I18nText: length params are
- *  unit-formatted, key-like string params (containing ":") are translated, then
- *  the text key is translated with the resulting interpolation params. */
-function useRenderText() {
-  const { t } = useTranslation(["feasibility", "common"]);
-  const { fmtLen, fmtLenPair } = useUnitFormat();
-
-  // Resolve an I18nText to a display string: length params unit-formatted, key-like
-  // string params translated, then the text key translated. `lenOverride`, when
-  // given, replaces the `len` param's value (so a finding's value and limit can be
-  // rendered in one shared unit by the caller).
-  const resolveText = (text?: I18nText, lenOverride?: string): string => {
-    if (!text) return "";
-    const params: Record<string, string | number> = {};
-    for (const [k, v] of Object.entries(text.params ?? {})) {
-      if (k === "len" && lenOverride != null && typeof v === "number") params[k] = lenOverride;
-      else if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
-      else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
-      else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
-      else params[k] = v;
-    }
-    return t(text.key, params);
-  };
-  const tr = (text?: I18nText): string => resolveText(text);
-  const trLen = (text: I18nText | undefined, lenStr: string): string => resolveText(text, lenStr);
-
-  // Format a finding's measured + limit in a shared unit when both are simple
-  // lengths; otherwise resolve each independently.
-  const measuredLimit = (f: Finding): { measured: string; limit: string } => {
-    const m = f.measured?.params?.len;
-    const l = f.limit?.params?.len;
-    if (typeof m === "number" && typeof l === "number") {
-      const [ms, ls] = fmtLenPair([m, l]);
-      return { measured: trLen(f.measured, ms), limit: trLen(f.limit, ls) };
-    }
-    return { measured: tr(f.measured), limit: tr(f.limit) };
-  };
-
-  return { tr, trLen, measuredLimit };
-}
+import { type Finding } from "@/lib/feasibility";
+import { SEVERITY } from "@/lib/severity";
+import { useFindingText } from "@/hooks/useFindingText";
 
 function FindingRow({
   f,
@@ -64,8 +14,8 @@ function FindingRow({
   active: number | null;
   onFocus?: (fid: string, hi: number) => void;
 }) {
-  const { tr, measuredLimit } = useRenderText();
-  const { Icon, color } = ICON[f.severity];
+  const { tr, measuredLimit } = useFindingText();
+  const { Icon, fg: color } = SEVERITY[f.severity];
   const ml = measuredLimit(f);
   const n = f.hotspots?.length ?? 0;
   const k = active ?? 0;

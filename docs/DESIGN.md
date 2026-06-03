@@ -262,6 +262,18 @@ cuprum-ui/src/
   — конвергенция инспектора на `usePreviewData` вынесена в follow-up, см. ROADMAP: после того как
   master вынес инспектор в отдельное окно (#70), оба окна целятся в общий хук отдельным PR.)
 
+- **2026-06-04 — общий источник стилей серьёзности + резолвер текста находок (рефакторинг-дедуп).**
+  Карта `severity → {Icon, fg, bg, dot, hsl}` была скопирована дословно в четырёх местах
+  (`VerdictBadge`, `FeasibilityTab`, `DrcMarkers`, `PreviewPane`), плюс `SEV_RANK`/`worseSeverity`
+  отдельно в `DesignInspector`. Сведены в один `lib/severity.ts` (`SEVERITY`-карта + `SEV_RANK` +
+  `worseSeverity`); `hsl` — для SVG/canvas, где класс не повесить, `fg/bg/dot` — tailwind-классы.
+  Резолвер `I18nText` находки (длины через `fmtLen`, ключ-подобные параметры через `t`, затем
+  ключ текста) жил двумя посимвольными копиями — `FeasibilityTab.useRenderText` и
+  `usePreviewData` (куда копия инспектора уехала при конвергенции #81); вынесен в хук
+  `hooks/useFindingText.ts` (`tr`/`trLen`/`measuredLimit`, колбэки стабильны через `useCallback`
+  — безопасно в deps `useMemo`). Поведение не меняется, минус ~130 строк дублей. Редактор панели
+  не затронут.
+
 ---
 
 *Ревизия 2026-06-04. Обновлять при изменении дизайн-системы и принятии новых

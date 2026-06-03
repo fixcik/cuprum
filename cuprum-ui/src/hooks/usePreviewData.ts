@@ -12,7 +12,7 @@ import {
   type PanelDoc,
   type Stackup,
 } from "@/lib/api";
-import type { FindingCategory, Finding, I18nText, ProblemType, Verdict } from "@/lib/feasibility";
+import type { FindingCategory, Finding, ProblemType, Verdict } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { evaluate, overallVerdict, problemTypeOf } from "@/lib/feasibility";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
@@ -20,6 +20,7 @@ import type { StackLayer, FocusTarget } from "@/components/import/LayerStack";
 import type { DrcMarkerInput } from "@/components/preview/DrcMarkers";
 import type { PreviewMode, DrcIssue } from "@/components/preview/PreviewPane";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
+import { useFindingText } from "@/hooks/useFindingText";
 
 /** Per-gerber render status for the streaming 2D preview. */
 type SvgStatus = "none" | "pending" | "loaded" | "error";
@@ -63,9 +64,6 @@ export interface PreviewData {
   /** Whether a layer is visible at the current mode/side + manual hides (LayerPanel rows). */
   isVisible: (type: LayerType, path: string) => boolean;
 }
-
-/** Param names carrying a RAW length in mm — formatted via fmtLen at render. */
-const LEN_PARAMS = new Set(["len", "w", "h"]);
 
 /** Findings whose hotspots are holes — drawn as a ring around the bore. */
 const CIRCLE_FINDINGS = new Set(["drill.minHole", "via.plating", "drill.bitSnap"]);
@@ -155,26 +153,9 @@ export function usePreviewData(
 
   const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers", "project"]);
   const { fmtLen, fmtLenPair } = useUnitFormat();
-
-  const resolveText = useCallback(
-    (text?: I18nText, lenOverride?: string): string => {
-      if (!text) return "";
-      const params: Record<string, string | number> = {};
-      for (const [k, v] of Object.entries(text.params ?? {})) {
-        if (k === "len" && lenOverride != null && typeof v === "number") params[k] = lenOverride;
-        else if (Array.isArray(v)) params[k] = v.map((mm) => fmtLen(mm)).join(", ");
-        else if (LEN_PARAMS.has(k) && typeof v === "number") params[k] = fmtLen(v);
-        else if (typeof v === "string" && v.includes(":")) params[k] = t(v);
-        else params[k] = v;
-      }
-      return t(text.key, params);
-    },
-    [t, fmtLen],
-  );
-  const trLen = useCallback(
-    (text: I18nText | undefined, lenStr: string): string => resolveText(text, lenStr),
-    [resolveText],
-  );
+  // Shared finding-text resolver (tr = single text, trLen = with a shared-unit
+  // length override) — same logic FeasibilityTab uses; see hooks/useFindingText.
+  const { tr: resolveText, trLen } = useFindingText();
 
   // Per-gerber MANUAL hide toggles by REL-PATH (UI-only, not persisted).
   const [hidden, setHidden] = useState<Set<string>>(new Set());
