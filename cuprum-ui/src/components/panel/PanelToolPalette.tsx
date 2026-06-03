@@ -7,27 +7,26 @@ import { usePanelSelection } from "@/panelSelectionStore";
 export type PanelTool = "select" | "pan";
 
 /** Floating tool palette over the panel canvas (KiCad/Photoshop style). Add is
- *  always available; duplicate and delete act on the current selection. */
+ *  always available; duplicate and delete act on the current selection. The
+ *  duplicate action is delegated to `onDuplicate` so the caller can apply a
+ *  clamped offset before dispatching to the store. */
 export function PanelToolPalette({
   tool,
   onToolChange,
+  onDuplicate,
 }: {
   tool: PanelTool;
   onToolChange: (t: PanelTool) => void;
+  onDuplicate: () => void;
 }) {
   const { t } = useTranslation("project");
   const selected = usePanelSelection((s) => s.selected);
   const removeInstances = useShell((s) => s.removeInstances);
-  const duplicateInstances = useShell((s) => s.duplicateInstances);
   const selectedCount = selected.size;
   const deleteSelected = () => {
     if (selectedCount === 0) return;
     void removeInstances([...selected]);
     usePanelSelection.getState().clear();
-  };
-  const duplicateSelected = () => {
-    if (selectedCount === 0) return;
-    void duplicateInstances([...selected]).then((ids) => usePanelSelection.getState().set(ids));
   };
 
   const toolBtn = (id: PanelTool, Icon: LucideIcon, label: string) => {
@@ -73,7 +72,7 @@ export function PanelToolPalette({
       {toolBtn("pan", Hand, t("panel.tool.pan"))}
       <div className="my-0.5 h-px w-6 bg-border" />
       {actionBtn(FilePlus2, t("panel.tool.add"), () => void api.openAddDesignWindow())}
-      {actionBtn(Copy, t("panel.tool.duplicate"), duplicateSelected, selectedCount === 0)}
+      {actionBtn(Copy, t("panel.tool.duplicate"), selectedCount === 0 ? undefined : onDuplicate, selectedCount === 0)}
       {actionBtn(Trash2, t("panel.tool.delete"), deleteSelected, selectedCount === 0)}
     </div>
   );
