@@ -77,12 +77,13 @@ export function PanelEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPath, docNonce]);
 
-  // The blank can't exceed the machine's work area. Don't silently clamp the
-  // typed value — flag the field as out-of-range and gate persistence, so the
-  // user sees why it won't take instead of watching the number snap back.
+  // Exceeding the machine's work area is an advisory hint, NOT a hard limit: flag
+  // the field so the user knows it won't fit as-is, but still persist the value —
+  // they may raise the work area in Settings later, and the real "board > panel"
+  // gate lives in the DFM check. Persistence only needs finite positive numbers.
   const widthTooBig = width > maxW;
   const heightTooBig = height > maxH;
-  const valid = width > 0 && height > 0 && substrate > 0 && !widthTooBig && !heightTooBig;
+  const valid = width > 0 && height > 0 && substrate > 0;
 
   // Debounced autosave: write only when the params differ from the last-persisted
   // snapshot and are valid.
