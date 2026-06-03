@@ -417,9 +417,15 @@ fn open_project(app: AppHandle, path: String) -> Result<OpenedProjectDto, String
 
 /// Pack the working dir back into the `.cuprum` container (Ctrl-S / save-as).
 #[tauri::command]
-fn save_project(working_dir: String, target_path: String) -> Result<(), String> {
-    cuprum_project::workdir::pack(Path::new(&working_dir), Path::new(&target_path))
-        .map_err(|e| e.to_string())
+fn save_project(
+    app: tauri::AppHandle,
+    working_dir: String,
+    target_path: String,
+) -> Result<(), String> {
+    cuprum_core::trace::operation("flush", &traces_dir(&app), || {
+        cuprum_project::workdir::pack(Path::new(&working_dir), Path::new(&target_path))
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// Mirror the current manifest into the working dir (called after every mutation
@@ -433,6 +439,16 @@ fn write_working_manifest(
         .map_err(|e| e.to_string())
 }
 
+/// DTO returned by `add_design_from_zip`: the new Design plus an optional trace
+/// session id. The session stays open so subsequent per-card precompute commands
+/// can route their operations into the same trace file.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AddedDesignDto {
+    design: cuprum_project::manifest::Design,
+    trace_session: Option<u64>,
+}
+
 /// Copy one source ZIP into the open project's working dir as a new Design
 /// (auto-classified). Returns the Design for the UI to merge into the manifest;
 /// the UI then persists via write_working_manifest + save_project (autosave),
@@ -442,9 +458,18 @@ fn add_design_from_zip(
     app: AppHandle,
     working_dir: String,
     zip_path: String,
-) -> Result<cuprum_project::manifest::Design, String> {
+) -> Result<AddedDesignDto, String> {
     let wd = confined_workdir(&app, &working_dir)?;
-    cuprum_project::add_design_to_workdir(&wd, Path::new(&zip_path)).map_err(|e| e.to_string())
+    let traces = traces_dir(&app);
+    let sid = cuprum_core::trace::begin_session("load", &traces);
+    let design = cuprum_core::trace::operation_in_session(sid, "import", &traces, || {
+        cuprum_project::add_design_to_workdir(&wd, Path::new(&zip_path))
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(AddedDesignDto {
+        design,
+        trace_session: sid,
+    })
 }
 
 /// List recoverable (dirty) orphan working dirs left by a previous run.
@@ -622,10 +647,11 @@ async fn render_layers_svg(
     app: AppHandle,
     working_dir: String,
     rels: Vec<String>,
+    trace_session: Option<u64>,
 ) -> Result<Vec<LayerSvgResult>, String> {
     let traces = traces_dir(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        cuprum_core::trace::operation("svg_batch", &traces, || {
+        cuprum_core::trace::operation_in_session(trace_session, "svg_batch", &traces, || {
             use rayon::prelude::*;
             // Capture dispatch + parent span on the outer thread so worker
             // threads can record into the same trace file.
@@ -1013,6 +1039,7 @@ async fn project_board_metrics(
     app: AppHandle,
     working_dir: String,
     gerbers: Vec<GerberRef>,
+    trace_session: Option<u64>,
 ) -> Result<BoardMetricsDto, String> {
     // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
     // main thread so concurrent calls (one per design card) don't serialize.
@@ -1062,7 +1089,7 @@ async fn project_board_metrics(
         let traces = traces_dir(&app);
         let metrics = cuprum_core::cache::board_metrics_artifact(&dir, &key, move || {
             let inputs = build_inputs(&loaded);
-            cuprum_core::trace::operation("metrics", &traces, || {
+            cuprum_core::trace::operation_in_session(trace_session, "metrics", &traces, || {
                 cuprum_core::dfm::board_metrics(&inputs)
             })
         });
@@ -1084,6 +1111,7 @@ async fn render_design_preview(
     design_id: String,
     gerbers: Vec<GerberRef>,
     layer_colors: Option<std::collections::HashMap<String, String>>,
+    trace_session: Option<u64>,
 ) -> Result<PreviewDto, String> {
     let _ = &design_id; // label/trace only
     let overrides = layer_colors.unwrap_or_default();
@@ -1109,10 +1137,11 @@ async fn render_design_preview(
         let key = cuprum_core::preview::preview_key(&layers, &overrides);
         let fresh = artifact_fresh(&dir.join("preview"), &key);
         let traces = traces_dir(&app);
-        let png = cuprum_core::trace::operation("preview", &traces, || {
-            cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, 512)
-        })
-        .map_err(|e| e.to_string())?;
+        let png =
+            cuprum_core::trace::operation_in_session(trace_session, "preview", &traces, || {
+                cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, 512)
+            })
+            .map_err(|e| e.to_string())?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(PreviewDto {
             png_data_url: format!("data:image/png;base64,{b64}"),
