@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
@@ -11,8 +11,16 @@ import { SettingRow } from "@/components/ui/settings/SettingRow";
 import { UnitField } from "@/components/ui/settings/UnitField";
 import { PanelBlankCanvas } from "@/components/panel/PanelBlankCanvas";
 import { BUILTIN_PANEL_PRESETS, COPPER_WEIGHTS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
+import { isOffPanel } from "@/lib/panelPlacement";
+import { api } from "@/lib/api";
+import type { BoardInstance, ProjectDesign } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
+
+// Stable empty fallbacks: returning a fresh `[]` from a zustand selector on every
+// render triggers an infinite re-render loop, so share one frozen array instead.
+const EMPTY_INSTANCES: BoardInstance[] = [];
+const EMPTY_DESIGNS: ProjectDesign[] = [];
 
 /** Inline FR4-blank editor (left params + right schematic canvas). Autosaves on
  *  change (debounced) via savePanelConfig — no Save button. Lives in the Panel
@@ -23,6 +31,9 @@ export function PanelEditor() {
   const currentPath = useShell((s) => s.currentPath);
   const savePanelConfig = useShell((s) => s.savePanelConfig);
   const docNonce = useShell((s) => s.docNonce);
+  const workingDir = useShell((s) => s.workingDir);
+  const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
+  const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
   const userPresets = useSettings((s) => s.panelPresets);
   const addPanelPreset = useSettings((s) => s.addPanelPreset);
   // The panel is bounded by the machine's work area (from Settings): you can't
@@ -39,6 +50,9 @@ export function PanelEditor() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [presetOpen, setPresetOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
+  // Board extents (mm) per placed design, from cached metrics — used only to warn
+  // when shrinking the blank leaves a design hanging off the edge.
+  const [boardSizes, setBoardSizes] = useState<Record<string, { w: number; h: number }>>({});
 
   // Snapshot of the last-persisted params, so the autosave effect skips writing
   // the just-prefilled values (and skips no-op rewrites). Seed with the initial
@@ -92,7 +106,15 @@ export function PanelEditor() {
     const key = JSON.stringify({ w: width, h: height, cw: copperWeight, sub: substrate, ds: doubleSided });
     if (key === lastSaved.current) return;
     const id = setTimeout(() => {
-      savePanelConfig(newPanelDoc(width, height), {
+      // Editing the blank's size/stackup must NOT wipe the layout: carry over the
+      // existing instances + tooling holes. Read the panel fresh here (not from the
+      // effect closure) so a concurrent add isn't clobbered. Falls back to a new
+      // doc only when none exists yet.
+      const prevPanel = useShell.getState().currentManifest?.panel;
+      const nextPanel = prevPanel
+        ? { ...prevPanel, width_mm: width, height_mm: height }
+        : newPanelDoc(width, height);
+      savePanelConfig(nextPanel, {
         copper_weight_oz: copperWeight,
         substrate_thickness_mm: substrate,
         double_sided: doubleSided,
@@ -105,6 +127,56 @@ export function PanelEditor() {
     }, 500);
     return () => clearTimeout(id);
   }, [currentPath, width, height, copperWeight, substrate, doubleSided, valid, savePanelConfig]);
+
+  // Fetch board extents for every placed design (cached metrics, cheap). Keyed by
+  // design_id; only refetched when the set of placed designs changes.
+  useEffect(() => {
+    if (!workingDir || instances.length === 0) {
+      setBoardSizes((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+    let cancelled = false;
+    const ids = Array.from(new Set(instances.map((i) => i.design_id)));
+    void Promise.all(
+      ids.map(async (id) => {
+        const d = designs.find((x) => x.id === id);
+        if (!d) return null;
+        try {
+          const refs = d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type }));
+          const m = await api.projectBoardMetrics(workingDir, refs);
+          return [id, { w: m.metrics.board.widthMm, h: m.metrics.board.heightMm }] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setBoardSizes(Object.fromEntries(entries.filter((e): e is NonNullable<typeof e> => e !== null)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workingDir, instances, designs]);
+
+  // Count designs poking off the (live-edited) blank. Drives a non-blocking warning
+  // so shrinking the panel surfaces the consequence instead of silently hiding it.
+  const offPanelCount = useMemo(() => {
+    if (!valid) return 0;
+    return instances.reduce((n, inst) => {
+      const sz = boardSizes[inst.design_id];
+      if (!sz) return n;
+      const off = isOffPanel({
+        xMm: inst.x_mm,
+        yMm: inst.y_mm,
+        boardW: sz.w,
+        boardH: sz.h,
+        rotationDeg: inst.rotation_deg,
+        panelW: width,
+        panelH: height,
+      });
+      return off ? n + 1 : n;
+    }, 0);
+  }, [instances, boardSizes, width, height, valid]);
 
   const presets: PanelPreset[] = [...BUILTIN_PANEL_PRESETS, ...userPresets];
 
@@ -164,6 +236,11 @@ export function PanelEditor() {
           <p className={`px-1 text-[11px] ${widthTooBig || heightTooBig ? "text-destructive" : "text-muted-foreground"}`}>
             {t("setup.maxFromSettings", { w: maxW, h: maxH })}
           </p>
+          {offPanelCount > 0 && (
+            <p className="px-1 text-[11px] text-warning">
+              {t("setup.offPanelWarning", { count: offPanelCount })}
+            </p>
+          )}
         </SettingsSection>
 
         <SettingsSection icon={Layers} title={t("setup.sectionStackup")}>
