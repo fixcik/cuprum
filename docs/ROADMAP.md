@@ -101,10 +101,15 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   начать с `feasibility.evaluate` (включая кейс «двусторонка на односторонней панели»). Это
   **отдельная инфра-PR** — самодостаточная, делается до/независимо от фич.
 - **Автообновление приложения.** Tauri 2 updater plugin: проверка новой версии,
-  скачивание и применение бандла (артефакты релиза уже собираются `release.yml`,
-  см. `project_ci_release`). Нужны: endpoint с манифестом обновлений (GitHub
-  Releases), подпись бандлов, UI-уведомление «доступно обновление». Стыкуется с
-  `getVersion()` (версия в UI уже оттуда).
+  скачивание и применение бандла. Стыкуется с `getVersion()` (версия в UI уже оттуда).
+  - [x] **PR1 — ядро** (✅ 2026-06-03, PR #55): плагины updater+process, endpoint на
+    `latest.json` (GitHub Releases) + minisign-подпись (`createUpdaterArtifacts`,
+    signing-секреты в `release.yml`), тихая автопроверка при старте + ненавязчивый
+    баннер с прогрессом → relaunch; README про обход Gatekeeper на macOS.
+  - [ ] **PR2 — ручная проверка в нативном меню** «Проверить обновления…» (Tauri 2
+    Menu API; `checkForUpdates(loud)` в сторе уже готов) — семя пункта «кастомное меню».
+  - [ ] Перед первым релизом добавить секреты репо `TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]`.
+  - Apple Developer ID подпись/нотаризация macOS — отдельной задачей (см. ниже про подпись).
 - [x] **DFM: двусторонний дизайн на односторонней панели** (✅ 2026-06-03, PR #51).
   Находка `layers.doubleSided` (severity `block`) в `feasibility.ts`: блок при
   `copperTop && copperBottom && !double_sided`. Нет stackup → считаем двусторонней
