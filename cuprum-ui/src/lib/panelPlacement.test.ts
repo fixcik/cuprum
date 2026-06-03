@@ -6,6 +6,7 @@ import {
   clampDeltaToPanel,
   marqueeHits,
   snapAngle,
+  boxesForInstances,
 } from "@/lib/panelPlacement";
 import { DEFAULT_NEST } from "@/lib/nest";
 import type { NestSettings } from "@/lib/nest";
@@ -154,6 +155,30 @@ describe("marqueeHits", () => {
   it("returns ids whose AABB intersects the rect", () => {
     expect(marqueeHits(items, { minX: 5, minY: 5, maxX: 55, maxY: 55 }).sort()).toEqual(["a", "b"]);
     expect(marqueeHits(items, { minX: 20, minY: 20, maxX: 30, maxY: 30 })).toEqual([]);
+  });
+});
+
+describe("boxesForInstances", () => {
+  const sizes = { d1: { w: 10, h: 20 } };
+  it("builds rotated AABB for known sizes, skips unknown", () => {
+    const boxes = boxesForInstances(
+      [
+        { design_id: "d1", x_mm: 5, y_mm: 5, rotation_deg: 0 },
+        { design_id: "missing", x_mm: 0, y_mm: 0, rotation_deg: 0 },
+      ],
+      sizes,
+    );
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]).toMatchObject({ minX: 5, minY: 5, maxX: 15, maxY: 25 });
+  });
+  it("90° rotation swaps the AABB footprint", () => {
+    const [b] = boxesForInstances(
+      [{ design_id: "d1", x_mm: 0, y_mm: 0, rotation_deg: 90 }],
+      sizes,
+    );
+    // centre (5,10); rotated extents become 20×10 about that centre
+    expect(b.maxX - b.minX).toBeCloseTo(20);
+    expect(b.maxY - b.minY).toBeCloseTo(10);
   });
 });
 
