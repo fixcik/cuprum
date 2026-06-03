@@ -6,8 +6,8 @@
 //! are absolute millimetres with Y pointing UP (the viewer flips Y when it
 //! composes layers into one document).
 
-use anyhow::{anyhow, Context, Result};
-use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
+use anyhow::{Context, Result};
+use gerber_viewer::{Exposure, GerberPrimitive};
 
 /// Axis-aligned bounds in millimetres (Y up).
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -46,10 +46,8 @@ pub fn render_layer_svg(bytes: &[u8], id: &str) -> Result<LayerGeometry> {
         })
         .collect();
 
-    let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
-    let doc = gerber_viewer::gerber_parser::parse(reader)
-        .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
-    let layer = GerberLayer::new(doc.into_commands());
+    // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
+    let layer = crate::cache::parse_layer_cached(bytes)?;
     let raw = layer
         .try_bounding_box()
         .context("gerber has no drawable geometry")?;

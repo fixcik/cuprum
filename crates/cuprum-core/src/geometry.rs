@@ -14,7 +14,7 @@
 //! Scope is COPPER only for now, but [`fill_polygons`] is layer-agnostic
 //! (Add-only union + hole subtraction), so it can serve other layers later.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use gerber_viewer::{GerberLayer, GerberPrimitive};
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
@@ -54,10 +54,8 @@ pub struct Poly {
 /// Returns outer-ring + holes polygons ready to triangulate on the frontend.
 #[tracing::instrument(skip_all, fields(holes = holes.len()))]
 pub fn layer_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
-    let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
-    let doc = gerber_viewer::gerber_parser::parse(reader)
-        .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
-    let layer = GerberLayer::new(doc.into_commands());
+    // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
+    let layer = crate::cache::parse_layer_cached(bytes)?;
     Ok(layer_polygons_from(&layer, holes))
 }
 
@@ -83,10 +81,8 @@ pub fn copper_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
 /// in zone fills, which this preserves.
 #[tracing::instrument(skip_all, fields(holes = holes.len()))]
 pub fn region_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
-    let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
-    let doc = gerber_viewer::gerber_parser::parse(reader)
-        .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
-    let layer = GerberLayer::new(doc.into_commands());
+    // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
+    let layer = crate::cache::parse_layer_cached(bytes)?;
     Ok(region_polygons_from(&layer, holes))
 }
 
@@ -124,10 +120,8 @@ pub fn mask_polygons(outline_rings: &[Vec<[f64; 2]>], mask_bytes: &[u8]) -> Resu
         return Ok(Vec::new());
     }
 
-    let reader = std::io::BufReader::new(std::io::Cursor::new(mask_bytes));
-    let doc = gerber_viewer::gerber_parser::parse(reader)
-        .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
-    let layer = GerberLayer::new(doc.into_commands());
+    // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
+    let layer = crate::cache::parse_layer_cached(mask_bytes)?;
     // Normalize every opening contour to CCW before the difference. An opening
     // (e.g. a roundrect pad = rect + corner circles) is built from several
     // primitives of mixed winding; under NonZero they cancel to winding 0 at the

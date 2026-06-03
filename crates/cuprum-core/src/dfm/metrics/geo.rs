@@ -2,6 +2,7 @@
 //! silk, mask dam, overshoot, conductor model, drill markers, slots.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use gerber_viewer::GerberLayer;
 
@@ -122,7 +123,7 @@ pub(super) fn compute_zone3(
     layers: &[MetricLayerInput],
     copper_layers: &[(&str, Vec<Poly>)],
     board_bbox: Option<[f64; 4]>,
-    parsed: &[Option<GerberLayer>],
+    parsed: &[Option<Arc<GerberLayer>>],
     drills: &[Option<DrillData>],
 ) -> Zone3 {
     let layer_side_fn = super::layer_side;
@@ -325,7 +326,7 @@ pub(super) fn compute_zone3(
 /// mask dam, overshoot, slots). Pure measurements; the frontend judges them.
 pub(super) fn geo_metrics(
     layers: &[MetricLayerInput],
-    parsed: &[Option<GerberLayer>],
+    parsed: &[Option<Arc<GerberLayer>>],
     drills: &[Option<DrillData>],
 ) -> GeoMetrics {
     let layer_side_fn = super::layer_side;

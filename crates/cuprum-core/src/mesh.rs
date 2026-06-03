@@ -20,7 +20,7 @@
 
 use std::f64::consts::TAU;
 
-use gerber_viewer::{GerberLayer, GerberPrimitive};
+use gerber_viewer::GerberPrimitive;
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::overlay::FloatOverlay;
@@ -245,12 +245,11 @@ fn add_barrel(buf: &mut Buffer, cx: f32, cy: f32, r: f32, z0: f32, z1: f32) {
 /// Edge_Cuts CENTERLINE segments (Line/Arc, arcs tessellated). Flashed cap
 /// circles / fills are ignored — they're not part of the cut path.
 fn edge_segments(edge_bytes: &[u8]) -> Vec<([f64; 2], [f64; 2])> {
-    let reader = std::io::BufReader::new(std::io::Cursor::new(edge_bytes));
-    let doc = match gerber_viewer::gerber_parser::parse(reader) {
-        Ok(d) => d,
+    // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
+    let layer = match crate::cache::parse_layer_cached(edge_bytes) {
+        Ok(l) => l,
         Err(_) => return Vec::new(),
     };
-    let layer = GerberLayer::new(doc.into_commands());
     let mut segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
     for prim in layer.primitives() {
         match prim {
