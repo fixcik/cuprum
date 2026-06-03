@@ -15,6 +15,7 @@ import { isOffPanel } from "@/lib/panelPlacement";
 import { api } from "@/lib/api";
 import type { BoardInstance, ProjectDesign } from "@/lib/api";
 import { useShell } from "@/shellStore";
+import { usePanelSelection } from "@/panelSelectionStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -179,6 +180,60 @@ export function PanelEditor() {
       return off ? n + 1 : n;
     }, 0);
   }, [instances, boardSizes, width, height, valid]);
+
+  // Clear the ephemeral selection whenever the project path or the document
+  // identity changes (open/close, undo/redo/restore) — stale ids must not linger.
+  useEffect(() => {
+    usePanelSelection.getState().clear();
+  }, [currentPath, docNonce]);
+
+  // Panel editor hotkeys: Delete/Backspace removes, Esc clears, Ctrl/Cmd+A selects
+  // all, arrows nudge (Shift = 10 mm). Ignored when typing in a field. Bound once;
+  // panel dims are read via refs so the listener needn't re-bind on every edit.
+  const panelDims = useRef({ w: width, h: height });
+  panelDims.current = { w: width, h: height };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const sel = [...usePanelSelection.getState().selected];
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (sel.length) {
+          e.preventDefault();
+          void useShell.getState().removeInstances(sel);
+          usePanelSelection.getState().clear();
+        }
+      } else if (e.key === "Escape") {
+        usePanelSelection.getState().clear();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        const ids = useShell.getState().currentManifest?.panel?.instances.map((i) => i.id) ?? [];
+        usePanelSelection.getState().set(ids);
+      } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+        if (!sel.length) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        let dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        let dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        // Coarse origin clamp (v1): keep each selected instance's top-left within
+        // [0,panelW]×[0,panelH]. Precise rotated-AABB clamp for nudge is a follow-up
+        // (the canvas drag path already clamps precisely via clampDeltaToPanel).
+        const { w: panelW, h: panelH } = panelDims.current;
+        const selSet = new Set(sel);
+        const placed = useShell.getState().currentManifest?.panel?.instances ?? [];
+        for (const inst of placed) {
+          if (!selSet.has(inst.id)) continue;
+          if (inst.x_mm + dx < 0) dx = -inst.x_mm;
+          if (inst.x_mm + dx > panelW) dx = panelW - inst.x_mm;
+          if (inst.y_mm + dy < 0) dy = -inst.y_mm;
+          if (inst.y_mm + dy > panelH) dy = panelH - inst.y_mm;
+        }
+        void useShell.getState().moveInstances(sel, dx, dy);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const presets: PanelPreset[] = [...BUILTIN_PANEL_PRESETS, ...userPresets];
 
