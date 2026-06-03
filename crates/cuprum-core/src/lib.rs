@@ -14,5 +14,6 @@ pub mod goo;
 pub mod mesh;
 pub mod preview;
 pub mod sdcp;
+pub mod strokes;
 pub mod svg;
 pub mod trace;
