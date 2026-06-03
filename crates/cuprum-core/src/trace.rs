@@ -359,11 +359,20 @@ fn idle_timeout() -> Duration {
 /// Synchronously finalize a session by removing it from the registry and
 /// flushing its sink. Used by the reaper and, in tests, for determinism.
 ///
-/// Bypasses the `open_ops` idle check: it must NOT be called while an operation
-/// is in flight on the session (reaper/test use only), or that op's later events
-/// would route to an already-closed sink.
+/// SKIPS (no-op) if an operation is in flight on the session (`open_ops > 0`):
+/// the "is idle?" check and the removal are done together under the `sessions()`
+/// lock, so a late-joining op can never have its events appended to an
+/// already-closed (`]`) file. The reaper retries on its next cycle.
 pub(crate) fn finalize_session_now(sid: u64) {
-    let state = sessions().lock().unwrap().remove(&sid);
+    let state = {
+        let mut map = sessions().lock().unwrap();
+        // Guard the TOCTOU window: if an op joined between the reaper's idle scan
+        // and now, skip finalizing. Makes "is idle?" and "remove" atomic.
+        if map.get(&sid).is_some_and(|s| s.open_ops > 0) {
+            return;
+        }
+        map.remove(&sid)
+    };
     if let Some(state) = state {
         state.sink.lock().unwrap().finish();
         let shown = state
@@ -1044,6 +1053,55 @@ mod tests {
         let body = std::fs::read_to_string(&files[0]).unwrap();
         serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON after panic + reap");
         assert!(body.trim().ends_with(']'), "file closed after reap");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn finalize_session_now_skips_when_op_in_flight() {
+        // Regression for the TOCTOU window between the reaper's idle scan and
+        // finalize: an op that joined the session (open_ops > 0) must keep the
+        // session alive — finalize must skip, not close the shared file.
+        let tmp = std::env::temp_dir().join(format!(
+            "cuprum-trace-session-toctou-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        let sid = begin_session_with_config(&cfg, "toctou", &tmp).expect("session created");
+
+        // Simulate a late joiner: an op is now in flight on this session.
+        {
+            let mut map = sessions().lock().unwrap();
+            map.get_mut(&sid).expect("session present").open_ops = 1;
+        }
+
+        // Finalize must be a no-op while an op is in flight.
+        finalize_session_now(sid);
+        assert!(
+            sessions().lock().unwrap().get(&sid).is_some(),
+            "session must survive finalize while open_ops > 0"
+        );
+        let body = std::fs::read_to_string(&json_files(&tmp)[0]).unwrap();
+        assert!(
+            !body.trim().ends_with(']'),
+            "file must not be closed while an op is in flight"
+        );
+
+        // Op finished → now finalize succeeds.
+        {
+            let mut map = sessions().lock().unwrap();
+            map.get_mut(&sid).expect("session present").open_ops = 0;
+        }
+        finalize_session_now(sid);
+        assert!(
+            sessions().lock().unwrap().get(&sid).is_none(),
+            "session must finalize once open_ops returns to 0"
+        );
+        let body = std::fs::read_to_string(&json_files(&tmp)[0]).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON after finalize");
+        assert!(body.trim().ends_with(']'), "file closed after finalize");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
