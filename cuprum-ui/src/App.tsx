@@ -8,6 +8,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
+import { useInspectorBridge } from "@/hooks/useInspectorBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
 
@@ -17,6 +18,7 @@ export default function App() {
   const loadDisplayScale = useShell((s) => s.loadDisplayScale);
 
   useAddDesignBridge();
+  useInspectorBridge();
 
   useEffect(() => {
     loadDisplayScale();
