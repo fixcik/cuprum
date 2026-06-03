@@ -9,7 +9,9 @@
     "build": "node scripts/i18n-check.mjs && tsc --noEmit && vite build",
     "i18n:check": "node scripts/i18n-check.mjs",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.1",
@@ -44,8 +46,10 @@
     "@types/react-dom": "^18.3.5",
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^4.1.8"
   }
 }
