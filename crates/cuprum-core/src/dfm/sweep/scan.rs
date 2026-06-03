@@ -6,6 +6,9 @@ use rayon::prelude::*;
 use super::edges::collect_edges;
 use super::neck::neck_persists;
 use super::segments::seg_seg_closest;
+/// Shared project-wide cap on reported hotspots per metric (worst-first); excess
+/// is dropped after the ~1 mm-cell dedup.
+use crate::dfm::HOT_N;
 use crate::geometry::{point_in_ring, poly_containing, Poly};
 
 /// Grid resolution for the nearest-edge sweep: cell ≈ board_diag / this.
@@ -13,8 +16,6 @@ const DIST_CELLS: f64 = 220.0;
 /// Safety cap on segment-pair comparisons (real boards stay well under it).
 const DIST_BUDGET: u64 = 120_000_000;
 
-/// Max hotspots reported per metric (worst-first); excess is dropped.
-const HOT_N: usize = 40;
 /// Merge hotspots whose midpoints fall in the same ~1 mm cell (so a long thin
 /// gap doesn't become dozens of near-identical entries).
 const HOT_DEDUP_MM: f64 = 1.0;

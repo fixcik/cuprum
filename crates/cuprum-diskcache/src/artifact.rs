@@ -17,7 +17,8 @@ pub const SVG_VERSION: &[u8] = b"svg-v2";
 /// Bump when `dfm::board_metrics` output changes (was hard-coded in main.rs).
 /// v15: annular hotspots now carry the pad's copper side instead of hardcoded "both".
 /// v16: trace/line strokes coalesced into round-joined polylines.
-pub const METRICS_VERSION: &[u8] = b"metrics-v16";
+/// v17: per-family hotspot cap raised 40→500; drill/via unified onto cell dedup.
+pub const METRICS_VERSION: &[u8] = b"metrics-v17";
 
 /// Bump when the preview composition/palette/size changes.
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
