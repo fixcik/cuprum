@@ -205,6 +205,9 @@ export const useShell = create<ShellStore>((set, get) => ({
         currentManifest: opened.manifest,
         view: "project",
         error: null,
+        // Drop any prior project's trace tokens: design ids are reused across
+        // projects, so a stale token would mis-group a fresh import's traces.
+        traceSessions: {},
       });
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
@@ -253,6 +256,9 @@ export const useShell = create<ShellStore>((set, get) => ({
         currentManifest: opened.manifest,
         view: "project",
         error: null,
+        // Drop any prior project's trace tokens: design ids are reused across
+        // projects, so a stale token would mis-group a fresh import's traces.
+        traceSessions: {},
       });
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
