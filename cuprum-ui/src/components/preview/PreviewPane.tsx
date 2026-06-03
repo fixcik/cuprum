@@ -248,61 +248,64 @@ export function PreviewPane({
             </span>
           )}
           {mode === "2d" && (findings ?? []).some((f) => (f.hotspots?.length ?? 0) > 0) && onShowDrcChange && (
-            <label
-              className="flex cursor-pointer items-center gap-1.5 rounded-md bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
-              title={t("preview.drcToggleTitle")}
-            >
-              <ShieldCheck className="size-3.5" />
-              {t("preview.drcLabel")}
-              <Switch checked={showDrc} onCheckedChange={onShowDrcChange} />
-            </label>
-          )}
-          {filterEnabled && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="relative flex cursor-pointer items-center gap-1.5 rounded-md bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur hover:text-foreground"
-                  title={t("preview.filterTitle")}
-                >
-                  <ListFilter className="size-3.5" />
-                  {t("preview.filterLabel")}
-                  {anyHidden && <span className="size-1.5 rounded-full bg-primary" />}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start">
-                <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                  {t("preview.filterHeading")}
-                </div>
-                {problemTypes.map((pt) => (
-                  <label
-                    key={pt.type}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-foreground/10"
-                  >
-                    <Checkbox
-                      checked={!hiddenTypes!.has(pt.type)}
-                      onCheckedChange={() => onToggleType!(pt.type)}
-                    />
-                    <span className={`size-2 rounded-full ${SEV_DOT[pt.severity]}`} />
-                    <span className="text-foreground">{pt.label}</span>
-                  </label>
-                ))}
-                {anyHidden && onShowAllTypes && (
-                  <button
-                    type="button"
-                    onClick={() => onShowAllTypes()}
-                    className="mt-1 w-full cursor-pointer rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-                  >
-                    {t("preview.filterShowAll")}
-                  </button>
-                )}
-              </PopoverContent>
-            </Popover>
+            <div className="flex items-center gap-1.5 rounded-md bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+              <label className="flex cursor-pointer items-center gap-1.5" title={t("preview.drcToggleTitle")}>
+                <ShieldCheck className="size-3.5" />
+                {t("preview.drcLabel")}
+                <Switch checked={showDrc} onCheckedChange={onShowDrcChange} />
+              </label>
+              {/* Problem-type filter lives INSIDE the overlay pill (it only acts on
+                  the overlay): a thin divider + funnel that opens the type popover. */}
+              {filterEnabled && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="relative -mr-1 flex cursor-pointer items-center gap-1.5 self-stretch rounded pl-1.5 pr-1 hover:text-foreground"
+                      title={t("preview.filterTitle")}
+                    >
+                      <span className="h-3.5 w-px bg-border" />
+                      <ListFilter className="size-3.5" />
+                      {anyHidden && <span className="size-1.5 rounded-full bg-primary" />}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end">
+                    <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                      {t("preview.filterHeading")}
+                    </div>
+                    {problemTypes.map((pt) => (
+                      <label
+                        key={pt.type}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-foreground/10"
+                      >
+                        <Checkbox
+                          checked={!hiddenTypes!.has(pt.type)}
+                          onCheckedChange={() => onToggleType!(pt.type)}
+                        />
+                        <span className={`size-2 rounded-full ${SEV_DOT[pt.severity]}`} />
+                        <span className="text-foreground">{pt.label}</span>
+                      </label>
+                    ))}
+                    {anyHidden && onShowAllTypes && (
+                      <button
+                        type="button"
+                        onClick={() => onShowAllTypes()}
+                        className="mt-1 w-full cursor-pointer rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                      >
+                        {t("preview.filterShowAll")}
+                      </button>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
           )}
         </div>
       )}
 
-      {/* Walk-the-errors stepper — floats top-centre while the overlay is on. */}
+      {/* Walk-the-errors stepper — floats top-centre on its OWN row (below the
+          tool cluster) so it never collides with the left controls on a narrow
+          view, where a centred row would otherwise overlap the toolbar. */}
       {tab === "preview" && mode === "2d" && showDrc && issues.length > 0 && onFocus && (() => {
         const N = issues.length;
         const go = (delta: number) => {
@@ -312,7 +315,7 @@ export function PreviewPane({
         };
         const cur = issueIndex >= 0 ? issues[issueIndex] : null;
         return (
-          <div className="absolute left-1/2 top-[26px] z-10 flex -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-card/90 px-1 py-1 text-[11px] shadow-sm backdrop-blur">
+          <div className="absolute left-1/2 top-[64px] z-10 flex -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-card/90 px-1 py-1 text-[11px] shadow-sm backdrop-blur">
             <button
               type="button"
               className="cursor-pointer rounded p-1 text-muted-foreground hover:bg-foreground/10"
