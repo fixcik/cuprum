@@ -5,6 +5,7 @@ import { LayerPanel, type PanelRow } from "@/components/import/LayerPanel";
 import { PreviewPane, type PreviewMode, type PreviewTab } from "@/components/preview/PreviewPane";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { EditableText } from "@/components/ui/EditableText";
+import { VerdictDot } from "@/components/ui/VerdictDot";
 import { colorFor, sideOf, stackOrder } from "@/lib/layerColors";
 import {
   type LayerType,
@@ -238,15 +239,7 @@ export function DesignInspector({
                   icon: pv.metricsLoading ? (
                     <Loader2 className="size-3 animate-spin" />
                   ) : pv.metrics ? (
-                    <span
-                      className={`size-2 rounded-full ${
-                        pv.verdict === "block"
-                          ? "bg-destructive"
-                          : pv.verdict === "warn"
-                            ? "bg-warning"
-                            : "bg-success"
-                      }`}
-                    />
+                    <VerdictDot verdict={pv.verdict} className="size-2" />
                   ) : undefined,
                 },
               ]}

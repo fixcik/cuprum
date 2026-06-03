@@ -106,6 +106,9 @@
 - **`PanelStatus`** — центрированное на всю высоту состояние превью-панели: опц. спиннер
   (`loading`) над опц. подписью (`message`); `spinnerClassName` (дефолт `size-5`, 3D — `size-6`),
   `className` для добавок (`w-full`). Для loading / «нет данных» во вкладках превью.
+- **`VerdictDot`** — компактная точка-статус по DFM-вердикту (на базе `SEVERITY.dot`);
+  `null` (ещё не посчитан) → muted. Размер/позицию даёт `className`. Компактный аналог
+  `VerdictBadge` (угол карточки, строка пикера, иконка таба).
 
 ### Планируется
 - **`NumberInput`** — числовое поле; вынести из `Inspector.NumberField`
@@ -296,5 +299,16 @@ cuprum-ui/src/
   `Board3D` — почти то же (`size-6`, `w-full`). Заведён `ui/PanelStatus` (опц. `loading`-спиннер +
   опц. `message`, `spinnerClassName`/`className`); три места переведены. `LayerStack` намеренно
   оставлен как есть — его контейнер несёт `ref` для замера размера канваса и показывает спиннер
-  без подписи (`text-[12px]`), форсить под общий примитив = риск задеть размер-логику (YAGNI). Обновлять при изменении дизайн-системы и принятии новых
+  без подписи (`text-[12px]`), форсить под общий примитив = риск задеть размер-логику (YAGNI).
+
+- **2026-06-04 — `useDesignVerdict` + `VerdictDot` (рефакторинг-дедуп).** `DesignCard` и
+  `DesignPickerRow` дублировали fetch метрик → `overallVerdict(evaluate(...))` с cancel-guard'ом
+  (~25 строк × 2); сведено в хук `hooks/useDesignVerdict` (вход: workingDir/gerbers/profile +
+  опции panel/stackup/traceSession/onMetrics; выход: `{ verdict, size, settled }`, ключ по набору
+  герберов). Точка-вердикт `size-2 rounded-full bg-…` рисовалась руками в трёх местах
+  (`DesignCard` — 4 стейта вкл. null→muted, `DesignPickerRow` — своя `DOT`-мапа, `DesignInspector` —
+  тинт таба) → `ui/VerdictDot` (на базе `SEVERITY.dot`, null→muted, размер/позиция через `className`).
+  Редактор панели не затронут.
+
+*Ревизия 2026-06-04. Обновлять при изменении дизайн-системы и принятии новых
 дизайн-решений (добавляй запись в лог выше).*

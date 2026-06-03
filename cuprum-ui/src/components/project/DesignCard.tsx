@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { missingRequired } from "@/lib/layerColors";
 import { api, type ProjectDesign } from "@/lib/api";
-import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
+import { useDesignVerdict } from "@/hooks/useDesignVerdict";
 import { RenameDesignModal } from "@/components/project/RenameDesignModal";
 import { ProgressRing } from "@/components/ui/ProgressRing";
+import { VerdictDot } from "@/components/ui/VerdictDot";
 import { ringFraction } from "@/lib/artifactProgress";
 
 export function DesignCard({
@@ -32,12 +32,19 @@ export function DesignCard({
   const traceSession = useShell((s) => s.traceSessions[design.id]);
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [verdict, setVerdict] = useState<Verdict | null>(null);
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [svgReady, setSvgReady] = useState(false);
-  const [metricsReady, setMetricsReady] = useState(false);
   const { fmtLen } = useUnitFormat();
+
+  // Board size + DFM verdict (lazy, cached on disk). The size chip shows even for
+  // an incomplete design; the verdict dot stays null until the required layers are
+  // present (handled inside the hook).
+  const { verdict, size, settled: metricsReady } = useDesignVerdict(workingDir, design.gerbers, profile, {
+    panel,
+    stackup,
+    traceSession,
+    onMetrics: scheduleArtifactFlush,
+  });
 
   // Content-based key (path + type per gerber). Effects depend on this string, not
   // the `design` object, so an unrelated manifest replace (which hands every card
@@ -77,39 +84,6 @@ export function DesignCard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
   }, [workingDir, gerbersKey, layerColors]);
-
-  // Board size + DFM verdict badge (lazy, cached on disk). Metrics give the real
-  // board extent, so the size chip shows even for an incomplete design; the verdict
-  // dot, however, stays null until the required layers (outline + copper) are present.
-  useEffect(() => {
-    let cancelled = false;
-    if (!workingDir) return;
-    const hasRequired =
-      missingRequired(design.gerbers.map((g) => g.layer_type)).length === 0;
-    api
-      .projectBoardMetrics(
-        workingDir,
-        design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
-        traceSession,
-      )
-      .then((m) => {
-        if (cancelled) return;
-        setSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
-        setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panel, stackup)) : null);
-        scheduleArtifactFlush(m.fresh);
-        setMetricsReady(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSize(null);
-        setVerdict(null);
-        setMetricsReady(true); // settled-on-error so the ring completes
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
-  }, [workingDir, gerbersKey, profile, panel, stackup]);
 
   // Precompute per-layer SVG so it ships in the .cuprum and the inspector opens
   // instantly — even though the card itself shows only the composite preview.
@@ -157,15 +131,6 @@ export function DesignCard({
     };
   }, [design.id, clearArtifactProgress]);
 
-  const dotClass =
-    verdict === "block"
-      ? "bg-destructive"
-      : verdict === "warn"
-        ? "bg-warning"
-        : verdict === "ok"
-          ? "bg-success"
-          : "bg-muted-foreground/40";
-
   return (
     <div className="group relative">
       <button
@@ -181,7 +146,7 @@ export function DesignCard({
               <ProgressRing value={fraction} className="size-10 text-muted-foreground" />
             </div>
           )}
-          <span className={`absolute right-2 top-2 size-2.5 rounded-full ${dotClass}`} aria-hidden />
+          <VerdictDot verdict={verdict} className="absolute right-2 top-2 size-2.5" />
         </div>
         <div className="flex items-end justify-between gap-2 p-3">
           <div className="flex min-w-0 flex-col gap-0.5">
