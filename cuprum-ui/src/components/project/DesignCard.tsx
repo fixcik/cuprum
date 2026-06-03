@@ -1,24 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Settings, Trash2 } from "lucide-react";
+import { Settings, Trash2, Plus, Maximize2, LayoutGrid } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, type ProjectDesign } from "@/lib/api";
+import { type Verdict, VERDICT_KEY } from "@/lib/feasibility";
+import { SEVERITY } from "@/lib/severity";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useDesignVerdict } from "@/hooks/useDesignVerdict";
 import { RenameDesignModal } from "@/components/project/RenameDesignModal";
 import { ProgressRing } from "@/components/ui/ProgressRing";
-import { VerdictDot } from "@/components/ui/VerdictDot";
 import { ringFraction } from "@/lib/artifactProgress";
 
 export function DesignCard({
   design,
   onOpen,
   onDelete,
+  onVerdict,
 }: {
   design: ProjectDesign;
   onOpen: () => void;
   onDelete: () => void;
+  /** Reports the design's settled DFM verdict (or null) up to the gallery, which
+   *  aggregates them for the header summary. Stable identity expected (useCallback). */
+  onVerdict?: (id: string, v: Verdict | null) => void;
 }) {
   const { t } = useTranslation(["project", "layers"]);
   const workingDir = useShell((s) => s.workingDir);
@@ -28,6 +33,7 @@ export function DesignCard({
   const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
   const reportArtifactProgress = useShell((s) => s.reportArtifactProgress);
   const clearArtifactProgress = useShell((s) => s.clearArtifactProgress);
+  const openAddDesignForDesign = useShell((s) => s.openAddDesignForDesign);
   // Opaque trace-session token set at import time; undefined for disk-opened designs.
   const traceSession = useShell((s) => s.traceSessions[design.id]);
   const profile = useSettings((s) => s.profile);
@@ -36,8 +42,11 @@ export function DesignCard({
   const [svgReady, setSvgReady] = useState(false);
   const { fmtLen } = useUnitFormat();
 
+  // Copies of this design already placed on the current panel — drives the badge.
+  const placedCount = panel?.instances.filter((i) => i.design_id === design.id).length ?? 0;
+
   // Board size + DFM verdict (lazy, cached on disk). The size chip shows even for
-  // an incomplete design; the verdict dot stays null until the required layers are
+  // an incomplete design; the verdict chip stays null until the required layers are
   // present (handled inside the hook).
   const { verdict, size, settled: metricsReady } = useDesignVerdict(workingDir, design.gerbers, profile, {
     panel,
@@ -45,6 +54,11 @@ export function DesignCard({
     traceSession,
     onMetrics: scheduleArtifactFlush,
   });
+
+  // Report the settled verdict up to the gallery (onVerdict is stable).
+  useEffect(() => {
+    onVerdict?.(design.id, verdict);
+  }, [design.id, verdict, onVerdict]);
 
   // Content-based key (path + type per gerber). Effects depend on this string, not
   // the `design` object, so an unrelated manifest replace (which hands every card
@@ -131,46 +145,108 @@ export function DesignCard({
     };
   }, [design.id, clearArtifactProgress]);
 
+  // Use contain for portrait/strongly-elongated boards and while size is unknown;
+  // cover otherwise (landscape boards fill the frame better).
+  const containFit = !size || size.h > size.w || Math.min(size.w, size.h) / Math.max(size.w, size.h) < 0.6;
+
+  // Pre-extract the verdict icon so it can be rendered without conditional JSX.
+  const VIcon = verdict ? SEVERITY[verdict].Icon : null;
+
   return (
     <div className="group relative">
+      {/* Main card button — wraps preview + footer. Interactive overlays are siblings
+          to avoid nesting <button> inside <button> (invalid HTML). */}
       <button
         type="button"
         onClick={onOpen}
         className="flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-primary/50"
       >
-        <div className="relative aspect-[4/3] w-full bg-muted/30">
+        {/* Preview area */}
+        <div className="pcb-grid relative aspect-[4/3] w-full overflow-hidden">
           {previewUrl ? (
-            <img src={previewUrl} alt={design.source_name} className="h-full w-full object-contain p-3" />
+            <img
+              src={previewUrl}
+              alt={design.source_name}
+              className={containFit ? "h-full w-full object-contain p-3 drop-shadow-[0_6px_14px_rgba(0,0,0,.55)]" : "h-full w-full object-cover"}
+            />
           ) : (
-            <div className="flex h-full w-full items-center justify-center">
+            <div className="grid h-full w-full place-items-center">
               <ProgressRing value={fraction} className="size-10 text-muted-foreground" />
             </div>
           )}
-          <VerdictDot verdict={verdict} className="absolute right-2 top-2 size-2.5" />
+          {/* Bottom gradient fade */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
         </div>
-        <div className="flex items-end justify-between gap-2 p-3">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <div className="truncate text-[13px] font-medium text-foreground">{design.source_name}</div>
-            <div className="text-[11px] text-muted-foreground">
-              {t("designs.layerCount", { count: design.gerbers.length })}
-            </div>
+
+        {/* Footer */}
+        <div className="flex flex-col gap-0.5 p-3">
+          <div className="truncate text-[13px] font-semibold text-foreground">{design.source_name}</div>
+          <div className="truncate text-[11px] tabular-nums text-muted-foreground">
+            {t("designs.layerCount", { count: design.gerbers.length })}
+            {size ? ` · ${fmtLen(size.w)} × ${fmtLen(size.h)}` : ""}
           </div>
-          {size && (
-            <div className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-              {fmtLen(size.w)} × {fmtLen(size.h)}
-            </div>
-          )}
         </div>
       </button>
-      {/* Overlay actions are siblings (not nested in the card button — that'd be
-          invalid HTML). Rename opens a dialog; removal is undoable, so no confirm. */}
+
+      {/* Overlay layer — sits on top of the card button, covering only the preview zone.
+          Non-interactive by default; individual interactive children opt in via pointer-events-auto. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 aspect-[4/3]">
+        {/* Verdict chip — top-right corner */}
+        {verdict && VIcon && (
+          <span
+            className={`absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-card/90 px-1.5 py-0.5 text-[10px] font-medium shadow-sm ring-1 ring-border/60 backdrop-blur ${SEVERITY[verdict].fg}`}
+          >
+            <VIcon className="size-3" />
+            {t(VERDICT_KEY[verdict])}
+          </span>
+        )}
+
+        {/* On-panel badge — bottom-left */}
+        {placedCount > 0 && (
+          <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-md bg-card/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm ring-1 ring-border/60 backdrop-blur">
+            <LayoutGrid className="size-3 text-primary" />
+            {t("designs.onPanel", { count: placedCount })}
+          </span>
+        )}
+
+        {/* Hover action row — bottom-right; visible on group hover or focus-within */}
+        <div className="pointer-events-auto absolute inset-x-2 bottom-2 flex items-center justify-end gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          {/* "To panel" primary action */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void openAddDesignForDesign(design.id);
+            }}
+            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-medium text-primary-foreground shadow-lg transition-colors hover:bg-primary/90"
+          >
+            <Plus className="size-3.5" />
+            {t("designs.toPanel")}
+          </button>
+
+          {/* "Open" secondary action */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-card/90 px-2.5 text-[11px] font-medium text-foreground shadow-lg ring-1 ring-border transition-colors hover:bg-muted"
+          >
+            <Maximize2 className="size-3.5" />
+            {t("designs.open")}
+          </button>
+        </div>
+      </div>
+
+      {/* Rename / delete controls — top-left corner, siblings to the card button */}
       <div className="absolute left-2 top-2 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <button
           type="button"
           onClick={() => setRenaming(true)}
           aria-label={t("designs.rename")}
           title={t("designs.rename")}
-          className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+          className="grid size-7 cursor-pointer place-items-center rounded-md bg-card/90 text-muted-foreground shadow-sm ring-1 ring-border/60 transition-colors hover:text-foreground"
         >
           <Settings className="size-4" />
         </button>
@@ -179,11 +255,12 @@ export function DesignCard({
           onClick={onDelete}
           aria-label={t("designs.delete")}
           title={t("designs.delete")}
-          className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground shadow-sm transition-colors hover:text-destructive"
+          className="grid size-7 cursor-pointer place-items-center rounded-md bg-card/90 text-muted-foreground shadow-sm ring-1 ring-border/60 transition-colors hover:text-destructive"
         >
           <Trash2 className="size-4" />
         </button>
       </div>
+
       <RenameDesignModal open={renaming} onClose={() => setRenaming(false)} design={design} />
     </div>
   );
