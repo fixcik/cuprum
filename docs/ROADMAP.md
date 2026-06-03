@@ -325,10 +325,19 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   внешний `goo` + anyhow + tracing). В core — фасад `pub use cuprum_goo as goo;`, поэтому
   `cuprum_core::goo::…` (CLI, UI, gerber, compose) резолвится без правок вызовов. Снимает
   ребро `gerber → goo` перед выносом `cuprum-gerber`. Чистое перемещение, вывод не тронут.
-- [ ] **PR7+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (каждый с разбивкой своего
-  крупного файла: gerber+svg+geometry+strokes+drill, mesh.rs 836, dfm/metrics/mod 516).
-  Слоистость: `cuprum-gerber` → `cuprum-cache`+`cuprum-goo`; `cuprum-mesh` → `cuprum-gerber`;
-  `cuprum-dfm` → `cuprum-mesh`+`cuprum-gerber`.
+- [x] **PR7 — вынести `cuprum-gerber` + разбить `geometry.rs`** (✅ 2026-06-04): модули
+  `gerber`/`svg`/`geometry`/`strokes`/`drill` → новый крейт `cuprum-gerber` (deps:
+  `cuprum-cache`+`cuprum-goo`+`cuprum-diskcache` + gerber_viewer/tiny-skia/png/lru/serde/
+  i_overlay/tracing). В core — фасад `pub use cuprum_gerber::{drill,geometry,gerber,strokes,svg};`,
+  так что `cuprum_core::{…}::…` (CLI, UI, cache/mesh/dfm/compose/preview) резолвится без правок
+  вызовов; внутри группы `crate::goo`→`cuprum_goo`, `crate::{diskcache,artifact}`→`cuprum_diskcache::…`.
+  6 измерительных функций geometry (`point_*`/`poly_containing`/`circle`/`shapes_to_polys`) повышены
+  `pub(crate)`→`pub` (их зовёт core). Заодно `geometry.rs` (683) разбит на `geometry/{mod,build,tess,measure}.rs`.
+  Чистое перемещение, вывод не тронут.
+- [ ] **PR8+ — `cuprum-mesh` / `cuprum-dfm`** (каждый с разбивкой своего крупного файла:
+  mesh.rs 836, dfm/metrics/mod 516). Слоистость: `cuprum-mesh` → `cuprum-gerber`;
+  `cuprum-dfm` → `cuprum-mesh`+`cuprum-gerber`. После этого `cuprum-core` = только оркестрация
+  (compose/preview/cache-path-хелперы/cal).
 
 ## Workstream: переосмысление CLI с нуля
 
