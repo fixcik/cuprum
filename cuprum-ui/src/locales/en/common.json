@@ -13,7 +13,6 @@
     "stepperIssues": "Issues: {{count}} · ◂ ▸ to navigate",
     "prevIssue": "Previous issue",
     "nextIssue": "Next issue",
-    "filterLabel": "Types",
     "filterTitle": "Choose which problem types to show on the preview",
     "filterHeading": "Show on preview",
     "filterShowAll": "Show all",
