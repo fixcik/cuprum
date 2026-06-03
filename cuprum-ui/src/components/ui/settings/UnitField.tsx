@@ -9,12 +9,16 @@ export function UnitField({
   unit,
   step = "1",
   className = "w-28",
+  invalid = false,
 }: {
   value: number;
   onChange: (n: number) => void;
   unit: string;
   step?: string;
   className?: string;
+  /** Mark the field out-of-range: a destructive border instead of silently
+   *  coercing the value. The caller keeps the raw value and gates persistence. */
+  invalid?: boolean;
 }) {
   // Keep the raw text while editing so an empty field or an intermediate value
   // like "0." isn't immediately coerced to 0; commit a number only when the text
@@ -27,6 +31,7 @@ export function UnitField({
         step={step}
         inputMode="decimal"
         value={draft ?? String(value)}
+        aria-invalid={invalid || undefined}
         onChange={(e) => {
           const raw = e.target.value;
           setDraft(raw);
@@ -34,7 +39,9 @@ export function UnitField({
           if (raw.trim() !== "" && Number.isFinite(n)) onChange(n);
         }}
         onBlur={() => setDraft(null)}
-        className="w-full pr-8 tabular-nums"
+        className={`w-full pr-8 tabular-nums${
+          invalid ? " border-destructive focus-visible:ring-destructive" : ""
+        }`}
       />
       <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
         {unit}
