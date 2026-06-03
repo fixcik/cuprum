@@ -161,6 +161,11 @@ interface ShellStore {
   /** Number of ZIP paths currently being imported (incremented per-path at start,
    *  decremented in finally). Drives the importing spinner on the designs tab. */
   importingCount: number;
+
+  /** Design id to preselect when the add-design window opens next (one-shot). */
+  pendingAddDesignId: string | null;
+  /** Open the add-design window with a specific design pre-selected. */
+  openAddDesignForDesign: (designId: string) => Promise<void>;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -189,6 +194,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   artifactProgress: {},
   traceSessions: {},
   importingCount: 0,
+  pendingAddDesignId: null,
 
   scheduleArtifactFlush: (fresh) => {
     if (!fresh) return;
@@ -442,6 +448,14 @@ export const useShell = create<ShellStore>((set, get) => ({
       set({ error: String(e) });
       throw e;
     }
+  },
+
+  openAddDesignForDesign: async (designId) => {
+    // Stash the id so the bridge folds it into the ready-driven snapshot, then
+    // open the window. The bridge clears it after that first emit so a later
+    // re-emit doesn't fight the user's manual selection.
+    set({ pendingAddDesignId: designId });
+    await api.openAddDesignWindow();
   },
 
   addBoardInstances: async (designId, nest) => {

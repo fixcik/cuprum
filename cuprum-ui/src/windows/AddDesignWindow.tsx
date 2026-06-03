@@ -61,7 +61,12 @@ export function AddDesignWindow() {
     let unlisten: (() => void) | null = null;
     void api
       .onAddDesignSnapshot((s) => {
-        if (active) setSnap(s);
+        if (active) {
+          setSnap(s);
+          if (s.preselectDesignId && s.designs.some((d) => d.id === s.preselectDesignId)) {
+            setSelectedId(s.preselectDesignId);
+          }
+        }
       })
       .then((un) => {
         if (!active) {
