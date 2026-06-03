@@ -482,49 +482,6 @@ pub fn read_panel(container: &Path) -> Result<Option<PanelDoc>> {
     Ok(container::read_manifest(container)?.panel)
 }
 
-/// Configure the panel blank: store the `Stackup` and `PanelDoc` on the
-/// manifest. Bumps `last_opened_at`.
-pub fn configure_panel(
-    db_path: &Path,
-    container: &Path,
-    panel: &PanelDoc,
-    stackup: Stackup,
-    now: i64,
-) -> Result<Manifest> {
-    ensure_project_exists(container)?;
-    if !panel.width_mm.is_finite()
-        || !panel.height_mm.is_finite()
-        || panel.width_mm <= 0.0
-        || panel.height_mm <= 0.0
-    {
-        anyhow::bail!("panel dimensions must be finite and > 0");
-    }
-    if !stackup.copper_weight_oz.is_finite()
-        || !stackup.substrate_thickness_mm.is_finite()
-        || stackup.copper_weight_oz <= 0.0
-        || stackup.substrate_thickness_mm <= 0.0
-    {
-        anyhow::bail!("stackup values must be finite and > 0");
-    }
-    let mut manifest = container::read_manifest(container)?;
-    manifest.stackup = Some(stackup);
-    manifest.panel = Some(panel.clone());
-    container::update_manifest(container, &manifest)?;
-
-    let (count, w, h) = manifest_stats(&manifest);
-    let conn = catalog::open(db_path)?;
-    catalog::upsert(
-        &conn,
-        &container.to_string_lossy(),
-        &manifest.name,
-        count,
-        w,
-        h,
-        now,
-    )?;
-    Ok(manifest)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -750,73 +707,6 @@ mod tests {
     }
 
     #[test]
-    fn configure_panel_sets_stackup_and_panel() {
-        use crate::document::manifest::Stackup;
-        use crate::document::panel::PanelDoc;
-        let dir = std::env::temp_dir().join(format!("cuprum-cfgpanel-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        // Not configured initially.
-        assert!(open_project(&db, &save, 1500).unwrap().panel.is_none());
-        assert!(open_project(&db, &save, 1500).unwrap().stackup.is_none());
-
-        let m = configure_panel(
-            &db,
-            &save,
-            &PanelDoc::new(150.0, 100.0),
-            Stackup {
-                copper_weight_oz: 1.0,
-                substrate_thickness_mm: 1.6,
-                double_sided: false,
-            },
-            2000,
-        )
-        .unwrap();
-        assert_eq!(m.stackup.as_ref().unwrap().copper_weight_oz, 1.0);
-        assert_eq!(m.panel.as_ref().unwrap().width_mm, 150.0);
-
-        // Persisted: reopening sees both.
-        let re = open_project(&db, &save, 2500).unwrap();
-        assert!(re.stackup.is_some());
-        assert_eq!(re.panel.unwrap().width_mm, 150.0);
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn configure_panel_rejects_bad_dimensions() {
-        use crate::document::manifest::Stackup;
-        use crate::document::panel::PanelDoc;
-        let dir = std::env::temp_dir().join(format!("cuprum-badpanel-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = dir.join("catalog.sqlite");
-        let save = dir.join("proj.cuprum");
-        create_project(&db, &save, "proj", &[], 1000).unwrap();
-
-        let ok = Stackup {
-            copper_weight_oz: 1.0,
-            substrate_thickness_mm: 1.6,
-            double_sided: false,
-        };
-        // Non-positive dimension is rejected, and nothing is written.
-        assert!(configure_panel(&db, &save, &PanelDoc::new(0.0, 100.0), ok.clone(), 2000).is_err());
-        assert!(open_project(&db, &save, 1500).unwrap().panel.is_none());
-        // Non-positive stackup value is rejected too.
-        let bad = Stackup {
-            copper_weight_oz: 0.0,
-            substrate_thickness_mm: 1.6,
-            double_sided: false,
-        };
-        assert!(configure_panel(&db, &save, &PanelDoc::new(150.0, 100.0), bad, 2000).is_err());
-        assert!(open_project(&db, &save, 1600).unwrap().panel.is_none());
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
     fn reimport_preserves_stackup() {
         use crate::document::manifest::Stackup;
         use crate::document::panel::PanelDoc;
@@ -825,18 +715,17 @@ mod tests {
         let db = dir.join("catalog.sqlite");
         let save = dir.join("proj.cuprum");
         create_project(&db, &save, "proj", &[], 1000).unwrap();
-        configure_panel(
-            &db,
-            &save,
-            &PanelDoc::new(150.0, 100.0),
-            Stackup {
-                copper_weight_oz: 1.0,
-                substrate_thickness_mm: 1.6,
-                double_sided: true,
-            },
-            2000,
-        )
-        .unwrap();
+
+        // Seed a stackup + panel on the container manifest (the live app does this
+        // through the working-dir + autosave path, not a dedicated command).
+        let mut m = container::read_manifest(&save).unwrap();
+        m.stackup = Some(Stackup {
+            copper_weight_oz: 1.0,
+            substrate_thickness_mm: 1.6,
+            double_sided: true,
+        });
+        m.panel = Some(PanelDoc::new(150.0, 100.0));
+        container::update_manifest(&save, &m).unwrap();
 
         // A reimport (here: zero new zips) must not wipe the stackup.
         let m = import_zips(&db, &save, &[], 3000).unwrap();
