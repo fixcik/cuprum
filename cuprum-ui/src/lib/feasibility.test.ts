@@ -172,3 +172,29 @@ describe("evaluate — layers", () => {
     expect(findings.find((f) => f.id === "layers.doubleSided")).toBeUndefined();
   });
 });
+
+describe("evaluate — thin trace", () => {
+  it("blocks a routed trace narrower than the minimum width", () => {
+    const metrics = makeMetrics({
+      geo: {
+        thinTraceConductors: [{ a: [0, 0], b: [1, 0], v: 0.12, side: "top" }],
+        traceHotspots: [{ a: [0, 0], b: [1, 0], v: 0.12, side: "top" }],
+      },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    const thin = findings.find((f) => f.id === "copper.thinTrace.top");
+    expect(thin?.severity).toBe("block");
+  });
+
+  it("warns on a marginal trace within the tolerance band but at/above the minimum", () => {
+    const metrics = makeMetrics({
+      geo: {
+        thinTraceConductors: [{ a: [0, 0], b: [1, 0], v: 0.16, side: "top" }],
+        traceHotspots: [{ a: [0, 0], b: [1, 0], v: 0.16, side: "top" }],
+      },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    const thin = findings.find((f) => f.id === "copper.thinTrace.top");
+    expect(thin?.severity).toBe("warn");
+  });
+});
