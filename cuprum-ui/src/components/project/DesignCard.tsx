@@ -24,6 +24,7 @@ export function DesignCard({
   const workingDir = useShell((s) => s.workingDir);
   const layerColors = useShell((s) => s.currentManifest?.layer_colors);
   const panel = useShell((s) => s.currentManifest?.panel ?? null);
+  const stackup = useShell((s) => s.currentManifest?.stackup ?? null);
   const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
   const reportArtifactProgress = useShell((s) => s.reportArtifactProgress);
   const clearArtifactProgress = useShell((s) => s.clearArtifactProgress);
@@ -94,7 +95,7 @@ export function DesignCard({
       .then((m) => {
         if (cancelled) return;
         setSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
-        setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panel)) : null);
+        setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panel, stackup)) : null);
         scheduleArtifactFlush(m.fresh);
         setMetricsReady(true);
       })
@@ -108,7 +109,7 @@ export function DesignCard({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `design`
-  }, [workingDir, gerbersKey, profile, panel]);
+  }, [workingDir, gerbersKey, profile, panel, stackup]);
 
   // Precompute per-layer SVG so it ships in the .cuprum and the inspector opens
   // instantly — even though the card itself shows only the composite preview.
