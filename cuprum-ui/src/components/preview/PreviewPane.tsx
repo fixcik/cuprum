@@ -303,9 +303,9 @@ export function PreviewPane({
         </div>
       )}
 
-      {/* Walk-the-errors stepper — floats top-centre on its OWN row (below the
-          tool cluster) so it never collides with the left controls on a narrow
-          view, where a centred row would otherwise overlap the toolbar. */}
+      {/* Walk-the-errors stepper — floats top-centre, level with the tool cluster.
+          The cluster is narrow enough (filter folded into the overlay pill) that a
+          centred row clears it at usable widths. */}
       {tab === "preview" && mode === "2d" && showDrc && issues.length > 0 && onFocus && (() => {
         const N = issues.length;
         const go = (delta: number) => {
@@ -315,7 +315,7 @@ export function PreviewPane({
         };
         const cur = issueIndex >= 0 ? issues[issueIndex] : null;
         return (
-          <div className="absolute left-1/2 top-[64px] z-10 flex -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-card/90 px-1 py-1 text-[11px] shadow-sm backdrop-blur">
+          <div className="absolute left-1/2 top-[26px] z-10 flex -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-card/90 px-1 py-1 text-[11px] shadow-sm backdrop-blur">
             <button
               type="button"
               className="cursor-pointer rounded p-1 text-muted-foreground hover:bg-foreground/10"
