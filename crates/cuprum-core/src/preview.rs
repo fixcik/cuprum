@@ -270,13 +270,18 @@ pub fn render_design_preview(
             return Ok(png);
         }
     }
-    // Render each layer's SVG fragment from the raw gerber bytes.
+    // Reuse the shared per-layer SVG artifact cache (same content key as the
+    // inspector's `cache::layer_svg_artifact`) instead of re-rendering each layer
+    // here. On a cold card show the preview and inspector then render a given layer
+    // exactly once between them — single-flight de-dups even when they run
+    // concurrently. The internal SVG element id differs from a direct render but is
+    // invisible in the raster, so the composed PNG is byte-identical (no version bump).
     // Skip layers whose gerber fails to parse (blank silk/paste is common) so
     // one bad layer doesn't abort the whole preview.
+    let svg_dir = artifacts_dir.join("svg");
     let mut composed: Vec<(String, LayerGeometry)> = Vec::with_capacity(layers.len());
     for l in layers {
-        let id = format!("pv{}", &crate::diskcache::key_for(&[&l.bytes])[..8]);
-        match crate::svg::render_layer_svg(&l.bytes, &id) {
+        match crate::cache::layer_svg_artifact(&svg_dir, &l.bytes) {
             Ok(g) => composed.push((l.layer_type.clone(), g)),
             Err(_) => continue,
         }
@@ -561,6 +566,33 @@ mod tests {
             .map(|rd| rd.count())
             .unwrap_or(0);
         assert_eq!(n, 2, "different colors → different keys → two blobs");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn render_design_preview_populates_shared_svg_cache() {
+        // A unique aperture diameter no other test uses → guaranteed-cold svg cache
+        // key, so the per-layer render must miss and land a blob on disk.
+        const UNIQ: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.234*%\nD10*\nX0Y0D03*\nM02*\n";
+        let dir =
+            std::env::temp_dir().join(format!("cuprum-preview-svgcache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let layers = vec![PreviewLayer {
+            layer_type: "topCopper".to_string(),
+            bytes: UNIQ.to_vec(),
+        }];
+        let overrides = std::collections::HashMap::new();
+        let _ = render_design_preview(&dir, &layers, &overrides, 128).expect("preview ok");
+        // The preview routed the layer through the shared artifact cache, so its SVG
+        // blob lands under <dir>/svg/<svg_artifact_key>.bin — the SAME key/path the
+        // inspector would use, proving the layer renders once across both.
+        let svg_blob = dir
+            .join("svg")
+            .join(format!("{}.bin", crate::cache::svg_artifact_key(UNIQ)));
+        assert!(
+            svg_blob.exists(),
+            "preview reuses the shared per-layer SVG cache (blob at {svg_blob:?})"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
