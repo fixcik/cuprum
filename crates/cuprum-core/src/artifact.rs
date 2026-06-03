@@ -11,7 +11,8 @@
 //! the ONLY place a version lives — keep it out of `main.rs` and the manifest.
 
 /// Bump when `svg::render_layer_svg` output changes.
-pub const SVG_VERSION: &[u8] = b"svg-v1";
+/// v2: connected line segments coalesced into one polyline path.
+pub const SVG_VERSION: &[u8] = b"svg-v2";
 
 /// Bump when `dfm::board_metrics` output changes (was hard-coded in main.rs).
 /// v15: annular hotspots now carry the pad's copper side instead of hardcoded "both".
