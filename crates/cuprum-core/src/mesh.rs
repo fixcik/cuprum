@@ -127,12 +127,14 @@ fn z_for(role: Role, side: Side) -> f32 {
     }
 }
 
-/// Triangulate one polygon (outer ring + holes) into `buf` at constant `z`, with
-/// a flat normal of `(0, 0, nz)`. Uses earcut (robust for SIMPLE polygons, which
-/// is exactly what `geometry` produces after the boolean union/difference).
-fn add_poly(buf: &mut Buffer, poly: &Poly, z: f32, nz: f32) {
+/// Earcut a polygon (outer ring + holes) once, returning the flattened XY vertex
+/// data and the triangle index list — both reusable across multiple faces of the
+/// SAME 2D shape (e.g. the substrate's top + bottom). `None` if degenerate.
+/// Robust for SIMPLE polygons, which is what `geometry` produces after the
+/// boolean union/difference.
+fn triangulate_poly(poly: &Poly) -> Option<(Vec<f64>, Vec<usize>)> {
     if poly.outer.len() < 3 {
-        return;
+        return None;
     }
     let mut data: Vec<f64> = Vec::with_capacity(poly.outer.len() * 2);
     for p in &poly.outer {
@@ -150,10 +152,14 @@ fn add_poly(buf: &mut Buffer, poly: &Poly, z: f32, nz: f32) {
             data.push(p[1] as f64);
         }
     }
-    let tris = match earcutr::earcut(&data, &hole_indices, 2) {
-        Ok(t) => t,
-        Err(_) => return,
-    };
+    let tris = earcutr::earcut(&data, &hole_indices, 2).ok()?;
+    Some((data, tris))
+}
+
+/// Emit one flat face from a pre-triangulated polygon (`data` + `tris` from
+/// [`triangulate_poly`]) into `buf` at constant `z`, with a flat normal of
+/// `(0, 0, nz)`.
+fn emit_face(buf: &mut Buffer, data: &[f64], tris: &[usize], z: f32, nz: f32) {
     let base = buf.vert_count();
     let vert_n = data.len() / 2;
     for i in 0..vert_n {
@@ -174,6 +180,14 @@ fn add_poly(buf: &mut Buffer, poly: &Poly, z: f32, nz: f32) {
         } else {
             buf.indices.extend_from_slice(&[a, b, c]);
         }
+    }
+}
+
+/// Triangulate one polygon into `buf` at constant `z` with a flat `(0, 0, nz)`
+/// normal. Convenience for surface layers (one face per polygon).
+fn add_poly(buf: &mut Buffer, poly: &Poly, z: f32, nz: f32) {
+    if let Some((data, tris)) = triangulate_poly(poly) {
+        emit_face(buf, &data, &tris, z, nz);
     }
 }
 
@@ -393,8 +407,12 @@ fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
     {
         let _span = tracing::info_span!("triangulate_faces", polys = board_polys.len()).entered();
         for p in &board_polys {
-            add_poly(&mut buf, p, FR4_THICK, 1.0); // top face
-            add_poly(&mut buf, p, 0.0, -1.0); // bottom face
+            // Top + bottom faces share the SAME 2D polygon — earcut once, emit
+            // both. (Top first, then bottom, to match the prior vertex order.)
+            if let Some((data, tris)) = triangulate_poly(p) {
+                emit_face(&mut buf, &data, &tris, FR4_THICK, 1.0); // top face
+                emit_face(&mut buf, &data, &tris, 0.0, -1.0); // bottom face
+            }
         }
     }
     // Walls only for the perimeter + inner cutouts (NOT drills).
@@ -497,20 +515,26 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
             .unwrap_or_default()
     };
 
-    // 3. Substrate.
-    let substrate = build_substrate(&outline, &holes);
-
-    // 4. Surface layers, triangulated in parallel (the heavy part).
-    let mut meshes: Vec<LayerMesh> = {
-        let _span = tracing::info_span!("triangulate_parallel").entered();
-        // Capture the current span so each layer's spans (created on rayon
-        // workers) stay its children and route to this operation's trace file.
-        let dh = crate::trace::capture_dispatch();
-        layers
-            .par_iter()
-            .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline)))
-            .collect()
-    };
+    // 3 + 4. The substrate and the surface layers are independent (both need only
+    // `outline` + `holes`, already computed), so build them concurrently — the
+    // substrate's sequential earcut overlaps the parallel surface-layer region
+    // instead of running before it. Capture the current span so spans created on
+    // rayon workers (either side of the join, possibly stolen onto a worker
+    // thread) stay its children and route to this operation's trace file.
+    let dh = crate::trace::capture_dispatch();
+    let (substrate, mut meshes) = rayon::join(
+        || dh.run(|| build_substrate(&outline, &holes)),
+        || {
+            dh.run(|| {
+                let _span = tracing::info_span!("triangulate_parallel").entered();
+                let dh = crate::trace::capture_dispatch();
+                layers
+                    .par_iter()
+                    .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline)))
+                    .collect::<Vec<LayerMesh>>()
+            })
+        },
+    );
 
     // 5. One barrel mesh per drill layer (keyed by that layer, so it toggles).
     {
@@ -620,6 +644,45 @@ mod tests {
             !barrels[0].buffer.positions.is_empty(),
             "barrel should have wall verts"
         );
+    }
+
+    #[test]
+    fn two_faces_share_xy_and_reverse_winding() {
+        // The substrate top/bottom optimization triangulates once and emits two
+        // faces. Verify both faces have identical XY (differ only in Z) and the
+        // bottom face's winding is reversed — i.e. bit-identical to two add_poly
+        // calls with (z, +1) then (z, -1).
+        let poly = Poly {
+            outer: vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]],
+            holes: vec![],
+        };
+        let (data, tris) = triangulate_poly(&poly).expect("square triangulates");
+        let mut buf = Buffer::default();
+        emit_face(&mut buf, &data, &tris, FR4_THICK, 1.0);
+        let vert_n = data.len() / 2;
+        emit_face(&mut buf, &data, &tris, 0.0, -1.0);
+
+        // Two faces' worth of verts and indices.
+        assert_eq!(buf.positions.len(), vert_n * 3 * 2, "two faces of verts");
+        assert_eq!(buf.indices.len(), tris.len() * 2, "two faces of tris");
+        // Top verts at z=FR4_THICK, bottom at z=0, same XY.
+        for i in 0..vert_n {
+            let top = i * 3;
+            let bot = (vert_n + i) * 3;
+            assert_eq!(buf.positions[top], buf.positions[bot], "x matches");
+            assert_eq!(buf.positions[top + 1], buf.positions[bot + 1], "y matches");
+            assert_eq!(buf.positions[top + 2], FR4_THICK, "top z");
+            assert_eq!(buf.positions[bot + 2], 0.0, "bottom z");
+        }
+        // Bottom winding (a, c, b) is the reverse of top (a, b, c), offset by vert_n.
+        let tri_n = tris.len() / 3;
+        for t in 0..tri_n {
+            let top = &buf.indices[t * 3..t * 3 + 3];
+            let bot = &buf.indices[(tri_n + t) * 3..(tri_n + t) * 3 + 3];
+            assert_eq!(bot[0], top[0] + vert_n as u32, "bottom a = top a + offset");
+            assert_eq!(bot[1], top[2] + vert_n as u32, "bottom swaps b/c (c)");
+            assert_eq!(bot[2], top[1] + vert_n as u32, "bottom swaps b/c (b)");
+        }
     }
 
     #[test]
