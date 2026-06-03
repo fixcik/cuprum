@@ -247,9 +247,13 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   вынесен в свой крейт, `cuprum_core::trace` ре-экспортит его (вызовы в core/cli/UI не
   тронуты). Заодно сериализованы тест-кейсы глобального subscriber'а (общий `SERIAL`-мьютекс):
   изоляция в крейт вскрыла латентный флейк — `reap_idle_with_timeout` финализирует
-  чужие idle-сессии при параллельном прогоне. **Файл (1108 строк) ещё не разбит** — см. PR2a.
-- [ ] **PR2a — разбить `cuprum-trace/lib.rs`** на подмодули (config · sink · layer · session):
-  единственный extract-PR, где файл остался монолитом (правило «и дробить» введено после него).
+  чужие idle-сессии при параллельном прогоне. Файл (1108 строк) разбит отдельно — см. PR2a.
+- [x] **PR2a — разбить `cuprum-trace/lib.rs`** (✅ 2026-06-04): монолит 1108 строк → `config` (58,
+  `CUPRUM_TRACE`-парсинг), `sink` (138, `OpSink` + visitors + registry), `layer` (121,
+  routing-layer + subscriber + dispatch), `session` (код ~320 + интеграционные тесты; `operation`/
+  сессии/реапер/`run_with_config`); тонкий `lib.rs` (24) с ре-экспортами. Чистое перемещение,
+  публичный API не изменился. Единственный extract-PR, где файл остался монолитом (правило «и
+  дробить» введено после #73).
 - [x] **PR2 — `cuprum-diskcache`** (✅ 2026-06-04): `diskcache` + `artifact` вынесены в крейт
   (deps: `tracing` + `xxhash-rust`; trace — только dev). `cuprum_core::{diskcache,artifact}`
   ре-экспортят (project/UI не тронуты). `diskcache.rs` (336) разбит на `diskcache/{mod (config),
