@@ -1,0 +1,9 @@
+{
+  "available": "Version {{version}} is available",
+  "update": "Update",
+  "dismiss": "Later",
+  "downloading": "Downloading… {{percent}}%",
+  "restarting": "Restarting…",
+  "upToDate": "You're on the latest version",
+  "error": "Update failed"
+}

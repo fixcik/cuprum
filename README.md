@@ -118,6 +118,23 @@ pnpm install
 pnpm tauri dev
 ```
 
+### Installing a release
+
+The app updates itself: it checks GitHub Releases on launch and offers a signed
+in-app update when a newer version is available.
+
+On **macOS** the release bundles are not yet signed with an Apple Developer ID, so
+the first launch of a freshly downloaded build may show an *"unidentified
+developer"* warning. Bypass it once: right-click the app → **Open** → **Open**, or
+strip the download quarantine flag:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Cuprum.app
+```
+
+Subsequent updates apply automatically (they go through the in-app updater, not the
+browser, so they don't re-trigger the warning).
+
 ## Repository layout
 
 ```
