@@ -22,6 +22,7 @@ cuprum-trace.workspace = true
 cuprum-diskcache.workspace = true
 cuprum-cache.workspace = true
 cuprum-goo.workspace = true
+cuprum-gerber.workspace = true
 cuprum-sdcp.workspace = true
 tracing.workspace = true
 

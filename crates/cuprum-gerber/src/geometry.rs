@@ -191,7 +191,7 @@ pub fn fill_polygons(contours: &[Vec<[f64; 2]>], holes: &[Hole]) -> Vec<Poly> {
 ///
 /// i_overlay shapes: `Vec<Shape>`, `Shape = Vec<Contour>`, `Contour = Vec<[f64;2]>`.
 /// The first contour of each shape is its outer ring; the rest are holes.
-pub(crate) fn shapes_to_polys(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Vec<Poly> {
+pub fn shapes_to_polys(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Vec<Poly> {
     shapes
         .into_iter()
         .filter_map(|shape| {
@@ -348,7 +348,7 @@ fn push_stroke(out: &mut Vec<Vec<[f64; 2]>>, ax: f64, ay: f64, bx: f64, by: f64,
 }
 
 /// A `segs`-gon approximating a circle, CCW.
-pub(crate) fn circle(cx: f64, cy: f64, r: f64, segs: usize) -> Vec<[f64; 2]> {
+pub fn circle(cx: f64, cy: f64, r: f64, segs: usize) -> Vec<[f64; 2]> {
     (0..segs)
         .map(|i| {
             let a = (i as f64) / (segs as f64) * std::f64::consts::TAU;
@@ -384,7 +384,7 @@ fn ring_area_f32(ring: &[[f32; 2]]) -> f64 {
 
 /// Closest point on segment `ab` to `p`, plus the distance.
 #[inline]
-pub(crate) fn point_seg_closest(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> ([f64; 2], f64) {
+pub fn point_seg_closest(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> ([f64; 2], f64) {
     let (abx, aby) = (b[0] - a[0], b[1] - a[1]);
     let len2 = abx * abx + aby * aby;
     let t = if len2 <= 0.0 {
@@ -398,7 +398,7 @@ pub(crate) fn point_seg_closest(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> ([f64;
 
 /// Ray-cast point-in-ring test (ring in f32, point in f64 mm).
 #[inline]
-pub(crate) fn point_in_ring(p: [f64; 2], ring: &[[f32; 2]]) -> bool {
+pub fn point_in_ring(p: [f64; 2], ring: &[[f32; 2]]) -> bool {
     let n = ring.len();
     if n < 3 {
         return false;
@@ -418,14 +418,14 @@ pub(crate) fn point_in_ring(p: [f64; 2], ring: &[[f32; 2]]) -> bool {
 
 /// The polygon whose outer ring contains `p` and whose holes don't (i.e. p is
 /// in solid copper). Used to associate a drill with its pad.
-pub(crate) fn poly_containing(polys: &[Poly], p: [f64; 2]) -> Option<&Poly> {
+pub fn poly_containing(polys: &[Poly], p: [f64; 2]) -> Option<&Poly> {
     polys.iter().find(|poly| {
         point_in_ring(p, &poly.outer) && !poly.holes.iter().any(|h| point_in_ring(p, h))
     })
 }
 
 /// Closest point on a ring's boundary to `p`, plus the distance.
-pub(crate) fn point_ring_closest(p: [f64; 2], ring: &[[f32; 2]]) -> ([f64; 2], f64) {
+pub fn point_ring_closest(p: [f64; 2], ring: &[[f32; 2]]) -> ([f64; 2], f64) {
     let n = ring.len();
     if n < 2 {
         return (p, f64::INFINITY);

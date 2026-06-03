@@ -485,6 +485,7 @@ dependencies = [
  "criterion",
  "cuprum-cache",
  "cuprum-diskcache",
+ "cuprum-gerber",
  "cuprum-goo",
  "cuprum-sdcp",
  "cuprum-trace",
@@ -510,6 +511,23 @@ dependencies = [
  "serde_json",
  "tracing",
  "xxhash-rust",
+]
+
+[[package]]
+name = "cuprum-gerber"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "cuprum-cache",
+ "cuprum-diskcache",
+ "cuprum-goo",
+ "gerber_viewer",
+ "i_overlay",
+ "lru",
+ "png 0.17.16",
+ "serde",
+ "tiny-skia 0.12.0",
+ "tracing",
 ]
 
 [[package]]

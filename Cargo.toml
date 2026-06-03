@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace", "crates/cuprum-diskcache", "crates/cuprum-cache", "crates/cuprum-goo", "crates/cuprum-sdcp"]
+members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace", "crates/cuprum-diskcache", "crates/cuprum-cache", "crates/cuprum-goo", "crates/cuprum-gerber", "crates/cuprum-sdcp"]
 # vendored dependency, not a workspace member (skip its tests/benches)
 # cuprum-ui/src-tauri is its own workspace (heavy tauri deps) — keep core/CLI builds fast
 exclude = ["vendor/gerber-viewer", "cuprum-ui/src-tauri"]
@@ -16,6 +16,7 @@ cuprum-trace = { path = "crates/cuprum-trace" }
 cuprum-diskcache = { path = "crates/cuprum-diskcache" }
 cuprum-cache = { path = "crates/cuprum-cache" }
 cuprum-goo = { path = "crates/cuprum-goo" }
+cuprum-gerber = { path = "crates/cuprum-gerber" }
 cuprum-sdcp = { path = "crates/cuprum-sdcp" }
 goo = "0.1"
 anyhow = "1"

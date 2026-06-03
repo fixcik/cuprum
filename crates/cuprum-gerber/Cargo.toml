@@ -1,0 +1,19 @@
+[package]
+name = "cuprum-gerber"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gerber/Excellon parsing, layer rendering and 2D copper polygon geometry for Cuprum"
+
+[dependencies]
+anyhow.workspace = true
+gerber_viewer.workspace = true
+tiny-skia.workspace = true
+png.workspace = true
+lru.workspace = true
+serde.workspace = true
+tracing.workspace = true
+i_overlay = "4"
+cuprum-cache.workspace = true
+cuprum-goo.workspace = true
+cuprum-diskcache.workspace = true

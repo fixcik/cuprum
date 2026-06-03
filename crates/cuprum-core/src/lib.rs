@@ -5,13 +5,8 @@ pub mod cache;
 pub mod cal;
 pub mod compose;
 pub mod dfm;
-pub mod drill;
-pub mod geometry;
-pub mod gerber;
 pub mod mesh;
 pub mod preview;
-pub mod strokes;
-pub mod svg;
 
 // Tracing now lives in its own leaf crate; re-export under the historical path so
 // `cuprum_core::trace::…` (and in-crate `crate::trace::…`) keep resolving.
@@ -30,3 +25,9 @@ pub use cuprum_sdcp as sdcp;
 // under the historical path so `cuprum_core::goo::…` (and in-crate `crate::goo::…`)
 // keep resolving for the CLI, the UI, gerber and compose.
 pub use cuprum_goo as goo;
+
+// Gerber/Excellon parse, layer render and copper polygon geometry live in their own
+// crate; re-export each module under the historical paths so `cuprum_core::{gerber,
+// svg,geometry,strokes,drill}::…` (and in-crate `crate::…`) keep resolving for the
+// CLI, the UI, and the in-core consumers (cache, mesh, dfm, compose, preview).
+pub use cuprum_gerber::{drill, geometry, gerber, strokes, svg};
