@@ -6,7 +6,6 @@ license.workspace = true
 description = "Core library for Cuprum: drive an Elegoo Saturn 4 Ultra 16K as a UV PCB exposure unit"
 
 [dependencies]
-goo.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -22,6 +21,7 @@ earcutr = "0.4"
 cuprum-trace.workspace = true
 cuprum-diskcache.workspace = true
 cuprum-cache.workspace = true
+cuprum-goo.workspace = true
 cuprum-sdcp.workspace = true
 tracing.workspace = true
 
