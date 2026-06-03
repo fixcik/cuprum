@@ -59,8 +59,14 @@ export function packLayout(
   }
   const innerW = panelWmm - 2 * nest.marginMm;
   const innerH = panelHmm - 2 * nest.marginMm;
-  const cols = Math.max(0, Math.floor((innerW + nest.gapMm) / (bw + nest.gapMm)));
-  const rows = Math.max(0, Math.floor((innerH + nest.gapMm) / (bh + nest.gapMm)));
+  const cols =
+    bw + nest.gapMm > 0
+      ? Math.max(0, Math.floor((innerW + nest.gapMm) / (bw + nest.gapMm)))
+      : 0;
+  const rows =
+    bh + nest.gapMm > 0
+      ? Math.max(0, Math.floor((innerH + nest.gapMm) / (bh + nest.gapMm)))
+      : 0;
   const max = cols * rows;
 
   let requested: number;
