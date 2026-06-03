@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, type LucideIcon } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, type LucideIcon } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
@@ -26,6 +26,7 @@ export function ProjectPage() {
   const restorePoints = useShell((s) => s.restorePoints);
   const restoreTo = useShell((s) => s.restoreTo);
   const historyBusy = useShell((s) => s.historyBusy);
+  const saving = useShell((s) => s.saving);
   const [pointsOpen, setPointsOpen] = useState(false);
 
   const artifactProgress = useShell((s) => s.artifactProgress);
@@ -125,10 +126,14 @@ export function ProjectPage() {
             onClick={() => makeRestorePoint()}
             disabled={historyBusy}
             aria-label={t("history.savePoint")}
-            title={t("history.savePoint")}
+            title={saving ? t("history.saving") : t("history.savePoint")}
             className="rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"
           >
-            <Save className="size-4" />
+            {saving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Save className="size-4" />
+            )}
           </button>
           <div className="relative">
             <button

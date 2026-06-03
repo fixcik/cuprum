@@ -63,6 +63,7 @@
     "undo": "Undo",
     "redo": "Redo",
     "savePoint": "Save point",
+    "saving": "Saving…",
     "points": "Restore points",
     "noPoints": "No restore points yet.",
     "restore": "Restore",
