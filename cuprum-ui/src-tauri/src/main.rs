@@ -1264,6 +1264,8 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(PendingOpen::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         // Single-instance: a second launch (Win/Linux file double-click passes the
         // path in argv) forwards its args here instead of opening a new window.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
