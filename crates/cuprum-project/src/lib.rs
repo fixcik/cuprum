@@ -18,6 +18,7 @@ pub(crate) mod test_trace {
     // stub once per process so callsites are cached as SOMETIMES, which makes
     // them re-check the thread-local dispatcher on every invocation. This crate's
     // test binary has no competing global subscriber, so the stub is harmless.
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
@@ -59,6 +60,8 @@ pub(crate) mod test_trace {
 
     struct NameCollector {
         names: Arc<Mutex<Vec<String>>>,
+        /// Span id -> name, populated on creation so `enter` can record the name.
+        ids: Mutex<HashMap<u64, &'static str>>,
         next: AtomicU64,
     }
     impl tracing::Subscriber for NameCollector {
@@ -66,16 +69,23 @@ pub(crate) mod test_trace {
             true
         }
         fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-            self.names
+            let id = next_id(&self.next);
+            self.ids
                 .lock()
                 .unwrap()
-                .push(attrs.metadata().name().to_string());
-            next_id(&self.next)
+                .insert(id.into_u64(), attrs.metadata().name());
+            id
         }
         fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
         fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
         fn event(&self, _: &tracing::Event<'_>) {}
-        fn enter(&self, _: &tracing::span::Id) {}
+        // Record on enter (not new_span), mirroring production routing, which emits
+        // events on span enter/exit rather than on creation.
+        fn enter(&self, id: &tracing::span::Id) {
+            if let Some(name) = self.ids.lock().unwrap().get(&id.into_u64()) {
+                self.names.lock().unwrap().push((*name).to_string());
+            }
+        }
         fn exit(&self, _: &tracing::span::Id) {}
     }
 
@@ -85,6 +95,7 @@ pub(crate) mod test_trace {
         let names = Arc::new(Mutex::new(Vec::new()));
         let sub = NameCollector {
             names: names.clone(),
+            ids: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
         };
         let r = tracing::subscriber::with_default(sub, f);
