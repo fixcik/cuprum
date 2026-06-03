@@ -159,6 +159,14 @@ export interface OpenedProject {
   manifest: Manifest;
 }
 
+/** Snapshot pushed from the main window to every inspector window. One channel
+ *  for all inspector windows; each picks its design out of `manifest.designs`. */
+export interface InspectorSnapshot {
+  workingDir: string | null;
+  currentPath: string | null;
+  manifest: Manifest | null;
+}
+
 /** Snapshot pushed from the main window to the add-design window. */
 export interface AddDesignSnapshot {
   workingDir: string | null;
@@ -399,6 +407,8 @@ export const api = {
 
   /** Open (or focus) the "Add design to panel" child window. */
   openAddDesignWindow: () => invoke<void>("open_add_design_window"),
+  /** Open (or focus) the inspector window for a design (label `inspector:<id>`). */
+  openInspectorWindow: (designId: string) => invoke<void>("open_inspector_window", { designId }),
 
   // Dialogs for the project flows.
   pickZips: () =>
@@ -437,4 +447,26 @@ export const api = {
   emitAddDesignResult: (r: AddDesignResult) => emit("add-design:result", r),
   onAddDesignResult: (cb: (r: AddDesignResult) => void): Promise<UnlistenFn> =>
     listen<AddDesignResult>("add-design:result", (e) => cb(e.payload)),
+  emitInspectorReady: () => emit("inspector:ready"),
+  onInspectorReady: (cb: () => void): Promise<UnlistenFn> =>
+    listen("inspector:ready", () => cb()),
+  emitInspectorSnapshot: (s: InspectorSnapshot) => emit("inspector:snapshot", s),
+  onInspectorSnapshot: (cb: (s: InspectorSnapshot) => void): Promise<UnlistenFn> =>
+    listen<InspectorSnapshot>("inspector:snapshot", (e) => cb(e.payload)),
+  emitInspectorRename: (designId: string, name: string) =>
+    emit("inspector:rename", { designId, name }),
+  onInspectorRename: (cb: (p: { designId: string; name: string }) => void): Promise<UnlistenFn> =>
+    listen<{ designId: string; name: string }>("inspector:rename", (e) => cb(e.payload)),
+  emitInspectorSetLayerType: (designId: string, path: string, type: LayerType) =>
+    emit("inspector:set-layer-type", { designId, path, type }),
+  onInspectorSetLayerType: (
+    cb: (p: { designId: string; path: string; type: LayerType }) => void,
+  ): Promise<UnlistenFn> =>
+    listen<{ designId: string; path: string; type: LayerType }>(
+      "inspector:set-layer-type",
+      (e) => cb(e.payload),
+    ),
+  emitInspectorArtifactsFresh: (fresh: boolean) => emit("inspector:artifacts-fresh", { fresh }),
+  onInspectorArtifactsFresh: (cb: (p: { fresh: boolean }) => void): Promise<UnlistenFn> =>
+    listen<{ fresh: boolean }>("inspector:artifacts-fresh", (e) => cb(e.payload)),
 };
