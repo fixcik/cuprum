@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { evaluate, minAbove } from "@/lib/feasibility";
+import { evaluate, overallVerdict, minAbove } from "@/lib/feasibility";
+import type { Finding } from "@/lib/feasibility";
 import type { BoardMetrics } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 import { DEFAULT_PROFILE } from "@/lib/capabilityProfile";
@@ -196,5 +197,25 @@ describe("evaluate — thin trace", () => {
     const findings = evaluate(metrics, makeProfile());
     const thin = findings.find((f) => f.id === "copper.thinTrace.top");
     expect(thin?.severity).toBe("warn");
+  });
+});
+
+describe("overallVerdict", () => {
+  const sev = (s: Finding["severity"]): Finding => ({ severity: s }) as Finding;
+
+  it("blocks when any finding is a blocker", () => {
+    expect(overallVerdict([sev("block"), sev("warn"), sev("ok")])).toBe("block");
+  });
+
+  it("warns when the worst finding is a warning", () => {
+    expect(overallVerdict([sev("warn"), sev("ok")])).toBe("warn");
+  });
+
+  it("does not escalate on info-only findings", () => {
+    expect(overallVerdict([sev("info"), sev("ok")])).toBe("ok");
+  });
+
+  it("is ok for an empty finding list", () => {
+    expect(overallVerdict([])).toBe("ok");
   });
 });
