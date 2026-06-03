@@ -8,6 +8,7 @@ use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
 use rayon::prelude::*;
 
 use crate::dfm::sweep;
+use crate::dfm::HOT_N;
 use crate::geometry::{self, Poly};
 use crate::mesh::{Role, Side};
 
@@ -112,7 +113,7 @@ pub(super) fn copper_clearance_width_hotspots(
                 .map(|(side, polys)| {
                     dh.run(|| {
                         let c = sweep::clearance_hotspots(polys);
-                        top_n(c, 40)
+                        top_n(c, HOT_N)
                             .into_iter()
                             .map(|h| to_hotspot(h, side))
                             .collect::<Vec<_>>()
@@ -144,7 +145,7 @@ pub(super) fn copper_clearance_width_hotspots(
                         }
                         let side = super::layer_side(l);
                         let w = sweep::width_hotspots(&region);
-                        top_n(w, 40)
+                        top_n(w, HOT_N)
                             .into_iter()
                             .map(|h| to_hotspot(h, side))
                             .collect::<Vec<_>>()
@@ -197,7 +198,7 @@ pub(super) fn annular_hotspots<'a>(
             .partial_cmp(&b.0 .2)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    hots.truncate(40);
+    hots.truncate(HOT_N);
     hots
 }
 

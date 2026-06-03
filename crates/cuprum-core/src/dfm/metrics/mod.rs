@@ -119,7 +119,7 @@ mod tests {
         for (side, polys) in &copper_layers {
             let (c, _) = crate::dfm::sweep::clearance_width_hotspots(polys);
             ref_clear.extend(
-                aggregate::top_n(c, 40)
+                aggregate::top_n(c, crate::dfm::HOT_N)
                     .into_iter()
                     .map(|h| aggregate::to_hotspot(h, side)),
             );
@@ -135,7 +135,7 @@ mod tests {
             let side = layer_side(l);
             let (_, w) = crate::dfm::sweep::clearance_width_hotspots(&region);
             ref_width.extend(
-                aggregate::top_n(w, 40)
+                aggregate::top_n(w, crate::dfm::HOT_N)
                     .into_iter()
                     .map(|h| aggregate::to_hotspot(h, side)),
             );

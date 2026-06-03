@@ -7,10 +7,11 @@ use std::sync::Arc;
 use gerber_viewer::GerberLayer;
 
 use crate::dfm::sweep;
+use crate::dfm::HOT_N;
 use crate::geometry::{self, Poly};
 use crate::mesh::{Role, Side};
 
-use super::aggregate::{dedup_by_value, hotspot_cmp, to_hotspot};
+use super::aggregate::{cell_dedup_top, hotspot_cmp, to_hotspot};
 use super::copper::{
     annular_hotspots, copper_clearance_width_hotspots, ring_area_abs, stroke_widths,
     thin_stroke_hotspots, HIGHLIGHT_CAP, HIGHLIGHT_MAX_W,
@@ -199,25 +200,26 @@ pub(super) fn compute_zone3(
     let silk_hots = thin_stroke_hotspots(layers, parsed, Role::Silk);
     let trace_hots = thin_stroke_hotspots(layers, parsed, Role::Copper);
 
-    // Drill holes (box markers): each hole's bbox + diameter, per-diameter sample.
-    // Holes go through the board → side "both".
-    let drill_hots = dedup_by_value(
-        layers
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.role == Role::Drill)
-            .filter_map(|(i, _)| drills[i].as_ref())
-            .flat_map(|d| d.holes.iter().copied())
-            .filter(|h| h.d_mm > 0.0)
-            .map(|h| {
-                let (x, y, r) = (h.x_mm as f64, h.y_mm as f64, (h.d_mm / 2.0) as f64);
-                ([x - r, y - r], [x + r, y + r], h.d_mm as f64)
-            })
-            .collect(),
-        12,
-        "both",
-        1.0,
-    );
+    // Drill holes (box markers): each hole's bbox + diameter. Worst-first (smallest
+    // diameter), deduped per ~1 mm cell and capped at HOT_N — same discipline as
+    // clearance/width so the stepper count is consistent across families. Holes go
+    // through the board → side "both".
+    let drill_input: Vec<sweep::Hot> = layers
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.role == Role::Drill)
+        .filter_map(|(i, _)| drills[i].as_ref())
+        .flat_map(|d| d.holes.iter().copied())
+        .filter(|h| h.d_mm > 0.0)
+        .map(|h| {
+            let (x, y, r) = (h.x_mm as f64, h.y_mm as f64, (h.d_mm / 2.0) as f64);
+            ([x - r, y - r], [x + r, y + r], h.d_mm as f64)
+        })
+        .collect();
+    let drill_hots: Vec<Hotspot> = cell_dedup_top(drill_input, 1.0, HOT_N)
+        .into_iter()
+        .map(|h| to_hotspot(h, "both"))
+        .collect();
 
     // Mask dam: clearance between mask openings, per side (top vs bottom mask).
     let mut mask_hots: Vec<Hotspot> = Vec::new();
@@ -285,7 +287,7 @@ pub(super) fn compute_zone3(
     }
     // Overshoot is "worst = largest" → sort descending.
     overshoot_hots.sort_by(|a, b| hotspot_cmp(b, a));
-    overshoot_hots.truncate(40);
+    overshoot_hots.truncate(HOT_N);
     let layer_overshoot = overshoot_hots.first().map(|h| h.v);
 
     // Routed slots from drill layers.
