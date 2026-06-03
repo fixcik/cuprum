@@ -2,16 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Layers, Loader2 } from "lucide-react";
 import { api, type PanelDoc, type ProjectDesign } from "@/lib/api";
-import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
-import { missingRequired } from "@/lib/layerColors";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
-
-const DOT: Record<Verdict, string> = {
-  ok: "bg-success",
-  warn: "bg-warning",
-  block: "bg-destructive",
-};
+import { useDesignVerdict } from "@/hooks/useDesignVerdict";
+import { VerdictDot } from "@/components/ui/VerdictDot";
 
 /** One selectable design row in the add-design window list. */
 export function DesignPickerRow({
@@ -32,13 +26,27 @@ export function DesignPickerRow({
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewSettled, setPreviewSettled] = useState(false);
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
-  const [verdict, setVerdict] = useState<Verdict | null>(null);
 
   const gerbersKey = useMemo(
     () => design.gerbers.map((g) => `${g.path}:${g.layer_type}`).join(","),
     [design],
   );
+
+  // Minimal PanelDoc so the verdict's size check runs against this panel. Never
+  // persisted — only fed to the client-side feasibility check.
+  const panelDoc = useMemo<PanelDoc>(
+    () => ({
+      schema_version: 2,
+      width_mm: panel.widthMm,
+      height_mm: panel.heightMm,
+      origin_x_mm: 0,
+      origin_y_mm: 0,
+      instances: [],
+      tooling_holes: [],
+    }),
+    [panel.widthMm, panel.heightMm],
+  );
+  const { verdict, size } = useDesignVerdict(workingDir, design.gerbers, profile, { panel: panelDoc });
 
   useEffect(() => {
     let cancelled = false;
@@ -72,42 +80,6 @@ export function DesignPickerRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workingDir, gerbersKey]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const hasRequired = missingRequired(design.gerbers.map((g) => g.layer_type)).length === 0;
-    // Build a minimal PanelDoc so evaluate() can check board fit against the panel.
-    // Never persisted — only fed to the client-side feasibility check.
-    const panelDoc: PanelDoc = {
-      schema_version: 2,
-      width_mm: panel.widthMm,
-      height_mm: panel.heightMm,
-      origin_x_mm: 0,
-      origin_y_mm: 0,
-      instances: [],
-      tooling_holes: [],
-    };
-    api
-      .projectBoardMetrics(
-        workingDir,
-        design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
-      )
-      .then((m) => {
-        if (cancelled) return;
-        setSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
-        setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panelDoc)) : null);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSize(null);
-          setVerdict(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingDir, gerbersKey, profile, panel.widthMm, panel.heightMm]);
-
   return (
     <li>
       <button
@@ -135,9 +107,7 @@ export function DesignPickerRow({
               )}
             </div>
           )}
-          {verdict && (
-            <span className={`absolute right-1 top-1 size-2 rounded-full ${DOT[verdict]} ring-2 ring-card`} />
-          )}
+          {verdict && <VerdictDot verdict={verdict} className="absolute right-1 top-1 size-2 ring-2 ring-card" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className={`truncate text-[12px] font-medium ${selected ? "text-primary" : "text-foreground"}`}>
