@@ -11,7 +11,6 @@ pub mod gerber;
 pub mod goo;
 pub mod mesh;
 pub mod preview;
-pub mod sdcp;
 pub mod strokes;
 pub mod svg;
 
@@ -23,3 +22,7 @@ pub use cuprum_trace as trace;
 // under the historical paths so `cuprum_core::{diskcache,artifact}::…` (and in-crate
 // `crate::{diskcache,artifact}::…`) keep resolving.
 pub use cuprum_diskcache::{artifact, diskcache};
+
+// Printer protocol lives in its own leaf crate; re-export under the historical path
+// so `cuprum_core::sdcp::…` keeps resolving for the CLI and the UI.
+pub use cuprum_sdcp as sdcp;

@@ -257,10 +257,14 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   (deps: `tracing` + `xxhash-rust`; trace — только dev). `cuprum_core::{diskcache,artifact}`
   ре-экспортят (project/UI не тронуты). `diskcache.rs` (336) разбит на `diskcache/{mod (config),
   hash, store}`.
-- [ ] **PR3 — `cuprum-sdcp`** (протокол принтера; независим)
+- [x] **PR3 — `cuprum-sdcp`** (✅ 2026-06-04): протокол принтера (discovery/client/upload) вынесен
+  в крейт; ноль внутренних зависимостей. `cuprum_core::sdcp` ре-экспортит (CLI/UI не тронуты).
+  `reqwest` + `tungstenite` + `md-5` + `uuid` убраны из `cuprum-core` (их использовал только sdcp).
+  Файлы уже модульные и мелкие (≤186) — разбивать нечего.
 - [ ] **PR4 — расщепить `cache`-хаб** (движок single-flight отдельно от типизированных
   обёрток — те уезжают в svg/dfm/preview; убирает циклы)
-- [ ] **PR5+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (после расщепления хаба)
+- [ ] **PR5+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (после расщепления хаба; каждый с
+  разбивкой своего крупного файла)
 
 ## Phase 1 — Panel-модель `[in progress]`
 
