@@ -11,7 +11,7 @@ use super::types::MetricLayerInput;
 
 /// All layers parsed once, indexed parallel to the `layers` slice (`None` where a
 /// layer failed to parse — same skip semantics as before). Goes through the shared
-/// cross-operation parse cache (`cache::parse_layer_cached`) so a layer is parsed
+/// cross-operation parse cache (`gerber::parse_layer_cached`) so a layer is parsed
 /// once across metrics/mesh/SVG, not re-parsed per op. Parsed in parallel: wall ≈
 /// the single largest layer, not the serial sum.
 #[tracing::instrument(skip_all)]
@@ -19,7 +19,7 @@ pub(super) fn parse_all(layers: &[MetricLayerInput]) -> Vec<Option<Arc<GerberLay
     let dh = crate::trace::capture_dispatch();
     layers
         .par_iter()
-        .map(|l| dh.run(|| crate::cache::parse_layer_cached(l.bytes).ok()))
+        .map(|l| dh.run(|| crate::gerber::parse_layer_cached(l.bytes).ok()))
         .collect()
 }
 

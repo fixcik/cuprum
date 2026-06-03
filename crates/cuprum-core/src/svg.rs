@@ -47,7 +47,7 @@ pub fn render_layer_svg(bytes: &[u8], id: &str) -> Result<LayerGeometry> {
         .collect();
 
     // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
-    let layer = crate::cache::parse_layer_cached(bytes)?;
+    let layer = crate::gerber::parse_layer_cached(bytes)?;
     let raw = layer
         .try_bounding_box()
         .context("gerber has no drawable geometry")?;
