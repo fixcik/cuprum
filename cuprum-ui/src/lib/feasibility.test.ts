@@ -251,3 +251,31 @@ describe("problemTypeOf", () => {
     }
   });
 });
+
+describe("evaluate — clearance & width", () => {
+  it("blocks on a copper clearance below the minimum spacing", () => {
+    const metrics = makeMetrics({
+      geo: { clearanceHotspots: [{ a: [0, 0], b: [0.1, 0], v: 0.1, side: "both" }] },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    const space = findings.find((f) => f.id === "copper.minSpace");
+    expect(space?.severity).toBe("block");
+  });
+
+  it("ignores sub-artefact clearance slivers below ignoreBelowMm", () => {
+    const metrics = makeMetrics({
+      geo: { clearanceHotspots: [{ a: [0, 0], b: [0.02, 0], v: 0.02, side: "both" }] },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    expect(findings.find((f) => f.id === "copper.minSpace")).toBeUndefined();
+  });
+
+  it("warns on a copper region neck below the minimum trace width", () => {
+    const metrics = makeMetrics({
+      geo: { copperWidthHotspots: [{ a: [0, 0], b: [0.1, 0], v: 0.1, side: "top" }] },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    const neck = findings.find((f) => f.id === "copper.regionNeck");
+    expect(neck?.severity).toBe("warn");
+  });
+});
