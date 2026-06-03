@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,10 @@ import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
 import { missingRequired } from "@/lib/layerColors";
 import { useSettings } from "@/settingsStore";
 import { VerdictBadge } from "@/components/preview/VerdictBadge";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
+import { NestingControls } from "@/components/panel/NestingControls";
+import { packLayout } from "@/lib/panelPlacement";
 
 /** Root of the separate "Add design to panel" window (label "add-design"). */
 export function AddDesignWindow() {
@@ -23,6 +27,14 @@ export function AddDesignWindow() {
   const snapReceivedRef = useRef(false);
   const profile = useSettings((s) => s.profile);
   const nest = useSettings((s) => s.nest);
+
+  // Preview mode: "design" shows the light card, "layout" shows the panel preview.
+  const [previewMode, setPreviewMode] = useState<"design" | "layout">("design");
+
+  // When nesting is enabled, default to the layout view.
+  useEffect(() => {
+    if (nest.enabled) setPreviewMode("layout");
+  }, [nest.enabled]);
 
   useEffect(() => {
     getCurrentWindow().setTitle(t("panel.add.window.title")).catch(() => {});
@@ -74,10 +86,12 @@ export function AddDesignWindow() {
     prevIdsRef.current = ids;
   }, [designs]);
 
-  // Verdict for the currently selected design (mirrors DesignPickerRow logic).
+  // Verdict + board size for the currently selected design.
   const [selVerdict, setSelVerdict] = useState<Verdict | null>(null);
+  const [selSize, setSelSize] = useState<{ w: number; h: number } | null>(null);
   useEffect(() => {
     setSelVerdict(null);
+    setSelSize(null);
     if (!selectedDesign || !workingDir) return;
     let cancelled = false;
     const hasRequired = missingRequired(selectedDesign.gerbers.map((g) => g.layer_type)).length === 0;
@@ -97,8 +111,11 @@ export function AddDesignWindow() {
         selectedDesign.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
       )
       .then((m) => {
-        if (!cancelled && hasRequired) {
-          setSelVerdict(overallVerdict(evaluate(m.metrics, profile, panelDoc)));
+        if (!cancelled) {
+          setSelSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
+          if (hasRequired) {
+            setSelVerdict(overallVerdict(evaluate(m.metrics, profile, panelDoc)));
+          }
         }
       })
       .catch(() => {});
@@ -152,6 +169,17 @@ export function AddDesignWindow() {
     });
     return () => void pending.then((un) => un());
   }, []);
+
+  // Footer fit-line: summarises how many copies land on the panel.
+  const fit = useMemo(() => {
+    if (!selectedDesign || !selSize) return { text: t("panel.add.footerPick"), warn: false };
+    const p = packLayout(selSize.w, selSize.h, panel.widthMm, panel.heightMm, nest);
+    if (p.max === 0) return { text: t("panel.add.fit.tooBig"), warn: true };
+    if (!nest.enabled) return { text: t("panel.add.fit.one"), warn: false };
+    if (p.requested > p.max)
+      return { text: t("panel.add.fit.overflow", { fit: p.max, requested: p.requested, missing: p.requested - p.max }), warn: true };
+    return { text: t("panel.add.fit.grid", { cols: p.cols, rows: p.rows, n: p.n }), warn: false };
+  }, [selectedDesign, selSize, panel.widthMm, panel.heightMm, nest, t]);
 
   return (
     <div className="relative flex h-screen w-screen flex-col bg-card text-foreground">
@@ -209,21 +237,43 @@ export function AddDesignWindow() {
           </div>
         </div>
 
-        {/* right: preview card with verdict badge */}
-        <div className="min-w-0 flex-1 p-6">
+        {/* right: preview */}
+        <div className="flex min-w-0 flex-1 flex-col">
           {selectedDesign ? (
-            <div className="flex h-full flex-col">
-              <div className="flex-1" />
-              <div className="text-[15px] font-semibold text-foreground">{selectedDesign.source_name}</div>
-              <div className="mt-1 text-[12px] text-muted-foreground">
-                {t("designs.layerCount", { count: selectedDesign.gerbers.length })}
+            <>
+              <div className="flex items-center gap-2 border-b border-border p-3">
+                <SegmentedControl<"design" | "layout">
+                  value={previewMode}
+                  onChange={setPreviewMode}
+                  options={[
+                    { value: "design", label: t("panel.add.previewDesign") },
+                    { value: "layout", label: t("panel.add.previewLayout") },
+                  ]}
+                />
               </div>
-              {selVerdict && (
-                <div className="mt-3">
-                  <VerdictBadge verdict={selVerdict} />
+              {previewMode === "layout" && selSize ? (
+                <PanelLayoutPreview
+                  boardWmm={selSize.w}
+                  boardHmm={selSize.h}
+                  panelWmm={panel.widthMm}
+                  panelHmm={panel.heightMm}
+                  nest={nest}
+                />
+              ) : (
+                <div className="flex flex-1 flex-col p-6">
+                  <div className="flex-1" />
+                  <div className="text-[15px] font-semibold text-foreground">{selectedDesign.source_name}</div>
+                  <div className="mt-1 text-[12px] text-muted-foreground">
+                    {t("designs.layerCount", { count: selectedDesign.gerbers.length })}
+                  </div>
+                  {selVerdict && (
+                    <div className="mt-3">
+                      <VerdictBadge verdict={selVerdict} />
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           ) : (
             <div className="flex h-full items-center justify-center text-center text-[12px] text-muted-foreground">
               {t("panel.add.pickHint")}
@@ -241,9 +291,11 @@ export function AddDesignWindow() {
         </div>
       )}
 
+      <NestingControls />
+
       <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-        <span className="text-[11px] text-muted-foreground">
-          {selectedDesign ? t("panel.add.footerHint") : t("panel.add.footerPick")}
+        <span className={`text-[11px] ${fit.warn ? "text-warning" : "text-muted-foreground"}`}>
+          {fit.text}
         </span>
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={() => void getCurrentWindow().close()}>

@@ -38,8 +38,15 @@
       "designsHeader": "Project designs",
       "empty": "Nothing found",
       "pickHint": "Pick a design on the left",
-      "footerHint": "The design will be placed on the panel",
       "footerPick": "Pick a design",
+      "previewDesign": "Design",
+      "previewLayout": "On panel",
+      "fit": {
+        "one": "One copy — tucked into the corner",
+        "tooBig": "Design is larger than the panel work area",
+        "grid": "Grid {{cols}}×{{rows}} · placing {{n}}",
+        "overflow": "Fits {{fit}} of {{requested}} — {{missing}} don't fit"
+      },
       "cancel": "Cancel",
       "add": "Add to panel",
       "toast": {
