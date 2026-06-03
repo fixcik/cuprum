@@ -12,9 +12,9 @@ import {
   type PanelDoc,
   type Stackup,
 } from "@/lib/api";
-import type { FindingCategory, Finding, I18nText, Verdict } from "@/lib/feasibility";
+import type { FindingCategory, Finding, I18nText, ProblemType, Verdict } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
-import { evaluate, overallVerdict } from "@/lib/feasibility";
+import { evaluate, overallVerdict, problemTypeOf } from "@/lib/feasibility";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 import type { StackLayer, FocusTarget } from "@/components/import/LayerStack";
 import type { DrcMarkerInput } from "@/components/preview/DrcMarkers";
@@ -60,6 +60,8 @@ export interface PreviewData {
   visibleKeys: Set<string>;
   hidden: Set<string>;
   toggle: (index: number, visible: boolean) => void;
+  /** Whether a layer is visible at the current mode/side + manual hides (LayerPanel rows). */
+  isVisible: (type: LayerType, path: string) => boolean;
 }
 
 /** Param names carrying a RAW length in mm — formatted via fmtLen at render. */
@@ -103,6 +105,11 @@ export interface UsePreviewDataOpts {
   focus?: { fid: string; hi: number } | null;
   /** Monotonic counter bumped each time focus is set (enables re-centering on the same spot). */
   focusNonce?: number;
+  /** Problem types hidden by the user from the 2D overlay and stepper (does NOT
+   *  affect the verdict). When omitted the filter is off (add-design behaviour).
+   *  Pass a stable reference (state or useMemo) — a fresh Set each render
+   *  recomputes markers/issues. */
+  hiddenTypes?: Set<ProblemType>;
 }
 
 /**
@@ -135,6 +142,7 @@ export function usePreviewData(
     onArtifactFresh,
     focus = null,
     focusNonce = 0,
+    hiddenTypes,
   } = opts;
 
   // Keep the latest onArtifactFresh in a ref so the async effects (whose dep
@@ -377,6 +385,11 @@ export function usePreviewData(
   const markers = useMemo<DrcMarkerInput[]>(
     () =>
       findings.flatMap((f) => {
+        // Drop a problem-type the user hid in the filter (overlay only, not verdict).
+        if (hiddenTypes) {
+          const tp = problemTypeOf(f.id);
+          if (tp && hiddenTypes.has(tp)) return [];
+        }
         const shape = CIRCLE_FINDINGS.has(f.id)
           ? ("circle" as const)
           : BOX_FINDINGS.has(f.id)
@@ -429,7 +442,7 @@ export function usePreviewData(
           });
         return [...visual, ...hovers];
       }),
-    [findings, focus, markerVisible, resolveText, trLen, fmtLen, fmtLenPair],
+    [findings, focus, hiddenTypes, markerVisible, resolveText, trLen, fmtLen, fmtLenPair],
   );
 
   // Flat list of navigable problems for the on-preview stepper.
@@ -438,6 +451,10 @@ export function usePreviewData(
       findings.flatMap((f) => {
         const hs = f.hotspots ?? [];
         if (hs.length === 0) return [];
+        if (hiddenTypes) {
+          const tp = problemTypeOf(f.id);
+          if (tp && hiddenTypes.has(tp)) return [];
+        }
         if (f.highlightAll) {
           const boxes = f.hoverBoxes ?? [];
           if (boxes.length > 0) {
@@ -457,7 +474,7 @@ export function usePreviewData(
             : [],
         );
       }),
-    [findings, markerVisible, resolveText, fmtLen],
+    [findings, hiddenTypes, markerVisible, resolveText, fmtLen],
   );
 
   // Centre the 2D view on the focus target. `focusNonce` is bumped by the caller
@@ -603,5 +620,6 @@ export function usePreviewData(
     visibleKeys,
     hidden,
     toggle,
+    isVisible,
   };
 }
