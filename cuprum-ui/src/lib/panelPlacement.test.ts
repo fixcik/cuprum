@@ -56,43 +56,29 @@ describe("packLayout", () => {
 });
 
 describe("instanceBounds", () => {
-  it("returns the board rectangle unrotated", () => {
+  // (x,y) = top-left of the UNROTATED board; rotation is about the board centre.
+  it("returns the board rectangle at 0°", () => {
     expect(instanceBounds({ xMm: 10, yMm: 20, boardW: 40, boardH: 30, rotationDeg: 0 })).toEqual({
-      minX: 10,
-      minY: 20,
-      maxX: 50,
-      maxY: 50,
+      minX: 10, minY: 20, maxX: 50, maxY: 50,
     });
   });
 
-  // A 90°/270° instance occupies a w↔h-swapped axis-aligned footprint anchored at
-  // (x, y) — exactly how packLayout places it and PanelBlankCanvas draws it (no
-  // rotation about the origin). So a 40×30 board rotated 90° spans 30×40 from (x,y).
-  it("swaps width/height for a 90° instance, anchored at the origin", () => {
-    expect(instanceBounds({ xMm: 10, yMm: 20, boardW: 40, boardH: 30, rotationDeg: 90 })).toEqual({
-      minX: 10,
-      minY: 20,
-      maxX: 40,
-      maxY: 60,
-    });
+  it("rotates a 90° instance about its centre (swapped footprint, same centre)", () => {
+    // centre = (10+20, 20+15) = (30,35); 90° → 30 wide × 40 tall about centre.
+    const b = instanceBounds({ xMm: 10, yMm: 20, boardW: 40, boardH: 30, rotationDeg: 90 });
+    expect(b.minX).toBeCloseTo(15, 6);
+    expect(b.maxX).toBeCloseTo(45, 6);
+    expect(b.minY).toBeCloseTo(15, 6);
+    expect(b.maxY).toBeCloseTo(55, 6);
   });
 
-  it("swaps width/height for a 270° instance too", () => {
-    expect(instanceBounds({ xMm: 0, yMm: 0, boardW: 40, boardH: 30, rotationDeg: 270 })).toEqual({
-      minX: 0,
-      minY: 0,
-      maxX: 30,
-      maxY: 40,
-    });
-  });
-
-  it("keeps the footprint for a 180° instance", () => {
-    expect(instanceBounds({ xMm: 10, yMm: 20, boardW: 40, boardH: 30, rotationDeg: 180 })).toEqual({
-      minX: 10,
-      minY: 20,
-      maxX: 50,
-      maxY: 50,
-    });
+  it("handles an arbitrary angle (45°) as a true rotated-quad AABB", () => {
+    // square 40×40 centred at (30,30); 45° → half-diagonal = 40*√2/2 ≈ 28.284.
+    const b = instanceBounds({ xMm: 10, yMm: 10, boardW: 40, boardH: 40, rotationDeg: 45 });
+    expect(b.minX).toBeCloseTo(30 - 28.2842712, 4);
+    expect(b.maxX).toBeCloseTo(30 + 28.2842712, 4);
+    expect(b.minY).toBeCloseTo(30 - 28.2842712, 4);
+    expect(b.maxY).toBeCloseTo(30 + 28.2842712, 4);
   });
 });
 

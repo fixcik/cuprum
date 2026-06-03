@@ -455,12 +455,17 @@ export const useShell = create<ShellStore>((set, get) => ({
     if (pack.n === 0) return { ok: false, messageKey: "panel.add.toast.noFit", params: { name: design.source_name } };
     // Append the packed copies of the selected design. Existing instances are kept
     // and not re-packed (mixed-panel overlap is resolved by the interactive editor).
+    // packLayout anchors the (optionally swapped) footprint top-left at p.{x,y}.
+    // Our pose model stores (x,y) as the UNROTATED board top-left with rotation
+    // about the centre, so for a 90° copy shift (x,y) by ±(H−W)/2 / ±(W−H)/2 so the
+    // centre-rotated AABB still fills the packed cell [p.x, p.x+H]×[p.y, p.y+W].
+    const rotated = nest.enabled && nest.rotate;
     const added: BoardInstance[] = pack.placements.map((p) => ({
       id: crypto.randomUUID(),
       design_id: designId,
-      x_mm: p.x,
-      y_mm: p.y,
-      rotation_deg: nest.enabled && nest.rotate ? 90 : 0,
+      x_mm: rotated ? p.x + (h - w) / 2 : p.x,
+      y_mm: rotated ? p.y + (w - h) / 2 : p.y,
+      rotation_deg: rotated ? 90 : 0,
       layer_ref: nest.side,
     }));
     const next: PanelDoc = { ...panel, instances: [...panel.instances, ...added] };

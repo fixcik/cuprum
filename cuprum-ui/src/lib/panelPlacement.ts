@@ -81,13 +81,12 @@ export function packLayout(
   return { bw, bh, cols, rows, max, requested, n, placements };
 }
 
-/** Axis-aligned bounding box (mm) of a placed board. A placement is an
- *  axis-aligned footprint anchored at its top-left `(x, y)`: a 90°/270° instance
- *  occupies a width↔height-swapped slot, NOT a board rotated about a pivot. This
- *  matches exactly how `packLayout` positions copies and how `PanelBlankCanvas`
- *  draws them (swapped `fw`/`fh`, no Konva rotation). Rotation is therefore only
- *  the four right angles today; arbitrary angles arrive with the interactive
- *  editor and would need a true rotated-quad bbox here. */
+/** Axis-aligned bounding box (mm) of a placed board. `(x, y)` is the top-left of
+ *  the UNROTATED board; `rotation_deg` is an arbitrary angle about the board
+ *  CENTRE (`cx = x + W/2`, `cy = y + H/2`). The four corners are rotated about the
+ *  centre and min/max'd — a true rotated-quad AABB (the right-angle cases are just
+ *  special values). This is the single pose model shared by packLayout, the canvas
+ *  (Konva rotation about centre) and the off-panel / clamp checks. */
 export function instanceBounds(opts: {
   xMm: number;
   yMm: number;
@@ -96,11 +95,20 @@ export function instanceBounds(opts: {
   rotationDeg: number;
 }): { minX: number; minY: number; maxX: number; maxY: number } {
   const { xMm, yMm, boardW, boardH, rotationDeg } = opts;
-  const rot = ((rotationDeg % 360) + 360) % 360;
-  const swap = rot === 90 || rot === 270;
-  const fw = swap ? boardH : boardW;
-  const fh = swap ? boardW : boardH;
-  return { minX: xMm, minY: yMm, maxX: xMm + fw, maxY: yMm + fh };
+  const cx = xMm + boardW / 2;
+  const cy = yMm + boardH / 2;
+  const rad = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const corners = [
+    [xMm, yMm],
+    [xMm + boardW, yMm],
+    [xMm, yMm + boardH],
+    [xMm + boardW, yMm + boardH],
+  ];
+  const xs = corners.map(([px, py]) => cx + (px - cx) * cos - (py - cy) * sin);
+  const ys = corners.map(([px, py]) => cy + (px - cx) * sin + (py - cy) * cos);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
 /** True if a placed board pokes outside the panel rectangle [0,panelW]×[0,panelH].
