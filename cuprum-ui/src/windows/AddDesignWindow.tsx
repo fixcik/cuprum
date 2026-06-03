@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
-import { X, Search, UploadCloud, Download } from "lucide-react";
+import { Search, UploadCloud, Download } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, type AddDesignSnapshot, type ProjectDesign, type PanelDoc } from "@/lib/api";
 import { DesignPickerRow } from "@/components/project/DesignPickerRow";
@@ -154,18 +154,9 @@ export function AddDesignWindow() {
 
   return (
     <div className="relative flex h-screen w-screen flex-col bg-card text-foreground">
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="text-[13px] font-semibold">{t("panel.add.window.title")}</div>
-        <button
-          type="button"
-          onClick={() => void getCurrentWindow().close()}
-          aria-label={t("panel.add.close")}
-          className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-
+      {/* No in-window header: the OS title bar already shows the localised title
+          (set via setTitle) and provides window close. The footer Cancel + the
+          native close button cover dismissal. */}
       <div className="flex min-h-0 flex-1">
         {/* left: list */}
         <div className="flex w-[320px] shrink-0 flex-col border-r border-border bg-panel">
