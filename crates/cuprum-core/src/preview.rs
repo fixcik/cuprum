@@ -83,9 +83,15 @@ fn union_bbox(layers: &[(String, LayerGeometry)]) -> Option<BBox> {
 ///
 /// Coordinates are mm; the root flips Y (gerber Y-up → SVG Y-down) via a
 /// translate+scale transform so fragments' absolute-mm geometry renders upright.
+///
+/// `board_clip`, when present, is an SVG path `d` (gerber mm) of the real board
+/// outline — the substrate, soldermask and tinted layers are clipped to it so they
+/// follow the rounded edge instead of spilling to the rectangular bbox. Edge cuts
+/// stay unclipped (they ARE the outline). Mirrors the frontend `LayerStack` clip.
 pub fn compose_svg(
     layers: &[(String, LayerGeometry)],
     overrides: &HashMap<String, String>,
+    board_clip: Option<&str>,
 ) -> String {
     // Union bbox over ALL layers for a stable board extent.
     let Some(bb) = union_bbox(layers) else {
@@ -117,9 +123,26 @@ pub fn compose_svg(
         ty = trim(bb.min_y + bb.max_y),
     );
 
+    // Board-shaped clip (rounded Edge_Cuts outline) so the substrate/mask/layers
+    // follow the real edge instead of the rectangular bbox. userSpaceOnUse → its
+    // path coords share the (flipped) gerber-mm space of the elements it clips.
+    let clip_attr = if board_clip.is_some() {
+        r#" clip-path="url(#board-clip)""#
+    } else {
+        ""
+    };
+    if let Some(d) = board_clip {
+        // evenodd so inner cutout loops punch holes regardless of winding order
+        // (stitch() doesn't normalize direction; nonzero would fill them in).
+        let _ = write!(
+            out,
+            r#"<clipPath id="board-clip" clipPathUnits="userSpaceOnUse"><path fill-rule="evenodd" d="{d}"/></clipPath>"#,
+        );
+    }
+
     // FR4 substrate: opaque tan rectangle covering the full board extent.
     out.push_str(&format!(
-        "<rect x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\" fill=\"#59512c\"/>",
+        "<rect x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\" fill=\"#59512c\"{clip_attr}/>",
     ));
 
     for (draw_idx, &i) in idx.iter().enumerate() {
@@ -136,7 +159,7 @@ x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\">\
 <g fill=\"#000\" stroke=\"#000\" color=\"#000\">{body}</g>\
 </mask>\
 <rect x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\" \
-fill=\"{color}\" fill-opacity=\"0.82\" mask=\"url(#{mask_id})\"/>",
+fill=\"{color}\" fill-opacity=\"0.82\" mask=\"url(#{mask_id})\"{clip_attr}/>",
                 mask_id = mask_id,
                 minx = minx,
                 miny = miny,
@@ -144,11 +167,16 @@ fill=\"{color}\" fill-opacity=\"0.82\" mask=\"url(#{mask_id})\"/>",
                 hs = hs,
                 body = g.svg_body,
                 color = color,
+                clip_attr = clip_attr,
             ));
         } else {
+            // Edge cuts ARE the outline — never clip them; everything else is
+            // clipped to the board shape.
+            let layer_clip = if lt == "edgeCuts" { "" } else { clip_attr };
             let _ = write!(
                 out,
-                "<g fill=\"{c}\" stroke=\"{c}\" color=\"{c}\">{body}</g>",
+                "<g{layer_clip} fill=\"{c}\" stroke=\"{c}\" color=\"{c}\">{body}</g>",
+                layer_clip = layer_clip,
                 c = color,
                 body = g.svg_body,
             );
@@ -167,6 +195,35 @@ fn trim(v: f32) -> String {
     } else {
         s.to_string()
     }
+}
+
+/// SVG clip-path `d` (gerber mm) for the board outline: every Edge_Cuts loop as a
+/// closed subpath. `None` when the edge layer has no stitchable loop, or the
+/// perimeter didn't close (a malformed/partial outline would auto-close into a
+/// bogus clip — fall back to no clipping). Reuses the same outline reconstruction
+/// as the 3D substrate (`mesh::outline_info`), so the thumbnail, the interactive
+/// preview and the 3D board agree on the board shape. The compound path is meant
+/// to be filled `evenodd` so inner cutouts punch holes regardless of winding.
+fn board_clip_d(edge_bytes: &[u8]) -> Option<String> {
+    let (loops, perimeter_closed) = crate::mesh::outline_info(edge_bytes);
+    if !perimeter_closed {
+        return None;
+    }
+    let mut d = String::new();
+    for ring in loops.iter().filter(|r| r.len() >= 3) {
+        for (i, p) in ring.iter().enumerate() {
+            let _ = write!(
+                d,
+                "{}{} {} ",
+                if i == 0 { "M" } else { "L" },
+                trim(p[0] as f32),
+                trim(p[1] as f32),
+            );
+        }
+        d.push_str("Z ");
+    }
+    let d = d.trim_end();
+    (!d.is_empty()).then(|| d.to_string())
 }
 
 /// One layer feeding the composite: raw gerber bytes + its IPC layer-type string.
@@ -224,7 +281,13 @@ pub fn render_design_preview(
             Err(_) => continue,
         }
     }
-    let doc = compose_svg(&composed, overrides);
+    // Reconstruct the board outline from Edge_Cuts so the composite clips to the
+    // real (rounded) shape instead of the rectangular bbox — matches the inspector.
+    let board_clip = layers
+        .iter()
+        .find(|l| l.layer_type == "edgeCuts")
+        .and_then(|e| board_clip_d(&e.bytes));
+    let doc = compose_svg(&composed, overrides, board_clip.as_deref());
     let png = rasterize(&doc, max_px)?;
     if !crate::diskcache::cache_disabled() {
         crate::diskcache::put_persistent(&dir, &key, &png);
@@ -299,7 +362,7 @@ mod tests {
             ("edgeCuts".to_string(), geom("<rect/>", 0.0, 0.0, 10.0, 8.0)),
         ];
         let overrides = std::collections::HashMap::new();
-        let doc = compose_svg(&layers, &overrides);
+        let doc = compose_svg(&layers, &overrides, None);
         assert!(doc.starts_with("<svg"), "standalone svg root");
         assert!(
             doc.contains("viewBox=\"0 0 10 8\""),
@@ -331,7 +394,7 @@ mod tests {
             ),
         ];
         let overrides = std::collections::HashMap::new();
-        let doc = compose_svg(&layers, &overrides);
+        let doc = compose_svg(&layers, &overrides, None);
         // Mask renders as inverted coverage: a <mask> def + a coverage rect at 0.82.
         assert!(
             doc.contains("<mask"),
@@ -346,6 +409,69 @@ mod tests {
         assert!(doc.contains("#59512c"), "FR4 substrate present");
     }
 
+    // A 10×10 mm square Edge_Cuts outline (four D01 line moves), 2.4 mm format.
+    const EDGE_SQUARE: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.15*%\nD10*\nX0Y0D02*\nX100000Y0D01*\nX100000Y100000D01*\nX0Y100000D01*\nX0Y0D01*\nM02*\n";
+    // An L-shaped OPEN chain (three points, never returns to start).
+    const EDGE_OPEN: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.15*%\nD10*\nX0Y0D02*\nX100000Y0D01*\nX100000Y100000D01*\nM02*\n";
+
+    #[test]
+    fn board_clip_d_stitches_edge_cuts_into_a_closed_path() {
+        let d = board_clip_d(EDGE_SQUARE).expect("square stitches into a loop");
+        assert!(d.starts_with('M'), "clip path starts with a moveto: {d}");
+        assert!(d.contains('Z'), "clip path closes the loop: {d}");
+        // Empty/garbage edge bytes → no clip (graceful).
+        assert!(board_clip_d(b"M02*\n").is_none(), "no segments → no clip");
+        // Open/partial perimeter → no clip (don't clip to a bogus auto-closed shape).
+        assert!(
+            board_clip_d(EDGE_OPEN).is_none(),
+            "open perimeter falls back to no clip"
+        );
+    }
+
+    #[test]
+    fn compose_clips_substrate_and_layers_but_not_edge_cuts() {
+        let layers = vec![
+            (
+                "edgeCuts".to_string(),
+                geom("<rect id=\"edge\"/>", 0.0, 0.0, 10.0, 10.0),
+            ),
+            (
+                "topCopper".to_string(),
+                geom("<circle id=\"cu\"/>", 0.0, 0.0, 10.0, 10.0),
+            ),
+        ];
+        let overrides = std::collections::HashMap::new();
+        let clip = board_clip_d(EDGE_SQUARE).unwrap();
+        let doc = compose_svg(&layers, &overrides, Some(&clip));
+        assert!(doc.contains("id=\"board-clip\""), "clipPath defined: {doc}");
+        assert!(
+            doc.contains("fill-rule=\"evenodd\""),
+            "clip path uses evenodd so inner cutouts punch holes: {doc}"
+        );
+        // Substrate rect carries the clip.
+        assert!(
+            doc.contains("fill=\"#59512c\" clip-path=\"url(#board-clip)\""),
+            "substrate clipped to the board outline: {doc}"
+        );
+        // Copper group is clipped (clip-path precedes fill in the opening tag).
+        assert!(
+            doc.contains("<g clip-path=\"url(#board-clip)\" fill=\"#caa84a\""),
+            "copper clipped: {doc}"
+        );
+        // Edge-cuts group is the UNCLIPPED form (no clip-path before its fill).
+        assert!(
+            doc.contains("<g fill=\"#59512c\" stroke=\"#59512c\""),
+            "edge cuts group present: {doc}"
+        );
+        assert!(
+            !doc.contains("clip-path=\"url(#board-clip)\" fill=\"#59512c\""),
+            "edge cuts left unclipped: {doc}"
+        );
+        // No clip when none supplied.
+        let plain = compose_svg(&layers, &overrides, None);
+        assert!(!plain.contains("clip-path"), "no clip without an outline");
+    }
+
     #[test]
     fn compose_excludes_bottom_side() {
         let layers = vec![
@@ -358,7 +484,7 @@ mod tests {
                 geom("<circle id=\"bot\"/>", 0.0, 0.0, 10.0, 8.0),
             ),
         ];
-        let doc = compose_svg(&layers, &std::collections::HashMap::new());
+        let doc = compose_svg(&layers, &std::collections::HashMap::new(), None);
         assert!(doc.contains("id=\"top\""), "top layer drawn");
         assert!(
             !doc.contains("id=\"bot\""),
