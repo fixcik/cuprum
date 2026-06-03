@@ -112,6 +112,9 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   const [mode, setMode] = useState<PreviewMode>("2d");
   const [tab, setTab] = useState<PreviewTab>("preview");
   const [side, setSide] = useState<"top" | "bottom">("top");
+  // "Mirror" toggle for the bottom 2D view (off by default = real back-of-board
+  // view; on = see-through aligned with the top). Toggled from the preview switch.
+  const [mirrorBottom, setMirrorBottom] = useState(false);
   // 3D camera facing (null = orbited off-axis) + a nonce to snap the camera onto
   // a side when the toggle is clicked.
   const [facing, setFacing] = useState<"top" | "bottom" | null>("top");
@@ -694,6 +697,8 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
               layerColors={layerColors}
               side={side}
               onSideChange={pickSide}
+              mirror={mirrorBottom}
+              onMirrorChange={setMirrorBottom}
               facing={facing}
               onFacingChange={setFacing}
               snapNonce={snapNonce}

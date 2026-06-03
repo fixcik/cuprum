@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, ShieldCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, ShieldCheck, ChevronLeft, ChevronRight, FlipHorizontal2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
@@ -40,6 +40,8 @@ export function PreviewPane({
   layerColors,
   side = "top",
   onSideChange,
+  mirror = false,
+  onMirrorChange,
   mode,
   onModeChange,
   notice,
@@ -71,6 +73,11 @@ export function PreviewPane({
   layerColors?: Record<string, string>;
   side?: "top" | "bottom";
   onSideChange?: (side: "top" | "bottom") => void;
+  /** "Mirror" toggle for the bottom 2D view. Off (default) = real back-of-board
+   *  view (reads correctly, matches 3D); on = see-through view whose X positions
+   *  line up with the top. No effect on the top view. */
+  mirror?: boolean;
+  onMirrorChange?: (v: boolean) => void;
   mode: PreviewMode;
   onModeChange: (mode: PreviewMode) => void;
   /** Optional progress note (e.g. "Layers 3/6") shown while previews stream in. */
@@ -117,6 +124,7 @@ export function PreviewPane({
             layers={layers}
             holes={holes}
             side={side}
+            mirror={mirror}
             onScale={setScale2d}
             markers={showDrc ? markers : []}
             focusTarget={showDrc ? focusTarget : null}
@@ -223,6 +231,20 @@ export function PreviewPane({
           </div>
         );
       })()}
+
+      {/* Mirror toggle — only on the 2D bottom view, bottom-left so it clears the
+          zoom toolbar. Off shows the bottom in top orientation (features stay put
+          when flipping sides); on is a true back-of-board mirror. */}
+      {tab === "preview" && mode === "2d" && side === "bottom" && onMirrorChange && (
+        <label
+          className="absolute bottom-2 left-2 z-10 flex cursor-pointer items-center gap-1.5 rounded-md bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
+          title={t("preview.mirrorTitle")}
+        >
+          <FlipHorizontal2 className="size-3.5" />
+          {t("preview.mirrorLabel")}
+          <Switch checked={mirror} onCheckedChange={onMirrorChange} />
+        </label>
+      )}
     </div>
   );
 }

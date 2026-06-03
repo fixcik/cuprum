@@ -62,11 +62,29 @@ const LINE_HIGHLIGHT = "#3b82f6";
 /** DRC dimension markers overlaid on the 2D preview: a coloured dimension line
  *  with end ticks at each issue, the value drawn on the focused one, and a hover
  *  card describing the problem. Screen-space; the parent projects mm→px. */
-export function DrcMarkers({ markers, width, height }: { markers: ProjectedMarker[]; width: number; height: number }) {
+export function DrcMarkers({
+  markers,
+  width,
+  height,
+  pad = 0,
+}: {
+  markers: ProjectedMarker[];
+  width: number;
+  height: number;
+  /** Inset (px) reserved by the edge rulers on the top & left — markers are clipped
+   *  out of that band so a hotspot near the edge never paints over the ruler. */
+  pad?: number;
+}) {
   const { t } = useTranslation("common");
   if (markers.length === 0) return null;
   return (
-    <div className="pointer-events-none absolute inset-0">
+    // Clip the whole overlay out of the top/left ruler band — a CSS clip-path
+    // constrains BOTH the SVG marker paint AND the HTML tooltip hitboxes (and
+    // their hit-testing), so a hotspot near the edge never reaches over a ruler.
+    <div
+      className="pointer-events-none absolute inset-0"
+      style={pad > 0 ? { clipPath: `inset(${pad}px 0 0 ${pad}px)` } : undefined}
+    >
       <svg width={width} height={height} className="absolute inset-0">
         {[...markers]
           .sort((a, b) => (a.shape === "line" ? 0 : 1) - (b.shape === "line" ? 0 : 1))
@@ -257,15 +275,15 @@ export function DrcMarkers({ markers, width, height }: { markers: ProjectedMarke
           when its centre is off-screen. */}
       <TooltipPrimitive.Provider delayDuration={120}>
         {markers.filter((m) => m.shape !== "line").map((m) => {
-          const pad = 8;
+          const hitPad = 8;
           const x0 = Math.min(m.ax, m.bx);
           const y0 = Math.min(m.ay, m.by);
           const x1 = Math.max(m.ax, m.bx);
           const y1 = Math.max(m.ay, m.by);
           const cx = (x0 + x1) / 2;
           const cy = (y0 + y1) / 2;
-          const w = Math.max(x1 - x0 + pad * 2, 16);
-          const h = Math.max(y1 - y0 + pad * 2, 16);
+          const w = Math.max(x1 - x0 + hitPad * 2, 16);
+          const h = Math.max(y1 - y0 + hitPad * 2, 16);
           return (
           <TooltipPrimitive.Root key={m.key}>
             <TooltipPrimitive.Trigger asChild>
