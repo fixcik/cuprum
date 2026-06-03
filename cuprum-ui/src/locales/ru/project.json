@@ -52,8 +52,8 @@
     "sectionBlank": "Размер",
     "sectionStackup": "Параметры заготовки",
     "sides": "Стороны",
-    "sidesSingle": "Односторонняя",
-    "sidesDouble": "Двухсторонняя"
+    "sidesSingle": "Одна",
+    "sidesDouble": "Две"
   },
   "aria": {
     "settings": "Настройки проекта",

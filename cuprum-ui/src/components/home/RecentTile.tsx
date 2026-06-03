@@ -1,6 +1,8 @@
-import { Trash2, X } from "lucide-react";
+import { useState } from "react";
+import { Settings, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PcbPreviewPlaceholder } from "@/components/home/PcbPreviewPlaceholder";
+import { RecentSettingsModal } from "@/components/home/RecentSettingsModal";
 import { type RecentProject } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
 import { cn } from "@/lib/utils";
@@ -31,6 +33,7 @@ export function RecentTile({
   const { t, i18n } = useTranslation("home");
   const openByPath = useShell((s) => s.openProjectByPath);
   const removeRecent = useShell((s) => s.removeRecent);
+  const [editing, setEditing] = useState(false);
   const when = formatRelativeTime(project.last_opened_at, i18n.language);
 
   if (!project.exists) {
@@ -69,19 +72,31 @@ export function RecentTile({
     );
   }
 
-  // Trash overlay: removes the project from the recents catalog only (the .cuprum
-  // file on disk is left untouched). Sibling of the open-button, not nested — a
-  // button inside a button is invalid HTML.
-  const removeButton = (
-    <button
-      type="button"
-      onClick={() => removeRecent(project.path)}
-      aria-label={t("removeRecent")}
-      title={t("removeRecent")}
-      className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-    >
-      <Trash2 className="size-4" />
-    </button>
+  // Overlay actions (edit + remove): siblings of the open-button, not nested — a
+  // button inside a button is invalid HTML. Edit opens a name/description dialog;
+  // remove drops the project from the recents catalog only (the .cuprum file on
+  // disk is left untouched).
+  const actions = (
+    <div className="flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        aria-label={t("editRecent")}
+        title={t("editRecent")}
+        className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+      >
+        <Settings className="size-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => removeRecent(project.path)}
+        aria-label={t("removeRecent")}
+        title={t("removeRecent")}
+        className="cursor-pointer rounded-md bg-card/90 p-1 text-muted-foreground shadow-sm transition-colors hover:text-destructive"
+      >
+        <Trash2 className="size-4" />
+      </button>
+    </div>
   );
 
   if (layout === "list") {
@@ -100,7 +115,8 @@ export function RecentTile({
           </div>
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{when}</span>
         </button>
-        <div className="absolute right-2 top-1/2 -translate-y-1/2">{removeButton}</div>
+        <div className="absolute right-2 top-1/2 -translate-y-1/2">{actions}</div>
+        <RecentSettingsModal open={editing} onClose={() => setEditing(false)} project={project} />
       </div>
     );
   }
@@ -117,7 +133,8 @@ export function RecentTile({
         <div className="mt-1.5 truncate text-[12px] font-semibold text-foreground">{project.name}</div>
         <div className="text-[10px] tabular-nums text-muted-foreground">{when}</div>
       </button>
-      <div className="absolute left-2 top-2">{removeButton}</div>
+      <div className="absolute left-2 top-2">{actions}</div>
+      <RecentSettingsModal open={editing} onClose={() => setEditing(false)} project={project} />
     </div>
   );
 }

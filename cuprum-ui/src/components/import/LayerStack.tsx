@@ -28,9 +28,8 @@ export interface StackLayer {
 
 const MIN_SCALE = 0.05;
 const MAX_ZOOM = 150; // cap at 15000% of real size (maxScale = pxPerMm * MAX_ZOOM)
-const DEFAULT_FILL = 0.5; // board fills ~50% of the pane on first frame
-// "Fit all" / thumbnail framing leaves a small gap so the board never sits flush
-// against the rulers/edges.
+// "Fit all" / first-frame / thumbnail framing leaves a small gap so the board
+// never sits flush against the rulers/edges.
 const FIT_MARGIN = 0.9;
 const RULER = 20; // px — width/height of the edge rulers
 /** Measure tool accent — white, readable on the green PCB preview. */
@@ -100,6 +99,7 @@ export function LayerStack({
   layers,
   holes = [],
   side,
+  mirror = false,
   onScale,
   markers = [],
   focusTarget = null,
@@ -109,6 +109,12 @@ export function LayerStack({
   layers: StackLayer[];
   holes?: Hole[];
   side: "top" | "bottom";
+  /** The "mirror" toggle for the bottom view (no effect on top). Gerber bottom
+   *  layers are authored mirrored, so by default we flip the bottom across X to
+   *  read correctly — a real back-of-board view that matches the 3D bottom. Turn
+   *  this ON to drop that flip: a see-through view whose X positions line up with
+   *  the top (text then reads reversed). */
+  mirror?: boolean;
   /** Report the current px/mm scale so the 3D view can open at the same scale. */
   onScale?: (pxPerMm: number) => void;
   /** DRC dimension markers (board mm) to overlay. */
@@ -198,10 +204,9 @@ export function LayerStack({
     if (!box || size.w === 0) return;
     if (framed.current === frameKey) return;
     framed.current = frameKey;
-    // Interactive view opens at the default fill; the static thumbnail fits the
-    // whole board (with a small margin).
-    frameAt(fitScale() * (chrome ? DEFAULT_FILL : FIT_MARGIN));
-  }, [frameKey, box, size.w, frameAt, fitScale, chrome]);
+    // Open framed to (nearly) fill the pane — same fit as the "fit all" button.
+    frameAt(fitScale() * FIT_MARGIN);
+  }, [frameKey, box, size.w, frameAt, fitScale]);
 
   // Programmatic focus: centre the requested board point at the target scale.
   const focusNonce = useRef(-1);
@@ -215,10 +220,10 @@ export function LayerStack({
     const cy = (size.h + RULER) / 2;
     const m = box.minY + box.maxY;
     const mxx = box.minX + box.maxX;
-    const dx = side === "bottom" ? mxx - focusTarget.p[0] : focusTarget.p[0];
+    const dx = side === "bottom" && !mirror ? mxx - focusTarget.p[0] : focusTarget.p[0];
     const dy = m - focusTarget.p[1];
     setView({ s, tx: cx - s * dx, ty: cy - s * dy });
-  }, [focusTarget, box, size.w, size.h, side, maxScale]);
+  }, [focusTarget, box, size.w, size.h, side, mirror, maxScale]);
 
   // Wheel = zoom toward the cursor. Native non-passive listener so preventDefault
   // actually stops the page from scrolling (React's onWheel is passive).
@@ -309,23 +314,26 @@ export function LayerStack({
     );
   }
 
-  // Y-flip (gerber is Y-up) within the board extent; the bottom view also mirrors X.
-  const flip =
-    side === "bottom"
-      ? `translate(${box.minX + box.maxX} ${box.minY + box.maxY}) scale(-1 -1)`
-      : `translate(0 ${box.minY + box.maxY}) scale(1 -1)`;
+  // Y-flip (gerber is Y-up) within the board extent. The bottom is X-flipped by
+  // default so it reads as a real back-of-board view (gerber bottom data is
+  // authored mirrored); the "mirror" toggle ON drops that flip → see-through view
+  // aligned with the top. `mirrored` = whether the X-flip is applied.
+  const mirrored = side === "bottom" && !mirror;
+  const flip = mirrored
+    ? `translate(${box.minX + box.maxX} ${box.minY + box.maxY}) scale(-1 -1)`
+    : `translate(0 ${box.minY + box.maxY}) scale(1 -1)`;
 
   const mid = box.minY + box.maxY;
   const midx = box.minX + box.maxX;
   const toScreen = (g: [number, number]): [number, number] => {
-    const dx = side === "bottom" ? midx - g[0] : g[0];
+    const dx = mirrored ? midx - g[0] : g[0];
     const dy = mid - g[1];
     return [view.tx + view.s * dx, view.ty + view.s * dy];
   };
   const toGerber = (px: number, py: number): [number, number] => {
     const dx = (px - view.tx) / view.s;
     const dy = (py - view.ty) / view.s;
-    return [side === "bottom" ? midx - dx : dx, mid - dy];
+    return [mirrored ? midx - dx : dx, mid - dy];
   };
 
   const pct = Math.round((view.s / pxPerMm) * 100);
@@ -508,10 +516,18 @@ export function LayerStack({
               const isMask = l.type === "topMask" || l.type === "bottomMask";
               if (!isMask) {
                 // Edge cuts: render at half the gerber stroke width — a thinner
-                // outline that the soldermask overlaps.
-                const body = l.type === "edgeCuts" ? halveStrokeWidth(l.svgBody) : l.svgBody;
+                // outline that the soldermask overlaps; left unclipped since it IS
+                // the board outline. Every other layer (copper, silk, …) is clipped
+                // to the rounded board shape so nothing spills past the real edge.
+                const isEdge = l.type === "edgeCuts";
+                const body = isEdge ? halveStrokeWidth(l.svgBody) : l.svgBody;
                 return (
-                  <g key={l.key} style={{ color: l.color }} dangerouslySetInnerHTML={{ __html: body }} />
+                  <g
+                    key={l.key}
+                    style={{ color: l.color }}
+                    clipPath={!isEdge && boardClipD ? `url(#${clipId})` : undefined}
+                    dangerouslySetInnerHTML={{ __html: body }}
+                  />
                 );
               }
               // Inverted mask: layer colour over the whole board, openings cut out.
@@ -682,7 +698,7 @@ export function LayerStack({
         )}
       </svg>
 
-      <DrcMarkers markers={projectedMarkers} width={size.w} height={size.h} />
+      <DrcMarkers markers={projectedMarkers} width={size.w} height={size.h} pad={rPad} />
 
       {chrome && (
         <div
@@ -722,13 +738,6 @@ export function LayerStack({
           onClick={() => zoomButton(1.2)}
         >
           <Plus className="size-4" />
-        </button>
-        <button
-          className="cursor-pointer rounded px-1.5 py-1 text-[11px] font-medium hover:bg-muted/60"
-          title={t("viewer.realSize1to1")}
-          onClick={realSize}
-        >
-          1:1
         </button>
         <button
           className="cursor-pointer rounded p-1 hover:bg-muted/60"

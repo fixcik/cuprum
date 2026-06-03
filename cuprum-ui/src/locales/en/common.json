@@ -12,7 +12,9 @@
     "drcLabel": "Check",
     "stepperIssues": "Issues: {{count}} · ◂ ▸ to navigate",
     "prevIssue": "Previous issue",
-    "nextIssue": "Next issue"
+    "nextIssue": "Next issue",
+    "mirrorLabel": "Mirror",
+    "mirrorTitle": "Off — real back-of-board view (like 3D). Turn on to mirror it into line with the top (see-through)."
   },
   "viewer": {
     "zoomOut": "Zoom out",

@@ -315,6 +315,9 @@ export const api = {
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
   updateProjectMetadata: (path: string, name: string, description: string) =>
     invoke<Manifest>("update_project_metadata", { path, name, description }),
+  /** Read a project's manifest straight from its `.cuprum` file (no working dir) —
+   *  used to prefill the recents edit dialog for a project that isn't open. */
+  readProjectManifest: (path: string) => invoke<Manifest>("read_project_manifest", { path }),
   configurePanel: (path: string, panel: PanelDoc, stackup: Stackup) =>
     invoke<Manifest>("configure_panel", { path, panel, stackup }),
   /** Copy a source ZIP into the open project's working dir as a new design
