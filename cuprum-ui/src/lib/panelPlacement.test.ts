@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { packLayout, instanceBounds, isOffPanel } from "@/lib/panelPlacement";
+import {
+  packLayout,
+  instanceBounds,
+  isOffPanel,
+  clampDeltaToPanel,
+  marqueeHits,
+} from "@/lib/panelPlacement";
 import { DEFAULT_NEST } from "@/lib/nest";
 import type { NestSettings } from "@/lib/nest";
 
@@ -112,5 +118,30 @@ describe("isOffPanel", () => {
   it("still flags a rotated instance whose swapped footprint pokes past an edge", () => {
     // 40×30 board rotated → 30×40 footprint; at y=70 it reaches 110 > 100.
     expect(isOffPanel({ ...base, xMm: 5, yMm: 70, rotationDeg: 90 })).toBe(true);
+  });
+});
+
+describe("clampDeltaToPanel", () => {
+  // One 40×30 board at (5,5) on a 100×100 panel; AABB = [5,45]×[5,35].
+  const boxes = [{ minX: 5, minY: 5, maxX: 45, maxY: 35 }];
+  it("passes a delta that keeps everything inside", () => {
+    expect(clampDeltaToPanel(boxes, 10, 10, 100, 100)).toEqual({ dx: 10, dy: 10 });
+  });
+  it("clamps a delta that would cross the right/bottom edge", () => {
+    expect(clampDeltaToPanel(boxes, 100, 100, 100, 100)).toEqual({ dx: 55, dy: 65 });
+  });
+  it("clamps a delta that would cross the left/top edge", () => {
+    expect(clampDeltaToPanel(boxes, -20, -20, 100, 100)).toEqual({ dx: -5, dy: -5 });
+  });
+});
+
+describe("marqueeHits", () => {
+  const items = [
+    { id: "a", box: { minX: 0, minY: 0, maxX: 10, maxY: 10 } },
+    { id: "b", box: { minX: 50, minY: 50, maxX: 60, maxY: 60 } },
+  ];
+  it("returns ids whose AABB intersects the rect", () => {
+    expect(marqueeHits(items, { minX: 5, minY: 5, maxX: 55, maxY: 55 }).sort()).toEqual(["a", "b"]);
+    expect(marqueeHits(items, { minX: 20, minY: 20, maxX: 30, maxY: 30 })).toEqual([]);
   });
 });
