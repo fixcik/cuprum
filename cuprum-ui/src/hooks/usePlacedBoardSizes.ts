@@ -5,9 +5,10 @@ import { api } from "@/lib/api";
 const EMPTY: never[] = [];
 
 /** Resolved board extents (mm) keyed by design id for every placed instance.
- *  Fetched once per referenced design via cached project metrics; pruned when a
- *  design is no longer placed. Shared by the canvas render and the editor's clamp
- *  / off-panel checks so size data is fetched once, not per consumer. */
+ *  Fetched via cached project metrics (disk-cached, so the calls are cheap) once
+ *  per referenced design within a consumer; pruned when a design is no longer
+ *  placed. Extracted to keep the canvas render and the editor's clamp / off-panel
+ *  checks on one fetch-and-prune implementation instead of two copies. */
 export function usePlacedBoardSizes(): Record<string, { w: number; h: number }> {
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY);
@@ -40,6 +41,9 @@ export function usePlacedBoardSizes(): Record<string, { w: number; h: number }> 
     return () => {
       cancelled = true;
     };
+    // `sizes` intentionally omitted: including it would re-run the effect on every
+    // fetch completion, re-issuing redundant metrics calls. We read it inside only
+    // to skip already-known ids, which the prune step keeps consistent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workingDir, instances, designs]);
 
