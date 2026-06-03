@@ -515,20 +515,26 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
             .unwrap_or_default()
     };
 
-    // 3. Substrate.
-    let substrate = build_substrate(&outline, &holes);
-
-    // 4. Surface layers, triangulated in parallel (the heavy part).
-    let mut meshes: Vec<LayerMesh> = {
-        let _span = tracing::info_span!("triangulate_parallel").entered();
-        // Capture the current span so each layer's spans (created on rayon
-        // workers) stay its children and route to this operation's trace file.
-        let dh = crate::trace::capture_dispatch();
-        layers
-            .par_iter()
-            .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline)))
-            .collect()
-    };
+    // 3 + 4. The substrate and the surface layers are independent (both need only
+    // `outline` + `holes`, already computed), so build them concurrently — the
+    // substrate's sequential earcut overlaps the parallel surface-layer region
+    // instead of running before it. Capture the current span so spans created on
+    // rayon workers (either side of the join, possibly stolen onto a worker
+    // thread) stay its children and route to this operation's trace file.
+    let dh = crate::trace::capture_dispatch();
+    let (substrate, mut meshes) = rayon::join(
+        || dh.run(|| build_substrate(&outline, &holes)),
+        || {
+            dh.run(|| {
+                let _span = tracing::info_span!("triangulate_parallel").entered();
+                let dh = crate::trace::capture_dispatch();
+                layers
+                    .par_iter()
+                    .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline)))
+                    .collect::<Vec<LayerMesh>>()
+            })
+        },
+    );
 
     // 5. One barrel mesh per drill layer (keyed by that layer, so it toggles).
     {
