@@ -33,7 +33,16 @@
       "window": {
         "title": "Add design to panel"
       },
-      "close": "Close"
+      "close": "Close",
+      "searchPlaceholder": "Search designs…",
+      "designsHeader": "Project designs",
+      "empty": "Nothing found",
+      "pickHint": "Pick a design on the left",
+      "footerHint": "The design will be placed on the panel",
+      "footerPick": "Pick a design",
+      "cancel": "Cancel",
+      "add": "Add to panel",
+      "notImpl": "Not implemented yet"
     },
     "tool": {
       "select": "Select",

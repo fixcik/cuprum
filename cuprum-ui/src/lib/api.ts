@@ -1,5 +1,5 @@
 import { invoke as rawInvoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 /** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
@@ -150,6 +150,20 @@ export interface Manifest {
 export interface OpenedProject {
   workingDir: string;
   manifest: Manifest;
+}
+
+/** Snapshot pushed from the main window to the add-design window. */
+export interface AddDesignSnapshot {
+  workingDir: string | null;
+  currentPath: string | null;
+  designs: ProjectDesign[];
+  panel: { widthMm: number; heightMm: number };
+}
+/** Result of an add-to-panel intent, sent back to the add-design window. */
+export interface AddDesignResult {
+  ok: boolean;
+  messageKey: string;
+  params?: Record<string, unknown>;
 }
 
 export interface Orphan {
@@ -397,4 +411,21 @@ export const api = {
     >,
   pickSavePath: (defaultName: string) =>
     save({ defaultPath: defaultName, filters: [{ name: "Cuprum", extensions: ["cu", "cuprum"] }] }),
+
+  // Add-design window bridge events (main ↔ add-design window).
+  emitAddDesignReady: () => emit("add-design:ready"),
+  onAddDesignReady: (cb: () => void): Promise<UnlistenFn> =>
+    listen("add-design:ready", () => cb()),
+  emitAddDesignSnapshot: (s: AddDesignSnapshot) => emit("add-design:snapshot", s),
+  onAddDesignSnapshot: (cb: (s: AddDesignSnapshot) => void): Promise<UnlistenFn> =>
+    listen<AddDesignSnapshot>("add-design:snapshot", (e) => cb(e.payload)),
+  emitAddDesignImport: (paths: string[]) => emit("add-design:import", { paths }),
+  onAddDesignImport: (cb: (p: { paths: string[] }) => void): Promise<UnlistenFn> =>
+    listen<{ paths: string[] }>("add-design:import", (e) => cb(e.payload)),
+  emitAddDesignAddToPanel: (designId: string) => emit("add-design:add-to-panel", { designId }),
+  onAddDesignAddToPanel: (cb: (p: { designId: string }) => void): Promise<UnlistenFn> =>
+    listen<{ designId: string }>("add-design:add-to-panel", (e) => cb(e.payload)),
+  emitAddDesignResult: (r: AddDesignResult) => emit("add-design:result", r),
+  onAddDesignResult: (cb: (r: AddDesignResult) => void): Promise<UnlistenFn> =>
+    listen<AddDesignResult>("add-design:result", (e) => cb(e.payload)),
 };

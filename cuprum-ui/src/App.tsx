@@ -7,11 +7,14 @@ import { PrinterPage } from "@/pages/PrinterPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
+import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 
 export default function App() {
   const view = useShell((s) => s.view);
   const manifestName = useShell((s) => s.currentManifest?.name ?? null);
   const loadDisplayScale = useShell((s) => s.loadDisplayScale);
+
+  useAddDesignBridge();
 
   useEffect(() => {
     loadDisplayScale();
