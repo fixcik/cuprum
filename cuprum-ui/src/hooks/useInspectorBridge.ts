@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useShell } from "@/shellStore";
 import { api } from "@/lib/api";
+import { useBridgeListeners } from "@/hooks/useTauriListeners";
 
 /** Push the current project snapshot to every inspector window. */
 function emitSnapshot() {
@@ -25,21 +26,16 @@ export function useInspectorBridge() {
     void emitSnapshot();
   }, [manifest, workingDir, currentPath]);
 
-  useEffect(() => {
-    const subs: Promise<() => void>[] = [
-      api.onInspectorReady(() => void emitSnapshot()),
-      api.onInspectorRename(({ designId, name }) => {
-        void useShell.getState().renameDesign(designId, name);
-      }),
-      api.onInspectorSetLayerType(({ designId, path, type }) => {
-        void useShell.getState().setDesignLayerType(designId, path, type);
-      }),
-      api.onInspectorArtifactsFresh(({ fresh }) => {
-        useShell.getState().scheduleArtifactFlush(fresh);
-      }),
-    ];
-    return () => {
-      subs.forEach((p) => void p.then((un) => un()));
-    };
-  }, []);
+  useBridgeListeners(() => [
+    api.onInspectorReady(() => void emitSnapshot()),
+    api.onInspectorRename(({ designId, name }) => {
+      void useShell.getState().renameDesign(designId, name);
+    }),
+    api.onInspectorSetLayerType(({ designId, path, type }) => {
+      void useShell.getState().setDesignLayerType(designId, path, type);
+    }),
+    api.onInspectorArtifactsFresh(({ fresh }) => {
+      useShell.getState().scheduleArtifactFlush(fresh);
+    }),
+  ]);
 }

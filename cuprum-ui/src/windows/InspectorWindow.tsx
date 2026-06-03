@@ -1,39 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Loader2 } from "lucide-react";
 import { api, type InspectorSnapshot } from "@/lib/api";
 import { DesignInspector } from "@/components/project/DesignInspector";
+import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 
 /** Root of a per-design inspector window (label `inspector:<designId>`). Thin
  *  remote view: it receives live project snapshots from the main window and sends
  *  edit intents back, while heavy rendering (svg/mesh/metrics) runs locally. */
 export function InspectorWindow({ designId }: { designId: string }) {
   const { t } = useTranslation("project");
-  const [snap, setSnap] = useState<InspectorSnapshot | null>(null);
-
   // Subscribe first, then announce readiness so the main window's reply can't beat
   // the listener (same ordering as the add-design window).
-  useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | null = null;
-    void api
-      .onInspectorSnapshot((s) => {
-        if (active) setSnap(s);
-      })
-      .then((un) => {
-        if (!active) {
-          un();
-          return;
-        }
-        unlisten = un;
-        void api.emitInspectorReady();
-      });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, []);
+  const snap = useSnapshotSubscription<InspectorSnapshot>(api.onInspectorSnapshot, api.emitInspectorReady);
 
   const manifest = snap?.manifest ?? null;
   const workingDir = snap?.workingDir ?? null;

@@ -322,5 +322,14 @@ cuprum-ui/src/
   координаты точек — в мм через текущий transform. Код — `LayerStack.tsx` (`M_*`-константы + блок
   `tool === "measure"`).
 
+- **2026-06-04 — общие хуки Tauri-listener'ов + фикс async-cleanup (рефакторинг-дедуп).** Заведён
+  `hooks/useTauriListeners` с двумя хуками. `useBridgeListeners(subscribe)` — главная сторона мостов
+  (`useInspectorBridge`/`useAddDesignBridge`): регистрирует массив listener'ов на жизнь компонента и
+  **синхронно-безопасно** их снимает (active-флаг + накопленные unlisten'ы), чиня StrictMode-утечку
+  старого `subs.forEach((p) => p.then((un) => un()))` (unlisten мог зарегистрироваться уже после
+  размонтирования). `useSnapshotSubscription(subscribe, emitReady)` — сторона удалённого окна
+  (`InspectorWindow`/`AddDesignWindow`): подписка на один snapshot, `ready` шлётся только после того
+  как listener жив; возвращает последний снимок. Оба окна и оба моста переведены.
+
 *Ревизия 2026-06-04. Обновлять при изменении дизайн-системы и принятии новых
 дизайн-решений (добавляй запись в лог выше).*
