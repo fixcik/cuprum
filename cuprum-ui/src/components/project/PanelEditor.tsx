@@ -190,7 +190,8 @@ export function PanelEditor() {
   }, [currentPath, docNonce]);
 
   // Panel editor hotkeys: Delete/Backspace removes, Esc clears, Ctrl/Cmd+A selects
-  // all, arrows nudge (Shift = 10 mm). Ignored when typing in a field. Bound once;
+  // all, Ctrl/Cmd+D duplicates, arrows nudge (Shift = 10 mm). Ignored when typing in
+  // a field. Bound once;
   // panel dims are read via refs so the listener needn't re-bind on every edit.
   const panelDims = useRef({ w: width, h: height });
   panelDims.current = { w: width, h: height };
@@ -219,6 +220,14 @@ export function PanelEditor() {
           .filter((i) => (i.layer_ref === "Bottom" ? "bottom" : "top") === side)
           .map((i) => i.id);
         usePanelSelection.getState().set(ids);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+        if (!sel.length) return;
+        e.preventDefault();
+        // Duplicate the selection and re-select the new copies (matches the palette).
+        void useShell
+          .getState()
+          .duplicateInstances(sel)
+          .then((ids) => usePanelSelection.getState().set(ids));
       } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
         if (!sel.length) return;
         e.preventDefault();
