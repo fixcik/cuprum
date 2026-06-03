@@ -133,3 +133,34 @@ html.scrolling *::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground) / 0.5);
   background-clip: padding-box;
 }
+
+/* "PCB blank" backdrop for project preview thumbnails: the preview base colour
+   overlaid with a faint copper-substrate grid. A monogram fallback sits on top
+   until a real composited board preview is available. */
+.pcb-grid {
+  background-color: hsl(var(--pcb-preview));
+  background-image:
+    linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Card entrance: a short fade + lift. Honour reduced-motion. */
+.anim-in {
+  animation: cuprum-pop 0.18s ease-out both;
+}
+@keyframes cuprum-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-in {
+    animation: none;
+  }
+}

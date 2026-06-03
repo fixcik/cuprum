@@ -62,6 +62,12 @@ export interface RecentProject {
   name: string;
   last_opened_at: number;
   exists: boolean;
+  /** Number of designs in the project (Home card footer). 0 until first open/save
+   *  for projects catalogued before stats were tracked. */
+  design_count: number;
+  /** Panel blank size in mm; null until the panel is configured. */
+  width_mm: number | null;
+  height_mm: number | null;
 }
 
 export type LayerType =
