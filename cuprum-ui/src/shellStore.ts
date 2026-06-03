@@ -158,6 +158,9 @@ interface ShellStore {
    *  designId. Set at import time; absent for designs opened from disk. Not
    *  persisted — an in-memory u32 has no meaning across launches. */
   traceSessions: Record<string, number>;
+  /** Number of ZIP paths currently being imported (incremented per-path at start,
+   *  decremented in finally). Drives the importing spinner on the designs tab. */
+  importingCount: number;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -185,6 +188,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   _scaleLoaded: false,
   artifactProgress: {},
   traceSessions: {},
+  importingCount: 0,
 
   scheduleArtifactFlush: (fresh) => {
     if (!fresh) return;
@@ -701,45 +705,50 @@ export const useShell = create<ShellStore>((set, get) => ({
     const { currentPath, workingDir, currentManifest } = get();
     if (!currentPath || !workingDir || !currentManifest) return;
     if (paths.length === 0) return;
-    const prev = currentManifest;
-    // Copy each ZIP into the working dir as a new design (sequential: each add
-    // reserves its id from the gerbers/ dir the previous one just created).
-    // Collect successes; if one fails, still commit the ones that succeeded so
-    // their already-on-disk gerbers aren't orphaned, then surface the error.
-    const added: ProjectDesign[] = [];
-    const newTraceSessions: Record<string, number> = {};
-    let failure: unknown = null;
-    for (const zip of paths) {
+    set((s) => ({ importingCount: s.importingCount + paths.length }));
+    try {
+      const prev = currentManifest;
+      // Copy each ZIP into the working dir as a new design (sequential: each add
+      // reserves its id from the gerbers/ dir the previous one just created).
+      // Collect successes; if one fails, still commit the ones that succeeded so
+      // their already-on-disk gerbers aren't orphaned, then surface the error.
+      const added: ProjectDesign[] = [];
+      const newTraceSessions: Record<string, number> = {};
+      let failure: unknown = null;
+      for (const zip of paths) {
+        try {
+          const result = await api.addDesignFromZip(workingDir, zip);
+          added.push(result.design);
+          if (result.traceSession != null) {
+            newTraceSessions[result.design.id] = result.traceSession;
+          }
+        } catch (e) {
+          failure = e;
+          break;
+        }
+      }
       try {
-        const result = await api.addDesignFromZip(workingDir, zip);
-        added.push(result.design);
-        if (result.traceSession != null) {
-          newTraceSessions[result.design.id] = result.traceSession;
+        if (added.length > 0) {
+          const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
+          get()._recordUndo(prev);
+          set((s) => ({
+            currentManifest: manifest,
+            error: null,
+            traceSessions: Object.keys(newTraceSessions).length > 0
+              ? { ...s.traceSessions, ...newTraceSessions }
+              : s.traceSessions,
+          }));
+          // Persist: write the loose manifest then repack the .cuprum so the freshly
+          // copied gerbers land in the container too.
+          await get()._persistManifest(manifest);
         }
       } catch (e) {
-        failure = e;
-        break;
+        failure = failure ?? e;
       }
+      if (failure) set({ error: String(failure) });
+    } finally {
+      set((s) => ({ importingCount: Math.max(0, s.importingCount - paths.length) }));
     }
-    try {
-      if (added.length > 0) {
-        const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
-        get()._recordUndo(prev);
-        set((s) => ({
-          currentManifest: manifest,
-          error: null,
-          traceSessions: Object.keys(newTraceSessions).length > 0
-            ? { ...s.traceSessions, ...newTraceSessions }
-            : s.traceSessions,
-        }));
-        // Persist: write the loose manifest then repack the .cuprum so the freshly
-        // copied gerbers land in the container too.
-        await get()._persistManifest(manifest);
-      }
-    } catch (e) {
-      failure = failure ?? e;
-    }
-    if (failure) set({ error: String(failure) });
   },
 
   setDesignLayerType: async (designId, gerberPath, type) => {
