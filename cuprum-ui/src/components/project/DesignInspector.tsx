@@ -9,7 +9,14 @@ import { PreviewPane, type PreviewMode, type PreviewTab } from "@/components/pre
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { EditableText } from "@/components/ui/EditableText";
 import { colorFor, sideOf, stackOrder, missingRequired } from "@/lib/layerColors";
-import { api, type BBox, type BoardMetrics, type Hole, type LayerType } from "@/lib/api";
+import {
+  api,
+  DEFAULT_FR4_THICKNESS_MM,
+  type BBox,
+  type BoardMetrics,
+  type Hole,
+  type LayerType,
+} from "@/lib/api";
 import type { FindingCategory, I18nText } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { evaluate, overallVerdict, VERDICT_KEY } from "@/lib/feasibility";
@@ -242,6 +249,9 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     [gerbers, hidden],
   );
   const excludedKey = excludedDrillKeys.join(",");
+  // FR4 thickness from the panel stackup, baked into the board Z; falls back to
+  // the default when the panel has not been configured yet.
+  const thicknessMm = manifest?.stackup?.substrate_thickness_mm ?? DEFAULT_FR4_THICKNESS_MM;
   useEffect(() => {
     let cancelled = false;
     // Lazy 3D: skip the mesh build entirely until the 3D view has been opened.
@@ -257,7 +267,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     // the intro animation. Only a genuinely empty design clears it (above).
     (async () => {
       try {
-        const buf = await api.projectBoardMesh(workingDir, refs, excludedDrillKeys);
+        const buf = await api.projectBoardMesh(workingDir, refs, excludedDrillKeys, thicknessMm);
         if (!cancelled) setMesh(parseBoardMesh(buf));
       } catch {
         if (!cancelled) setMesh(null);
@@ -267,7 +277,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingDir, gerbersKey, excludedKey, hasRequired, mesh3dArmed]);
+  }, [workingDir, gerbersKey, excludedKey, hasRequired, mesh3dArmed, thicknessMm]);
 
   // Measure manufacturing facts (cheap, off-thread) whenever the gerber set or a
   // layer-type assignment changes, but only once the required outline is present
