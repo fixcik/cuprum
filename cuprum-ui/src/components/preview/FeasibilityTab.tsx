@@ -1,7 +1,8 @@
-import { Loader2, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { type Finding } from "@/lib/feasibility";
 import { SEVERITY } from "@/lib/severity";
+import { PanelStatus } from "@/components/ui/PanelStatus";
 import { useFindingText } from "@/hooks/useFindingText";
 
 function FindingRow({
@@ -66,18 +67,10 @@ export function FeasibilityTab({
 }) {
   const { t } = useTranslation("feasibility");
   if (loading && findings.length === 0) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
-        <Loader2 className="size-5 animate-spin text-primary" /> {t("chrome.loading")}
-      </div>
-    );
+    return <PanelStatus loading message={t("chrome.loading")} />;
   }
   if (findings.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-[13px] text-muted-foreground">
-        {t("chrome.noData")}
-      </div>
-    );
+    return <PanelStatus message={t("chrome.noData")} />;
   }
 
   const blocks = findings.filter((f) => f.severity === "block").length;

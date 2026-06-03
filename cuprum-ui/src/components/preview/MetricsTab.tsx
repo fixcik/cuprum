@@ -1,7 +1,7 @@
-import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { BoardMetrics } from "@/lib/api";
 import { minAbove } from "@/lib/feasibility";
+import { PanelStatus } from "@/components/ui/PanelStatus";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -35,18 +35,10 @@ export function MetricsTab({ metrics, loading }: { metrics: BoardMetrics | null;
   const fmtMm = (v: number | null) => (v != null ? fmtLen(v) : t("common:dash"));
 
   if (loading && !metrics) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
-        <Loader2 className="size-5 animate-spin text-primary" /> {t("metrics:loading")}
-      </div>
-    );
+    return <PanelStatus loading message={t("metrics:loading")} />;
   }
   if (!metrics) {
-    return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-[13px] text-muted-foreground">
-        {t("metrics:noData")}
-      </div>
-    );
+    return <PanelStatus message={t("metrics:noData")} />;
   }
 
   const { board, layers, copper, drill, geo } = metrics;

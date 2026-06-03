@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, OrthographicCamera, GizmoHelper, GizmoViewcube } from "@react-three/drei";
-import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import * as THREE from "three";
 import type { BoardMeshData } from "@/lib/boardMesh";
+import { PanelStatus } from "@/components/ui/PanelStatus";
 
 const COPPER_COLOR = "#caa84a"; // ENIG gold
 const MASK_COLOR = "#2e6e40"; // muted matte soldermask green
@@ -228,12 +228,7 @@ export function Board3D({
 }) {
   const { t } = useTranslation("project");
   if (!mesh) {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
-        <Loader2 className="size-6 animate-spin text-primary" />
-        {t("building3d")}
-      </div>
-    );
+    return <PanelStatus loading message={t("building3d")} spinnerClassName="size-6" className="w-full" />;
   }
   const { center, radius } = mesh;
   return (
