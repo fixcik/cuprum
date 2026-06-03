@@ -2,19 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
-import { Search, UploadCloud, Download } from "lucide-react";
+import { Search, UploadCloud, Download, Loader2 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, type AddDesignSnapshot, type ProjectDesign, type PanelDoc } from "@/lib/api";
 import { DesignPickerRow } from "@/components/project/DesignPickerRow";
 import { Button } from "@/components/ui/Button";
-import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
-import { missingRequired } from "@/lib/layerColors";
 import { useSettings } from "@/settingsStore";
+import { useShell } from "@/shellStore";
 import { VerdictBadge } from "@/components/preview/VerdictBadge";
+import { PreviewPane, type PreviewMode } from "@/components/preview/PreviewPane";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
 import { NestingControls } from "@/components/panel/NestingControls";
 import { packLayout } from "@/lib/panelPlacement";
+import { usePreviewData } from "@/hooks/usePreviewData";
 
 /** Root of the separate "Add design to panel" window (label "add-design"). */
 export function AddDesignWindow() {
@@ -28,7 +29,19 @@ export function AddDesignWindow() {
   const profile = useSettings((s) => s.profile);
   const nest = useSettings((s) => s.nest);
 
-  // Preview mode: "design" shows the light card, "layout" shows the panel preview.
+  // Local preview UI state for the PreviewPane.
+  const [mode, setMode] = useState<PreviewMode>("2d");
+  const [side, setSide] = useState<"top" | "bottom">("top");
+  const [showDrc, setShowDrc] = useState(false);
+  const [focus, setFocus] = useState<{ fid: string; hi: number } | null>(null);
+  const [focusNonce, setFocusNonce] = useState(0);
+  const [armed3d, setArmed3d] = useState(false);
+  useEffect(() => { if (mode === "3d") setArmed3d(true); }, [mode]);
+
+  // Accurate 2D real-size requires the display scale.
+  useEffect(() => { void useShell.getState().loadDisplayScale(); }, []);
+
+  // Preview mode: "design" shows the PreviewPane, "layout" shows the panel preview.
   const [previewMode, setPreviewMode] = useState<"design" | "layout">("design");
 
   // When nesting is enabled, default to the layout view.
@@ -86,43 +99,30 @@ export function AddDesignWindow() {
     prevIdsRef.current = ids;
   }, [designs]);
 
-  // Verdict + board size for the currently selected design.
-  const [selVerdict, setSelVerdict] = useState<Verdict | null>(null);
-  const [selSize, setSelSize] = useState<{ w: number; h: number } | null>(null);
-  useEffect(() => {
-    setSelVerdict(null);
-    setSelSize(null);
-    if (!selectedDesign || !workingDir) return;
-    let cancelled = false;
-    const hasRequired = missingRequired(selectedDesign.gerbers.map((g) => g.layer_type)).length === 0;
-    // Minimal PanelDoc for evaluate() only (never persisted).
-    const panelDoc: PanelDoc = {
-      schema_version: 2,
-      width_mm: panel.widthMm,
-      height_mm: panel.heightMm,
-      origin_x_mm: 0,
-      origin_y_mm: 0,
-      instances: [],
-      tooling_holes: [],
-    };
-    api
-      .projectBoardMetrics(
-        workingDir,
-        selectedDesign.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
-      )
-      .then((m) => {
-        if (!cancelled) {
-          setSelSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
-          if (hasRequired) {
-            setSelVerdict(overallVerdict(evaluate(m.metrics, profile, panelDoc)));
-          }
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedDesign, workingDir, profile, panel.widthMm, panel.heightMm]);
+  // PanelDoc for DFM evaluate — minimal, never persisted.
+  const panelDoc: PanelDoc = useMemo(() => ({
+    schema_version: 2,
+    width_mm: panel.widthMm,
+    height_mm: panel.heightMm,
+    origin_x_mm: 0,
+    origin_y_mm: 0,
+    instances: [],
+    tooling_holes: [],
+  }), [panel.widthMm, panel.heightMm]);
+
+  // All preview data for the selected design (SVG layers, mesh, metrics, DRC).
+  const pv = usePreviewData(
+    workingDir,
+    selectedDesign?.id ?? "",
+    selectedDesign?.gerbers ?? [],
+    mode,
+    side,
+    { armed3d, profile, panel: panelDoc, stackup: null, excludeMask: true, focus, focusNonce },
+  );
+
+  // Derive board size and verdict from the hook (replaces duplicate metrics fetch).
+  const selSize = pv.metrics ? { w: pv.metrics.board.widthMm, h: pv.metrics.board.heightMm } : null;
+  const selVerdict = pv.hasRequired && pv.metrics ? pv.verdict : null;
 
   // Toast state for the add-to-panel result.
   const [toast, setToast] = useState<string | null>(null);
@@ -251,26 +251,53 @@ export function AddDesignWindow() {
                   ]}
                 />
               </div>
-              {previewMode === "layout" && selSize ? (
-                <PanelLayoutPreview
-                  boardWmm={selSize.w}
-                  boardHmm={selSize.h}
-                  panelWmm={panel.widthMm}
-                  panelHmm={panel.heightMm}
-                  nest={nest}
-                />
-              ) : (
-                <div className="flex flex-1 flex-col p-6">
-                  <div className="flex-1" />
-                  <div className="text-[15px] font-semibold text-foreground">{selectedDesign.source_name}</div>
-                  <div className="mt-1 text-[12px] text-muted-foreground">
-                    {t("designs.layerCount", { count: selectedDesign.gerbers.length })}
+              {previewMode === "layout" ? (
+                selSize ? (
+                  <PanelLayoutPreview
+                    boardWmm={selSize.w}
+                    boardHmm={selSize.h}
+                    panelWmm={panel.widthMm}
+                    panelHmm={panel.heightMm}
+                    nest={nest}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    {t("panel.add.layoutLoading")}
                   </div>
-                  {selVerdict && (
-                    <div className="mt-3">
-                      <VerdictBadge verdict={selVerdict} />
-                    </div>
-                  )}
+                )
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="relative min-h-0 flex-1">
+                    <PreviewPane
+                      layers={pv.layers}
+                      holes={pv.visibleHoles}
+                      mesh={pv.mesh}
+                      visibleKeys={pv.visibleKeys}
+                      layerColors={pv.layerColors}
+                      side={side}
+                      onSideChange={setSide}
+                      mode={mode}
+                      onModeChange={setMode}
+                      notice={pv.previewNotice}
+                      metrics={pv.metrics}
+                      metricsLoading={pv.metricsLoading}
+                      findings={pv.findings}
+                      markers={pv.markers}
+                      focusTarget={pv.focusTarget}
+                      focus={focus}
+                      onFocus={(fid, hi) => { setFocus({ fid, hi }); setFocusNonce((n) => n + 1); setShowDrc(true); setMode("2d"); }}
+                      showDrc={showDrc}
+                      onShowDrcChange={setShowDrc}
+                      issues={pv.issues}
+                      issueIndex={focus ? pv.issues.findIndex((n) => n.fid === focus.fid && n.hi === focus.hi) : -1}
+                      loading={pv.layersLoading}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2">
+                    <span className="truncate text-[12px] font-medium text-foreground">{selectedDesign.source_name}</span>
+                    {selVerdict && <VerdictBadge verdict={selVerdict} />}
+                  </div>
                 </div>
               )}
             </>
