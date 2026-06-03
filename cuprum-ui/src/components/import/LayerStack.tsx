@@ -32,15 +32,27 @@ const MAX_ZOOM = 150; // cap at 15000% of real size (maxScale = pxPerMm * MAX_ZO
 // never sits flush against the rulers/edges.
 const FIT_MARGIN = 0.9;
 const RULER = 20; // px — width/height of the edge rulers
-/** Measure tool accent — white, readable on the green PCB preview. */
-const MEASURE = "rgba(255,255,255,0.92)";
-const MEASURE_DIM = "rgba(255,255,255,0.65)";
-const MEASURE_RING = "rgba(255,255,255,0.35)";
-const MEASURE_LABEL_BG = "hsl(222 16% 9% / 0.88)";
-const MEASURE_STROKE = 2;
-const MEASURE_DOT_R = 4;
-const MEASURE_RING_R = 8;
-const MEASURE_CROSSHAIR_ARM = 8;
+// Measure overlay — a copper core (--primary) over a dark casing, so the line
+// and reticles stay legible over any PCB colour (green mask, white silk, gold
+// pads, black holes) instead of washing out as a single flat tint. All widths
+// and radii are SCREEN px (constant under zoom); endpoints live in board mm.
+const M_CORE = "hsl(var(--primary))"; // copper accent
+const M_CASE = "rgba(0,0,0,0.6)"; // dark halo/casing under the copper
+const M_LINE_CASE = 5; // measure line — casing width
+const M_LINE_CORE = 2; // measure line — copper width
+const M_LEG_CORE = 1.5; // ΔX/ΔY leg — copper width
+const M_LEG_CASE = 3.5; // ΔX/ΔY leg — casing width
+const M_RING_R = 10; // reticle ring radius
+const M_RING_CASE = 5; // reticle ring — casing width
+const M_RING_CORE = 2; // reticle ring — copper width
+const M_CROSS_ARM = 16; // crosshair half-arm length (32px tip-to-tip)
+const M_CROSS_CASE = 4; // crosshair — casing width
+const M_CROSS_CORE = 1.5; // crosshair — copper width
+const M_DOT_R = 2.5; // centre dot radius
+const M_FEATURE_R = 15; // dashed lock ring shown when snapped to a feature
+const MEASURE_LABEL_BG = "hsl(222 16% 9% / 0.92)";
+const MEASURE_LABEL_FG = "rgba(255,255,255,0.95)";
+const MEASURE_LABEL_SUB = "rgba(255,255,255,0.6)";
 // "1-5" nice-number ladder (mm). The grid step is the finest rung still ≥8px on
 // screen, so zooming in reveals 10→5→1→0.5→0.1mm; labels use a coarser rung that
 // leaves room for the text.
@@ -70,6 +82,13 @@ interface View {
   s: number; // px per mm
   tx: number; // screen px
   ty: number; // screen px
+}
+
+/** A placed measurement endpoint: gerber-mm position + whether it locked onto a
+ *  real feature (hole/pad/board node), which drives the dashed lock ring. */
+interface MPoint {
+  g: [number, number];
+  feature: boolean;
 }
 
 /** Halve every `stroke-width` and cap `r` in an SVG fragment — used to render
@@ -168,9 +187,11 @@ export function LayerStack({
 
   const [tool, setTool] = useState<"pan" | "measure">("pan");
   // Measurement endpoints in gerber mm; `a` set on first click, `b` on second.
-  const [mA, setMA] = useState<[number, number] | null>(null);
-  const [mB, setMB] = useState<[number, number] | null>(null);
-  const [hover, setHover] = useState<{ g: [number, number]; snapped: boolean } | null>(null);
+  // `feature` marks a point snapped to a real feature (hole/pad/board node) →
+  // shown with the dashed lock ring, vs a free/grid point.
+  const [mA, setMA] = useState<MPoint | null>(null);
+  const [mB, setMB] = useState<MPoint | null>(null);
+  const [hover, setHover] = useState<{ g: [number, number]; feature: boolean } | null>(null);
 
   // Space reserved for the edge rulers; zero in chrome-less thumbnail mode so the
   // board centres in the whole pane.
@@ -374,7 +395,9 @@ export function LayerStack({
 
   // Snap the cursor (screen px) to the nearest candidate within SNAP_PX, else the
   // nearest grid node, else the raw point. Priority: features > board > grid.
-  const snapCursor = (px: number, py: number): { g: [number, number]; snapped: boolean } => {
+  // `feature` is true only for a real feature/board node (not a grid node) — it
+  // gates the dashed lock ring on the reticle.
+  const snapCursor = (px: number, py: number): { g: [number, number]; feature: boolean } => {
     const near = (pts: [number, number][]) => {
       let best: [number, number] | null = null;
       let bestD = SNAP_PX;
@@ -386,15 +409,15 @@ export function LayerStack({
       return best;
     };
     const f = near(featurePts) ?? near(boardPts);
-    if (f) return { g: f, snapped: true };
+    if (f) return { g: f, feature: true };
     // grid node: round the gerber point to the current minor grid step, anchored
     // at the board corner; snap only if it lands within SNAP_PX.
     const g0 = toGerber(px, py);
     const gx = box.minX + Math.round((g0[0] - box.minX) / minorStep) * minorStep;
     const gy = box.minY + Math.round((g0[1] - box.minY) / minorStep) * minorStep;
     const [gsx, gsy] = toScreen([gx, gy]);
-    if (Math.hypot(gsx - px, gsy - py) < SNAP_PX) return { g: [gx, gy], snapped: true };
-    return { g: g0, snapped: false };
+    if (Math.hypot(gsx - px, gsy - py) < SNAP_PX) return { g: [gx, gy], feature: false };
+    return { g: g0, feature: false };
   };
 
   const onDown = (e: React.MouseEvent) => {
@@ -403,7 +426,8 @@ export function LayerStack({
       if (e.button !== 0) { setMA(null); setMB(null); return; } // right/middle clears
       const rect = svgRef.current!.getBoundingClientRect();
       const snap = snapCursor(e.clientX - rect.left, e.clientY - rect.top);
-      if (!mA || (mA && mB)) { setMA(snap.g); setMB(null); } else { setMB(snap.g); }
+      const p: MPoint = { g: snap.g, feature: snap.feature };
+      if (!mA || (mA && mB)) { setMA(p); setMB(null); } else { setMB(p); }
       return;
     }
     drag.current = { x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty };
@@ -568,13 +592,39 @@ export function LayerStack({
         </g>
 
         {tool === "measure" && (() => {
-          const endA = mA;
-          const endB = mB ?? hover?.g ?? null;
-          const aS = endA && toScreen(endA);
-          const bS = endB && toScreen(endB);
-          const dxmm = endA && endB ? endB[0] - endA[0] : 0;
-          const dymm = endA && endB ? endB[1] - endA[1] : 0;
+          // A snap reticle: dark casing under a copper core, all in screen px so it
+          // stays crisp at any zoom. A dashed lock ring marks a feature snap.
+          const reticle = (cx: number, cy: number, feature: boolean, key: string) => (
+            <g key={key} transform={`translate(${cx} ${cy})`}>
+              {feature && (
+                <circle r={M_FEATURE_R} fill="none" stroke={M_CORE} strokeWidth={1.25} strokeDasharray="3 3" opacity={0.9} />
+              )}
+              <circle r={M_RING_R} fill="none" stroke={M_CASE} strokeWidth={M_RING_CASE} />
+              <circle r={M_RING_R} fill="none" stroke={M_CORE} strokeWidth={M_RING_CORE} />
+              <g stroke={M_CASE} strokeWidth={M_CROSS_CASE} strokeLinecap="round">
+                <line x1={-M_CROSS_ARM} y1={0} x2={M_CROSS_ARM} y2={0} />
+                <line x1={0} y1={-M_CROSS_ARM} x2={0} y2={M_CROSS_ARM} />
+              </g>
+              <g stroke={M_CORE} strokeWidth={M_CROSS_CORE} strokeLinecap="round">
+                <line x1={-M_CROSS_ARM} y1={0} x2={M_CROSS_ARM} y2={0} />
+                <line x1={0} y1={-M_CROSS_ARM} x2={0} y2={M_CROSS_ARM} />
+              </g>
+              <circle r={M_DOT_R} fill={M_CORE} stroke={M_CASE} strokeWidth={1.5} />
+            </g>
+          );
+
+          // `mA` is the placed start; while picking the end, `hover` is the live
+          // second point. Once both are placed, `hover` is the prospective NEXT
+          // start (shown faint so you can see where a new measure would begin).
+          const measuring = !!mA && !mB;
+          const liveB: MPoint | null = mB ?? (measuring && hover ? { g: hover.g, feature: hover.feature } : null);
+          const aS = mA ? toScreen(mA.g) : null;
+          const bS = liveB ? toScreen(liveB.g) : null;
+          const dxmm = mA && liveB ? liveB.g[0] - mA.g[0] : 0;
+          const dymm = mA && liveB ? liveB.g[1] - mA.g[1] : 0;
           const dist = Math.hypot(dxmm, dymm);
+          const showStartHover = hover && !measuring; // hover = next start point
+
           const labelW = 118;
           const labelH = 34;
           const labelOffX = 12;
@@ -585,50 +635,42 @@ export function LayerStack({
             if (labelX + labelW > size.w - 4) labelX = bS[0] - labelW - labelOffX;
             if (labelY < 4) labelY = bS[1] + 12;
           }
-          const pickingStart = !mA || !!mB;
+          // ΔX/ΔY legs: catheti of the right triangle A → (Bx,Ay) → B, in screen px.
+          const legPts = aS && bS ? `${aS[0]},${aS[1]} ${bS[0]},${aS[1]} ${bS[0]},${bS[1]}` : "";
           return (
             <g style={{ pointerEvents: "none" }}>
-              {hover && (() => {
-                const [hx, hy] = toScreen(hover.g);
-                const hoverStroke = hover.snapped ? MEASURE : MEASURE_DIM;
-                if (pickingStart) {
-                  return (
-                    <g transform={`translate(${hx} ${hy})`}>
-                      <line x1={-MEASURE_CROSSHAIR_ARM} y1={0} x2={MEASURE_CROSSHAIR_ARM} y2={0} style={{ stroke: hoverStroke }} strokeWidth={MEASURE_STROKE - 0.5} />
-                      <line x1={0} y1={-MEASURE_CROSSHAIR_ARM} x2={0} y2={MEASURE_CROSSHAIR_ARM} style={{ stroke: hoverStroke }} strokeWidth={MEASURE_STROKE - 0.5} />
-                    </g>
-                  );
-                }
-                return (
-                  <circle
-                    cx={hx}
-                    cy={hy}
-                    r={hover.snapped ? MEASURE_RING_R : MEASURE_RING_R - 1}
-                    fill="none"
-                    style={{ stroke: hoverStroke }}
-                    strokeWidth={MEASURE_STROKE - 0.5}
-                  />
-                );
-              })()}
+              {/* Faint board scrim while measuring, so the overlay lifts off the art. */}
+              <rect x={0} y={0} width={size.w} height={size.h} fill="rgba(0,0,0,0.07)" />
+              {aS && bS && (
+                <g fill="none" strokeLinecap="round" opacity={0.85}>
+                  <polyline points={legPts} stroke={M_CASE} strokeWidth={M_LEG_CASE} strokeDasharray="6 5" />
+                  <polyline points={legPts} stroke={M_CORE} strokeWidth={M_LEG_CORE} strokeDasharray="6 5" />
+                </g>
+              )}
               {aS && bS && (
                 <>
-                  <line x1={aS[0]} y1={aS[1]} x2={bS[0]} y2={bS[1]} style={{ stroke: MEASURE }} strokeWidth={MEASURE_STROKE} />
-                  {[aS, bS].map((p, i) => (
-                    <g key={i}>
-                      <circle cx={p[0]} cy={p[1]} r={MEASURE_DOT_R} style={{ fill: MEASURE }} />
-                      <circle cx={p[0]} cy={p[1]} r={MEASURE_RING_R} fill="none" style={{ stroke: MEASURE_RING }} strokeWidth={MEASURE_STROKE - 0.5} />
-                    </g>
-                  ))}
-                  <g transform={`translate(${labelX} ${labelY})`}>
-                    <rect x={0} y={0} width={labelW} height={labelH} rx={6} style={{ fill: MEASURE_LABEL_BG, stroke: "hsl(var(--border))" }} />
-                    <text x={8} y={14} style={{ fill: MEASURE, fontSize: "11px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                      {fmtLen(dist)}
-                    </text>
-                    <text x={8} y={27} style={{ fill: MEASURE_DIM, fontSize: "9px", fontVariantNumeric: "tabular-nums" }}>
-                      ΔX {fmtLen(dxmm)} · ΔY {fmtLen(dymm)}
-                    </text>
-                  </g>
+                  <line x1={aS[0]} y1={aS[1]} x2={bS[0]} y2={bS[1]} stroke={M_CASE} strokeWidth={M_LINE_CASE} strokeLinecap="round" />
+                  <line x1={aS[0]} y1={aS[1]} x2={bS[0]} y2={bS[1]} stroke={M_CORE} strokeWidth={M_LINE_CORE} strokeLinecap="round" />
                 </>
+              )}
+              {aS && mA && reticle(aS[0], aS[1], mA.feature, "a")}
+              {bS && liveB && reticle(bS[0], bS[1], liveB.feature, "b")}
+              {showStartHover && (() => {
+                const [hx, hy] = toScreen(hover.g);
+                // Prospective NEXT start — faint, so it reads as a hint, not a
+                // placed endpoint (avoids three equal reticles after a measure).
+                return <g opacity={0.5}>{reticle(hx, hy, hover.feature, "hover")}</g>;
+              })()}
+              {aS && bS && (
+                <g transform={`translate(${labelX} ${labelY})`}>
+                  <rect x={0} y={0} width={labelW} height={labelH} rx={6} style={{ fill: MEASURE_LABEL_BG, stroke: "hsl(var(--border))" }} />
+                  <text x={8} y={14} style={{ fill: MEASURE_LABEL_FG, fontSize: "11px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                    {fmtLen(dist)}
+                  </text>
+                  <text x={8} y={27} style={{ fill: MEASURE_LABEL_SUB, fontSize: "9px", fontVariantNumeric: "tabular-nums" }}>
+                    ΔX {fmtLen(dxmm)} · ΔY {fmtLen(dymm)}
+                  </text>
+                </g>
               )}
             </g>
           );
