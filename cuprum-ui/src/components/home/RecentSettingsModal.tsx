@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
-import { TextInput } from "@/components/ui/TextInput";
+import { FormModal } from "@/components/ui/FormModal";
+import { LabeledTextInput } from "@/components/ui/LabeledTextInput";
 import { api, type RecentProject } from "@/lib/api";
 import { useShell } from "@/shellStore";
 
@@ -54,30 +53,20 @@ export function RecentSettingsModal({
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t("project:settings.title")}
-      footer={
-        <>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            {t("project:settings.cancel")}
-          </Button>
-          <Button size="sm" disabled={!name.trim()} onClick={save}>
-            {t("project:settings.save")}
-          </Button>
-        </>
-      }
-    >
-      <label className="mb-1 block text-[11px] text-muted-foreground">{t("project:settings.name")}</label>
-      <TextInput value={name} onChange={(e) => setName(e.target.value)} className="mb-3 w-full" autoFocus />
-      <label className="mb-1 block text-[11px] text-muted-foreground">{t("project:settings.description")}</label>
-      <TextInput
+    <FormModal open={open} onClose={onClose} title={t("project:settings.title")} onSave={save} canSave={!!name.trim()}>
+      <LabeledTextInput
+        label={t("project:settings.name")}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="mb-3 w-full"
+        autoFocus
+      />
+      <LabeledTextInput
+        label={t("project:settings.description")}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder={t("project:descriptionPlaceholder")}
-        className="w-full"
       />
-    </Modal>
+    </FormModal>
   );
 }

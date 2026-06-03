@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
-import { TextInput } from "@/components/ui/TextInput";
+import { FormModal } from "@/components/ui/FormModal";
+import { LabeledTextInput } from "@/components/ui/LabeledTextInput";
 import { useShell } from "@/shellStore";
 
 /** Project settings (rename + description), opened from the tab-bar cog. */
@@ -28,30 +27,20 @@ export function ProjectSettingsModal({ open, onClose }: { open: boolean; onClose
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t("settings.title")}
-      footer={
-        <>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            {t("settings.cancel")}
-          </Button>
-          <Button size="sm" disabled={!name.trim()} onClick={save}>
-            {t("settings.save")}
-          </Button>
-        </>
-      }
-    >
-      <label className="mb-1 block text-[11px] text-muted-foreground">{t("settings.name")}</label>
-      <TextInput value={name} onChange={(e) => setName(e.target.value)} className="mb-3 w-full" autoFocus />
-      <label className="mb-1 block text-[11px] text-muted-foreground">{t("settings.description")}</label>
-      <TextInput
+    <FormModal open={open} onClose={onClose} title={t("settings.title")} onSave={save} canSave={!!name.trim()}>
+      <LabeledTextInput
+        label={t("settings.name")}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="mb-3 w-full"
+        autoFocus
+      />
+      <LabeledTextInput
+        label={t("settings.description")}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder={t("descriptionPlaceholder")}
-        className="w-full"
       />
-    </Modal>
+    </FormModal>
   );
 }

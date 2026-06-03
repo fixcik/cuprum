@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
-import { TextInput } from "@/components/ui/TextInput";
+import { FormModal } from "@/components/ui/FormModal";
+import { LabeledTextInput } from "@/components/ui/LabeledTextInput";
 import { useShell } from "@/shellStore";
 import type { ProjectDesign } from "@/lib/api";
 
@@ -33,31 +32,16 @@ export function RenameDesignModal({
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t("designs.renameTitle")}
-      footer={
-        <>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            {t("settings.cancel")}
-          </Button>
-          <Button size="sm" disabled={!name.trim()} onClick={save}>
-            {t("settings.save")}
-          </Button>
-        </>
-      }
-    >
-      <label className="mb-1 block text-[11px] text-muted-foreground">{t("settings.name")}</label>
-      <TextInput
+    <FormModal open={open} onClose={onClose} title={t("designs.renameTitle")} onSave={save} canSave={!!name.trim()}>
+      <LabeledTextInput
+        label={t("settings.name")}
         value={name}
         autoFocus
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") save();
         }}
-        className="w-full"
       />
-    </Modal>
+    </FormModal>
   );
 }
