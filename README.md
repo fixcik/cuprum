@@ -142,7 +142,6 @@ crates/          Rust workspace (core, cli, project model)
 cuprum-ui/       Tauri 2 + React desktop app
 vendor/          Vendored dependencies (see Acknowledgements)
 testdata/        Sample Gerber files
-spikes/          Throwaway scripts used while reverse-engineering the protocol
 docs/            Vision, design system, and development notes
 ```
 
