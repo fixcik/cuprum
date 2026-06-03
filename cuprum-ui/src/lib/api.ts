@@ -409,6 +409,9 @@ export const api = {
   /** Subscribe to live "open this file" events (relaunch / macOS Opened). */
   onOpenFile: (cb: (path: string) => void): Promise<UnlistenFn> =>
     listen<string>("open-file", (e) => cb(e.payload)),
+  /** Subscribe to the native menu's "Check for Updates…" item. */
+  onMenuCheckUpdates: (cb: () => void): Promise<UnlistenFn> =>
+    listen("menu://check-updates", () => cb()),
   pickProjectFile: () =>
     open({ multiple: false, filters: [{ name: "Cuprum", extensions: ["cu", "cuprum"] }] }) as Promise<
       string | null

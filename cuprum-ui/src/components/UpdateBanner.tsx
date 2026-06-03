@@ -1,22 +1,39 @@
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useUpdater } from "@/updaterStore";
 
-/** Non-intrusive bottom-center banner announcing an available update, its download
- *  progress, and the post-install restart. Hidden in every other phase (idle /
- *  checking / upToDate / error) and once the user dismisses it for the session. */
+/** How long the transient "up to date" / "error" toast stays before auto-clearing. */
+const TOAST_MS = 4000;
+
+/** Non-intrusive bottom-center banner. Persistent while an update is available /
+ *  downloading / restarting (dismissable for the session); plus a transient toast
+ *  for the loud manual-check outcomes (up-to-date / error) that auto-clears.
+ *  Hidden in idle / checking. */
 export function UpdateBanner() {
   const { t } = useTranslation("updater");
   const phase = useUpdater((s) => s.phase);
   const dismissed = useUpdater((s) => s.dismissed);
   const install = useUpdater((s) => s.install);
   const dismiss = useUpdater((s) => s.dismiss);
+  const reset = useUpdater((s) => s.reset);
 
-  const show =
+  const transient = phase.kind === "upToDate" || phase.kind === "error";
+  const persistent =
     !dismissed &&
     (phase.kind === "available" || phase.kind === "downloading" || phase.kind === "restarting");
-  if (!show) return null;
+
+  // Auto-clear the transient toast after a few seconds.
+  useEffect(() => {
+    if (!transient) return;
+    const id = setTimeout(reset, TOAST_MS);
+    return () => clearTimeout(id);
+    // `transient` already derives from phase.kind — listing phase.kind too would
+    // double-fire the effect on entry (and can misfire under concurrent rendering).
+  }, [transient, reset]);
+
+  if (!transient && !persistent) return null;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center">
@@ -51,6 +68,17 @@ export function UpdateBanner() {
 
         {phase.kind === "restarting" && (
           <span className="text-[13px] text-foreground">{t("restarting")}</span>
+        )}
+
+        {transient && (
+          <div className="flex items-center gap-3">
+            <span className="flex-1 text-[13px] text-foreground">
+              {t(phase.kind === "upToDate" ? "upToDate" : "error")}
+            </span>
+            <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={t("dismiss")} onClick={reset}>
+              <X />
+            </Button>
+          </div>
         )}
       </div>
     </div>

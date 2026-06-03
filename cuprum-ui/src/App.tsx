@@ -28,6 +28,14 @@ export default function App() {
     void useUpdater.getState().checkForUpdates(false);
   }, []);
 
+  // Native menu "Check for Updates…" → loud check (shows "up to date"/error toast).
+  useEffect(() => {
+    const un = api.onMenuCheckUpdates(() => void useUpdater.getState().checkForUpdates(true));
+    return () => {
+      void un.then((unlisten) => unlisten());
+    };
+  }, []);
+
   // Surface working dirs left dirty by a prior crash. Phase 2 wires a proper
   // adopt/discard dialog; for now just make them visible in the console.
   useEffect(() => {

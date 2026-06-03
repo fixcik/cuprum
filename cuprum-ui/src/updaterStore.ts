@@ -28,6 +28,8 @@ interface UpdaterState {
   install: () => Promise<void>;
   /** Hide the banner until the next check. */
   dismiss: () => void;
+  /** Return to idle (clears a transient up-to-date / error toast). */
+  reset: () => void;
 }
 
 export const useUpdater = create<UpdaterState>((set, get) => ({
@@ -79,4 +81,6 @@ export const useUpdater = create<UpdaterState>((set, get) => ({
   },
 
   dismiss: () => set({ dismissed: true }),
+
+  reset: () => set({ phase: { kind: "idle" } }),
 }));

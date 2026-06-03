@@ -25,6 +25,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 base64 = "0.22"
+sys-locale = "0.3"
 cuprum-core = { path = "../../crates/cuprum-core" }
 cuprum-project = { path = "../../crates/cuprum-project" }
 rayon = "1"
