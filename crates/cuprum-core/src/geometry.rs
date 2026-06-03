@@ -55,7 +55,7 @@ pub struct Poly {
 #[tracing::instrument(skip_all, fields(holes = holes.len()))]
 pub fn layer_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
-    let layer = crate::cache::parse_layer_cached(bytes)?;
+    let layer = crate::gerber::parse_layer_cached(bytes)?;
     Ok(layer_polygons_from(&layer, holes))
 }
 
@@ -82,7 +82,7 @@ pub fn copper_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
 #[tracing::instrument(skip_all, fields(holes = holes.len()))]
 pub fn region_polygons(bytes: &[u8], holes: &[Hole]) -> Result<Vec<Poly>> {
     // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
-    let layer = crate::cache::parse_layer_cached(bytes)?;
+    let layer = crate::gerber::parse_layer_cached(bytes)?;
     Ok(region_polygons_from(&layer, holes))
 }
 
@@ -121,7 +121,7 @@ pub fn mask_polygons(outline_rings: &[Vec<[f64; 2]>], mask_bytes: &[u8]) -> Resu
     }
 
     // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
-    let layer = crate::cache::parse_layer_cached(mask_bytes)?;
+    let layer = crate::gerber::parse_layer_cached(mask_bytes)?;
     // Normalize every opening contour to CCW before the difference. An opening
     // (e.g. a roundrect pad = rect + corner circles) is built from several
     // primitives of mixed winding; under NonZero they cancel to winding 0 at the

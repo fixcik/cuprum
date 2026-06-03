@@ -246,7 +246,7 @@ fn add_barrel(buf: &mut Buffer, cx: f32, cy: f32, r: f32, z0: f32, z1: f32) {
 /// circles / fills are ignored — they're not part of the cut path.
 fn edge_segments(edge_bytes: &[u8]) -> Vec<([f64; 2], [f64; 2])> {
     // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
-    let layer = match crate::cache::parse_layer_cached(edge_bytes) {
+    let layer = match crate::gerber::parse_layer_cached(edge_bytes) {
         Ok(l) => l,
         Err(_) => return Vec::new(),
     };
