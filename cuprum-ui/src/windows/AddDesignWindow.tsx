@@ -80,8 +80,9 @@ export function AddDesignWindow() {
     if (!selectedDesign || !workingDir) return;
     let cancelled = false;
     const hasRequired = missingRequired(selectedDesign.gerbers.map((g) => g.layer_type)).length === 0;
+    // Minimal PanelDoc for evaluate() only (never persisted).
     const panelDoc: PanelDoc = {
-      schema_version: 1,
+      schema_version: 2,
       width_mm: panel.widthMm,
       height_mm: panel.heightMm,
       origin_x_mm: 0,

@@ -76,8 +76,9 @@ export function DesignPickerRow({
     let cancelled = false;
     const hasRequired = missingRequired(design.gerbers.map((g) => g.layer_type)).length === 0;
     // Build a minimal PanelDoc so evaluate() can check board fit against the panel.
+    // Never persisted — only fed to the client-side feasibility check.
     const panelDoc: PanelDoc = {
-      schema_version: 1,
+      schema_version: 2,
       width_mm: panel.widthMm,
       height_mm: panel.heightMm,
       origin_x_mm: 0,
