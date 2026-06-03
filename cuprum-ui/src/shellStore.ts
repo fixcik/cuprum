@@ -121,8 +121,10 @@ interface ShellStore {
   rotateInstances: (ids: string[], absDeg: number) => Promise<void>;
   /** Add a delta to each instance's rotation (each about its own centre). One undo. */
   rotateInstancesBy: (ids: string[], deltaDeg: number) => Promise<void>;
-  /** Duplicate the given instances (offset copy, new ids). Returns the new ids. One undo. */
-  duplicateInstances: (ids: string[]) => Promise<string[]>;
+  /** Duplicate the given instances (offset copy, new ids). Returns the new ids. One undo.
+   *  `dxMm` / `dyMm` set the placement offset; callers should clamp these via
+   *  `clampDeltaToPanel` before passing so copies stay within the panel. */
+  duplicateInstances: (ids: string[], dxMm: number, dyMm: number) => Promise<string[]>;
   /** Private: mirror the in-memory manifest into the working dir's loose
    *  manifest.json after a mutation (basis for crash recovery). */
   _mirrorManifest: (manifest: Manifest) => Promise<void>;
@@ -537,14 +539,14 @@ export const useShell = create<ShellStore>((set, get) => ({
     await get().savePanelConfig(next, stackup);
   },
 
-  duplicateInstances: async (ids) => {
+  duplicateInstances: async (ids, dxMm, dyMm) => {
     const panel = get().currentManifest?.panel;
     const stackup = get().currentManifest?.stackup;
     if (!panel || !stackup || ids.length === 0) return [];
     const sel = new Set(ids);
     const copies = panel.instances
       .filter((i) => sel.has(i.id))
-      .map((i) => ({ ...i, id: crypto.randomUUID(), x_mm: i.x_mm + 2, y_mm: i.y_mm + 2 }));
+      .map((i) => ({ ...i, id: crypto.randomUUID(), x_mm: i.x_mm + dxMm, y_mm: i.y_mm + dyMm }));
     const next: PanelDoc = { ...panel, instances: [...panel.instances, ...copies] };
     await get().savePanelConfig(next, stackup);
     return copies.map((c) => c.id);
