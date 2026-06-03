@@ -317,7 +317,7 @@ pub fn operation<T>(name: &str, default_dir: &Path, f: impl FnOnce() -> T) -> T 
     run_with_config(config(), name, default_dir, f)
 }
 
-fn run_with_config<T>(
+pub(crate) fn run_with_config<T>(
     cfg: &TraceConfig,
     name: &str,
     default_dir: &Path,
