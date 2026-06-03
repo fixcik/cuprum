@@ -81,10 +81,13 @@ export function packLayout(
   return { bw, bh, cols, rows, max, requested, n, placements };
 }
 
-/** Axis-aligned bounding box (mm) of a placed board after Konva-style rotation
- *  about its origin (the instance's top-left corner). Konva rotates clockwise in
- *  screen coordinates (y-down), so a local corner (lx, ly) maps to
- *  (x0 + lx·cosθ − ly·sinθ, y0 + lx·sinθ + ly·cosθ). */
+/** Axis-aligned bounding box (mm) of a placed board. A placement is an
+ *  axis-aligned footprint anchored at its top-left `(x, y)`: a 90°/270° instance
+ *  occupies a width↔height-swapped slot, NOT a board rotated about a pivot. This
+ *  matches exactly how `packLayout` positions copies and how `PanelBlankCanvas`
+ *  draws them (swapped `fw`/`fh`, no Konva rotation). Rotation is therefore only
+ *  the four right angles today; arbitrary angles arrive with the interactive
+ *  editor and would need a true rotated-quad bbox here. */
 export function instanceBounds(opts: {
   xMm: number;
   yMm: number;
@@ -93,18 +96,11 @@ export function instanceBounds(opts: {
   rotationDeg: number;
 }): { minX: number; minY: number; maxX: number; maxY: number } {
   const { xMm, yMm, boardW, boardH, rotationDeg } = opts;
-  const rad = (rotationDeg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const corners = [
-    [0, 0],
-    [boardW, 0],
-    [0, boardH],
-    [boardW, boardH],
-  ];
-  const xs = corners.map(([lx, ly]) => xMm + lx * cos - ly * sin);
-  const ys = corners.map(([lx, ly]) => yMm + lx * sin + ly * cos);
-  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  const rot = ((rotationDeg % 360) + 360) % 360;
+  const swap = rot === 90 || rot === 270;
+  const fw = swap ? boardH : boardW;
+  const fh = swap ? boardW : boardH;
+  return { minX: xMm, minY: yMm, maxX: xMm + fw, maxY: yMm + fh };
 }
 
 /** True if a placed board pokes outside the panel rectangle [0,panelW]×[0,panelH].

@@ -65,12 +65,34 @@ describe("instanceBounds", () => {
     });
   });
 
-  it("accounts for a 90° clockwise rotation about the origin", () => {
-    const b = instanceBounds({ xMm: 0, yMm: 0, boardW: 40, boardH: 30, rotationDeg: 90 });
-    expect(b.minX).toBeCloseTo(-30, 6);
-    expect(b.maxX).toBeCloseTo(0, 6);
-    expect(b.minY).toBeCloseTo(0, 6);
-    expect(b.maxY).toBeCloseTo(40, 6);
+  // A 90°/270° instance occupies a w↔h-swapped axis-aligned footprint anchored at
+  // (x, y) — exactly how packLayout places it and PanelBlankCanvas draws it (no
+  // rotation about the origin). So a 40×30 board rotated 90° spans 30×40 from (x,y).
+  it("swaps width/height for a 90° instance, anchored at the origin", () => {
+    expect(instanceBounds({ xMm: 10, yMm: 20, boardW: 40, boardH: 30, rotationDeg: 90 })).toEqual({
+      minX: 10,
+      minY: 20,
+      maxX: 40,
+      maxY: 60,
+    });
+  });
+
+  it("swaps width/height for a 270° instance too", () => {
+    expect(instanceBounds({ xMm: 0, yMm: 0, boardW: 40, boardH: 30, rotationDeg: 270 })).toEqual({
+      minX: 0,
+      minY: 0,
+      maxX: 30,
+      maxY: 40,
+    });
+  });
+
+  it("keeps the footprint for a 180° instance", () => {
+    expect(instanceBounds({ xMm: 10, yMm: 20, boardW: 40, boardH: 30, rotationDeg: 180 })).toEqual({
+      minX: 10,
+      minY: 20,
+      maxX: 50,
+      maxY: 50,
+    });
   });
 });
 
@@ -92,5 +114,17 @@ describe("isOffPanel", () => {
   it("absorbs sub-tolerance negative overhang but flags a real one", () => {
     expect(isOffPanel({ ...base, xMm: -0.0005, yMm: 5 })).toBe(false);
     expect(isOffPanel({ ...base, xMm: -5, yMm: 5 })).toBe(true);
+  });
+
+  // Regression: a 90°-rotated instance placed inside the panel by the nester (its
+  // footprint swapped to 30×40) must NOT be flagged. The old origin-rotation model
+  // computed minX = x − boardH < 0 and falsely reported it off-panel.
+  it("does not flag a rotated instance that sits inside the panel", () => {
+    expect(isOffPanel({ ...base, xMm: 5, yMm: 5, rotationDeg: 90 })).toBe(false);
+  });
+
+  it("still flags a rotated instance whose swapped footprint pokes past an edge", () => {
+    // 40×30 board rotated → 30×40 footprint; at y=70 it reaches 110 > 100.
+    expect(isOffPanel({ ...base, xMm: 5, yMm: 70, rotationDeg: 90 })).toBe(true);
   });
 });
