@@ -8,6 +8,8 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
+import { useUpdater } from "@/updaterStore";
+import { UpdateBanner } from "@/components/UpdateBanner";
 
 export default function App() {
   const view = useShell((s) => s.view);
@@ -19,6 +21,20 @@ export default function App() {
   useEffect(() => {
     loadDisplayScale();
   }, [loadDisplayScale]);
+
+  // Silent check for an app update on startup; a missing release manifest or an
+  // offline machine stays quiet (the banner only shows when one is actually found).
+  useEffect(() => {
+    void useUpdater.getState().checkForUpdates(false);
+  }, []);
+
+  // Native menu "Check for Updates…" → loud check (shows "up to date"/error toast).
+  useEffect(() => {
+    const un = api.onMenuCheckUpdates(() => void useUpdater.getState().checkForUpdates(true));
+    return () => {
+      void un.then((unlisten) => unlisten());
+    };
+  }, []);
 
   // Surface working dirs left dirty by a prior crash. Phase 2 wires a proper
   // adopt/discard dialog; for now just make them visible in the console.
@@ -65,6 +81,7 @@ export default function App() {
         {view === "printer" && <PrinterPage />}
         {view === "settings" && <SettingsPage />}
       </div>
+      <UpdateBanner />
     </div>
   );
 }

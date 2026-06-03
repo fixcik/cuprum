@@ -77,6 +77,12 @@ export function PanelEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPath, docNonce]);
 
+  // Exceeding the machine's work area is an advisory hint, NOT a hard limit: flag
+  // the field so the user knows it won't fit as-is, but still persist the value —
+  // they may raise the work area in Settings later, and the real "board > panel"
+  // gate lives in the DFM check. Persistence only needs finite positive numbers.
+  const widthTooBig = width > maxW;
+  const heightTooBig = height > maxH;
   const valid = width > 0 && height > 0 && substrate > 0;
 
   // Debounced autosave: write only when the params differ from the last-persisted
@@ -150,12 +156,12 @@ export function PanelEditor() {
 
         <SettingsSection icon={Ruler} title={t("setup.sectionBlank")}>
           <SettingRow label={t("setup.width")}>
-            <UnitField value={width} onChange={(v) => setWidth(Math.min(v, maxW))} unit="mm" step="1" />
+            <UnitField value={width} onChange={setWidth} unit="mm" step="1" invalid={widthTooBig} />
           </SettingRow>
           <SettingRow label={t("setup.height")}>
-            <UnitField value={height} onChange={(v) => setHeight(Math.min(v, maxH))} unit="mm" step="1" />
+            <UnitField value={height} onChange={setHeight} unit="mm" step="1" invalid={heightTooBig} />
           </SettingRow>
-          <p className="px-1 text-[11px] text-muted-foreground">
+          <p className={`px-1 text-[11px] ${widthTooBig || heightTooBig ? "text-destructive" : "text-muted-foreground"}`}>
             {t("setup.maxFromSettings", { w: maxW, h: maxH })}
           </p>
         </SettingsSection>

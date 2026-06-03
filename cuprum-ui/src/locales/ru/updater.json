@@ -1,0 +1,9 @@
+{
+  "available": "Доступна версия {{version}}",
+  "update": "Обновить",
+  "dismiss": "Позже",
+  "downloading": "Скачивание… {{percent}}%",
+  "restarting": "Перезапуск…",
+  "upToDate": "У вас последняя версия",
+  "error": "Не удалось обновиться"
+}

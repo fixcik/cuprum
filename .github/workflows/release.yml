@@ -178,6 +178,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Sign updater artifacts (minisign) so the updater plugin accepts them;
+          # tauri-action then also generates and uploads latest.json to the release.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # Key is generated without a password; empty literal (GitHub forbids empty secrets).
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           projectPath: cuprum-ui
           tagName: ${{ needs.prepare.outputs.tag }}
