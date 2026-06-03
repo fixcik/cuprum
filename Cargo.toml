@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace"]
+members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace", "crates/cuprum-diskcache"]
 # vendored dependency, not a workspace member (skip its tests/benches)
 # cuprum-ui/src-tauri is its own workspace (heavy tauri deps) — keep core/CLI builds fast
 exclude = ["vendor/gerber-viewer", "cuprum-ui/src-tauri"]
@@ -13,6 +13,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 cuprum-core = { path = "crates/cuprum-core" }
 cuprum-trace = { path = "crates/cuprum-trace" }
+cuprum-diskcache = { path = "crates/cuprum-diskcache" }
 goo = "0.1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

@@ -472,6 +472,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "criterion",
+ "cuprum-diskcache",
  "cuprum-trace",
  "earcutr",
  "gerber_viewer",
@@ -490,6 +491,15 @@ dependencies = [
  "tungstenite",
  "usvg",
  "uuid",
+]
+
+[[package]]
+name = "cuprum-diskcache"
+version = "0.3.0"
+dependencies = [
+ "cuprum-trace",
+ "serde_json",
+ "tracing",
  "xxhash-rust",
 ]
 
