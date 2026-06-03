@@ -15,6 +15,13 @@ import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import type { BoardInstance, ProjectDesign } from "@/lib/api";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/ContextMenu";
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
 
@@ -251,6 +258,24 @@ export function PanelBlankCanvas({
     };
   }, [instances, selected, sizes, rotPreview]);
 
+  // Pull a (possibly just-rotated) selection back inside the panel with one move.
+  const clampSelectionIntoPanel = useCallback(
+    async (ids: string[]) => {
+      const panel = useShell.getState().currentManifest?.panel;
+      if (!panel) return;
+      const sel = new Set(ids);
+      const boxes = panel.instances
+        .filter((i) => sel.has(i.id) && sizes[i.design_id])
+        .map((i) => {
+          const sz = sizes[i.design_id];
+          return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg });
+        });
+      const { dx, dy } = clampDeltaToPanel(boxes, 0, 0, W, H);
+      if (dx !== 0 || dy !== 0) await moveInstances(ids, dx, dy);
+    },
+    [sizes, W, H, moveInstances],
+  );
+
   // --- Rotation knob (select tool only) ---
   const onRotatePreview = useCallback((deltaDeg: number, fine: boolean) => {
     // Snap the DELTA to the 15°/1° grid, then re-sign into (−180,180] so a small
@@ -268,19 +293,38 @@ export function PanelBlankCanvas({
       await rotateInstancesBy(ids, delta);
       // Rotating about each board's centre can push the rotated AABB off-panel;
       // pull the whole selection back inside with a single follow-up move.
-      const panel = useShell.getState().currentManifest?.panel;
-      if (!panel) return;
-      const sel = new Set(ids);
-      const boxes = panel.instances
-        .filter((i) => sel.has(i.id) && sizes[i.design_id])
-        .map((i) => {
-          const sz = sizes[i.design_id];
-          return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg });
-        });
-      const { dx, dy } = clampDeltaToPanel(boxes, 0, 0, W, H);
-      if (dx !== 0 || dy !== 0) await moveInstances(ids, dx, dy);
+      await clampSelectionIntoPanel(ids);
     })();
-  }, [rotPreview, selected, rotateInstancesBy, moveInstances, sizes, W, H]);
+  }, [rotPreview, selected, rotateInstancesBy, clampSelectionIntoPanel]);
+
+  // --- Context-menu actions (act on current selection) ---
+  const rotateSelectionBy = useCallback(
+    (deltaDeg: number) => {
+      const ids = [...usePanelSelection.getState().selected];
+      if (!ids.length) return;
+      void (async () => {
+        await rotateInstancesBy(ids, deltaDeg);
+        await clampSelectionIntoPanel(ids);
+      })();
+    },
+    [rotateInstancesBy, clampSelectionIntoPanel],
+  );
+
+  const resetSelectionRotation = useCallback(() => {
+    const ids = [...usePanelSelection.getState().selected];
+    if (!ids.length) return;
+    void (async () => {
+      await useShell.getState().rotateInstances(ids, 0);
+      await clampSelectionIntoPanel(ids);
+    })();
+  }, [clampSelectionIntoPanel]);
+
+  const deleteSelected = useCallback(() => {
+    const ids = [...usePanelSelection.getState().selected];
+    if (!ids.length) return;
+    void useShell.getState().removeInstances(ids);
+    usePanelSelection.getState().clear();
+  }, []);
 
   // Duplicate the current selection with a clamped offset so copies stay within
   // the panel bounds. Re-selects the new copies on completion.
@@ -300,6 +344,14 @@ export function PanelBlankCanvas({
     const native = e.evt;
     if (native.shiftKey || native.ctrlKey || native.metaKey) toggleSelection(id);
     else setSelection([id]);
+  };
+
+  // Right-click on an instance selects it (unless already in the selection) so the
+  // context menu acts on the clicked board. Do NOT preventDefault / cancelBubble —
+  // the native contextmenu must reach the Radix trigger on the container.
+  const onInstanceContextMenu = (id: string) => () => {
+    if (tool !== "select") return;
+    if (!usePanelSelection.getState().selected.has(id)) setSelection([id]);
   };
 
   const onInstanceDragStart = (id: string) => (e: KonvaEventObject<DragEvent>) => {
@@ -391,7 +443,11 @@ export function PanelBlankCanvas({
     setSelection(marqueeHits(items, rect));
   };
 
+  const hasSelection = selected.size > 0;
+
   return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
     <div
       ref={containerRef}
       className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : ""}`}
@@ -466,6 +522,7 @@ export function PanelBlankCanvas({
                   draggable={tool === "select"}
                   onClick={onInstanceClick(inst.id)}
                   onTap={onInstanceClick(inst.id)}
+                  onContextMenu={onInstanceContextMenu(inst.id)}
                   onDragStart={onInstanceDragStart(inst.id)}
                   onDragMove={onInstanceDragMove}
                   onDragEnd={onInstanceDragEnd}
@@ -566,5 +623,25 @@ export function PanelBlankCanvas({
         </button>
       </div>
     </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={!hasSelection} onSelect={() => duplicateSelected()}>
+          {t("panel.menu.duplicate")}
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(90)}>
+          {t("panel.menu.rotateCw")}
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(-90)}>
+          {t("panel.menu.rotateCcw")}
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!hasSelection} onSelect={() => resetSelectionRotation()}>
+          {t("panel.menu.resetRotation")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={!hasSelection} onSelect={() => deleteSelected()}>
+          {t("panel.menu.delete")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
