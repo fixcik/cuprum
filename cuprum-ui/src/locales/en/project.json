@@ -43,7 +43,9 @@
       "cancel": "Cancel",
       "add": "Add to panel",
       "toast": {
-        "added": "\"{{name}}\" added to the panel",
+        "addedN": "\"{{name}}\" — placed {{n}}",
+        "addedOverflow": "\"{{name}}\" — placed {{n}} of {{requested}} (panel full)",
+        "noFit": "\"{{name}}\" doesn't fit on the panel",
         "noProject": "No open project",
         "notFound": "Design not found",
         "noSize": "Could not determine the design size"

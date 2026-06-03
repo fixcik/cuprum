@@ -33,8 +33,8 @@ export function useAddDesignBridge() {
     const subs: Promise<() => void>[] = [
       api.onAddDesignReady(() => void emitSnapshot()),
       api.onAddDesignImport(({ paths }) => void useShell.getState().addDesignsFromPaths(paths)),
-      api.onAddDesignAddToPanel(async ({ designId }) => {
-        const r = await useShell.getState().addBoardInstance(designId);
+      api.onAddDesignAddToPanel(async ({ designId, nest }) => {
+        const r = await useShell.getState().addBoardInstances(designId, nest);
         void api.emitAddDesignResult(r);
       }),
     ];

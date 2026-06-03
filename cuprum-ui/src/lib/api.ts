@@ -1,6 +1,7 @@
 import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { type NestSettings } from "@/lib/nest";
 
 /** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
  *  appear in the browser Network tab — in dev builds we log every command (args,
@@ -428,9 +429,10 @@ export const api = {
   emitAddDesignImport: (paths: string[]) => emit("add-design:import", { paths }),
   onAddDesignImport: (cb: (p: { paths: string[] }) => void): Promise<UnlistenFn> =>
     listen<{ paths: string[] }>("add-design:import", (e) => cb(e.payload)),
-  emitAddDesignAddToPanel: (designId: string) => emit("add-design:add-to-panel", { designId }),
-  onAddDesignAddToPanel: (cb: (p: { designId: string }) => void): Promise<UnlistenFn> =>
-    listen<{ designId: string }>("add-design:add-to-panel", (e) => cb(e.payload)),
+  emitAddDesignAddToPanel: (designId: string, nest: NestSettings) =>
+    emit("add-design:add-to-panel", { designId, nest }),
+  onAddDesignAddToPanel: (cb: (p: { designId: string; nest: NestSettings }) => void): Promise<UnlistenFn> =>
+    listen<{ designId: string; nest: NestSettings }>("add-design:add-to-panel", (e) => cb(e.payload)),
   emitAddDesignResult: (r: AddDesignResult) => emit("add-design:result", r),
   onAddDesignResult: (cb: (r: AddDesignResult) => void): Promise<UnlistenFn> =>
     listen<AddDesignResult>("add-design:result", (e) => cb(e.payload)),

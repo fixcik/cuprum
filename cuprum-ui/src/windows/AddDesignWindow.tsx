@@ -22,6 +22,7 @@ export function AddDesignWindow() {
   const prevIdsRef = useRef<Set<string>>(new Set());
   const snapReceivedRef = useRef(false);
   const profile = useSettings((s) => s.profile);
+  const nest = useSettings((s) => s.nest);
 
   useEffect(() => {
     getCurrentWindow().setTitle(t("panel.add.window.title")).catch(() => {});
@@ -126,7 +127,7 @@ export function AddDesignWindow() {
   }, [t]);
 
   const addToPanel = () => {
-    if (selected) void api.emitAddDesignAddToPanel(selected);
+    if (selected) void api.emitAddDesignAddToPanel(selected, nest);
   };
 
   const pickZips = useCallback(async () => {
