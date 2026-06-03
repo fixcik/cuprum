@@ -295,9 +295,14 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   имеет только исходящие рёбра (→ svg/gerber/dfm), от него зависят лишь вышестоящие `preview`/
   `compose`. DAG модулей ацикличен → тяжёлые крейты разблокированы. Чистое перемещение, вывод и
   кеш-теги не тронуты.
-- [ ] **PR4b — растащить result-обёртки по доменам** (необязательно для DAG): svg-кеш-обёртки →
-  `svg`, metrics → `dfm`, preview/mask → `preview`, движок single-flight остаётся в `cache` +
-  фасад ре-экспортит. Полирующее: циклов уже нет (см. PR4), обёртки односторонни.
+- [x] **PR4b — растащить result-обёртки по доменам** (✅ 2026-06-04): svg-кеш-обёртки
+  (`layer_svg_cached`/`layer_svg_artifact`/`svg_artifact_key` + статики + тесты) → `svg`;
+  metrics-обёртки (`board_metrics_cached`/`board_metrics_artifact`/`metrics_artifact_key`) → `dfm`.
+  Движок single-flight (`cached_single_flight`/`_persistent`) стал `pub(crate)` и остался в `cache`;
+  `cache` теперь = path+mtime-кеши (`preview_png`/`native_mask`) + движок + **фасад**, ре-экспортящий
+  перенесённые обёртки под историческими `cache::`-путями (project/UI/preview не тронуты). Чистое
+  перемещение, вывод и кеш-теги не тронуты. (preview_png/native_mask — это и есть исходная суть
+  `cache.rs` «path+mtime render cache», оставлены на месте.)
 - [ ] **PR5+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (движок single-flight при выносе
   уедет в лист-крейт; каждый с разбивкой своего крупного файла)
 
