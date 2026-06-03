@@ -60,11 +60,19 @@ pub fn pack(workdir: &Path, container: &Path) -> Result<()> {
         let _s = tracing::info_span!("read_manifest").entered();
         read_manifest(workdir)?
     };
+    // Read every referenced gerber ONCE and reuse the bytes for both the
+    // artifact-key set (below) and the packed entries (collect_entries). Before
+    // this, the same multi-MB gerbers were read off disk twice per pack — once
+    // to hash for the valid-key set, once again while collecting files.
+    let mut gerber_bytes = {
+        let _s = tracing::info_span!("read_gerbers").entered();
+        read_referenced_gerbers(workdir, &manifest)
+    };
     // Sweep stale artifact blobs (post version-bump / recolor / design removal)
     // before packing, so the `.cuprum` ships only current artifacts.
     let valid = {
         let _s = tracing::info_span!("compute_valid_keys").entered();
-        valid_artifact_keys(workdir, &manifest)
+        valid_artifact_keys(&manifest, &gerber_bytes)
     };
     {
         let _s = tracing::info_span!("artifact_gc").entered();
@@ -86,11 +94,32 @@ pub fn pack(workdir: &Path, container: &Path) -> Result<()> {
     );
     {
         let _s = collect_span.enter();
-        collect_entries(workdir, workdir, &mut entries)?;
+        collect_entries(workdir, workdir, &mut gerber_bytes, &mut entries)?;
         collect_span.record("files", entries.len());
         collect_span.record("bytes", entries.iter().map(|(_, b)| b.len()).sum::<usize>());
     }
     container::write(container, &manifest, &entries)
+}
+
+/// Read every gerber referenced by the manifest's designs into a `rel → bytes`
+/// map, deduping shared paths. A missing/unreadable gerber is skipped — its
+/// artifacts then look orphaned and get swept (matching the old per-key read).
+fn read_referenced_gerbers(
+    workdir: &Path,
+    manifest: &Manifest,
+) -> std::collections::HashMap<String, Vec<u8>> {
+    let mut map = std::collections::HashMap::new();
+    for design in &manifest.designs {
+        for g in &design.gerbers {
+            if map.contains_key(&g.path) {
+                continue;
+            }
+            if let Ok(bytes) = fs::read(workdir.join(&g.path)) {
+                map.insert(g.path.clone(), bytes);
+            }
+        }
+    }
+    map
 }
 
 /// The IPC/camelCase string for a manifest layer type (the repr the preview
@@ -104,9 +133,13 @@ fn layer_type_ipc(t: &crate::layer::LayerType) -> String {
 
 /// Content-hash keys of every artifact the current manifest still references:
 /// an SVG key per gerber + a metrics key per design + a preview key per design.
-/// Gerber bytes are read from the workdir; a missing/unreadable gerber is
-/// skipped (its artifacts then look orphaned and get swept — correct).
-fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections::HashSet<String> {
+/// Gerber bytes come from the pre-read `gerber_bytes` map; a gerber absent from
+/// it (missing/unreadable on disk) is skipped — its artifacts then look orphaned
+/// and get swept (correct).
+fn valid_artifact_keys(
+    manifest: &Manifest,
+    gerber_bytes: &std::collections::HashMap<String, Vec<u8>>,
+) -> std::collections::HashSet<String> {
     let mut keys = std::collections::HashSet::new();
     // Convert manifest color overrides (BTreeMap<LayerType, String>) to
     // HashMap<String, String> keyed by IPC camelCase, as preview_key expects.
@@ -116,17 +149,17 @@ fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections:
         .map(|(lt, c)| (layer_type_ipc(lt), c.clone()))
         .collect();
     for design in &manifest.designs {
-        let mut metrics_layers: Vec<(String, String, Vec<u8>)> = Vec::new();
+        let mut metrics_layers: Vec<(String, String, &[u8])> = Vec::new();
         let mut preview_layers: Vec<cuprum_core::preview::PreviewLayer> = Vec::new();
         for g in &design.gerbers {
-            let Ok(bytes) = fs::read(workdir.join(&g.path)) else {
+            let Some(bytes) = gerber_bytes.get(&g.path) else {
                 continue;
             };
-            keys.insert(cuprum_core::cache::svg_artifact_key(&bytes));
+            keys.insert(cuprum_core::cache::svg_artifact_key(bytes));
             // Tuple order matches how project_board_metrics builds key_layers:
             // (rel, format!("{t:?}"), bytes) — rel is g.path (the same string
             // the frontend sends as GerberRef.rel after mapping g.path → rel).
-            metrics_layers.push((g.path.clone(), format!("{:?}", g.layer_type), bytes.clone()));
+            metrics_layers.push((g.path.clone(), format!("{:?}", g.layer_type), bytes));
             // Preview key: non-drill layers (the card preview has no holes),
             // colored from the manifest overrides. Must match
             // `preview::render_design_preview`.
@@ -134,7 +167,7 @@ fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections:
                 let ipc = layer_type_ipc(&g.layer_type);
                 preview_layers.push(cuprum_core::preview::PreviewLayer {
                     layer_type: ipc,
-                    bytes,
+                    bytes: bytes.clone(),
                 });
             }
         }
@@ -142,7 +175,7 @@ fn valid_artifact_keys(workdir: &Path, manifest: &Manifest) -> std::collections:
             keys.insert(cuprum_core::cache::metrics_artifact_key(
                 metrics_layers
                     .iter()
-                    .map(|(rel, t, b)| (rel.as_str(), t.as_str(), b.as_slice())),
+                    .map(|(rel, t, b)| (rel.as_str(), t.as_str(), *b)),
             ));
         }
         if !preview_layers.is_empty() {
@@ -211,11 +244,20 @@ fn gc_gerbers(workdir: &Path, live: &std::collections::HashSet<String>) {
 
 /// Walk `dir` recursively, pushing (archive-relative path, bytes) for every file
 /// except the manifest and the session marker. Paths use `/` separators.
-fn collect_entries(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
+///
+/// `gerbers` holds bytes already read in `pack` (referenced gerbers); a file
+/// whose rel path is present is moved out of the map instead of re-read from
+/// disk, so each gerber is read exactly once per pack.
+fn collect_entries(
+    root: &Path,
+    dir: &Path,
+    gerbers: &mut std::collections::HashMap<String, Vec<u8>>,
+    out: &mut Vec<(String, Vec<u8>)>,
+) -> Result<()> {
     for ent in fs::read_dir(dir)? {
         let path = ent?.path();
         if path.is_dir() {
-            collect_entries(root, &path, out)?;
+            collect_entries(root, &path, gerbers, out)?;
             continue;
         }
         let rel = path
@@ -225,7 +267,11 @@ fn collect_entries(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) ->
         if rel == MANIFEST_NAME || rel == SESSION_MARKER || rel == PANEL_NAME {
             continue;
         }
-        out.push((rel, fs::read(&path)?));
+        let bytes = match gerbers.remove(&rel) {
+            Some(b) => b,
+            None => fs::read(&path)?,
+        };
+        out.push((rel, bytes));
     }
     Ok(())
 }
