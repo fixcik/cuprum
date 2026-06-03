@@ -422,8 +422,11 @@ fn save_project(
     working_dir: String,
     target_path: String,
 ) -> Result<(), String> {
+    // Confine the working dir to the managed base, like the other IPC commands,
+    // so a spoofed call can't pack an arbitrary directory.
+    let wd = confined_workdir(&app, &working_dir)?;
     cuprum_core::trace::operation("flush", &traces_dir(&app), || {
-        cuprum_project::workdir::pack(Path::new(&working_dir), Path::new(&target_path))
+        cuprum_project::workdir::pack(&wd, Path::new(&target_path))
     })
     .map_err(|e| e.to_string())
 }
