@@ -1,75 +1,10 @@
-//! Content-addressed on-disk cache for expensive derived artifacts (rendered
-//! SVG, triangulated 3D meshes).
-//!
-//! The key is a hash of the SOURCE bytes (plus a small param/version tag), so an
-//! entry stays valid as long as the input is byte-identical — re-importing the
-//! same gerbers, reopening a project, or toggling layer types back and forth all
-//! hit the cache. Two bounds keep it tidy: a sliding TTL (entries unused for
-//! longer than `ttl` are dropped — `get` bumps mtime on a hit, so it's "since
-//! last use") and a total-size budget (over budget → evict least-recently-used
-//! first). Both are passed in by the caller (see the config block in `main.rs`).
+//! The on-disk cache tiers: a TTL + size-budget tier (`get`/`put`) and a
+//! persistent, never-evicted tier (`get_persistent`/`put_persistent`).
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
-use xxhash_rust::xxh3::Xxh3;
-
-/// Parse a `CUPRUM_NO_CACHE` value. Pure and testable.
-pub(crate) fn parse_no_cache(value: Option<&str>) -> bool {
-    matches!(value.map(str::trim), Some("1") | Some("on") | Some("true"))
-}
-
-/// True if caching is globally disabled this run (read once from `CUPRUM_NO_CACHE`).
-/// Forces a cold path for profiling — both the disk cache here and the in-memory
-/// caches in `cache.rs` honor it. Results are unchanged (recompute vs. serve).
-pub fn cache_disabled() -> bool {
-    static OFF: OnceLock<bool> = OnceLock::new();
-    *OFF.get_or_init(|| parse_no_cache(std::env::var("CUPRUM_NO_CACHE").ok().as_deref()))
-}
-
-/// Streaming key builder — hash large inputs (multi-MB gerbers) without cloning.
-///
-/// Backed by xxh3-128: a non-cryptographic hash, but these are content-cache
-/// keys (artifact filenames), not a security boundary — 128 bits gives a
-/// collision space large enough that an accidental clash is astronomically
-/// unlikely at our scale, and it runs ~10× faster than the MD5 it replaced
-/// (the dominant cost when hashing every gerber on each pack/flush). 128 bits
-/// keeps the key 32 hex chars, identical in width to the old MD5 keys.
-pub struct Hasher(Xxh3);
-
-impl Default for Hasher {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Hasher {
-    pub fn new() -> Self {
-        Hasher(Xxh3::new())
-    }
-
-    /// Feed a chunk. Length-prefixed so `add(a)+add(b)` can't collide with
-    /// `add(a concat b)`.
-    pub fn add(&mut self, chunk: &[u8]) {
-        self.0.update(&(chunk.len() as u64).to_le_bytes());
-        self.0.update(chunk);
-    }
-
-    /// Finalise to a 32-char hex key.
-    pub fn finish(self) -> String {
-        format!("{:032x}", self.0.digest128())
-    }
-}
-
-/// Convenience: hash a fixed set of parts into a key.
-pub fn key_for(parts: &[&[u8]]) -> String {
-    let mut h = Hasher::new();
-    for p in parts {
-        h.add(p);
-    }
-    h.finish()
-}
+use super::cache_disabled;
 
 fn entry_path(dir: &Path, key: &str) -> PathBuf {
     dir.join(format!("{key}.bin"))
@@ -222,8 +157,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let cache = dir.join("c");
 
-        crate::trace::run_with_config(
-            &crate::trace::TraceConfig::Dir(dir.clone()),
+        cuprum_trace::run_with_config(
+            &cuprum_trace::TraceConfig::Dir(dir.clone()),
             "dc",
             &dir,
             || {
@@ -244,18 +179,6 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn parse_no_cache_maps_values() {
-        assert!(!parse_no_cache(None));
-        assert!(!parse_no_cache(Some("")));
-        assert!(!parse_no_cache(Some("0")));
-        assert!(!parse_no_cache(Some("off")));
-        assert!(parse_no_cache(Some("1")));
-        assert!(parse_no_cache(Some("on")));
-        assert!(parse_no_cache(Some("true")));
-        assert!(parse_no_cache(Some("  1  ")));
     }
 
     #[test]
@@ -302,12 +225,6 @@ mod tests {
             "zero-TTL entry must expire"
         );
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn key_is_order_and_boundary_sensitive() {
-        assert_ne!(key_for(&[b"ab", b"c"]), key_for(&[b"a", b"bc"]));
-        assert_eq!(key_for(&[b"x", b"y"]), key_for(&[b"x", b"y"]));
     }
 
     #[test]
