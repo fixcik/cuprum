@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import i18n from "@/i18n";
-import { api, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
+import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
+import { DEFAULT_STACKUP, newPanelDoc } from "@/lib/panel";
+import { placeInCorner } from "@/lib/panelPlacement";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
 /** Debounce window before flushing freshly-computed artifacts into the .cuprum. */
@@ -106,6 +108,9 @@ interface ShellStore {
   updateRecentMetadata: (path: string, name: string, description: string) => Promise<void>;
   /** Write the panel blank (stackup -> manifest, dimensions -> panel.json). */
   savePanelConfig: (panel: PanelDoc, stackup: Stackup) => Promise<void>;
+  /** Place a board instance on the panel (stop-gap corner placement for Phase 1).
+   *  Returns an AddDesignResult so the add-design window can show a toast. */
+  addBoardInstance: (designId: string) => Promise<AddDesignResult>;
   /** Private: mirror the in-memory manifest into the working dir's loose
    *  manifest.json after a mutation (basis for crash recovery). */
   _mirrorManifest: (manifest: Manifest) => Promise<void>;
@@ -413,6 +418,48 @@ export const useShell = create<ShellStore>((set, get) => ({
       set({ error: String(e) });
       throw e;
     }
+  },
+
+  addBoardInstance: async (designId) => {
+    const { workingDir, currentManifest } = get();
+    if (!workingDir || !currentManifest) return { ok: false, messageKey: "panel.add.toast.noProject" };
+    const design = currentManifest.designs.find((d) => d.id === designId);
+    if (!design) return { ok: false, messageKey: "panel.add.toast.notFound" };
+    // Board extent (mm) from cached metrics — needed to place the instance.
+    let w: number;
+    let h: number;
+    try {
+      const refs = design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type }));
+      const m = await api.projectBoardMetrics(workingDir, refs);
+      w = m.metrics.board.widthMm;
+      h = m.metrics.board.heightMm;
+    } catch {
+      return { ok: false, messageKey: "panel.add.toast.noSize" };
+    }
+    // Re-read the live manifest after the async metrics fetch so concurrent adds
+    // don't clobber each other (each appends to the latest instances).
+    // When no panel is configured yet, a default 100×100 blank is created here and
+    // will appear pre-filled in the Panel editor.
+    const panel: PanelDoc = get().currentManifest?.panel ?? newPanelDoc(100, 100);
+    const stackup = get().currentManifest?.stackup ?? DEFAULT_STACKUP;
+    const { x, y } = placeInCorner({
+      panelW: panel.width_mm,
+      panelH: panel.height_mm,
+      boardW: w,
+      boardH: h,
+      count: panel.instances.length,
+    });
+    const inst: BoardInstance = {
+      id: crypto.randomUUID(),
+      design_id: designId,
+      x_mm: x,
+      y_mm: y,
+      rotation_deg: 0,
+      layer_ref: "Top",
+    };
+    const next: PanelDoc = { ...panel, instances: [...panel.instances, inst] };
+    await get().savePanelConfig(next, stackup);
+    return { ok: true, messageKey: "panel.add.toast.added", params: { name: design.source_name } };
   },
 
   _mirrorManifest: async (manifest) => {

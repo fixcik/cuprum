@@ -5,11 +5,18 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
 import { CadGrid } from "@/components/editor/CadGrid";
 import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
 import { useShell } from "@/shellStore";
+import { api, type BoardInstance, type ProjectDesign } from "@/lib/api";
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
+
+// Stable empty fallbacks so the store selectors keep a constant reference when
+// the panel/designs are absent (avoids re-running the sizes effect every render).
+const EMPTY_INSTANCES: BoardInstance[] = [];
+const EMPTY_DESIGNS: ProjectDesign[] = [];
 
 /** Schematic preview of an empty FR4 blank, in the dark CAD-canvas style of the
  *  exposure editor. Copper-clad side → solid amber outline + faint fill + "Cu";
@@ -26,12 +33,54 @@ export function PanelBlankCanvas({
 }) {
   const { t } = useTranslation(["project", "common"]);
   const pxPerMm = useShell((s) => s.pxPerMm);
+  const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
+  const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
+  const workingDir = useShell((s) => s.workingDir);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [zoomPct, setZoomPct] = useState(100);
   const [side, setSide] = useState<"top" | "bottom">("top");
   const [spaceDown, setSpaceDown] = useState(false);
+  const [tool, setTool] = useState<PanelTool>("select");
+  const panMode = tool === "pan" || spaceDown;
+  // Resolved board extents (mm) keyed by design id, fetched once per referenced design.
+  const [sizes, setSizes] = useState<Record<string, { w: number; h: number }>>({});
+
+  // Resolve board extents (mm) for placed instances (cached metrics). Keyed by
+  // design id; fetched once per design referenced on the panel.
+  useEffect(() => {
+    if (!workingDir) return;
+    const needed = Array.from(new Set(instances.map((i) => i.design_id))).filter((id) => !sizes[id]);
+    let cancelled = false;
+    needed.forEach((id) => {
+      const d = designs.find((x) => x.id === id);
+      if (!d) return;
+      api
+        .projectBoardMetrics(
+          workingDir,
+          d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
+        )
+        .then((m) => {
+          if (cancelled) return;
+          setSizes((prev) => ({ ...prev, [id]: { w: m.metrics.board.widthMm, h: m.metrics.board.heightMm } }));
+        })
+        .catch(() => {});
+    });
+    // Drop cached extents for designs no longer placed (bound session growth).
+    const liveIds = new Set(instances.map((i) => i.design_id));
+    setSizes((prev) => {
+      const entries = Object.entries(prev).filter(([id]) => liveIds.has(id));
+      return entries.length === Object.keys(prev).length ? prev : Object.fromEntries(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workingDir, instances, designs]);
+
+  // O(1) design lookup for the instance render loop + labels.
+  const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
 
   const W = Math.max(widthMm, 1);
   const H = Math.max(heightMm, 1);
@@ -157,17 +206,17 @@ export function PanelBlankCanvas({
   return (
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${spaceDown ? "cursor-grab" : ""}`}
+      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : ""}`}
     >
       <Stage
         ref={stageRef}
         width={size.w}
         height={size.h}
-        draggable={spaceDown}
+        draggable={panMode}
         dragBoundFunc={dragBound}
         onWheel={onWheel}
         onDragStart={() => setCursor("grabbing")}
-        onDragEnd={() => setCursor(spaceDown ? "grab" : "")}
+        onDragEnd={() => setCursor(panMode ? "grab" : "")}
       >
         <Layer>
           <Group x={0} y={0} scaleX={fit} scaleY={fit}>
@@ -183,21 +232,57 @@ export function PanelBlankCanvas({
               strokeScaleEnabled={false}
               dash={hasCopper ? undefined : [3, 2]}
             />
-            <Text
-              x={0}
-              y={H / 2 - labelMm / 2}
-              width={W}
-              align="center"
-              text={hasCopper ? t("panel.canvas.copper") : t("panel.canvas.noCopper")}
-              fontSize={labelMm}
-              fill={hasCopper ? COPPER_STROKE : NO_COPPER_STROKE}
-              listening={false}
-            />
+            {instances.length === 0 && (
+              <Text
+                x={0}
+                y={H / 2 - labelMm / 2}
+                width={W}
+                align="center"
+                text={hasCopper ? t("panel.canvas.copper") : t("panel.canvas.noCopper")}
+                fontSize={labelMm}
+                fill={hasCopper ? COPPER_STROKE : NO_COPPER_STROKE}
+                listening={false}
+              />
+            )}
+            {instances.map((inst) => {
+              const sz = sizes[inst.design_id];
+              const instSide = inst.layer_ref === "Bottom" ? "bottom" : "top";
+              if (!sz || instSide !== side) return null;
+              const name = designById.get(inst.design_id)?.source_name ?? "";
+              return (
+                <Group key={inst.id} x={inst.x_mm} y={inst.y_mm} rotation={inst.rotation_deg}>
+                  <Rect
+                    width={sz.w}
+                    height={sz.h}
+                    fill={COPPER_FILL}
+                    stroke={COPPER_STROKE}
+                    strokeWidth={1}
+                    strokeScaleEnabled={false}
+                    cornerRadius={0.3}
+                  />
+                  <Text
+                    x={0}
+                    y={0}
+                    width={sz.w}
+                    height={sz.h}
+                    align="center"
+                    verticalAlign="middle"
+                    text={name}
+                    // mm — scales with the board rect inside the fit-scaled group
+                    fontSize={Math.max(Math.min(sz.w, sz.h) * 0.12, 1.5)}
+                    fill={COPPER_STROKE}
+                    listening={false}
+                  />
+                </Group>
+              );
+            })}
           </Group>
         </Layer>
       </Stage>
 
-      <div className="absolute left-3 top-3 z-10">
+      <PanelToolPalette tool={tool} onToolChange={setTool} />
+
+      <div className="absolute left-20 top-3 z-10">
         <SegmentedControl<"top" | "bottom">
           value={side}
           onChange={setSide}

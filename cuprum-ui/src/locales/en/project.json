@@ -28,6 +28,36 @@
     "canvas": {
       "copper": "Cu",
       "noCopper": "no copper"
+    },
+    "add": {
+      "window": {
+        "title": "Add design to panel"
+      },
+      "close": "Close",
+      "searchPlaceholder": "Search designs…",
+      "designsHeader": "Project designs",
+      "empty": "Nothing found",
+      "pickHint": "Pick a design on the left",
+      "footerHint": "The design will be placed on the panel",
+      "footerPick": "Pick a design",
+      "cancel": "Cancel",
+      "add": "Add to panel",
+      "toast": {
+        "added": "\"{{name}}\" added to the panel",
+        "noProject": "No open project",
+        "notFound": "Design not found",
+        "noSize": "Could not determine the design size"
+      },
+      "importTitle": "Import design",
+      "importHint": "Drop a ZIP or click to choose",
+      "dropHint": "Release to import a Gerber package (.zip)"
+    },
+    "tool": {
+      "select": "Select",
+      "pan": "Pan",
+      "add": "Add design",
+      "duplicate": "Duplicate",
+      "delete": "Delete"
     }
   },
   "operations": {
