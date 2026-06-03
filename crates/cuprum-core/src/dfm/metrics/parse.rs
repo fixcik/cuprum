@@ -1,5 +1,7 @@
 //! Layer parsing helpers: Gerber → `GerberLayer`, Excellon → drill data.
 
+use std::sync::Arc;
+
 use gerber_viewer::GerberLayer;
 use rayon::prelude::*;
 
@@ -7,23 +9,17 @@ use crate::mesh::Role;
 
 use super::types::MetricLayerInput;
 
-/// Parse gerber bytes into a `GerberLayer` (same triple as `geometry`/`mesh`).
-#[tracing::instrument(skip_all)]
-pub(super) fn parse_layer(bytes: &[u8]) -> Option<GerberLayer> {
-    let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
-    let doc = gerber_viewer::gerber_parser::parse(reader).ok()?;
-    Some(GerberLayer::new(doc.into_commands()))
-}
-
 /// All layers parsed once, indexed parallel to the `layers` slice (`None` where a
-/// layer failed to parse — same skip semantics as calling `parse_layer` inline).
-/// Parsed in parallel: wall ≈ the single largest layer, not the serial sum.
+/// layer failed to parse — same skip semantics as before). Goes through the shared
+/// cross-operation parse cache (`cache::parse_layer_cached`) so a layer is parsed
+/// once across metrics/mesh/SVG, not re-parsed per op. Parsed in parallel: wall ≈
+/// the single largest layer, not the serial sum.
 #[tracing::instrument(skip_all)]
-pub(super) fn parse_all(layers: &[MetricLayerInput]) -> Vec<Option<GerberLayer>> {
+pub(super) fn parse_all(layers: &[MetricLayerInput]) -> Vec<Option<Arc<GerberLayer>>> {
     let dh = crate::trace::capture_dispatch();
     layers
         .par_iter()
-        .map(|l| dh.run(|| parse_layer(l.bytes)))
+        .map(|l| dh.run(|| crate::cache::parse_layer_cached(l.bytes).ok()))
         .collect()
 }
 

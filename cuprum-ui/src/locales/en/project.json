@@ -68,7 +68,7 @@
         "fill": "Fill",
         "copies": "Copies",
         "percent": "Percent",
-        "gaps": "Gaps, mm",
+        "gaps": "Gaps",
         "gapBoards": "Boards",
         "gapEdge": "Edge",
         "layout": "Layout",
@@ -103,7 +103,7 @@
   "setup": {
     "width": "Width",
     "height": "Height",
-    "maxFromSettings": "Max {{w}} × {{h}} mm (machine work area, set in Settings)",
+    "maxFromSettings": "Max {{w}} × {{h}} (machine work area, set in Settings)",
     "offPanelWarning_one": "{{count}} design extends past the panel edge — adjust the layout.",
     "offPanelWarning_few": "{{count}} designs extend past the panel edge — adjust the layout.",
     "offPanelWarning_many": "{{count}} designs extend past the panel edge — adjust the layout.",

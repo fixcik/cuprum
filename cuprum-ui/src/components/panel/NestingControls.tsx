@@ -124,7 +124,7 @@ export function NestingControls() {
               <UnitField
                 value={nest.gapMm}
                 onChange={(v) => setNest({ gapMm: v })}
-                unit="mm"
+                dim="fine"
                 step="0.5"
               />
             </label>
@@ -133,7 +133,7 @@ export function NestingControls() {
               <UnitField
                 value={nest.marginMm}
                 onChange={(v) => setNest({ marginMm: v })}
-                unit="mm"
+                dim="fine"
                 step="0.5"
               />
             </label>
@@ -178,7 +178,7 @@ export function NestingControls() {
               <UnitField
                 value={nest.snapMm}
                 onChange={(v) => setNest({ snapMm: v })}
-                unit="mm"
+                dim="fine"
                 step="0.5"
               />
             </label>

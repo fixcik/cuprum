@@ -1,8 +1,19 @@
 import { useState } from "react";
-import { Loader2, ShieldCheck, ChevronLeft, ChevronRight, FlipHorizontal2 } from "lucide-react";
+import { Loader2, ShieldCheck, ChevronLeft, ChevronRight, FlipHorizontal2, ListFilter } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/Popover";
+import { Checkbox } from "@/components/ui/Checkbox";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuCheckboxItem,
+  ContextMenuItem,
+} from "@/components/ui/ContextMenu";
 import { LayerStack, type StackLayer, type FocusTarget } from "@/components/import/LayerStack";
 import type { DrcMarkerInput } from "@/components/preview/DrcMarkers";
 import { Board3D } from "@/components/board3d/Board3D";
@@ -10,7 +21,16 @@ import { MetricsTab } from "@/components/preview/MetricsTab";
 import { FeasibilityTab } from "@/components/preview/FeasibilityTab";
 import type { Hole, BoardMetrics } from "@/lib/api";
 import type { BoardMeshData } from "@/lib/boardMesh";
-import type { Finding, Severity } from "@/lib/feasibility";
+import type { Finding, Severity, ProblemType } from "@/lib/feasibility";
+
+/** One row in the DRC problem-type filter (funnel popover + right-click menu). */
+export interface ProblemTypeOption {
+  type: ProblemType;
+  /** Worst severity among this type's findings — drives the colour dot. */
+  severity: Severity;
+  /** Already-translated display label. */
+  label: string;
+}
 
 export type PreviewMode = "2d" | "3d";
 /** Top-level pane tab. Owned by the parent (the wizard header hosts the switch). */
@@ -57,6 +77,10 @@ export function PreviewPane({
   onShowDrcChange,
   issues = [],
   issueIndex = -1,
+  problemTypes = [],
+  hiddenTypes,
+  onToggleType,
+  onShowAllTypes,
   facing = null,
   onFacingChange,
   snapNonce = 0,
@@ -103,6 +127,14 @@ export function PreviewPane({
   /** Navigable problems for the on-preview stepper, and the active one's index. */
   issues?: DrcIssue[];
   issueIndex?: number;
+  /** Problem types present on this design (with hotspots) for the overlay filter. */
+  problemTypes?: ProblemTypeOption[];
+  /** Types currently HIDDEN from the overlay/stepper (checkbox = !hidden). */
+  hiddenTypes?: Set<ProblemType>;
+  /** Toggle one problem type's overlay visibility. */
+  onToggleType?: (t: ProblemType) => void;
+  /** Clear all hides (show every type again). */
+  onShowAllTypes?: () => void;
   /** The face the 3D camera currently looks at (null = tilted off-axis). Drives
    *  the Top/Bottom toggle highlight in 3D so it deselects when you orbit away. */
   facing?: "top" | "bottom" | null;
@@ -116,20 +148,59 @@ export function PreviewPane({
   // The 2D view's current px/mm scale, carried over so 3D opens at the same size.
   const [scale2d, setScale2d] = useState<number | undefined>(undefined);
 
+  // The problem-type filter (funnel + right-click) is live only while the 2D
+  // overlay is on and there are located problems to filter.
+  const filterReady = !!hiddenTypes && !!onToggleType && problemTypes.length > 0;
+  const filterEnabled = filterReady && showDrc;
+  const anyHidden = (hiddenTypes?.size ?? 0) > 0;
+  const SEV_DOT: Record<Severity, string> = ISSUE_DOT;
+
   return (
     <div className="relative h-full w-full">
       {tab === "preview" ? (
         mode === "2d" ? (
-          <LayerStack
-            layers={layers}
-            holes={holes}
-            side={side}
-            mirror={mirror}
-            onScale={setScale2d}
-            markers={showDrc ? markers : []}
-            focusTarget={showDrc ? focusTarget : null}
-            loading={loading}
-          />
+          // Right-click the board → the same problem-type filter as the funnel
+          // popover. Disabled (native menu passes through) unless the filter is live.
+          <ContextMenu>
+            <ContextMenuTrigger asChild disabled={!filterEnabled}>
+              <div className="h-full w-full">
+                <LayerStack
+                  layers={layers}
+                  holes={holes}
+                  side={side}
+                  mirror={mirror}
+                  onScale={setScale2d}
+                  markers={showDrc ? markers : []}
+                  focusTarget={showDrc ? focusTarget : null}
+                  loading={loading}
+                />
+              </div>
+            </ContextMenuTrigger>
+            {filterEnabled && (
+              <ContextMenuContent>
+                <ContextMenuLabel>{t("preview.filterHeading")}</ContextMenuLabel>
+                {problemTypes.map((pt) => (
+                  <ContextMenuCheckboxItem
+                    key={pt.type}
+                    checked={!hiddenTypes!.has(pt.type)}
+                    onCheckedChange={() => onToggleType!(pt.type)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    <span className={`size-2 rounded-full ${SEV_DOT[pt.severity]}`} />
+                    {pt.label}
+                  </ContextMenuCheckboxItem>
+                ))}
+                {anyHidden && onShowAllTypes && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onSelect={() => onShowAllTypes()}>
+                      {t("preview.filterShowAll")}
+                    </ContextMenuItem>
+                  </>
+                )}
+              </ContextMenuContent>
+            )}
+          </ContextMenu>
         ) : (
           <Board3D
             mesh={mesh ?? null}
@@ -177,19 +248,64 @@ export function PreviewPane({
             </span>
           )}
           {mode === "2d" && (findings ?? []).some((f) => (f.hotspots?.length ?? 0) > 0) && onShowDrcChange && (
-            <label
-              className="flex cursor-pointer items-center gap-1.5 rounded-md bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur"
-              title={t("preview.drcToggleTitle")}
-            >
-              <ShieldCheck className="size-3.5" />
-              {t("preview.drcLabel")}
-              <Switch checked={showDrc} onCheckedChange={onShowDrcChange} />
-            </label>
+            <div className="flex items-center gap-1.5 rounded-md bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+              <label className="flex cursor-pointer items-center gap-1.5" title={t("preview.drcToggleTitle")}>
+                <ShieldCheck className="size-3.5" />
+                {t("preview.drcLabel")}
+                <Switch checked={showDrc} onCheckedChange={onShowDrcChange} />
+              </label>
+              {/* Problem-type filter lives INSIDE the overlay pill (it only acts on
+                  the overlay): a thin divider + funnel that opens the type popover. */}
+              {filterEnabled && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="relative -mr-1 flex cursor-pointer items-center gap-1.5 self-stretch rounded pl-1.5 pr-1 hover:text-foreground"
+                      title={t("preview.filterTitle")}
+                    >
+                      <span className="h-3.5 w-px bg-border" />
+                      <ListFilter className="size-3.5" />
+                      {anyHidden && <span className="size-1.5 rounded-full bg-primary" />}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end">
+                    <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                      {t("preview.filterHeading")}
+                    </div>
+                    {problemTypes.map((pt) => (
+                      <label
+                        key={pt.type}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-foreground/10"
+                      >
+                        <Checkbox
+                          checked={!hiddenTypes!.has(pt.type)}
+                          onCheckedChange={() => onToggleType!(pt.type)}
+                        />
+                        <span className={`size-2 rounded-full ${SEV_DOT[pt.severity]}`} />
+                        <span className="text-foreground">{pt.label}</span>
+                      </label>
+                    ))}
+                    {anyHidden && onShowAllTypes && (
+                      <button
+                        type="button"
+                        onClick={() => onShowAllTypes()}
+                        className="mt-1 w-full cursor-pointer rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                      >
+                        {t("preview.filterShowAll")}
+                      </button>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
           )}
         </div>
       )}
 
-      {/* Walk-the-errors stepper — floats top-centre while the overlay is on. */}
+      {/* Walk-the-errors stepper — floats top-centre, level with the tool cluster.
+          The cluster is narrow enough (filter folded into the overlay pill) that a
+          centred row clears it at usable widths. */}
       {tab === "preview" && mode === "2d" && showDrc && issues.length > 0 && onFocus && (() => {
         const N = issues.length;
         const go = (delta: number) => {

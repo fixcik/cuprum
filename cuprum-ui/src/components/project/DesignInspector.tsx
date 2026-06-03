@@ -8,10 +8,21 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { EditableText } from "@/components/ui/EditableText";
 import { colorFor, sideOf, stackOrder } from "@/lib/layerColors";
 import { type LayerType } from "@/lib/api";
-import { VERDICT_KEY } from "@/lib/feasibility";
+import {
+  type ProblemType,
+  type Severity,
+  problemTypeOf,
+  PROBLEM_TYPE_ORDER,
+  VERDICT_KEY,
+} from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { usePreviewData } from "@/hooks/usePreviewData";
+
+/** Severity ranking for picking the worst across a problem-type's findings. */
+const SEV_RANK: Record<Severity, number> = { ok: 0, info: 1, warn: 2, block: 3 };
+const worseSeverity = (a: Severity | undefined, b: Severity): Severity =>
+  a === undefined || SEV_RANK[b] > SEV_RANK[a] ? b : a;
 
 interface DesignInspectorProps {
   designId: string;
@@ -63,6 +74,23 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   // only when arriving from the Feasibility tab (clicking a finding) or via its
   // toggle — so the markers don't clutter casual browsing.
   const [showDrc, setShowDrc] = useState(false);
+  // Per-problem-type overlay visibility — an EPHEMERAL view aid (not persisted),
+  // reset when the design changes. A type in the set is hidden from the 2D overlay
+  // and the stepper; the verdict is never affected. Toggled from the on-preview
+  // filter (funnel popover + right-click context menu).
+  const [hiddenTypes, setHiddenTypes] = useState<Set<ProblemType>>(() => new Set());
+  useEffect(() => {
+    setHiddenTypes(new Set());
+  }, [designId]);
+  const toggleType = useCallback((tp: ProblemType) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(tp)) next.delete(tp);
+      else next.add(tp);
+      return next;
+    });
+  }, []);
+  const showAllTypes = useCallback(() => setHiddenTypes(new Set()), []);
   // DRC marker focus: which finding's hotspot is highlighted/centred in 2D.
   const [focus, setFocus] = useState<{ fid: string; hi: number } | null>(null);
   const focusNonce = useRef(0);
@@ -96,16 +124,65 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     [pv.findings],
   );
 
-  const issueIndex = focus ? pv.issues.findIndex((n) => n.fid === focus.fid && n.hi === focus.hi) : -1;
+  // If the user hides the problem type that's currently focused, drop the focus —
+  // otherwise the 2D camera stays centred on a marker that's no longer drawn.
+  // Scoped to a hidden TYPE (not an off-side marker, which keeps its focus so
+  // switching back restores it).
+  useEffect(() => {
+    if (!focus) return;
+    const tp = problemTypeOf(focus.fid);
+    if (tp && hiddenTypes.has(tp)) setFocus(null);
+  }, [hiddenTypes, focus]);
+
+  // Problem types actually present on THIS design (with hotspots) — the filter
+  // menu lists only these. Severity is the worst among a type's findings; the
+  // visibility checkbox reflects `hiddenTypes`.
+  const problemTypes = useMemo(() => {
+    const sev = new Map<ProblemType, Severity>();
+    for (const f of pv.findings) {
+      if ((f.hotspots?.length ?? 0) === 0) continue;
+      const tp = problemTypeOf(f.id);
+      if (!tp) continue;
+      sev.set(tp, worseSeverity(sev.get(tp), f.severity));
+    }
+    return PROBLEM_TYPE_ORDER.filter((tp) => sev.has(tp)).map((tp) => ({
+      type: tp,
+      severity: sev.get(tp)!,
+      label: t(`feasibility:filter.type.${tp}`),
+    }));
+  }, [pv.findings, t]);
+
+  // Filter the hook's markers/issues by the active type-filter. The hook computes
+  // full unfiltered sets (so the verdict is never affected); here we apply the
+  // EPHEMERAL view-only filter before passing to PreviewPane.
+  // Marker keys are `${fid}#${i}` or `${fid}~hover#${i}` — extract fid to map type.
+  const visibleMarkers = useMemo(() => {
+    if (hiddenTypes.size === 0) return pv.markers;
+    return pv.markers.filter((m) => {
+      const fid = m.key.includes("~hover#") ? m.key.split("~hover#")[0] : m.key.split("#")[0];
+      const tp = problemTypeOf(fid);
+      return !tp || !hiddenTypes.has(tp);
+    });
+  }, [pv.markers, hiddenTypes]);
+
+  const visibleIssues = useMemo(() => {
+    if (hiddenTypes.size === 0) return pv.issues;
+    return pv.issues.filter((issue) => {
+      const tp = problemTypeOf(issue.fid);
+      return !tp || !hiddenTypes.has(tp);
+    });
+  }, [pv.issues, hiddenTypes]);
+
+  const issueIndex = focus ? visibleIssues.findIndex((n) => n.fid === focus.fid && n.hi === focus.hi) : -1;
 
   // Toggling the overlay on (manually) jumps to the first problem so there's
   // something to look at; toggling off just hides it.
   const onShowDrcChange = useCallback(
     (v: boolean) => {
       setShowDrc(v);
-      if (v && issueIndex < 0 && pv.issues.length > 0) onFocus(pv.issues[0].fid, pv.issues[0].hi);
+      if (v && issueIndex < 0 && visibleIssues.length > 0) onFocus(visibleIssues[0].fid, visibleIssues[0].hi);
     },
-    [pv.issues, issueIndex, onFocus],
+    [visibleIssues, issueIndex, onFocus],
   );
 
   // A drill layer has no SVG preview but DOES have holes to show/hide — treat it
@@ -226,14 +303,18 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
               metrics={pv.metrics}
               metricsLoading={pv.metricsLoading}
               findings={pv.findings}
-              markers={pv.markers}
+              markers={visibleMarkers}
               focusTarget={pv.focusTarget}
               focus={focus}
               onFocus={onFocus}
               showDrc={showDrc}
               onShowDrcChange={onShowDrcChange}
-              issues={pv.issues}
+              issues={visibleIssues}
               issueIndex={issueIndex}
+              problemTypes={problemTypes}
+              hiddenTypes={hiddenTypes}
+              onToggleType={toggleType}
+              onShowAllTypes={showAllTypes}
               loading={pv.layersLoading}
             />
           ) : (

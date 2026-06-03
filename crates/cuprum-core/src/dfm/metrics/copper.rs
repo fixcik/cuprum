@@ -2,6 +2,7 @@
 //! thin-stroke locations.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
 use rayon::prelude::*;
@@ -22,7 +23,7 @@ pub(super) const HIGHLIGHT_CAP: usize = 4000;
 /// Per-copper-layer minimum trace width + primitive count.
 pub(super) fn copper_metrics(
     layers: &[MetricLayerInput],
-    parsed: &[Option<GerberLayer>],
+    parsed: &[Option<Arc<GerberLayer>>],
 ) -> Vec<CopperLayerMetric> {
     layers
         .iter()
@@ -85,7 +86,7 @@ pub(super) fn stroke_widths(layer: &GerberLayer) -> Vec<f64> {
 pub(super) fn copper_clearance_width_hotspots(
     copper_layers: &[(&str, Vec<Poly>)],
     layers: &[MetricLayerInput],
-    parsed: &[Option<GerberLayer>],
+    parsed: &[Option<Arc<GerberLayer>>],
 ) -> (Vec<Hotspot>, Vec<Hotspot>) {
     // Per-layer work runs in parallel. rayon preserves input order on `collect`
     // — for the indexed `map` path AND the filtered `width` path (implementation
@@ -207,7 +208,7 @@ pub(super) fn annular_hotspots<'a>(
 #[tracing::instrument(skip_all, fields(role = ?role))]
 pub(super) fn thin_stroke_hotspots(
     layers: &[MetricLayerInput],
-    parsed: &[Option<GerberLayer>],
+    parsed: &[Option<Arc<GerberLayer>>],
     role: Role,
 ) -> Vec<Hotspot> {
     let mut hots: Vec<Hotspot> = Vec::new();

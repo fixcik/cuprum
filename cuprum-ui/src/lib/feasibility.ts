@@ -37,6 +37,39 @@ export interface Finding {
   hoverBoxes?: GeoHotspot[];
 }
 
+/** Problem TYPE — a user-facing grouping of finding ids for the preview filter.
+ *  Finer than `category` (which lumps clearance/width/neck/annular all under
+ *  "copper") but coarser than the full id (top/bottom of one issue share a type).
+ *  Only ids that draw hotspots on the preview map to a type; size/layers → null. */
+export type ProblemType = "clearance" | "width" | "neck" | "annular" | "drill" | "via" | "mask" | "silk";
+
+/** Display order for the filter menu. */
+export const PROBLEM_TYPE_ORDER: ProblemType[] = [
+  "clearance",
+  "width",
+  "neck",
+  "annular",
+  "drill",
+  "via",
+  "mask",
+  "silk",
+];
+
+/** Map a finding id to its preview problem-type (null for findings without
+ *  preview hotspots, e.g. `size.*` / `layers.*`). Matched by id prefix so both
+ *  sides of a sided finding (`silk.line.top`/`.bottom`) collapse to one type. */
+export function problemTypeOf(id: string): ProblemType | null {
+  if (id.startsWith("copper.minSpace")) return "clearance";
+  if (id.startsWith("copper.thinTrace")) return "width";
+  if (id.startsWith("copper.regionNeck")) return "neck";
+  if (id.startsWith("copper.annular")) return "annular";
+  if (id.startsWith("drill.")) return "drill";
+  if (id.startsWith("via.")) return "via";
+  if (id.startsWith("mask.")) return "mask";
+  if (id.startsWith("silk.")) return "silk";
+  return null;
+}
+
 /** Midpoint of a hotspot's two points. */
 const hsMid = (h: GeoHotspot): [number, number] => [(h.a[0] + h.b[0]) / 2, (h.a[1] + h.b[1]) / 2];
 

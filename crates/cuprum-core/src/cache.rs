@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
+use gerber_viewer::GerberLayer;
 use lru::LruCache;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -111,6 +112,90 @@ pub fn layer_svg_artifact(artifacts_svg_dir: &Path, bytes: &[u8]) -> anyhow::Res
     cached_single_flight_persistent(svg_cache(), svg_inflight(), artifacts_svg_dir, &key, || {
         svg::render_layer_svg(bytes, &id)
     })
+}
+
+// ---- Parsed-layer cache (memory only, cross-operation) ----
+//
+// On a cold design show the three operations (metrics / mesh / SVG) each parse
+// the SAME gerber bytes into a `GerberLayer` — concurrently, so a large copper
+// layer is parsed ~3× at once (wasted CPU + core contention). Each op caches its
+// own *output* already, so this is a purely cold-path waste. This shared,
+// content-keyed parse cache lets all three reuse one parse.
+//
+// Memory-only: `GerberLayer` is not `Serialize`/`DeserializeOwned`, so it can't go
+// through the disk-backed `cached_single_flight*` engine; and it's ephemeral —
+// the per-op *outputs* (svg/metrics/mesh artifacts) are what persist on disk. An
+// `Arc` keeps cache hits cheap (cloning a parsed layer is expensive). Single-flight
+// de-dups concurrent misses so a given layer is parsed once across all three ops.
+const PARSE_MEM_CAP: usize = 64;
+fn parse_cache() -> &'static Mutex<LruCache<String, Arc<GerberLayer>>> {
+    static C: OnceLock<Mutex<LruCache<String, Arc<GerberLayer>>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(LruCache::new(NonZeroUsize::new(PARSE_MEM_CAP).unwrap())))
+}
+fn parse_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
+    static C: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The single Gerber parse site: bytes → `GerberLayer` (same triple every path
+/// used inline before — `parse` → `into_commands` → `GerberLayer::new`). Not
+/// cached; `parse_layer_cached` wraps this with memoization.
+fn parse_layer(bytes: &[u8]) -> anyhow::Result<GerberLayer> {
+    let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
+    let doc = gerber_viewer::gerber_parser::parse(reader)
+        .map_err(|(_doc, e)| anyhow::anyhow!("parse error: {e:?}"))?;
+    Ok(GerberLayer::new(doc.into_commands()))
+}
+
+/// Parse raw Gerber bytes into a shared `GerberLayer`, memoized in-process by
+/// content hash with single-flight de-dup. The metrics, mesh and SVG paths all go
+/// through this, so a given layer is parsed once between them instead of ~3×
+/// concurrently on a cold design show. Memory-only (see the section comment).
+/// Honors `diskcache::cache_disabled()` (then parses straight through, no caching).
+///
+/// Lock discipline mirrors `cached_single_flight_with`: the `inflight` registry
+/// lock is released before taking the per-key `flight` lock; the LRU is locked only
+/// briefly, never across `parse_layer()`.
+pub fn parse_layer_cached(bytes: &[u8]) -> anyhow::Result<Arc<GerberLayer>> {
+    if crate::diskcache::cache_disabled() {
+        return Ok(Arc::new(parse_layer(bytes)?));
+    }
+    let key = crate::diskcache::key_for(&[bytes]);
+    if let Some(v) = parse_cache().lock().unwrap().get(&key) {
+        return Ok(v.clone());
+    }
+    let flight = {
+        let mut reg = parse_inflight().lock().unwrap();
+        reg.entry(key.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    };
+    let _flight = flight.lock().unwrap();
+    // Re-check: the winner may have populated the LRU while we waited.
+    if let Some(v) = parse_cache().lock().unwrap().get(&key) {
+        return Ok(v.clone());
+    }
+    let drop_inflight = || {
+        let mut reg = parse_inflight().lock().unwrap();
+        if let Some(existing) = reg.get(&key) {
+            if Arc::ptr_eq(existing, &flight) {
+                reg.remove(&key);
+            }
+        }
+    };
+    let layer = match parse_layer(bytes) {
+        Ok(l) => Arc::new(l),
+        Err(e) => {
+            drop_inflight();
+            return Err(e);
+        }
+    };
+    parse_cache()
+        .lock()
+        .unwrap()
+        .put(key.clone(), layer.clone());
+    drop_inflight();
+    Ok(layer)
 }
 
 /// In-memory (LRU) + disk cache with single-flight de-dup of concurrent misses.
@@ -541,5 +626,58 @@ mod tests {
             "distinct key triggers a separate render"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_layer_cached_dedups_under_concurrency_and_memoizes() {
+        // Unique aperture diameter → a guaranteed-cold key regardless of test order.
+        const UNIQ: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.111*%\nD10*\nX0Y0D03*\nM02*\n";
+        let key = crate::diskcache::key_for(&[UNIQ]);
+        parse_cache().lock().unwrap().pop(&key);
+        parse_inflight().lock().unwrap().remove(&key);
+
+        // Concurrent cold misses → single-flight → exactly one parse, shared by all
+        // callers. If any thread parsed independently its Arc would not be ptr-equal.
+        // A barrier releases all threads at once so they actually race on the per-key
+        // flight lock (without it they'd serialize on the initial LRU check and never
+        // exercise the single-flight window).
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let mut handles = vec![];
+        for _ in 0..8 {
+            let b = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                b.wait();
+                parse_layer_cached(UNIQ).expect("parse ok")
+            }));
+        }
+        let layers: Vec<_> = handles
+            .into_iter()
+            .map(|h| h.join().expect("thread ok"))
+            .collect();
+        let first = layers[0].clone();
+        for l in &layers {
+            assert!(
+                Arc::ptr_eq(l, &first),
+                "all concurrent callers share one parsed Arc (parsed exactly once)"
+            );
+        }
+        // A later call hits the cache and returns the same instance.
+        let again = parse_layer_cached(UNIQ).expect("hit ok");
+        assert!(
+            Arc::ptr_eq(&again, &first),
+            "repeat call returns the cached Arc, not a fresh parse"
+        );
+    }
+
+    #[test]
+    fn parse_layer_cached_distinct_bytes_are_not_conflated() {
+        const A: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.222*%\nD10*\nX0Y0D03*\nM02*\n";
+        const B: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.333*%\nD10*\nX0Y0D03*\nM02*\n";
+        let a = parse_layer_cached(A).expect("ok");
+        let b = parse_layer_cached(B).expect("ok");
+        assert!(
+            !Arc::ptr_eq(&a, &b),
+            "distinct gerbers map to distinct cache entries"
+        );
     }
 }
