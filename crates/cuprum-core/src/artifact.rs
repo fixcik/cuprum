@@ -19,7 +19,8 @@ pub const METRICS_VERSION: &[u8] = b"metrics-v15";
 
 /// Bump when the preview composition/palette/size changes.
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
-pub const PREVIEW_VERSION: &[u8] = b"preview-v2";
+/// v3: substrate/mask/layers clipped to the rounded Edge_Cuts outline.
+pub const PREVIEW_VERSION: &[u8] = b"preview-v3";
 
 use std::collections::HashSet;
 use std::path::Path;

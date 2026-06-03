@@ -13,7 +13,7 @@ get a stale result from the cache. The tags live in one place,
 |--------------|-------------------------------|-------------------|
 | `svg-vN`     | layer rendering to SVG        | `svg.rs` |
 | `metrics-vN` | DFM measurements (`BoardMetrics`) | `metrics.rs`, `geometry.rs` (measurements: `clearance_width_hotspots` / `seg_seg_closest` / `*_hotspots`), `drill.rs` |
-| `preview-vN` | design-card preview PNG composition | `preview.rs` (palette / z-order / mask coverage / `PREVIEW_MAX_PX`) |
+| `preview-vN` | design-card preview PNG composition | `preview.rs` (palette / z-order / mask coverage / board-outline clip / `PREVIEW_MAX_PX`) |
 | `mesh-vN`    | 3D mesh triangulation         | `mesh.rs`, `geometry.rs` (polygons: `layer_polygons` / `fill_polygons` / `contours_of`) |
 
 A change in `geometry.rs` can touch **both** mesh (if polygons are affected)
