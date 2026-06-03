@@ -158,6 +158,24 @@ export function clampDeltaToPanel(
   return { dx, dy };
 }
 
+/** Build rotated-AABB boxes for instances whose board size is known. Instances
+ *  with no resolved size are skipped (their extents are unknown). Shared by the
+ *  drag, nudge and duplicate clamp paths so they agree on geometry. */
+export function boxesForInstances(
+  instances: { design_id: string; x_mm: number; y_mm: number; rotation_deg: number }[],
+  sizes: Record<string, { w: number; h: number }>,
+): Box[] {
+  const boxes: Box[] = [];
+  for (const i of instances) {
+    const sz = sizes[i.design_id];
+    if (!sz) continue;
+    boxes.push(
+      instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg }),
+    );
+  }
+  return boxes;
+}
+
 /** Ids whose AABB intersects the marquee rect (mm). */
 export function marqueeHits(items: { id: string; box: Box }[], rect: Box): string[] {
   return items
