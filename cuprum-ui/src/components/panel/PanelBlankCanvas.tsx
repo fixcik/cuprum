@@ -5,6 +5,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
 import { CadGrid } from "@/components/editor/CadGrid";
 import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
 import { useShell } from "@/shellStore";
@@ -32,6 +33,8 @@ export function PanelBlankCanvas({
   const [zoomPct, setZoomPct] = useState(100);
   const [side, setSide] = useState<"top" | "bottom">("top");
   const [spaceDown, setSpaceDown] = useState(false);
+  const [tool, setTool] = useState<PanelTool>("select");
+  const panMode = tool === "pan" || spaceDown;
 
   const W = Math.max(widthMm, 1);
   const H = Math.max(heightMm, 1);
@@ -157,17 +160,17 @@ export function PanelBlankCanvas({
   return (
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${spaceDown ? "cursor-grab" : ""}`}
+      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : ""}`}
     >
       <Stage
         ref={stageRef}
         width={size.w}
         height={size.h}
-        draggable={spaceDown}
+        draggable={panMode}
         dragBoundFunc={dragBound}
         onWheel={onWheel}
         onDragStart={() => setCursor("grabbing")}
-        onDragEnd={() => setCursor(spaceDown ? "grab" : "")}
+        onDragEnd={() => setCursor(panMode ? "grab" : "")}
       >
         <Layer>
           <Group x={0} y={0} scaleX={fit} scaleY={fit}>
@@ -197,7 +200,9 @@ export function PanelBlankCanvas({
         </Layer>
       </Stage>
 
-      <div className="absolute left-3 top-3 z-10">
+      <PanelToolPalette tool={tool} onToolChange={setTool} />
+
+      <div className="absolute left-20 top-3 z-10">
         <SegmentedControl<"top" | "bottom">
           value={side}
           onChange={setSide}

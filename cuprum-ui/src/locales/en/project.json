@@ -34,6 +34,13 @@
         "title": "Add design to panel"
       },
       "close": "Close"
+    },
+    "tool": {
+      "select": "Select",
+      "pan": "Pan",
+      "add": "Add design",
+      "duplicate": "Duplicate",
+      "delete": "Delete"
     }
   },
   "operations": {
