@@ -18,6 +18,21 @@ pub const MANIFEST_NAME: &str = "manifest.json";
 /// exclusion when packing the working directory.
 pub const PANEL_NAME: &str = "panel.json";
 
+/// Choose ZIP compression options based on the entry name.
+///
+/// PNG previews are already compressed — storing them avoids wasted deflate
+/// work and reduces flush latency. Everything else (manifest, gerbers, SVG,
+/// metrics) compresses reasonably well; level 1 favours speed over ratio.
+fn entry_options(name: &str) -> SimpleFileOptions {
+    if name.starts_with("artifacts/preview/") {
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored)
+    } else {
+        SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .compression_level(Some(1))
+    }
+}
+
 /// Write a complete container: the manifest plus every entry in `entries`
 /// (archive-relative path -> bytes). Gerbers are passed as entries by the caller.
 pub fn write(path: &Path, manifest: &Manifest, entries: &[(String, Vec<u8>)]) -> Result<()> {
@@ -30,14 +45,12 @@ pub fn write(path: &Path, manifest: &Manifest, entries: &[(String, Vec<u8>)]) ->
     let build = (|| -> Result<()> {
         let file = File::create(&tmp)?;
         let mut zip = zip::ZipWriter::new(file);
-        // Span wraps only the deflate writes (start_file/write_all/finish).
+        // Span wraps only the compression writes (start_file/write_all/finish).
         let _s = tracing::info_span!("zip_write", entries = entries.len()).entered();
-        let opts =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        zip.start_file(MANIFEST_NAME, opts)?;
+        zip.start_file(MANIFEST_NAME, entry_options(MANIFEST_NAME))?;
         zip.write_all(serde_json::to_string_pretty(manifest)?.as_bytes())?;
         for (name, bytes) in entries {
-            zip.start_file(name.as_str(), opts)?;
+            zip.start_file(name.as_str(), entry_options(name))?;
             zip.write_all(bytes)?;
         }
         zip.finish()?;
@@ -185,6 +198,53 @@ mod tests {
         assert_eq!(
             read_entry(&path, "gerbers/design-1/a.gbr").unwrap(),
             b"G04 atomic*"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn preview_stored_text_deflated() {
+        let dir = std::env::temp_dir().join(format!("cuprum-test-compress-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("compress.cuprum");
+
+        let preview_bytes: Vec<u8> =
+            b"\x89PNG\r\n\x1a\nsome binary preview data that looks like PNG".to_vec();
+        let gerber_bytes: Vec<u8> = b"G04 hello world hello world*".to_vec();
+
+        let entries = vec![
+            ("artifacts/preview/x.bin".to_string(), preview_bytes.clone()),
+            ("gerbers/a.gbr".to_string(), gerber_bytes.clone()),
+        ];
+        write(&path, &Manifest::new("t"), &entries).unwrap();
+
+        // Round-trip: content must be identical to what was written.
+        assert_eq!(
+            read_entry(&path, "artifacts/preview/x.bin").unwrap(),
+            preview_bytes
+        );
+        assert_eq!(read_entry(&path, "gerbers/a.gbr").unwrap(), gerber_bytes);
+
+        // Compression method must match the per-entry policy.
+        let file = std::fs::File::open(&path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+
+        let preview_method = archive
+            .by_name("artifacts/preview/x.bin")
+            .unwrap()
+            .compression();
+        assert_eq!(
+            preview_method,
+            zip::CompressionMethod::Stored,
+            "preview entry should be Stored"
+        );
+
+        let gerber_method = archive.by_name("gerbers/a.gbr").unwrap().compression();
+        assert_eq!(
+            gerber_method,
+            zip::CompressionMethod::Deflated,
+            "gerber entry should be Deflated"
         );
 
         std::fs::remove_dir_all(&dir).ok();
