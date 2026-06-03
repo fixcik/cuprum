@@ -77,7 +77,12 @@ export function PanelEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPath, docNonce]);
 
-  const valid = width > 0 && height > 0 && substrate > 0;
+  // The blank can't exceed the machine's work area. Don't silently clamp the
+  // typed value — flag the field as out-of-range and gate persistence, so the
+  // user sees why it won't take instead of watching the number snap back.
+  const widthTooBig = width > maxW;
+  const heightTooBig = height > maxH;
+  const valid = width > 0 && height > 0 && substrate > 0 && !widthTooBig && !heightTooBig;
 
   // Debounced autosave: write only when the params differ from the last-persisted
   // snapshot and are valid.
@@ -150,12 +155,12 @@ export function PanelEditor() {
 
         <SettingsSection icon={Ruler} title={t("setup.sectionBlank")}>
           <SettingRow label={t("setup.width")}>
-            <UnitField value={width} onChange={(v) => setWidth(Math.min(v, maxW))} unit="mm" step="1" />
+            <UnitField value={width} onChange={setWidth} unit="mm" step="1" invalid={widthTooBig} />
           </SettingRow>
           <SettingRow label={t("setup.height")}>
-            <UnitField value={height} onChange={(v) => setHeight(Math.min(v, maxH))} unit="mm" step="1" />
+            <UnitField value={height} onChange={setHeight} unit="mm" step="1" invalid={heightTooBig} />
           </SettingRow>
-          <p className="px-1 text-[11px] text-muted-foreground">
+          <p className={`px-1 text-[11px] ${widthTooBig || heightTooBig ? "text-destructive" : "text-muted-foreground"}`}>
             {t("setup.maxFromSettings", { w: maxW, h: maxH })}
           </p>
         </SettingsSection>
