@@ -117,6 +117,12 @@ interface ShellStore {
   moveInstances: (ids: string[], dxMm: number, dyMm: number) => Promise<void>;
   /** Remove the given instances from the panel. One undo step. */
   removeInstances: (ids: string[]) => Promise<void>;
+  /** Set the rotation of the given instances to an absolute angle (deg). One undo. */
+  rotateInstances: (ids: string[], absDeg: number) => Promise<void>;
+  /** Add a delta to each instance's rotation (each about its own centre). One undo. */
+  rotateInstancesBy: (ids: string[], deltaDeg: number) => Promise<void>;
+  /** Duplicate the given instances (offset copy, new ids). Returns the new ids. One undo. */
+  duplicateInstances: (ids: string[]) => Promise<string[]>;
   /** Private: mirror the in-memory manifest into the working dir's loose
    *  manifest.json after a mutation (basis for crash recovery). */
   _mirrorManifest: (manifest: Manifest) => Promise<void>;
@@ -503,6 +509,45 @@ export const useShell = create<ShellStore>((set, get) => ({
     const sel = new Set(ids);
     const next: PanelDoc = { ...panel, instances: panel.instances.filter((i) => !sel.has(i.id)) };
     await get().savePanelConfig(next, stackup);
+  },
+
+  rotateInstances: async (ids, absDeg) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0) return;
+    const sel = new Set(ids);
+    const next: PanelDoc = {
+      ...panel,
+      instances: panel.instances.map((i) => (sel.has(i.id) ? { ...i, rotation_deg: absDeg } : i)),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  rotateInstancesBy: async (ids, deltaDeg) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0 || deltaDeg === 0) return;
+    const sel = new Set(ids);
+    const next: PanelDoc = {
+      ...panel,
+      instances: panel.instances.map((i) =>
+        sel.has(i.id) ? { ...i, rotation_deg: (((i.rotation_deg + deltaDeg) % 360) + 360) % 360 } : i,
+      ),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  duplicateInstances: async (ids) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0) return [];
+    const sel = new Set(ids);
+    const copies = panel.instances
+      .filter((i) => sel.has(i.id))
+      .map((i) => ({ ...i, id: crypto.randomUUID(), x_mm: i.x_mm + 2, y_mm: i.y_mm + 2 }));
+    const next: PanelDoc = { ...panel, instances: [...panel.instances, ...copies] };
+    await get().savePanelConfig(next, stackup);
+    return copies.map((c) => c.id);
   },
 
   _mirrorManifest: async (manifest) => {
