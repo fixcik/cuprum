@@ -1,6 +1,8 @@
 import { create } from "zustand";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
 import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
+import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, newPanelDoc } from "@/lib/panel";
 import { packLayout } from "@/lib/panelPlacement";
 import { type NestSettings } from "@/lib/nest";
@@ -451,11 +453,28 @@ export const useShell = create<ShellStore>((set, get) => ({
   },
 
   openAddDesignForDesign: async (designId) => {
-    // Stash the id so the bridge folds it into the ready-driven snapshot, then
-    // open the window. The bridge clears it after that first emit so a later
-    // re-emit doesn't fight the user's manual selection.
+    // Stash the id so the preselect reaches the window. Two delivery paths:
+    //  - fresh window: it emits `ready` on mount → the bridge folds the pending
+    //    id into that snapshot and clears it (one-shot).
+    //  - already-open window: it won't remount or re-emit `ready` (the Rust
+    //    command just focuses it), so push the preselect snapshot directly here
+    //    and clear, otherwise the id would leak into the next reactive re-emit
+    //    and override the user's manual selection.
     set({ pendingAddDesignId: designId });
+    const existing = await WebviewWindow.getByLabel("add-design");
     await api.openAddDesignWindow();
+    if (existing) {
+      const s = get();
+      await api.emitAddDesignSnapshot(
+        buildAddDesignSnapshot({
+          workingDir: s.workingDir,
+          currentPath: s.currentPath,
+          manifest: s.currentManifest,
+          preselectDesignId: designId,
+        }),
+      );
+      set({ pendingAddDesignId: null });
+    }
   },
 
   addBoardInstances: async (designId, nest) => {

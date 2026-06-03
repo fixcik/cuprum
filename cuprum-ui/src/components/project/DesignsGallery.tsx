@@ -33,7 +33,12 @@ export function DesignsGallery() {
   // webview event is window-global, but DesignsGallery is only mounted while the
   // Designs tab is active, so the drop target is effectively this view.
   useEffect(() => {
+    // `active` guards the narrow window between unmount (tab switch) and the
+    // async unlisten() resolving — a late drop event must not import on a stale
+    // mount. Mirrors the pattern in AddDesignWindow.
+    let active = true;
     const pending = getCurrentWebview().onDragDropEvent((e) => {
+      if (!active) return;
       if (e.payload.type === "enter" || e.payload.type === "over") {
         setDragOver(true);
       } else if (e.payload.type === "leave") {
@@ -45,6 +50,7 @@ export function DesignsGallery() {
       }
     });
     return () => {
+      active = false;
       void pending.then((unlisten) => unlisten());
     };
   }, [addDesignsFromPaths]);
