@@ -1,0 +1,13 @@
+[package]
+name = "cuprum-cache"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared single-flight in-memory + disk cache engine for Cuprum"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+lru.workspace = true
+cuprum-diskcache.workspace = true

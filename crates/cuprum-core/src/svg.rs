@@ -318,7 +318,7 @@ pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerG
     // SVG element id derived from the content hash — unique per gerber content,
     // scopes the clear-polarity mask. Derived here so the tag lives in one place.
     let id = format!("ly{}", &key[..8]);
-    crate::cache::cached_single_flight(
+    cuprum_cache::cached_single_flight(
         svg_cache(),
         svg_inflight(),
         cache_dir,
@@ -342,7 +342,7 @@ pub fn svg_artifact_key(bytes: &[u8]) -> String {
 pub fn layer_svg_artifact(artifacts_svg_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerGeometry> {
     let key = svg_artifact_key(bytes);
     let id = format!("ly{}", &key[..8]);
-    crate::cache::cached_single_flight_persistent(
+    cuprum_cache::cached_single_flight_persistent(
         svg_cache(),
         svg_inflight(),
         artifacts_svg_dir,
@@ -514,7 +514,7 @@ mod svg_cache_tests {
             let renders = Arc::clone(&renders);
             let geom = geom.clone();
             handles.push(std::thread::spawn(move || {
-                crate::cache::cached_single_flight(
+                cuprum_cache::cached_single_flight(
                     svg_cache(),
                     svg_inflight(),
                     &dir,
