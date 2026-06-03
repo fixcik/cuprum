@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::menu::{AboutMetadata, Menu, MenuBuilder, SubmenuBuilder};
+use tauri::{AppHandle, Emitter, Runtime};
 // `RunEvent::Opened` only exists on macOS (Apple-event file open); gate the import
 // so the workspace still compiles on Linux/Windows CI.
 #[cfg(target_os = "macos")]
@@ -1248,9 +1249,69 @@ fn open_add_design_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Minimal native menu: an app submenu carrying "Check for Updates…" alongside the
+/// standard items, plus Edit/Window so system shortcuts (copy/paste, undo) survive.
+/// Labels follow the system locale (ru/en, matching the UI's default-language logic);
+/// predefined items are localized by the OS. Seed of the wider custom-menu work.
+fn build_app_menu<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let ru = sys_locale::get_locale().is_some_and(|l| l.to_lowercase().starts_with("ru"));
+    let (edit_t, window_t, check_t) = if ru {
+        ("Правка", "Окно", "Проверить обновления…")
+    } else {
+        ("Edit", "Window", "Check for Updates…")
+    };
+
+    let mut app_b = SubmenuBuilder::new(handle, "Cuprum")
+        .about(Some(AboutMetadata::default()))
+        .separator()
+        .text("check-updates", check_t)
+        .separator();
+    // Services/Hide/Show All are macOS-only predefined items.
+    #[cfg(target_os = "macos")]
+    {
+        app_b = app_b
+            .services()
+            .separator()
+            .hide()
+            .hide_others()
+            .show_all()
+            .separator();
+    }
+    let app_menu = app_b.quit().build()?;
+
+    let edit_menu = SubmenuBuilder::new(handle, edit_t)
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(handle, window_t)
+        .minimize()
+        .maximize()
+        .separator()
+        .close_window()
+        .build()?;
+
+    MenuBuilder::new(handle)
+        .items(&[&app_menu, &edit_menu, &window_menu])
+        .build()
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .manage(PendingOpen::default())
+        .menu(build_app_menu)
+        .on_menu_event(|app, event| {
+            // Manual "Check for Updates…" → the frontend runs a loud check (surfaces
+            // "up to date"/errors, unlike the silent startup check).
+            if event.id().as_ref() == "check-updates" {
+                let _ = app.emit("menu://check-updates", ());
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
