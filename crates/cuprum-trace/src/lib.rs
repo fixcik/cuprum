@@ -542,7 +542,7 @@ fn operation_in_session_with_config<T>(
     f()
 }
 
-pub(crate) fn run_with_config<T>(
+pub fn run_with_config<T>(
     cfg: &TraceConfig,
     name: &str,
     default_dir: &Path,
@@ -597,6 +597,16 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    // These tests share a PROCESS-GLOBAL subscriber and global session/sink maps;
+    // `reap_idle_with_timeout(ZERO)` even finalizes EVERY idle session, so two
+    // runtime-touching tests running concurrently corrupt each other's files. Hold
+    // this lock for the duration of any such test to run them one at a time.
+    // (`into_inner` so a panicking/failing test doesn't poison the rest.)
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn parse_config_maps_values() {
         assert_eq!(parse_config(None), TraceConfig::Off);
@@ -616,6 +626,7 @@ mod tests {
 
     #[test]
     fn operation_writes_named_trace_file() {
+        let _serial = serial();
         let tmp = std::env::temp_dir().join(format!("cuprum-trace-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let cfg = TraceConfig::Dir(tmp.clone());
@@ -645,6 +656,7 @@ mod tests {
 
     #[test]
     fn operation_twice_on_same_thread_both_write() {
+        let _serial = serial();
         // Tokio's spawn_blocking reuses OS threads, so `operation` can run more
         // than once on the same thread. Each call must restore the thread-local
         // subscriber cleanly and produce its own valid trace file.
@@ -678,6 +690,7 @@ mod tests {
 
     #[test]
     fn operation_disabled_writes_nothing() {
+        let _serial = serial();
         let tmp = std::env::temp_dir().join(format!("cuprum-trace-off-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let result = run_with_config(&TraceConfig::Off, "unit_op", &tmp, || 7);
@@ -687,6 +700,7 @@ mod tests {
 
     #[test]
     fn parallel_spans_land_in_single_trace_via_dispatch() {
+        let _serial = serial();
         use rayon::prelude::*;
         let tmp = std::env::temp_dir().join(format!("cuprum-trace-par-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -748,6 +762,7 @@ mod tests {
 
     #[test]
     fn concurrent_operations_keep_worker_spans() {
+        let _serial = serial();
         use rayon::prelude::*;
         use std::sync::{Arc, Barrier};
         let base = std::env::temp_dir().join(format!("cuprum-trace-conc-{}", std::process::id()));
@@ -852,6 +867,7 @@ mod tests {
 
     #[test]
     fn session_groups_operations_into_one_file() {
+        let _serial = serial();
         let tmp =
             std::env::temp_dir().join(format!("cuprum-trace-session-group-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -890,6 +906,7 @@ mod tests {
 
     #[test]
     fn operation_in_session_none_is_passthrough() {
+        let _serial = serial();
         let tmp = std::env::temp_dir().join(format!(
             "cuprum-trace-session-passthrough-{}",
             std::process::id()
@@ -916,6 +933,7 @@ mod tests {
 
     #[test]
     fn expired_session_falls_back_to_standalone() {
+        let _serial = serial();
         let tmp = std::env::temp_dir().join(format!(
             "cuprum-trace-session-expired-{}",
             std::process::id()
@@ -949,6 +967,7 @@ mod tests {
 
     #[test]
     fn reaper_finalizes_idle_session() {
+        let _serial = serial();
         let tmp =
             std::env::temp_dir().join(format!("cuprum-trace-session-reap-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -981,6 +1000,7 @@ mod tests {
 
     #[test]
     fn session_keeps_worker_spans_across_two_ops() {
+        let _serial = serial();
         use rayon::prelude::*;
         let tmp = std::env::temp_dir().join(format!(
             "cuprum-trace-session-workers-{}",
@@ -1018,6 +1038,7 @@ mod tests {
 
     #[test]
     fn panic_in_op_runs_cleanup_guard() {
+        let _serial = serial();
         // If `f` panics, the RAII guard must still remove the op from routing and
         // decrement `open_ops`, so the session stays reapable and its file closes.
         let tmp =
@@ -1059,6 +1080,7 @@ mod tests {
 
     #[test]
     fn finalize_session_now_skips_when_op_in_flight() {
+        let _serial = serial();
         // Regression for the TOCTOU window between the reaper's idle scan and
         // finalize: an op that joined the session (open_ops > 0) must keep the
         // session alive — finalize must skip, not close the shared file.

@@ -16,4 +16,7 @@ pub mod preview;
 pub mod sdcp;
 pub mod strokes;
 pub mod svg;
-pub mod trace;
+
+// Tracing now lives in its own leaf crate; re-export under the historical path so
+// `cuprum_core::trace::…` (and in-crate `crate::trace::…`) keep resolving.
+pub use cuprum_trace as trace;
