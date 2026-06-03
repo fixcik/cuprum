@@ -61,10 +61,11 @@ release — profile optimized builds, not debug). Enable it at runtime via the
 | `CUPRUM_TRACE=1` / `on` / `true` | on, default directory |
 | `CUPRUM_TRACE=/path/to/dir` | on, write traces there |
 | `CUPRUM_TRACE_FILTER=…` | optional [`EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) directive (default: capture everything) |
+| `CUPRUM_TRACE_SESSION_IDLE_MS=…` | idle window (ms) before the backend finalizes a load **session** (default `1500`) — see below |
 
-Each traced operation writes **one** Chrome Trace Event JSON file (`<op>_<seq>_<ts>.json`).
-The absolute path of every file is printed to stderr (`cuprum: trace → …`), so you
-don't have to hunt for it. Default directories:
+A traced operation normally writes **one** Chrome Trace Event JSON file
+(`<op>_<seq>_<ts>.json`). The absolute path of every file is printed to stderr
+(`cuprum: trace → …`), so you don't have to hunt for it. Default directories:
 
 - **UI:** `app_cache_dir()/traces` (sibling of the artifact cache).
 - **CLI:** `./cuprum-traces/` in the current directory.
@@ -115,6 +116,30 @@ concurrency, dropping their spans.)
 **Tracing does not change derived output**, so the cache version tags above do
 **not** need bumping when you add or move spans.
 
+### Load sessions (one file for the whole import)
+
+A single design-load spans several Tauri commands (import, then the per-card
+`preview`/`metrics`/`svg` precompute) fired close together from the frontend. To
+see them on **one** timeline with a shared time origin (so you can read the real
+wall-clock overlap), they are grouped into a **trace session** — one
+`load_<seq>_<ts>.json` file.
+
+The session is **backend-owned**: `add_design_from_zip` opens it
+(`trace::begin_session("load", …)`) and runs the import as its first operation;
+the returned opaque token is passed back to the frontend, which only forwards it
+(as `traceSession`) into that design's `preview`/`metrics`/`svg` calls — the
+frontend makes no lifecycle decision. Those commands join the session via
+`trace::operation_in_session(token, …)` instead of opening their own file. The
+session is **closed by the backend**: a lazily-spawned idle-reaper thread
+finalizes a session once it has no in-flight operation and has been idle for
+`CUPRUM_TRACE_SESSION_IDLE_MS` (default 1500 ms). A long single operation keeps
+the session open (its op count stays > 0), so it never closes mid-work.
+
+Designs opened from disk (no import) carry no token, so their precompute commands
+fall back to one file per operation, exactly as before. The **flush**
+(`save_project` → `workdir::pack`) is deliberately its OWN operation/file, not part
+of the session, because it is debounced ~1.5 s later on the frontend.
+
 ### Operations (one trace file each)
 
 | Operation | Where | Heavy work captured |
@@ -125,7 +150,12 @@ concurrency, dropping their spans.)
 | `metrics` | UI `project_board_metrics` (cache miss) | `metrics::board_metrics`; per-layer `geometry::clearance_width_hotspots` run in parallel (rayon) |
 | `svg`     | UI `render_layers_svg` / `render_gerber_svg` (cache miss) | `svg::render_layer_svg` |
 | `preview` | UI `render_design_preview` (cache miss) | `preview::render_design_preview` (compose + `resvg` raster) |
+| `import`  | UI `add_design_from_zip` (first op of the `load` session) | `read_zip`, `write_gerbers` |
+| `flush`   | UI `save_project` | `workdir::pack` (`read_manifest`, `compute_valid_keys`, `artifact_gc`, `gerber_gc`, `collect_entries`, `zip_write`) |
 | `gerber-info` | CLI `gerber-info` | `gerber::parse_file` |
+
+`preview`/`metrics`/`svg` triggered right after an `import` join that import's
+`load` session file instead of writing their own (see *Load sessions* above).
 
 UI operations that go through the artifact cache (`mesh`/`metrics`/`svg`) only
 write a trace on a **cache miss** (in-memory or disk) — a cache hit does no heavy
@@ -162,7 +192,18 @@ in-memory, затем **персистентный** дисковый кеш в 
 - `compose.rs`: `compose_layout` + `rasterize` + `invert` (the rayon sections)
 - `goo.rs`: `single_layer_exposure`, `serialize`
 - `svg.rs`: `render_layer_svg`
-- `diskcache.rs`: `get` (records a `hit` = true/false field), `put`
+- `diskcache.rs`: `get` (records a `hit` = true/false field), `put` (with a
+  `prune` child span), `put_persistent`
+
+Spans also live in `cuprum-project` (the import + flush path), routed through the
+same process-global subscriber:
+
+- `import.rs`: `read_zip` (records a `files` count)
+- `lib.rs`: `write_gerbers` (records a `files` count)
+- `document/workdir.rs` (`pack`): `read_manifest`, `compute_valid_keys`,
+  `artifact_gc`, `gerber_gc`, `collect_entries` (records `files` + `bytes`)
+- `document/container.rs` (`write`): `zip_write` (records an `entries` count) —
+  the ZIP deflate, usually the heaviest part of a flush
 
 Heavy inner loops (e.g. `geometry::seg_seg_closest`) are intentionally not
 instrumented per-iteration — only the enclosing phase span is.
