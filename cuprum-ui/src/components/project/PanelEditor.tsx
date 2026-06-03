@@ -16,6 +16,7 @@ import { api } from "@/lib/api";
 import type { BoardInstance, ProjectDesign } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 // Stable empty fallbacks: returning a fresh `[]` from a zustand selector on every
 // render triggers an infinite re-render loop, so share one frozen array instead.
@@ -28,6 +29,7 @@ const EMPTY_DESIGNS: ProjectDesign[] = [];
  *  first edit. */
 export function PanelEditor() {
   const { t } = useTranslation("project");
+  const { fmtLen } = useUnitFormat();
   const currentPath = useShell((s) => s.currentPath);
   const savePanelConfig = useShell((s) => s.savePanelConfig);
   const docNonce = useShell((s) => s.docNonce);
@@ -228,13 +230,13 @@ export function PanelEditor() {
 
         <SettingsSection icon={Ruler} title={t("setup.sectionBlank")}>
           <SettingRow label={t("setup.width")}>
-            <UnitField value={width} onChange={setWidth} unit="mm" step="1" invalid={widthTooBig} />
+            <UnitField value={width} onChange={setWidth} dim="coarse" step="1" invalid={widthTooBig} />
           </SettingRow>
           <SettingRow label={t("setup.height")}>
-            <UnitField value={height} onChange={setHeight} unit="mm" step="1" invalid={heightTooBig} />
+            <UnitField value={height} onChange={setHeight} dim="coarse" step="1" invalid={heightTooBig} />
           </SettingRow>
           <p className={`px-1 text-[11px] ${widthTooBig || heightTooBig ? "text-destructive" : "text-muted-foreground"}`}>
-            {t("setup.maxFromSettings", { w: maxW, h: maxH })}
+            {t("setup.maxFromSettings", { w: fmtLen(maxW), h: fmtLen(maxH) })}
           </p>
           {offPanelCount > 0 && (
             <p className="px-1 text-[11px] text-warning">
@@ -258,7 +260,7 @@ export function PanelEditor() {
             </Select>
           </SettingRow>
           <SettingRow label={t("setup.substrate")}>
-            <UnitField value={substrate} onChange={setSubstrate} unit="mm" step="0.1" />
+            <UnitField value={substrate} onChange={setSubstrate} dim="fine" step="0.1" />
           </SettingRow>
           <SettingRow label={t("setup.sides")}>
             <SegmentedControl<"single" | "double">
