@@ -679,7 +679,7 @@ mod tests {
         }
         // Per-layer spans run on rayon workers; their presence proves the
         // `capture_dispatch`/`dh.run` propagation routes worker spans to the file.
-        for name in ["surface_layer", "polygons", "triangulate"] {
+        for name in ["build_surface_layer", "polygons", "triangulate"] {
             assert!(
                 body.contains(name),
                 "worker span `{name}` missing — dispatch propagation broken"
