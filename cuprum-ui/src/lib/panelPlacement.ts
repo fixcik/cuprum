@@ -166,3 +166,10 @@ export function marqueeHits(items: { id: string; box: Box }[], rect: Box): strin
     )
     .map(({ id }) => id);
 }
+
+/** Snap an angle (deg) to 15° (default) or 1° (fine), normalised to [0,360). */
+export function snapAngle(deg: number, fine: boolean): number {
+  const step = fine ? 1 : 15;
+  const snapped = Math.round(deg / step) * step;
+  return ((snapped % 360) + 360) % 360;
+}

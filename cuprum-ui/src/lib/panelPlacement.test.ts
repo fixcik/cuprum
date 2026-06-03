@@ -5,6 +5,7 @@ import {
   isOffPanel,
   clampDeltaToPanel,
   marqueeHits,
+  snapAngle,
 } from "@/lib/panelPlacement";
 import { DEFAULT_NEST } from "@/lib/nest";
 import type { NestSettings } from "@/lib/nest";
@@ -153,5 +154,21 @@ describe("marqueeHits", () => {
   it("returns ids whose AABB intersects the rect", () => {
     expect(marqueeHits(items, { minX: 5, minY: 5, maxX: 55, maxY: 55 }).sort()).toEqual(["a", "b"]);
     expect(marqueeHits(items, { minX: 20, minY: 20, maxX: 30, maxY: 30 })).toEqual([]);
+  });
+});
+
+describe("snapAngle", () => {
+  it("snaps to 15° by default", () => {
+    expect(snapAngle(7, false)).toBe(0);
+    expect(snapAngle(8, false)).toBe(15);
+    expect(snapAngle(200, false)).toBe(195);
+  });
+  it("snaps to 1° when fine", () => {
+    expect(snapAngle(37.4, true)).toBe(37);
+    expect(snapAngle(37.6, true)).toBe(38);
+  });
+  it("normalises into [0,360)", () => {
+    expect(snapAngle(-15, false)).toBe(345);
+    expect(snapAngle(375, false)).toBe(15);
   });
 });

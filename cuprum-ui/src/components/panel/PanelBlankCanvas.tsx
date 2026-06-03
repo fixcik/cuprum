@@ -10,8 +10,9 @@ import { CadGrid } from "@/components/editor/CadGrid";
 import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, clampDeltaToPanel, marqueeHits } from "@/lib/panelPlacement";
+import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle } from "@/lib/panelPlacement";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
+import { RotationHandle } from "@/components/panel/RotationHandle";
 import { api, type BoardInstance, type ProjectDesign } from "@/lib/api";
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
@@ -46,6 +47,7 @@ export function PanelBlankCanvas({
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
   const workingDir = useShell((s) => s.workingDir);
   const moveInstances = useShell((s) => s.moveInstances);
+  const rotateInstancesBy = useShell((s) => s.rotateInstancesBy);
   const selected = usePanelSelection((s) => s.selected);
   const setSelection = usePanelSelection((s) => s.set);
   const toggleSelection = usePanelSelection((s) => s.toggle);
@@ -70,6 +72,9 @@ export function PanelBlankCanvas({
   // Live marquee rect (mm), drawn while drag-selecting over empty canvas; null when idle.
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const marqueeStart = useRef<{ x: number; y: number } | null>(null);
+  // Live rotation preview: snapped delta (deg) applied to every selected instance's
+  // render while the rotation knob is dragged; null when idle. Committed once on release.
+  const [rotPreview, setRotPreview] = useState<number | null>(null);
 
   // Resolve board extents (mm) for placed instances (cached metrics). Keyed by
   // design id; fetched once per design referenced on the panel.
@@ -259,6 +264,56 @@ export function PanelBlankCanvas({
     [instances, selected, sizes],
   );
 
+  // Union AABB (mm) of the selection, INCLUDING the live rotation preview, so the
+  // rotation knob tracks the selection while it spins. null when nothing selected.
+  const selectionBBox = useMemo(() => {
+    const boxes = instances
+      .filter((i) => selected.has(i.id) && sizes[i.design_id])
+      .map((i) => {
+        const sz = sizes[i.design_id];
+        const rot = i.rotation_deg + (rotPreview ?? 0);
+        return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: rot });
+      });
+    if (boxes.length === 0) return null;
+    return {
+      minX: Math.min(...boxes.map((b) => b.minX)),
+      minY: Math.min(...boxes.map((b) => b.minY)),
+      maxX: Math.max(...boxes.map((b) => b.maxX)),
+      maxY: Math.max(...boxes.map((b) => b.maxY)),
+    };
+  }, [instances, selected, sizes, rotPreview]);
+
+  // --- Rotation knob (select tool only) ---
+  const onRotatePreview = useCallback((deltaDeg: number, fine: boolean) => {
+    // Snap the DELTA to the 15°/1° grid, then re-sign into (−180,180] so a small
+    // backwards turn stays negative rather than wrapping near 360°.
+    const snapped = snapAngle(deltaDeg, fine);
+    setRotPreview(snapped > 180 ? snapped - 360 : snapped);
+  }, []);
+
+  const onRotateCommit = useCallback(() => {
+    const delta = rotPreview;
+    setRotPreview(null);
+    if (delta == null || delta === 0) return;
+    const ids = [...selected];
+    void (async () => {
+      await rotateInstancesBy(ids, delta);
+      // Rotating about each board's centre can push the rotated AABB off-panel;
+      // pull the whole selection back inside with a single follow-up move.
+      const panel = useShell.getState().currentManifest?.panel;
+      if (!panel) return;
+      const sel = new Set(ids);
+      const boxes = panel.instances
+        .filter((i) => sel.has(i.id) && sizes[i.design_id])
+        .map((i) => {
+          const sz = sizes[i.design_id];
+          return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg });
+        });
+      const { dx, dy } = clampDeltaToPanel(boxes, 0, 0, W, H);
+      if (dx !== 0 || dy !== 0) await moveInstances(ids, dx, dy);
+    })();
+  }, [rotPreview, selected, rotateInstancesBy, moveInstances, sizes, W, H]);
+
   // --- Instance interaction (select tool only) ---
   const onInstanceClick = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
     if (tool !== "select") return;
@@ -416,6 +471,9 @@ export function PanelBlankCanvas({
               const shift = isSelected && dragDelta ? dragDelta : { dx: 0, dy: 0 };
               const cx = inst.x_mm + sz.w / 2 + shift.dx;
               const cy = inst.y_mm + sz.h / 2 + shift.dy;
+              // Live rotation preview: spin selected instances by the snapped delta
+              // (each about its own centre) until the knob is released and committed.
+              const rotation = inst.rotation_deg + (isSelected && rotPreview != null ? rotPreview : 0);
               return (
                 <Group
                   key={inst.id}
@@ -424,7 +482,7 @@ export function PanelBlankCanvas({
                   y={cy}
                   offsetX={sz.w / 2}
                   offsetY={sz.h / 2}
-                  rotation={inst.rotation_deg}
+                  rotation={rotation}
                   listening={tool === "select"}
                   draggable={tool === "select"}
                   onClick={onInstanceClick(inst.id)}
@@ -457,7 +515,23 @@ export function PanelBlankCanvas({
                 </Group>
               );
             })}
-            <SelectionOverlay instances={visibleInstances} sizes={sizes} selected={selected} dragDelta={dragDelta} />
+            <SelectionOverlay
+              instances={visibleInstances}
+              sizes={sizes}
+              selected={selected}
+              dragDelta={dragDelta}
+              rotPreview={rotPreview}
+            />
+            {tool === "select" && !dragDelta && selectionBBox && (
+              <RotationHandle
+                cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
+                cy={(selectionBBox.minY + selectionBBox.maxY) / 2}
+                radiusMm={(selectionBBox.maxY - selectionBBox.minY) / 2 + Math.max(W, H) * 0.06}
+                pointerMm={pointerMm}
+                onRotate={onRotatePreview}
+                onCommit={onRotateCommit}
+              />
+            )}
             {marquee && (
               <Rect
                 x={Math.min(marquee.x0, marquee.x1)}
