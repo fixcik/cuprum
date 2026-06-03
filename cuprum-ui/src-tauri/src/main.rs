@@ -1216,11 +1216,11 @@ fn take_pending_open(state: tauri::State<PendingOpen>) -> Option<String> {
 /// (localised), so we use a neutral one here.
 #[tauri::command]
 fn open_add_design_window(app: AppHandle) -> Result<(), String> {
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if let Some(w) = app.get_webview_window("add-design") {
         return w.set_focus().map_err(|e| e.to_string());
     }
-    WebviewWindowBuilder::new(&app, "add-design", WebviewUrl::App("index.html".into()))
+    let win = WebviewWindowBuilder::new(&app, "add-design", WebviewUrl::App("index.html".into()))
         .title("Cuprum")
         .inner_size(980.0, 760.0)
         .min_inner_size(720.0, 520.0)
@@ -1228,8 +1228,21 @@ fn open_add_design_window(app: AppHandle) -> Result<(), String> {
         .center()
         .focused(true)
         .build()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Center the window over the main window so on multi-monitor setups it opens
+    // on the same screen the user is working on, not the primary one. All physical
+    // coords (no scale-factor mismatch); falls back to the builder's .center() if
+    // the main window's geometry isn't available.
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(main_size), Ok(child_size)) =
+            (main.outer_position(), main.outer_size(), win.outer_size())
+        {
+            let x = pos.x + (main_size.width as i32 - child_size.width as i32) / 2;
+            let y = pos.y + (main_size.height as i32 - child_size.height as i32) / 2;
+            let _ = win.set_position(PhysicalPosition::new(x, y));
+        }
+    }
+    Ok(())
 }
 
 fn main() {
