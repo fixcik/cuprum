@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::ThreadId;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id};
@@ -317,7 +317,223 @@ pub fn operation<T>(name: &str, default_dir: &Path, f: impl FnOnce() -> T) -> T 
     run_with_config(config(), name, default_dir, f)
 }
 
-pub(crate) fn run_with_config<T>(
+// ── Session registry ──────────────────────────────────────────────────────────
+
+/// Per-session state owned by the session registry.
+struct SessionState {
+    sink: Arc<Mutex<OpSink>>,
+    file_path: PathBuf,
+    /// Number of in-flight `operation_in_session` calls using this session.
+    open_ops: usize,
+    /// Updated at session open and after each operation completes.
+    last_activity: Instant,
+}
+
+/// Active sessions, keyed by session id.
+fn sessions() -> &'static Mutex<HashMap<u64, SessionState>> {
+    static S: OnceLock<Mutex<HashMap<u64, SessionState>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Monotonic session id counter starting at 1.
+fn next_session_id() -> u64 {
+    static SID: AtomicU64 = AtomicU64::new(1);
+    SID.fetch_add(1, Ordering::Relaxed)
+}
+
+// ── Idle reaper ───────────────────────────────────────────────────────────────
+
+/// Idle timeout from `CUPRUM_TRACE_SESSION_IDLE_MS` (default 1 500 ms), read
+/// once from the env (a bad/unparseable value falls back to the default).
+fn idle_timeout() -> Duration {
+    static IDLE: OnceLock<Duration> = OnceLock::new();
+    *IDLE.get_or_init(|| {
+        std::env::var("CUPRUM_TRACE_SESSION_IDLE_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(Duration::from_millis)
+            .unwrap_or(Duration::from_millis(1500))
+    })
+}
+
+/// Synchronously finalize a session by removing it from the registry and
+/// flushing its sink. Used by the reaper and, in tests, for determinism.
+///
+/// Bypasses the `open_ops` idle check: it must NOT be called while an operation
+/// is in flight on the session (reaper/test use only), or that op's later events
+/// would route to an already-closed sink.
+pub(crate) fn finalize_session_now(sid: u64) {
+    let state = sessions().lock().unwrap().remove(&sid);
+    if let Some(state) = state {
+        state.sink.lock().unwrap().finish();
+        let shown = state
+            .file_path
+            .canonicalize()
+            .unwrap_or(state.file_path.clone());
+        eprintln!("cuprum: trace → {}", shown.display());
+    }
+}
+
+/// Finalize all sessions with `open_ops == 0` whose last activity exceeds
+/// `timeout`. Collects idle session ids while holding the lock, then finalizes
+/// each one (which re-locks briefly) outside the initial lock scope.
+fn reap_idle_with_timeout(timeout: Duration) {
+    let idle_sids: Vec<u64> = {
+        let map = sessions().lock().unwrap();
+        map.iter()
+            .filter(|(_, s)| s.open_ops == 0 && s.last_activity.elapsed() > timeout)
+            .map(|(k, _)| *k)
+            .collect()
+    };
+    for sid in idle_sids {
+        finalize_session_now(sid);
+    }
+}
+
+/// Reap using the env-configured idle timeout.
+fn reap_idle() {
+    reap_idle_with_timeout(idle_timeout());
+}
+
+/// Spawn the idle-reaper background thread exactly once (lazy).
+fn ensure_reaper() {
+    static REAPER: OnceLock<()> = OnceLock::new();
+    REAPER.get_or_init(|| {
+        if let Err(e) = std::thread::Builder::new()
+            .name("cuprum-trace-reaper".to_string())
+            .spawn(|| loop {
+                std::thread::sleep(Duration::from_millis(250));
+                reap_idle();
+            })
+        {
+            eprintln!("cuprum: trace reaper spawn failed: {e}");
+        }
+    });
+}
+
+// ── Public session API ────────────────────────────────────────────────────────
+
+/// Open a trace session. Subsequent `operation_in_session` calls with the
+/// returned id write into ONE shared file with a shared time origin. Returns
+/// `None` when tracing is disabled. Finalized by the idle reaper or
+/// `finalize_session_now` in tests.
+pub fn begin_session(name: &str, default_dir: &Path) -> Option<u64> {
+    begin_session_with_config(config(), name, default_dir)
+}
+
+fn begin_session_with_config(cfg: &TraceConfig, name: &str, default_dir: &Path) -> Option<u64> {
+    let dir = match cfg {
+        TraceConfig::Off => return None,
+        TraceConfig::DefaultDir => default_dir.to_path_buf(),
+        TraceConfig::Dir(d) => d.clone(),
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "cuprum: trace dir {} unusable: {e}; tracing skipped",
+            dir.display()
+        );
+        return None;
+    }
+    ensure_global_subscriber();
+
+    let sid = next_session_id();
+    let file_path = dir.join(format!("{name}_{:04}_{}.json", next_seq(), millis_stamp()));
+    let sink = match OpSink::new(&file_path) {
+        Ok(s) => Arc::new(Mutex::new(s)),
+        Err(e) => {
+            eprintln!(
+                "cuprum: cannot open session trace file {}: {e}",
+                file_path.display()
+            );
+            return None;
+        }
+    };
+    sessions().lock().unwrap().insert(
+        sid,
+        SessionState {
+            sink,
+            file_path,
+            open_ops: 0,
+            last_activity: Instant::now(),
+        },
+    );
+    ensure_reaper();
+    Some(sid)
+}
+
+/// Run `f` as a traced operation within a session.
+///
+/// If `session_id` is `None` or tracing is disabled, delegates to
+/// [`operation`] (standalone file). If the session has already been finalized,
+/// also falls back to a standalone file. Must not panic.
+pub fn operation_in_session<T>(
+    session_id: Option<u64>,
+    name: &str,
+    default_dir: &Path,
+    f: impl FnOnce() -> T,
+) -> T {
+    operation_in_session_with_config(config(), session_id, name, default_dir, f)
+}
+
+fn operation_in_session_with_config<T>(
+    cfg: &TraceConfig,
+    session_id: Option<u64>,
+    name: &str,
+    default_dir: &Path,
+    f: impl FnOnce() -> T,
+) -> T {
+    // Fall back to standalone when disabled or no session id.
+    let sid = match session_id {
+        Some(s) if !matches!(cfg, TraceConfig::Off) => s,
+        _ => return run_with_config(cfg, name, default_dir, f),
+    };
+
+    // Look up the session's shared sink.  If gone, fall back.
+    let sink_arc: Arc<Mutex<OpSink>> = {
+        let mut map = sessions().lock().unwrap();
+        match map.get_mut(&sid) {
+            Some(state) => {
+                state.open_ops += 1;
+                state.last_activity = Instant::now();
+                state.sink.clone()
+            }
+            None => return run_with_config(cfg, name, default_dir, f),
+        }
+    };
+
+    let op_id = next_op_id();
+    sinks().lock().unwrap().insert(op_id, sink_arc);
+
+    // RAII guard so the routing + bookkeeping cleanup runs on both normal return
+    // AND on unwind if `f` panics. Without it, a panic would leave `open_ops > 0`
+    // forever: the reaper would never finalize the session and its file would stay
+    // open. Constructed AFTER incrementing `open_ops` / inserting into `sinks()`.
+    struct OpGuard {
+        op_id: u64,
+        sid: u64,
+    }
+    impl Drop for OpGuard {
+        fn drop(&mut self) {
+            // Order matters: remove the op from the routing table FIRST, then
+            // decrement `open_ops` LAST. This ensures the reaper can't observe
+            // `open_ops == 0` (and finalize the sink) while this op's events are
+            // still being routed to it.
+            sinks().lock().unwrap().remove(&self.op_id);
+            if let Some(state) = sessions().lock().unwrap().get_mut(&self.sid) {
+                state.open_ops = state.open_ops.saturating_sub(1);
+                state.last_activity = Instant::now();
+            }
+        }
+    }
+    let _guard = OpGuard { op_id, sid };
+
+    // The root span exits when this scope's guard drops; its E event is written
+    // before `_guard` (declared earlier) removes the op from routing.
+    let _root = tracing::info_span!("operation", op = name, cuprum_op_id = op_id).entered();
+    f()
+}
+
+fn run_with_config<T>(
     cfg: &TraceConfig,
     name: &str,
     default_dir: &Path,
@@ -611,5 +827,224 @@ mod tests {
         let _s = tracing::info_span!("orphan_span").entered();
         // Nothing to flush, nothing to assert beyond "did not panic / no sink".
         // (Sinks map is only populated inside `run_with_config`.)
+    }
+
+    // ── Session tests ─────────────────────────────────────────────────────────
+
+    /// Collect all JSON files in `dir`.
+    fn json_files(dir: &std::path::Path) -> Vec<PathBuf> {
+        std::fs::read_dir(dir)
+            .expect("trace dir exists")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+            .collect()
+    }
+
+    #[test]
+    fn session_groups_operations_into_one_file() {
+        let tmp =
+            std::env::temp_dir().join(format!("cuprum-trace-session-group-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        let sid =
+            begin_session_with_config(&cfg, "sess", &tmp).expect("session created with Dir config");
+
+        operation_in_session_with_config(&cfg, Some(sid), "op_a", &tmp, || {
+            let _s = tracing::info_span!("step_a").entered();
+        });
+        operation_in_session_with_config(&cfg, Some(sid), "op_b", &tmp, || {
+            let _s = tracing::info_span!("step_b").entered();
+        });
+
+        finalize_session_now(sid);
+
+        let files = json_files(&tmp);
+        assert_eq!(
+            files.len(),
+            1,
+            "exactly one session file expected, got {files:?}"
+        );
+
+        let body = std::fs::read_to_string(&files[0]).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).expect("session file is valid JSON");
+        assert!(body.contains("op_a"), "op_a must be in the session file");
+        assert!(body.contains("op_b"), "op_b must be in the session file");
+        assert!(
+            body.contains("operation"),
+            "root operation spans must be present"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn operation_in_session_none_is_passthrough() {
+        let tmp = std::env::temp_dir().join(format!(
+            "cuprum-trace-session-passthrough-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        // session_id = None → standalone operation
+        operation_in_session_with_config(&cfg, None, "solo", &tmp, || {
+            let _s = tracing::info_span!("solo_inner").entered();
+        });
+
+        let files = json_files(&tmp);
+        assert!(
+            !files.is_empty(),
+            "a trace file must be written for the passthrough op"
+        );
+        let body = std::fs::read_to_string(&files[0]).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON");
+        assert!(body.contains("solo"), "standalone op name present");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn expired_session_falls_back_to_standalone() {
+        let tmp = std::env::temp_dir().join(format!(
+            "cuprum-trace-session-expired-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        let sid = begin_session_with_config(&cfg, "exp", &tmp).expect("session created");
+
+        // Finalize before the operation uses it.
+        finalize_session_now(sid);
+
+        // Must not panic; should fall back to a standalone file.
+        operation_in_session_with_config(&cfg, Some(sid), "after", &tmp, || {
+            let _s = tracing::info_span!("after_inner").entered();
+        });
+
+        let files = json_files(&tmp);
+        // One file: the session file (empty / finalized) + standalone for "after".
+        // Actually the session file was opened but closed immediately; standalone
+        // also produces a file. We have at least one file containing "after".
+        let has_after = files.iter().any(|f| {
+            std::fs::read_to_string(f)
+                .map(|b| b.contains("after"))
+                .unwrap_or(false)
+        });
+        assert!(has_after, "standalone fallback file must contain 'after'");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn reaper_finalizes_idle_session() {
+        let tmp =
+            std::env::temp_dir().join(format!("cuprum-trace-session-reap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        let sid = begin_session_with_config(&cfg, "idle", &tmp).expect("session created");
+
+        // Reap with zero timeout: any session with no in-flight op counts as idle.
+        reap_idle_with_timeout(Duration::ZERO);
+
+        // Session must be gone from registry.
+        assert!(
+            sessions().lock().unwrap().get(&sid).is_none(),
+            "session must be removed after reaping"
+        );
+
+        // File must be a valid, closed JSON array.
+        let files = json_files(&tmp);
+        assert_eq!(files.len(), 1, "reaper must have produced one file");
+        let body = std::fs::read_to_string(&files[0]).unwrap();
+        let trimmed = body.trim();
+        assert!(
+            trimmed.ends_with(']'),
+            "trace file must be closed with ']' after reap, got: {trimmed:?}"
+        );
+        serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON after reap");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn session_keeps_worker_spans_across_two_ops() {
+        use rayon::prelude::*;
+        let tmp = std::env::temp_dir().join(format!(
+            "cuprum-trace-session-workers-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        let sid = begin_session_with_config(&cfg, "sess_par", &tmp).expect("session created");
+
+        for op_name in &["par_op_1", "par_op_2"] {
+            operation_in_session_with_config(&cfg, Some(sid), op_name, &tmp, || {
+                let dh = capture_dispatch();
+                (0..4).into_par_iter().for_each(|i| {
+                    dh.run(|| {
+                        let _s = tracing::info_span!("sess_worker", i = i as u64).entered();
+                    });
+                });
+            });
+        }
+
+        finalize_session_now(sid);
+
+        let files = json_files(&tmp);
+        assert_eq!(files.len(), 1, "all ops must share one session file");
+        let body = std::fs::read_to_string(&files[0]).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON");
+        assert!(
+            body.contains("sess_worker"),
+            "worker spans from session ops must appear in the session file"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn panic_in_op_runs_cleanup_guard() {
+        // If `f` panics, the RAII guard must still remove the op from routing and
+        // decrement `open_ops`, so the session stays reapable and its file closes.
+        let tmp =
+            std::env::temp_dir().join(format!("cuprum-trace-session-panic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        let sid = begin_session_with_config(&cfg, "panicky", &tmp).expect("session created");
+
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            operation_in_session_with_config(&cfg, Some(sid), "boom", &tmp, || {
+                let _s = tracing::info_span!("boom_inner").entered();
+                panic!("intentional");
+            });
+        }));
+        assert!(caught.is_err(), "panic must propagate out of the op");
+
+        // Guard must have decremented open_ops back to 0 on unwind.
+        {
+            let map = sessions().lock().unwrap();
+            let state = map.get(&sid).expect("session still registered after panic");
+            assert_eq!(state.open_ops, 0, "open_ops must return to 0 on unwind");
+        }
+
+        // Reaper can therefore finalize it; file must be a valid closed array.
+        reap_idle_with_timeout(Duration::ZERO);
+        assert!(
+            sessions().lock().unwrap().get(&sid).is_none(),
+            "panicked session must be reapable"
+        );
+        let files = json_files(&tmp);
+        assert_eq!(files.len(), 1, "one session file written");
+        let body = std::fs::read_to_string(&files[0]).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON after panic + reap");
+        assert!(body.trim().ends_with(']'), "file closed after reap");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
