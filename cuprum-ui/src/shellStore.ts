@@ -9,8 +9,18 @@ let _flushTimer: ReturnType<typeof setTimeout> | null = null;
 /** Serialize ALL packs (mutations, restore points, artifact flush): two concurrent
  *  packs race on the container write + gc_gerbers vs collect_entries. */
 let _packChain: Promise<unknown> = Promise.resolve();
+/** Count of packs queued-but-not-yet-settled, so the UI can show a "saving"
+ *  spinner while any repack (autosave flush included) is in flight. */
+let _packInFlight = 0;
 function serializePack(fn: () => Promise<void>): Promise<void> {
-  const next = _packChain.then(fn, fn);
+  _packInFlight += 1;
+  if (_packInFlight === 1) useShell.setState({ saving: true });
+  const run = () =>
+    fn().finally(() => {
+      _packInFlight -= 1;
+      if (_packInFlight === 0) useShell.setState({ saving: false });
+    });
+  const next = _packChain.then(run, run);
   _packChain = next.catch(() => {});
   return next;
 }
@@ -28,6 +38,9 @@ interface ShellStore {
   currentManifest: Manifest | null;
   error: string | null;
   homeNotice: string | null;
+  /** True while any repack (`serializePack`: autosave flush, mutations, restore
+   *  points) is in flight — drives the toolbar save spinner. */
+  saving: boolean;
 
   /** In-session document history. Snapshots are whole manifests. */
   undoStack: Manifest[];
@@ -129,6 +142,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   currentManifest: null,
   error: null,
   homeNotice: null,
+  saving: false,
   undoStack: [],
   redoStack: [],
   restorePoints: [],
