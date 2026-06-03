@@ -56,18 +56,40 @@ pub fn write_manifest(workdir: &Path, manifest: &Manifest) -> Result<()> {
 /// file EXCEPT the manifest and the session marker (so panel.json + gerbers are
 /// preserved). Reuses `container::write` (temp-file + atomic rename).
 pub fn pack(workdir: &Path, container: &Path) -> Result<()> {
-    let manifest = read_manifest(workdir)?;
+    let manifest = {
+        let _s = tracing::info_span!("read_manifest").entered();
+        read_manifest(workdir)?
+    };
     // Sweep stale artifact blobs (post version-bump / recolor / design removal)
     // before packing, so the `.cuprum` ships only current artifacts.
-    let valid = valid_artifact_keys(workdir, &manifest);
-    cuprum_core::artifact::gc(&workdir.join("artifacts"), &valid);
+    let valid = {
+        let _s = tracing::info_span!("compute_valid_keys").entered();
+        valid_artifact_keys(workdir, &manifest)
+    };
+    {
+        let _s = tracing::info_span!("artifact_gc").entered();
+        cuprum_core::artifact::gc(&workdir.join("artifacts"), &valid);
+    }
     // Reclaim gerber dirs no live manifest/restore-point references (deleted
     // designs). Skip entirely if the live set can't be fully determined.
-    if let Some(live_dirs) = live_gerber_dirs(workdir, &manifest) {
-        gc_gerbers(workdir, &live_dirs);
+    {
+        let _s = tracing::info_span!("gerber_gc").entered();
+        if let Some(live_dirs) = live_gerber_dirs(workdir, &manifest) {
+            gc_gerbers(workdir, &live_dirs);
+        }
     }
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
-    collect_entries(workdir, workdir, &mut entries)?;
+    let collect_span = tracing::info_span!(
+        "collect_entries",
+        files = tracing::field::Empty,
+        bytes = tracing::field::Empty
+    );
+    {
+        let _s = collect_span.enter();
+        collect_entries(workdir, workdir, &mut entries)?;
+        collect_span.record("files", entries.len());
+        collect_span.record("bytes", entries.iter().map(|(_, b)| b.len()).sum::<usize>());
+    }
     container::write(container, &manifest, &entries)
 }
 
@@ -313,6 +335,8 @@ pub fn extract(container: &Path, workdir: &Path, marker: &SessionMarker) -> Resu
 mod tests {
     use super::*;
 
+    use crate::test_trace::collect_span_names;
+
     fn scratch(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("cuprum-wd-{tag}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
@@ -453,6 +477,58 @@ mod tests {
             container::read_entry(&out, container::PANEL_NAME).is_err(),
             "legacy panel.json must not be packed"
         );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn pack_emits_phase_spans() {
+        use crate::document::manifest::{Design, GerberFile, Manifest};
+        use crate::layer::LayerType;
+        let root = scratch("pack-spans");
+        let cuprum = root.join("p.cu");
+
+        let mut m = Manifest::new("span-test");
+        m.designs.push(Design {
+            id: "design-1".into(),
+            source_name: "src.zip".into(),
+            gerbers: vec![GerberFile {
+                path: "gerbers/design-1/a.gbr".into(),
+                layer_type: LayerType::TopCopper,
+            }],
+        });
+        container::write(
+            &cuprum,
+            &m,
+            &[("gerbers/design-1/a.gbr".to_string(), b"G04*".to_vec())],
+        )
+        .unwrap();
+
+        let wd = root.join("wd");
+        let marker = SessionMarker {
+            source_path: cuprum.to_string_lossy().into(),
+            pid: 1,
+            opened_at: 0,
+        };
+        extract(&cuprum, &wd, &marker).unwrap();
+
+        let out = root.join("out.cu");
+        let (result, names) = collect_span_names(|| pack(&wd, &out));
+        result.unwrap();
+
+        for expected in &[
+            "read_manifest",
+            "compute_valid_keys",
+            "artifact_gc",
+            "gerber_gc",
+            "collect_entries",
+            "zip_write",
+        ] {
+            assert!(
+                names.contains(&expected.to_string()),
+                "expected span '{expected}', got: {names:?}"
+            );
+        }
 
         std::fs::remove_dir_all(&root).ok();
     }

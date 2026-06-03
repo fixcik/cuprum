@@ -7,6 +7,92 @@ pub mod document;
 pub mod import;
 pub mod layer;
 
+/// Test-only tracing support shared across this crate's test modules.
+#[cfg(test)]
+pub(crate) mod test_trace {
+    // A minimal Subscriber that records entered span names into a shared Vec.
+    //
+    // Tracing caches callsite interest globally. A callsite first visited with
+    // no subscriber gets cached as NEVER and is skipped even when a thread-local
+    // subscriber is later active. Fix: install a global "sometimes-interested"
+    // stub once per process so callsites are cached as SOMETIMES, which makes
+    // them re-check the thread-local dispatcher on every invocation. This crate's
+    // test binary has no competing global subscriber, so the stub is harmless.
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    /// Hand out a fresh, non-zero span id (tracing requires a unique id per live
+    /// span). Shared by both stub subscribers below.
+    fn next_id(counter: &AtomicU64) -> tracing::span::Id {
+        tracing::span::Id::from_u64(counter.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Noop global subscriber that marks every callsite as SOMETIMES interested,
+    /// keeping the per-call dispatcher check active for thread-local overrides.
+    struct SometimesSubscriber(AtomicU64);
+    impl tracing::Subscriber for SometimesSubscriber {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            false // we don't actually handle events; just keep interest alive
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            next_id(&self.0)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, _: &tracing::Event<'_>) {}
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+        fn register_callsite(
+            &self,
+            _: &'static tracing::Metadata<'static>,
+        ) -> tracing::subscriber::Interest {
+            tracing::subscriber::Interest::sometimes()
+        }
+    }
+
+    fn ensure_global_subscriber() {
+        static INIT: OnceLock<()> = OnceLock::new();
+        INIT.get_or_init(|| {
+            let _ = tracing::subscriber::set_global_default(SometimesSubscriber(AtomicU64::new(1)));
+        });
+    }
+
+    struct NameCollector {
+        names: Arc<Mutex<Vec<String>>>,
+        next: AtomicU64,
+    }
+    impl tracing::Subscriber for NameCollector {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            self.names
+                .lock()
+                .unwrap()
+                .push(attrs.metadata().name().to_string());
+            next_id(&self.next)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, _: &tracing::Event<'_>) {}
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    /// Run `f` capturing the names of every span entered during it.
+    pub(crate) fn collect_span_names<R>(f: impl FnOnce() -> R) -> (R, Vec<String>) {
+        ensure_global_subscriber();
+        let names = Arc::new(Mutex::new(Vec::new()));
+        let sub = NameCollector {
+            names: names.clone(),
+            next: AtomicU64::new(1),
+        };
+        let r = tracing::subscriber::with_default(sub, f);
+        let v = names.lock().unwrap().clone();
+        (r, v)
+    }
+}
+
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -147,15 +233,18 @@ pub fn add_design_to_workdir(workdir: &Path, zip_path: &Path) -> Result<manifest
 
     let mut gerbers = Vec::new();
     let mut used = std::collections::HashSet::new();
-    for (base, bytes) in &imported.gerbers {
-        let name = unique_name(base, &used);
-        used.insert(name.clone());
-        std::fs::write(design_dir.join(&name), bytes)?;
-        let rel = format!("gerbers/{id}/{name}");
-        gerbers.push(manifest::GerberFile {
-            path: rel,
-            layer_type: layer::classify(&name),
-        });
+    {
+        let _s = tracing::info_span!("write_gerbers", files = imported.gerbers.len()).entered();
+        for (base, bytes) in &imported.gerbers {
+            let name = unique_name(base, &used);
+            used.insert(name.clone());
+            std::fs::write(design_dir.join(&name), bytes)?;
+            let rel = format!("gerbers/{id}/{name}");
+            gerbers.push(manifest::GerberFile {
+                path: rel,
+                layer_type: layer::classify(&name),
+            });
+        }
     }
     Ok(manifest::Design {
         id,
@@ -359,6 +448,8 @@ mod tests {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
+    use crate::test_trace::collect_span_names;
+
     fn make_source_zip(dir: &Path, file_name: &str) -> PathBuf {
         let path = dir.join(file_name);
         let f = File::create(&path).unwrap();
@@ -368,6 +459,35 @@ mod tests {
         zip.write_all(b"G04 board*").unwrap();
         zip.finish().unwrap();
         path
+    }
+
+    #[test]
+    fn add_design_emits_write_gerbers_span() {
+        let dir = std::env::temp_dir().join(format!("cuprum-add-span-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let zip = dir.join("board.zip");
+        {
+            let f = std::fs::File::create(&zip).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            let o = zip::write::SimpleFileOptions::default();
+            z.start_file("board-F_Cu.gbr", o).unwrap();
+            z.write_all(b"G04 cu*").unwrap();
+            z.finish().unwrap();
+        }
+        let wd = dir.join("wd");
+        std::fs::create_dir_all(&wd).unwrap();
+        crate::document::workdir::write_manifest(&wd, &Manifest::new("demo")).unwrap();
+
+        let (result, names) = collect_span_names(|| add_design_to_workdir(&wd, &zip));
+        result.unwrap();
+        assert!(
+            names.contains(&"write_gerbers".to_string()),
+            "expected write_gerbers span, got: {names:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

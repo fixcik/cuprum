@@ -35,6 +35,9 @@ pub struct ImportedZip {
 
 /// Read a source ZIP and return its Gerber/drill files.
 pub fn read_zip_gerbers(zip_path: &Path) -> Result<ImportedZip> {
+    let span = tracing::info_span!("read_zip", files = tracing::field::Empty);
+    let _e = span.enter();
+
     let source_name = zip_path
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
@@ -66,6 +69,7 @@ pub fn read_zip_gerbers(zip_path: &Path) -> Result<ImportedZip> {
         entry.read_to_end(&mut buf)?;
         gerbers.push((base, buf));
     }
+    span.record("files", gerbers.len());
     Ok(ImportedZip {
         source_name,
         gerbers,
@@ -77,6 +81,8 @@ mod tests {
     use super::*;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
+
+    use crate::test_trace::collect_span_names;
 
     fn make_zip(dir: &Path) -> std::path::PathBuf {
         let path = dir.join("src.zip");
@@ -100,6 +106,22 @@ mod tests {
         zip.write_all(b"junk").unwrap();
         zip.finish().unwrap();
         path
+    }
+
+    #[test]
+    fn read_zip_emits_read_zip_span() {
+        let dir = std::env::temp_dir().join(format!("cuprum-imp-span-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip = make_zip(&dir);
+
+        let (result, names) = collect_span_names(|| read_zip_gerbers(&zip));
+        result.unwrap();
+        assert!(
+            names.contains(&"read_zip".to_string()),
+            "expected read_zip span, got: {names:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

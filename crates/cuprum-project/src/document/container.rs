@@ -30,6 +30,8 @@ pub fn write(path: &Path, manifest: &Manifest, entries: &[(String, Vec<u8>)]) ->
     let build = (|| -> Result<()> {
         let file = File::create(&tmp)?;
         let mut zip = zip::ZipWriter::new(file);
+        // Span wraps only the deflate writes (start_file/write_all/finish).
+        let _s = tracing::info_span!("zip_write", entries = entries.len()).entered();
         let opts =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         zip.start_file(MANIFEST_NAME, opts)?;

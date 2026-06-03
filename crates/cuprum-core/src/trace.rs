@@ -533,7 +533,7 @@ fn operation_in_session_with_config<T>(
     f()
 }
 
-fn run_with_config<T>(
+pub(crate) fn run_with_config<T>(
     cfg: &TraceConfig,
     name: &str,
     default_dir: &Path,

@@ -115,7 +115,10 @@ pub fn put(dir: &Path, key: &str, bytes: &[u8], max_bytes: u64, ttl: Duration) {
         return;
     }
     let _ = std::fs::rename(&tmp, entry_path(dir, key));
-    prune(dir, max_bytes, ttl);
+    {
+        let _s = tracing::info_span!("prune").entered();
+        prune(dir, max_bytes, ttl);
+    }
 }
 
 /// Persistent variants for PROJECT artifacts: no TTL (never age out) and no size
@@ -127,6 +130,7 @@ pub fn get_persistent(dir: &Path, key: &str) -> Option<Vec<u8>> {
 }
 
 /// Store a persistent blob (no prune). Best-effort: IO errors are swallowed.
+#[tracing::instrument(skip_all, fields(bytes = bytes.len()))]
 pub fn put_persistent(dir: &Path, key: &str, bytes: &[u8]) {
     if cache_disabled() {
         return;
@@ -193,6 +197,52 @@ fn prune(dir: &Path, max_bytes: u64, ttl: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Read the single JSON trace file written under `dir` as a string.
+    fn read_trace_body(dir: &Path) -> String {
+        let files: Vec<_> = std::fs::read_dir(dir)
+            .expect("trace dir exists")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
+            .collect();
+        assert_eq!(files.len(), 1, "exactly one trace file written");
+        std::fs::read_to_string(&files[0]).unwrap()
+    }
+
+    // Exercise the diskcache spans through the trace module's real RoutingLayer
+    // path (the same global subscriber the app installs). This avoids a competing
+    // `set_global_default`, and `set_global_default` rebuilds the callsite interest
+    // cache so previously no-subscriber-hit callsites are re-evaluated.
+    #[test]
+    fn put_and_put_persistent_emit_spans_via_trace() {
+        let dir = std::env::temp_dir().join(format!("cuprum-dc-span-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = dir.join("c");
+
+        crate::trace::run_with_config(
+            &crate::trace::TraceConfig::Dir(dir.clone()),
+            "dc",
+            &dir,
+            || {
+                put_persistent(&cache, "k", b"x");
+                put(&cache, "k2", b"y", 1_000_000, Duration::from_secs(60));
+            },
+        );
+
+        let body = read_trace_body(&dir);
+        serde_json::from_str::<serde_json::Value>(&body).expect("trace is valid JSON");
+        assert!(
+            body.contains("put_persistent"),
+            "expected put_persistent span in trace, got: {body}"
+        );
+        assert!(
+            body.contains("prune"),
+            "expected prune span in trace, got: {body}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parse_no_cache_maps_values() {
