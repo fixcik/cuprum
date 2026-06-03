@@ -27,6 +27,8 @@ export function DesignCard({
   const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
   const reportArtifactProgress = useShell((s) => s.reportArtifactProgress);
   const clearArtifactProgress = useShell((s) => s.clearArtifactProgress);
+  // Opaque trace-session token set at import time; undefined for disk-opened designs.
+  const traceSession = useShell((s) => s.traceSessions[design.id]);
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -59,7 +61,7 @@ export function DesignCard({
     }
     setPreviewUrl(null);
     api
-      .renderDesignPreview(workingDir, design.id, gerbers, layerColors ?? undefined)
+      .renderDesignPreview(workingDir, design.id, gerbers, layerColors ?? undefined, traceSession)
       .then((r) => {
         if (!cancelled) {
           setPreviewUrl(r.pngDataUrl);
@@ -87,6 +89,7 @@ export function DesignCard({
       .projectBoardMetrics(
         workingDir,
         design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
+        traceSession,
       )
       .then((m) => {
         if (cancelled) return;
@@ -119,7 +122,7 @@ export function DesignCard({
     }
     setSvgReady(false);
     api
-      .renderLayersSvg(workingDir, rels)
+      .renderLayersSvg(workingDir, rels, traceSession)
       .then((results) => {
         if (cancelled) return;
         setSvgReady(true);

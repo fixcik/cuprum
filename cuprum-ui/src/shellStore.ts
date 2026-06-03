@@ -103,6 +103,11 @@ interface ShellStore {
   /** Remove one design's progress entry — e.g. its card unmounted mid-prep, so
    *  the global chip shouldn't freeze at that design's partial fraction. */
   clearArtifactProgress: (designId: string) => void;
+
+  /** Ephemeral opaque trace-session token per newly-imported design, keyed by
+   *  designId. Set at import time; absent for designs opened from disk. Not
+   *  persisted — an in-memory u32 has no meaning across launches. */
+  traceSessions: Record<string, number>;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -128,6 +133,7 @@ export const useShell = create<ShellStore>((set, get) => ({
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
   artifactProgress: {},
+  traceSessions: {},
 
   scheduleArtifactFlush: (fresh) => {
     if (!fresh) return;
@@ -492,10 +498,15 @@ export const useShell = create<ShellStore>((set, get) => ({
     // Collect successes; if one fails, still commit the ones that succeeded so
     // their already-on-disk gerbers aren't orphaned, then surface the error.
     const added: ProjectDesign[] = [];
+    const newTraceSessions: Record<string, number> = {};
     let failure: unknown = null;
     for (const zip of paths) {
       try {
-        added.push(await api.addDesignFromZip(workingDir, zip));
+        const result = await api.addDesignFromZip(workingDir, zip);
+        added.push(result.design);
+        if (result.traceSession != null) {
+          newTraceSessions[result.design.id] = result.traceSession;
+        }
       } catch (e) {
         failure = e;
         break;
@@ -505,7 +516,13 @@ export const useShell = create<ShellStore>((set, get) => ({
       if (added.length > 0) {
         const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
         get()._recordUndo(prev);
-        set({ currentManifest: manifest, error: null });
+        set((s) => ({
+          currentManifest: manifest,
+          error: null,
+          traceSessions: Object.keys(newTraceSessions).length > 0
+            ? { ...s.traceSessions, ...newTraceSessions }
+            : s.traceSessions,
+        }));
         // Persist: write the loose manifest then repack the .cuprum so the freshly
         // copied gerbers land in the container too.
         await get()._persistManifest(manifest);
