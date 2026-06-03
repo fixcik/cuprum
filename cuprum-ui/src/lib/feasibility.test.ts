@@ -361,3 +361,46 @@ describe("evaluate — annular ring", () => {
     expect(ann?.severity).toBe("ok");
   });
 });
+
+describe("evaluate — mask, silk & overshoot", () => {
+  it("reports a mask dam violation as info", () => {
+    const metrics = makeMetrics({
+      geo: { maskDamHotspots: [{ a: [0, 0], b: [0.07, 0], v: 0.07, side: "top" }] },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    const mask = findings.find((f) => f.id === "mask.dam");
+    expect(mask?.severity).toBe("info");
+  });
+
+  it("reports a thin silk line as info", () => {
+    const metrics = makeMetrics({
+      geo: { silkHotspots: [{ a: [0, 0], b: [0.1, 0], v: 0.1, side: "top" }] },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    const silk = findings.find((f) => f.id === "silk.line.top");
+    expect(silk?.severity).toBe("info");
+  });
+
+  it("does not escalate the verdict for mask/silk info findings only", () => {
+    const metrics = makeMetrics({
+      geo: {
+        maskDamHotspots: [{ a: [0, 0], b: [0.07, 0], v: 0.07, side: "top" }],
+        silkHotspots: [{ a: [0, 0], b: [0.1, 0], v: 0.1, side: "top" }],
+      },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    expect(overallVerdict(findings)).toBe("ok");
+  });
+
+  it("warns when a layer overshoots the board edge beyond the limit", () => {
+    const metrics = makeMetrics({
+      geo: {
+        layerOvershootMm: 0.3,
+        overshootHotspots: [{ a: [0, 0], b: [0.3, 0], v: 0.3, side: "top" }],
+      },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    const over = findings.find((f) => f.id === "size.overshoot");
+    expect(over?.severity).toBe("warn");
+  });
+});
