@@ -279,3 +279,33 @@ describe("evaluate — clearance & width", () => {
     expect(neck?.severity).toBe("warn");
   });
 });
+
+describe("evaluate — drill", () => {
+  it("blocks a minimum hole smaller than the machine can drill", () => {
+    const metrics = makeMetrics({ drill: { minHoleMm: 0.2 } });
+    const findings = evaluate(metrics, makeProfile());
+    const hole = findings.find((f) => f.id === "drill.minHole");
+    expect(hole?.severity).toBe("block");
+  });
+
+  it("accepts a minimum hole at or above the machine limit", () => {
+    const metrics = makeMetrics({ drill: { minHoleMm: 0.5 } });
+    const findings = evaluate(metrics, makeProfile());
+    const hole = findings.find((f) => f.id === "drill.minHole");
+    expect(hole?.severity).toBe("ok");
+  });
+
+  it("warns on a tool diameter that snaps to no available bit", () => {
+    const metrics = makeMetrics({ drill: { uniqueToolDiametersMm: [0.7] } });
+    const findings = evaluate(metrics, makeProfile());
+    const snap = findings.find((f) => f.id === "drill.bitSnap");
+    expect(snap?.severity).toBe("warn");
+  });
+
+  it("reports slots as an ok informational row", () => {
+    const metrics = makeMetrics({ geo: { slotCount: 2, minSlotWidthMm: 1.0 } });
+    const findings = evaluate(metrics, makeProfile());
+    const slots = findings.find((f) => f.id === "drill.slots");
+    expect(slots?.severity).toBe("ok");
+  });
+});
