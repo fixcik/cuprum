@@ -37,7 +37,7 @@
       "label": "Double-sided board",
       "measured": "copper on both sides",
       "limit": "single-sided panel",
-      "bad": "The design needs copper on both sides, but the panel is single-sided. Switch the panel stackup to double-sided."
+      "bad": "The design needs copper on both sides, but the panel is single-sided. Set the panel to double-sided in its settings."
     }
   },
   "trace": {
