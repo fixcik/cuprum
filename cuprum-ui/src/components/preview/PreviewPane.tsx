@@ -22,6 +22,7 @@ import { FeasibilityTab } from "@/components/preview/FeasibilityTab";
 import type { Hole, BoardMetrics } from "@/lib/api";
 import type { BoardMeshData } from "@/lib/boardMesh";
 import type { Finding, Severity, ProblemType } from "@/lib/feasibility";
+import { SEVERITY } from "@/lib/severity";
 
 /** One row in the DRC problem-type filter (funnel popover + right-click menu). */
 export interface ProblemTypeOption {
@@ -44,13 +45,6 @@ export interface DrcIssue {
   value: string;
   severity: Severity;
 }
-
-const ISSUE_DOT: Record<Severity, string> = {
-  block: "bg-destructive",
-  warn: "bg-warning",
-  info: "bg-muted-foreground",
-  ok: "bg-success",
-};
 
 export function PreviewPane({
   layers,
@@ -153,7 +147,6 @@ export function PreviewPane({
   const filterReady = !!hiddenTypes && !!onToggleType && problemTypes.length > 0;
   const filterEnabled = filterReady && showDrc;
   const anyHidden = (hiddenTypes?.size ?? 0) > 0;
-  const SEV_DOT: Record<Severity, string> = ISSUE_DOT;
 
   return (
     <div className="relative h-full w-full">
@@ -186,7 +179,7 @@ export function PreviewPane({
                     onCheckedChange={() => onToggleType!(pt.type)}
                     onSelect={(e) => e.preventDefault()}
                   >
-                    <span className={`size-2 rounded-full ${SEV_DOT[pt.severity]}`} />
+                    <span className={`size-2 rounded-full ${SEVERITY[pt.severity].dot}`} />
                     {pt.label}
                   </ContextMenuCheckboxItem>
                 ))}
@@ -282,7 +275,7 @@ export function PreviewPane({
                           checked={!hiddenTypes!.has(pt.type)}
                           onCheckedChange={() => onToggleType!(pt.type)}
                         />
-                        <span className={`size-2 rounded-full ${SEV_DOT[pt.severity]}`} />
+                        <span className={`size-2 rounded-full ${SEVERITY[pt.severity].dot}`} />
                         <span className="text-foreground">{pt.label}</span>
                       </label>
                     ))}
@@ -326,7 +319,7 @@ export function PreviewPane({
             </button>
             {cur ? (
               <span className="flex items-center gap-1.5 px-1">
-                <span className={`size-2 rounded-full ${ISSUE_DOT[cur.severity]}`} />
+                <span className={`size-2 rounded-full ${SEVERITY[cur.severity].dot}`} />
                 <span className="text-foreground">{cur.label}</span>
                 <span className="tabular-nums text-muted-foreground">{cur.value}</span>
                 <span className="tabular-nums text-muted-foreground/70">

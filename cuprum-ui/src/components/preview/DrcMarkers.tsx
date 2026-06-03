@@ -1,6 +1,7 @@
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { useTranslation } from "react-i18next";
 import type { Severity } from "@/lib/feasibility";
+import { SEVERITY } from "@/lib/severity";
 
 /** A DRC hotspot projected to screen px: a dimension line a→b with the value at
  *  its midpoint, plus the description for the hover card. */
@@ -47,13 +48,6 @@ export interface DrcMarkerInput {
   lineColor?: string;
 }
 
-const SEV_COLOR: Record<Severity, string> = {
-  block: "hsl(var(--destructive))",
-  warn: "hsl(var(--warning))",
-  info: "hsl(var(--muted-foreground))",
-  ok: "hsl(var(--success))",
-};
-
 /** Colour for the "line" highlight — a vivid blue that stays legible over BOTH the
  *  white silk it overlays and the green board behind it, even zoomed out, without
  *  the alarm of red (grey washed out at distance). */
@@ -89,7 +83,7 @@ export function DrcMarkers({
         {[...markers]
           .sort((a, b) => (a.shape === "line" ? 0 : 1) - (b.shape === "line" ? 0 : 1))
           .map((m) => {
-          const c = SEV_COLOR[m.severity];
+          const c = SEVERITY[m.severity].hsl;
           if (m.shape === "hover") {
             if (!m.focused) return null;
             // Focused cluster: a box (+ width label) so ‹› shows where it landed.
@@ -102,7 +96,7 @@ export function DrcMarkers({
             const hbh = Math.max(hy1 - hy0, 16);
             const hcx = (hx0 + hx1) / 2;
             const hcy = (hy0 + hy1) / 2;
-            const hcol = SEV_COLOR[m.severity];
+            const hcol = SEVERITY[m.severity].hsl;
             return (
               <g key={m.key}>
                 <rect
@@ -302,7 +296,7 @@ export function DrcMarkers({
                 collisionPadding={8}
                 className="z-50 max-w-[240px] rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] leading-relaxed text-popover-foreground shadow-lg"
               >
-                <div className="font-medium" style={{ color: SEV_COLOR[m.severity] }}>
+                <div className="font-medium" style={{ color: SEVERITY[m.severity].hsl }}>
                   {m.label}
                 </div>
                 <div className="tabular-nums text-muted-foreground">
