@@ -3,9 +3,9 @@ import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { DesignCard } from "./DesignCard";
-import { DesignInspector } from "./DesignInspector";
 import { DashedAddTile } from "@/components/ui/DashedAddTile";
 import { useShell } from "@/shellStore";
+import { api } from "@/lib/api";
 
 export function DesignsGallery() {
   const { t } = useTranslation("project");
@@ -13,7 +13,6 @@ export function DesignsGallery() {
   const addDesignsFromZips = useShell((s) => s.addDesignsFromZips);
   const addDesignsFromPaths = useShell((s) => s.addDesignsFromPaths);
   const removeDesign = useShell((s) => s.removeDesign);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
   // OS drag-and-drop: drop .zip fab packages straight onto the gallery. The
@@ -37,10 +36,6 @@ export function DesignsGallery() {
   }, [addDesignsFromPaths]);
 
   if (!manifest) return null;
-  const selected =
-    selectedId && manifest.designs.some((d) => d.id === selectedId) ? selectedId : null;
-
-  if (selected) return <DesignInspector designId={selected} onBack={() => setSelectedId(null)} />;
 
   return (
     <div className="relative h-full overflow-auto p-4">
@@ -54,7 +49,7 @@ export function DesignsGallery() {
           <DesignCard
             key={d.id}
             design={d}
-            onOpen={() => setSelectedId(d.id)}
+            onOpen={() => void api.openInspectorWindow(d.id)}
             onDelete={() => removeDesign(d.id)}
           />
         ))}

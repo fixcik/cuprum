@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Layers, ChevronLeft } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Loader2, Layers } from "lucide-react";
 import { LayerPanel, type PanelRow } from "@/components/import/LayerPanel";
 import { type StackLayer, type FocusTarget } from "@/components/import/LayerStack";
 import { type DrcMarkerInput } from "@/components/preview/DrcMarkers";
@@ -16,11 +15,11 @@ import {
   type BoardMetrics,
   type Hole,
   type LayerType,
+  type Manifest,
 } from "@/lib/api";
 import type { FindingCategory, I18nText, ProblemType, Severity } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { evaluate, overallVerdict, problemTypeOf, PROBLEM_TYPE_ORDER, VERDICT_KEY } from "@/lib/feasibility";
-import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -71,20 +70,26 @@ interface InspectorFile {
 
 interface DesignInspectorProps {
   designId: string;
-  onBack: () => void;
+  manifest: Manifest;
+  workingDir: string;
+  onRenameDesign: (name: string) => void;
+  onSetLayerType: (path: string, type: LayerType) => void;
+  onArtifactsFresh: (fresh: boolean) => void;
 }
 
 // Identity is the gerber REL-PATH (g.path), matching project_board_mesh /
 // project_board_metrics. LayerPanel keeps its numeric `index` = position in this
 // design's gerbers[]; the inspector maps index -> gerbers[index].path at every
 // call site that crosses into the store or a rel-path key set.
-export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
-  const manifest = useShell((s) => s.currentManifest);
-  const workingDir = useShell((s) => s.workingDir);
-  const setDesignLayerType = useShell((s) => s.setDesignLayerType);
-  const renameDesign = useShell((s) => s.renameDesign);
-  const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
-  const design = manifest?.designs.find((d) => d.id === designId) ?? null;
+export function DesignInspector({
+  designId,
+  manifest,
+  workingDir,
+  onRenameDesign,
+  onSetLayerType,
+  onArtifactsFresh,
+}: DesignInspectorProps) {
+  const design = manifest.designs.find((d) => d.id === designId) ?? null;
   const gerbers = useMemo(() => design?.gerbers ?? [], [design]);
 
   const { t } = useTranslation(["feasibility", "common", "metrics", "import", "layers", "project"]);
@@ -228,7 +233,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
             }
           });
           flush();
-          scheduleArtifactFlush(results.some((r) => r.fresh));
+          onArtifactsFresh(results.some((r) => r.fresh));
         })
         .catch(() => {
           if (cancelled) return;
@@ -304,7 +309,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
         const m = await api.projectBoardMetrics(workingDir, refs);
         if (!cancelled) {
           setMetrics(m.metrics);
-          scheduleArtifactFlush(m.fresh);
+          onArtifactsFresh(m.fresh);
         }
       } catch {
         if (!cancelled) setMetrics(null);
@@ -672,7 +677,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   // (layer-type edit, persisted + undoable) or the UI-only hidden rel-path set.
   const onType = (index: number, type: LayerType) => {
     const g = gerbers[index];
-    if (g) void setDesignLayerType(designId, g.path, type);
+    if (g) onSetLayerType(g.path, type);
   };
   const toggle = (index: number, visible: boolean) => {
     const g = gerbers[index];
@@ -691,12 +696,9 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack}>
-            <ChevronLeft className="size-4" /> {t("project:designs.back")}
-          </Button>
           <EditableText
             value={design.source_name}
-            onCommit={(name) => void renameDesign(designId, name)}
+            onCommit={(name) => onRenameDesign(name)}
             title={t("project:designs.rename")}
             ariaLabel={t("project:designs.rename")}
             className="max-w-[32ch] text-[13px] font-semibold text-foreground"

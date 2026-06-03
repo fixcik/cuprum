@@ -7,7 +7,7 @@ use std::time::Duration;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::menu::{AboutMetadata, Menu, MenuBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Runtime, WindowEvent};
 // `RunEvent::Opened` only exists on macOS (Apple-event file open); gate the import
 // so the workspace still compiles on Linux/Windows CI.
 #[cfg(target_os = "macos")]
@@ -1249,6 +1249,39 @@ fn open_add_design_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open (or focus) a per-design inspector window. Label `inspector:<design_id>`,
+/// so several designs can be inspected at once; reopening the same design focuses
+/// the existing window. Same bundle as the main window; the SPA branches on the
+/// label. Title is set (localised) by the JS side.
+#[tauri::command]
+fn open_inspector_window(app: AppHandle, design_id: String) -> Result<(), String> {
+    use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+    let label = format!("inspector:{design_id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+        .title("Cuprum")
+        .inner_size(1100.0, 820.0)
+        .min_inner_size(820.0, 560.0)
+        .resizable(true)
+        .center()
+        .focused(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    // Center over the main window so it opens on the screen the user is on.
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(main_size), Ok(child_size)) =
+            (main.outer_position(), main.outer_size(), win.outer_size())
+        {
+            let x = pos.x + (main_size.width as i32 - child_size.width as i32) / 2;
+            let y = pos.y + (main_size.height as i32 - child_size.height as i32) / 2;
+            let _ = win.set_position(PhysicalPosition::new(x, y));
+        }
+    }
+    Ok(())
+}
+
 /// Minimal native menu: an app submenu carrying "Check for Updates…" alongside the
 /// standard items, plus Edit/Window so system shortcuts (copy/paste, undo) survive.
 /// Labels follow the system locale (ru/en, matching the UI's default-language logic);
@@ -1311,6 +1344,19 @@ fn main() {
                 let _ = app.emit("menu://check-updates", ());
             }
         })
+        .on_window_event(|window, event| {
+            // When the main window closes (app quit), tear down any inspector
+            // windows so they don't linger as orphans keeping the app alive.
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { .. } = event {
+                    for (label, w) in window.app_handle().webview_windows() {
+                        if label.starts_with("inspector:") {
+                            let _ = w.close();
+                        }
+                    }
+                }
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -1365,7 +1411,8 @@ fn main() {
             read_drill,
             display_px_per_mm,
             take_pending_open,
-            open_add_design_window
+            open_add_design_window,
+            open_inspector_window
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");
