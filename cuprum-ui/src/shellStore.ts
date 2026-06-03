@@ -113,6 +113,10 @@ interface ShellStore {
   /** Pack copies of a design onto the panel using the given nest recipe.
    *  Returns an AddDesignResult so the add-design window can show a toast. */
   addBoardInstances: (designId: string, nest: NestSettings) => Promise<AddDesignResult>;
+  /** Move the given instances by a delta (mm). One undo step. */
+  moveInstances: (ids: string[], dxMm: number, dyMm: number) => Promise<void>;
+  /** Remove the given instances from the panel. One undo step. */
+  removeInstances: (ids: string[]) => Promise<void>;
   /** Private: mirror the in-memory manifest into the working dir's loose
    *  manifest.json after a mutation (basis for crash recovery). */
   _mirrorManifest: (manifest: Manifest) => Promise<void>;
@@ -476,6 +480,29 @@ export const useShell = create<ShellStore>((set, get) => ({
       messageKey: overflow ? "panel.add.toast.addedOverflow" : "panel.add.toast.addedN",
       params: { name: design.source_name, n: pack.n, requested: pack.requested },
     };
+  },
+
+  moveInstances: async (ids, dxMm, dyMm) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0 || (dxMm === 0 && dyMm === 0)) return;
+    const sel = new Set(ids);
+    const next: PanelDoc = {
+      ...panel,
+      instances: panel.instances.map((i) =>
+        sel.has(i.id) ? { ...i, x_mm: i.x_mm + dxMm, y_mm: i.y_mm + dyMm } : i,
+      ),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  removeInstances: async (ids) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0) return;
+    const sel = new Set(ids);
+    const next: PanelDoc = { ...panel, instances: panel.instances.filter((i) => !sel.has(i.id)) };
+    await get().savePanelConfig(next, stackup);
   },
 
   _mirrorManifest: async (manifest) => {
