@@ -249,11 +249,16 @@ export function PanelBlankCanvas({
               const instSide = inst.layer_ref === "Bottom" ? "bottom" : "top";
               if (!sz || instSide !== side) return null;
               const name = designById.get(inst.design_id)?.source_name ?? "";
+              // Axis-aligned footprint at (x_mm, y_mm): a 90°/270° instance occupies a
+              // swapped (h × w) slot — matches packLayout's placement. No Konva rotation.
+              const rot = ((inst.rotation_deg % 360) + 360) % 360;
+              const fw = rot === 90 || rot === 270 ? sz.h : sz.w;
+              const fh = rot === 90 || rot === 270 ? sz.w : sz.h;
               return (
-                <Group key={inst.id} x={inst.x_mm} y={inst.y_mm} rotation={inst.rotation_deg}>
+                <Group key={inst.id} x={inst.x_mm} y={inst.y_mm}>
                   <Rect
-                    width={sz.w}
-                    height={sz.h}
+                    width={fw}
+                    height={fh}
                     fill={COPPER_FILL}
                     stroke={COPPER_STROKE}
                     strokeWidth={1}
@@ -263,13 +268,13 @@ export function PanelBlankCanvas({
                   <Text
                     x={0}
                     y={0}
-                    width={sz.w}
-                    height={sz.h}
+                    width={fw}
+                    height={fh}
                     align="center"
                     verticalAlign="middle"
                     text={name}
                     // mm — scales with the board rect inside the fit-scaled group
-                    fontSize={Math.max(Math.min(sz.w, sz.h) * 0.12, 1.5)}
+                    fontSize={Math.max(Math.min(fw, fh) * 0.12, 1.5)}
                     fill={COPPER_STROKE}
                     listening={false}
                   />
