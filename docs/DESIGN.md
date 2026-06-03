@@ -63,6 +63,15 @@
   radix-tooltip. Контент — `bg-popover`, опц. SVG-иллюстрация сверху. Ховер/курсор — только
   на самой иконке (`cursor-help`, `hover:bg-foreground/10`), не на строке. Ставим у полей
   настроек/форм, чтобы пояснить параметр.
+- **`Popover`** (`Popover.tsx`) — radix-поповер: `Popover`/`PopoverTrigger`/`PopoverContent`.
+  Контент — `rounded-md border border-border bg-popover p-1 shadow-lg`, портал, `z-50`. Для
+  небольших закрываемых контролов у триггера (напр. фильтр типов проблем на превью).
+- **`Checkbox`** (`Checkbox.tsx`) — radix-чекбокс (квадрат с галочкой lucide `Check`), вкл —
+  `bg-primary`. Для множественного выбора независимых опций (в отличие от вкл/выкл `Switch`).
+- **`ContextMenu`** (`ContextMenu.tsx`) — radix контекстное меню по правому клику:
+  `ContextMenu`/`ContextMenuTrigger`(`disabled` пропускает нативное меню)/`ContextMenuContent`/
+  `ContextMenuItem`/`ContextMenuCheckboxItem`/`ContextMenuLabel`/`ContextMenuSeparator`. Стиль
+  контента как у `Popover`; пункт — `focus:bg-foreground/10`, галочка в левом жёлобе (`pl-7`).
 
 ### Примитивы форм (заведены в этой итерации)
 - **`TextInput`** — текстовое поле/поиск. База поля:
@@ -206,6 +215,16 @@ cuprum-ui/src/
   «N дизайнов · W×H» (размер — `useUnitFormat`, как в `DesignCard`; только когда панель задана) +
   относительное время. Появление карточек — `.anim-in` (короткий fade/lift, уважает
   `prefers-reduced-motion`). `PcbPreviewPlaceholder` удалён (заменён `ProjectThumb`).
+
+- **2026-06-03 — фильтр типов DFM-проблем на превью + первое контекстное меню.** На 2D-превью
+  инспектора, когда DRC-оверлей включён, рядом с тогглом появляется воронка (`ListFilter`),
+  открывающая `Popover` со списком актуальных типов проблем (чекбоксы «показывать на превью»).
+  Тот же список — по **правому клику** на холсте (`ContextMenu`; `ContextMenuTrigger disabled`
+  пропускает нативное меню, когда фильтр неактивен). Снятая галочка убирает хотспоты типа из
+  оверлея и из степпера, не меняя вердикт. Заведены три radix-примитива в `components/ui/`:
+  `Popover`, `Checkbox`, `ContextMenu` — это **первое контекстное меню в приложении**, паттерн
+  для будущих (правый клик на дизайне/инстансе и т.п.). Гранулярность фильтра — по «типу
+  проблемы» (`feasibility.problemTypeOf`), промежуточному между сырым `category` и полным id.
 
 ---
 

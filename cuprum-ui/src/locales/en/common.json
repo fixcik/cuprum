@@ -13,6 +13,10 @@
     "stepperIssues": "Issues: {{count}} · ◂ ▸ to navigate",
     "prevIssue": "Previous issue",
     "nextIssue": "Next issue",
+    "filterLabel": "Types",
+    "filterTitle": "Choose which problem types to show on the preview",
+    "filterHeading": "Show on preview",
+    "filterShowAll": "Show all",
     "mirrorLabel": "Mirror",
     "mirrorTitle": "Off — real back-of-board view (like 3D). Turn on to mirror it into line with the top (see-through)."
   },

@@ -17,9 +17,9 @@ import {
   type Hole,
   type LayerType,
 } from "@/lib/api";
-import type { FindingCategory, I18nText } from "@/lib/feasibility";
+import type { FindingCategory, I18nText, ProblemType, Severity } from "@/lib/feasibility";
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
-import { evaluate, overallVerdict, VERDICT_KEY } from "@/lib/feasibility";
+import { evaluate, overallVerdict, problemTypeOf, PROBLEM_TYPE_ORDER, VERDICT_KEY } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
@@ -46,6 +46,11 @@ const FINDING_LAYER_TYPES: Partial<Record<FindingCategory, LayerType[]>> = {
   drill: ["drill"],
   via: ["drill"],
 };
+
+/** Severity ranking for picking the worst across a problem-type's findings. */
+const SEV_RANK: Record<Severity, number> = { ok: 0, info: 1, warn: 2, block: 3 };
+const worseSeverity = (a: Severity | undefined, b: Severity): Severity =>
+  a === undefined || SEV_RANK[b] > SEV_RANK[a] ? b : a;
 
 /** Per-gerber render status for the streaming 2D preview. */
 type SvgStatus = "none" | "pending" | "loaded" | "error";
@@ -356,6 +361,23 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   // only when arriving from the Feasibility tab (clicking a finding) or via its
   // toggle — so the markers don't clutter casual browsing.
   const [showDrc, setShowDrc] = useState(false);
+  // Per-problem-type overlay visibility — an EPHEMERAL view aid (not persisted),
+  // reset when the design changes. A type in the set is hidden from the 2D overlay
+  // and the stepper; the verdict is never affected. Toggled from the on-preview
+  // filter (funnel popover + right-click context menu).
+  const [hiddenTypes, setHiddenTypes] = useState<Set<ProblemType>>(() => new Set());
+  useEffect(() => {
+    setHiddenTypes(new Set());
+  }, [designId]);
+  const toggleType = useCallback((tp: ProblemType) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(tp)) next.delete(tp);
+      else next.add(tp);
+      return next;
+    });
+  }, []);
+  const showAllTypes = useCallback(() => setHiddenTypes(new Set()), []);
   // DRC marker focus: which finding's hotspot is highlighted/centred in 2D.
   const [focus, setFocus] = useState<{ fid: string; hi: number } | null>(null);
   const focusNonce = useRef(0);
@@ -375,10 +397,23 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
     [findings],
   );
 
+  // If the user hides the problem type that's currently focused, drop the focus —
+  // otherwise the 2D camera stays centred on a marker that's no longer drawn.
+  // Scoped to a hidden TYPE (not an off-side marker, which keeps its focus so
+  // switching back restores it).
+  useEffect(() => {
+    if (!focus) return;
+    const tp = problemTypeOf(focus.fid);
+    if (tp && hiddenTypes.has(tp)) setFocus(null);
+  }, [hiddenTypes, focus]);
+
   // Flatten all findings' hotspots into preview markers (board mm).
   const markers = useMemo<DrcMarkerInput[]>(
     () =>
       findings.flatMap((f) => {
+        // Drop a problem-type the user hid in the filter (overlay + stepper only).
+        const tp = problemTypeOf(f.id);
+        if (tp && hiddenTypes.has(tp)) return [];
         const shape = CIRCLE_FINDINGS.has(f.id)
           ? ("circle" as const)
           : BOX_FINDINGS.has(f.id)
@@ -438,8 +473,26 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
           });
         return [...visual, ...hovers];
       }),
-    [findings, focus, markerVisible, tr, trLen, fmtLen, fmtLenPair],
+    [findings, focus, markerVisible, tr, trLen, fmtLen, fmtLenPair, hiddenTypes],
   );
+
+  // Problem types actually present on THIS design (with hotspots) — the filter
+  // menu lists only these. Severity is the worst among a type's findings; the
+  // visibility checkbox reflects `hiddenTypes`.
+  const problemTypes = useMemo(() => {
+    const sev = new Map<ProblemType, Severity>();
+    for (const f of findings) {
+      if ((f.hotspots?.length ?? 0) === 0) continue;
+      const tp = problemTypeOf(f.id);
+      if (!tp) continue;
+      sev.set(tp, worseSeverity(sev.get(tp), f.severity));
+    }
+    return PROBLEM_TYPE_ORDER.filter((tp) => sev.has(tp)).map((tp) => ({
+      type: tp,
+      severity: sev.get(tp)!,
+      label: t(`feasibility:filter.type.${tp}`),
+    }));
+  }, [findings, t]);
 
   // Flat list of navigable problems for the on-preview stepper ("walk the
   // errors"). One entry per located hotspot; a highlight-all finding (silk) is a
@@ -451,6 +504,8 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
       findings.flatMap((f) => {
         const hs = f.hotspots ?? [];
         if (hs.length === 0) return [];
+        const tp = problemTypeOf(f.id);
+        if (tp && hiddenTypes.has(tp)) return [];
         if (f.highlightAll) {
           const boxes = f.hoverBoxes ?? [];
           // Each cluster (silk line / text-block, copper trace) is its own ‹› stop,
@@ -472,7 +527,7 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
             : [],
         );
       }),
-    [findings, markerVisible, tr, fmtLen],
+    [findings, markerVisible, tr, fmtLen, hiddenTypes],
   );
   const issueIndex = focus ? issues.findIndex((n) => n.fid === focus.fid && n.hi === focus.hi) : -1;
 
@@ -717,6 +772,10 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
               onShowDrcChange={onShowDrcChange}
               issues={issues}
               issueIndex={issueIndex}
+              problemTypes={problemTypes}
+              hiddenTypes={hiddenTypes}
+              onToggleType={toggleType}
+              onShowAllTypes={showAllTypes}
               loading={layersLoading}
             />
           ) : (

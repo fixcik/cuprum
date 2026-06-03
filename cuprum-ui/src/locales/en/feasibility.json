@@ -4,6 +4,18 @@
   "lenOnly": "{{len}}",
   "gteLen": "≥ {{len}}",
   "lteLen": "≤ {{len}}",
+  "filter": {
+    "type": {
+      "clearance": "Clearance",
+      "width": "Trace width",
+      "neck": "Pour neck",
+      "annular": "Annular ring",
+      "drill": "Drill",
+      "via": "Vias",
+      "mask": "Mask dam",
+      "silk": "Silk"
+    }
+  },
   "side": {
     "top": "top",
     "bottom": "bottom",
