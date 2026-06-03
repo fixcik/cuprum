@@ -1,0 +1,11 @@
+[package]
+name = "cuprum-goo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Single-frame .goo exposure encoding and screen geometry for the Saturn 4 Ultra 16K"
+
+[dependencies]
+anyhow.workspace = true
+goo.workspace = true
+tracing.workspace = true

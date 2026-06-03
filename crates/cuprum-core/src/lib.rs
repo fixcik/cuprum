@@ -8,7 +8,6 @@ pub mod dfm;
 pub mod drill;
 pub mod geometry;
 pub mod gerber;
-pub mod goo;
 pub mod mesh;
 pub mod preview;
 pub mod strokes;
@@ -26,3 +25,8 @@ pub use cuprum_diskcache::{artifact, diskcache};
 // Printer protocol lives in its own leaf crate; re-export under the historical path
 // so `cuprum_core::sdcp::…` keeps resolving for the CLI and the UI.
 pub use cuprum_sdcp as sdcp;
+
+// `.goo` exposure encoding + screen geometry live in their own leaf crate; re-export
+// under the historical path so `cuprum_core::goo::…` (and in-crate `crate::goo::…`)
+// keep resolving for the CLI, the UI, gerber and compose.
+pub use cuprum_goo as goo;

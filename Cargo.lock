@@ -485,11 +485,11 @@ dependencies = [
  "criterion",
  "cuprum-cache",
  "cuprum-diskcache",
+ "cuprum-goo",
  "cuprum-sdcp",
  "cuprum-trace",
  "earcutr",
  "gerber_viewer",
- "goo",
  "i_overlay",
  "lru",
  "png 0.17.16",
@@ -510,6 +510,15 @@ dependencies = [
  "serde_json",
  "tracing",
  "xxhash-rust",
+]
+
+[[package]]
+name = "cuprum-goo"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "goo",
+ "tracing",
 ]
 
 [[package]]

@@ -320,11 +320,15 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   path+mtime-кеши (`preview_png`/`native_mask`, зависят от `gerber`) + фасад. Это пререквизит
   выноса тяжёлых крейтов: `svg`/`dfm`/`gerber` зовут движок, а core зависел бы от них при выносе.
   Чистое перемещение, вывод и кеш-теги не тронуты.
-- [ ] **PR6+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (каждый с разбивкой своего
+- [x] **PR6 — вынести `goo` в лист-крейт `cuprum-goo`** (✅ 2026-06-04): `.goo`-кодирование +
+  геометрия экрана (`SCREEN_*`/`SCREEN_PX_PER_MM_*`) → новый лист-крейт `cuprum-goo` (deps:
+  внешний `goo` + anyhow + tracing). В core — фасад `pub use cuprum_goo as goo;`, поэтому
+  `cuprum_core::goo::…` (CLI, UI, gerber, compose) резолвится без правок вызовов. Снимает
+  ребро `gerber → goo` перед выносом `cuprum-gerber`. Чистое перемещение, вывод не тронут.
+- [ ] **PR7+ — `cuprum-gerber` / `cuprum-mesh` / `cuprum-dfm`** (каждый с разбивкой своего
   крупного файла: gerber+svg+geometry+strokes+drill, mesh.rs 836, dfm/metrics/mod 516).
-  Слоистость: `cuprum-gerber` → `cuprum-cache`; `cuprum-mesh` → `cuprum-gerber`; `cuprum-dfm`
-  → `cuprum-mesh`+`cuprum-gerber`. Открытый вопрос: `gerber → goo` (только за константами
-  `SCREEN_PX_PER_MM_*`) — вынести `goo` в лист-крейт либо переселить эти константы.
+  Слоистость: `cuprum-gerber` → `cuprum-cache`+`cuprum-goo`; `cuprum-mesh` → `cuprum-gerber`;
+  `cuprum-dfm` → `cuprum-mesh`+`cuprum-gerber`.
 
 ## Workstream: переосмысление CLI с нуля
 
