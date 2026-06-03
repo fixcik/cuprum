@@ -139,6 +139,28 @@ pub fn remove_recent(db_path: &Path, path: &str) -> Result<()> {
     catalog::remove(&conn, path)
 }
 
+/// Cached Home-card stats derived from a manifest: design count + panel size
+/// (mm). Panel size is `None` until the blank is configured.
+fn manifest_stats(m: &Manifest) -> (i64, Option<f64>, Option<f64>) {
+    let count = m.designs.len() as i64;
+    let (w, h) = match &m.panel {
+        Some(p) => (Some(p.width_mm as f64), Some(p.height_mm as f64)),
+        None => (None, None),
+    };
+    (count, w, h)
+}
+
+/// Refresh the cached Home-card stats (design count + panel size) for a project
+/// already in the catalog, WITHOUT bumping its `last_opened_at`. Called on
+/// autosave so editing designs/panel keeps the Home list accurate but doesn't
+/// reorder it. Best-effort: a no-op if the project isn't catalogued.
+pub fn refresh_recent_stats(db_path: &Path, container: &Path) -> Result<()> {
+    let manifest = container::read_manifest(container)?;
+    let (count, w, h) = manifest_stats(&manifest);
+    let conn = catalog::open(db_path)?;
+    catalog::update_stats(&conn, &container.to_string_lossy(), count, w, h)
+}
+
 /// Open an existing `.cuprum`: parse its manifest, migrate any legacy
 /// `panel.json`, and record it as recently opened.
 pub fn open_project(db_path: &Path, container: &Path, now: i64) -> Result<Manifest> {
@@ -158,8 +180,17 @@ pub fn open_project(db_path: &Path, container: &Path, now: i64) -> Result<Manife
             let _ = container::update_manifest(container, &manifest);
         }
     }
+    let (count, w, h) = manifest_stats(&manifest);
     let conn = catalog::open(db_path)?;
-    catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
+    catalog::upsert(
+        &conn,
+        &container.to_string_lossy(),
+        &manifest.name,
+        count,
+        w,
+        h,
+        now,
+    )?;
     Ok(manifest)
 }
 
@@ -316,8 +347,9 @@ pub fn create_project(
 
     container::write(save_path, &manifest, &entries)?;
 
+    let (count, w, h) = manifest_stats(&manifest);
     let conn = catalog::open(db_path)?;
-    catalog::upsert(&conn, &save_path.to_string_lossy(), name, now)?;
+    catalog::upsert(&conn, &save_path.to_string_lossy(), name, count, w, h, now)?;
     Ok(manifest)
 }
 
@@ -376,8 +408,17 @@ pub fn import_zips(
     }
 
     container::write(container, &manifest, &entries)?;
+    let (count, w, h) = manifest_stats(&manifest);
     let conn = catalog::open(db_path)?;
-    catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
+    catalog::upsert(
+        &conn,
+        &container.to_string_lossy(),
+        &manifest.name,
+        count,
+        w,
+        h,
+        now,
+    )?;
     Ok(manifest)
 }
 
@@ -407,8 +448,17 @@ pub fn update_project_metadata(
     manifest.description = description.trim().to_string();
     container::update_manifest(container, &manifest)?;
 
+    let (count, w, h) = manifest_stats(&manifest);
     let conn = catalog::open(db_path)?;
-    catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
+    catalog::upsert(
+        &conn,
+        &container.to_string_lossy(),
+        &manifest.name,
+        count,
+        w,
+        h,
+        now,
+    )?;
     Ok(manifest)
 }
 
@@ -461,8 +511,17 @@ pub fn configure_panel(
     manifest.panel = Some(panel.clone());
     container::update_manifest(container, &manifest)?;
 
+    let (count, w, h) = manifest_stats(&manifest);
     let conn = catalog::open(db_path)?;
-    catalog::upsert(&conn, &container.to_string_lossy(), &manifest.name, now)?;
+    catalog::upsert(
+        &conn,
+        &container.to_string_lossy(),
+        &manifest.name,
+        count,
+        w,
+        h,
+        now,
+    )?;
     Ok(manifest)
 }
 

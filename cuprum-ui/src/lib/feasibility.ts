@@ -1,4 +1,4 @@
-import type { BoardMetrics, GeoHotspot, PanelDoc } from "@/lib/api";
+import type { BoardMetrics, GeoHotspot, PanelDoc, Stackup } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
 /** A finding's severity. `info` is advisory — shown, but never escalates the
@@ -114,6 +114,7 @@ export function evaluate(
   metrics: BoardMetrics | null,
   profile: CapabilityProfile,
   panel?: PanelDoc | null,
+  stackup?: Stackup | null,
 ): Finding[] {
   if (!metrics) return [];
   const out: Finding[] = [];
@@ -193,6 +194,25 @@ export function evaluate(
       limit: { key: profile.allowInnerLayers ? "feasibility:layers.inner.allowed" : "feasibility:layers.inner.unsupported" },
       detail: bad ? { key: "feasibility:layers.inner.bad" } : undefined,
     });
+  }
+
+  // --- Double-sided design on a single-sided panel: physically unmakeable
+  //     (single-sided FR4 is clad on one face only). A design needing copper on
+  //     BOTH faces can't be produced; bottom-only copper is fine (flip the blank).
+  //     No stackup configured yet → treat as double-sided (no block). ---
+  {
+    const doubleSided = stackup?.double_sided ?? true;
+    if (layers.copperTop && layers.copperBottom && !doubleSided) {
+      out.push({
+        id: "layers.doubleSided",
+        category: "layers",
+        severity: "block",
+        label: { key: "feasibility:layers.doubleSided.label" },
+        measured: { key: "feasibility:layers.doubleSided.measured" },
+        limit: { key: "feasibility:layers.doubleSided.limit" },
+        detail: { key: "feasibility:layers.doubleSided.bad" },
+      });
+    }
   }
 
   // --- Thin routed traces (conductor model). Highlight each thin trace's actual

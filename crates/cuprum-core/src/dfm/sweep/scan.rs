@@ -3,7 +3,7 @@
 
 use rayon::prelude::*;
 
-use super::edges::{adjacent, collect_edges};
+use super::edges::collect_edges;
 use super::neck::neck_persists;
 use super::segments::seg_seg_closest;
 use crate::geometry::{point_in_ring, poly_containing, Poly};
@@ -56,6 +56,21 @@ pub(super) enum Want {
     Clearance,
     Width,
     Both,
+}
+
+/// E3: bucket entry with the edge geometry stored INLINE (not an index into a
+/// separate `edges[]`), so scanning a grid cell streams contiguous memory and the
+/// random `edges[ej]` gather in the hot loop disappears. Duplicated across the
+/// cells an edge spans. `ei` keeps the global index for the `ej>ei` ordering and
+/// the `visited` dedup.
+#[derive(Clone, Copy)]
+struct Cand {
+    a: [f64; 2],
+    b: [f64; 2],
+    poly: u32,
+    ring: u32,
+    idx: u32,
+    ei: u32,
 }
 
 /// Spatially dedupe (keep the worst per ~1 mm cell), sort worst-first, cap to N.
@@ -126,10 +141,18 @@ pub(super) fn hotspots_chunked(
     // hot loop. Same cells, same insertion order → identical buckets to the old
     // HashMap, hence bit-identical sweep results.
     let cell_at = |gx: i64, gy: i64| -> usize { (gy * nx + gx) as usize };
-    let mut grid: Vec<Vec<usize>> = vec![Vec::new(); (nx * ny) as usize];
+    let mut grid: Vec<Vec<Cand>> = vec![Vec::new(); (nx * ny) as usize];
     {
         let _gb = tracing::info_span!("grid_build", edges = edges.len()).entered();
         for (ei, e) in edges.iter().enumerate() {
+            let cand = Cand {
+                a: e.a,
+                b: e.b,
+                poly: e.poly,
+                ring: e.ring,
+                idx: e.idx,
+                ei: ei as u32,
+            };
             let (cx0, cy0) = key(e.a[0].min(e.b[0]), e.a[1].min(e.b[1]));
             let (cx1, cy1) = key(e.a[0].max(e.b[0]), e.a[1].max(e.b[1]));
             // Clamp the high index (a coordinate exactly at max maps to nx/ny).
@@ -137,7 +160,7 @@ pub(super) fn hotspots_chunked(
             let cy1 = cy1.min(ny - 1);
             for gx in cx0..=cx1 {
                 for gy in cy0..=cy1 {
-                    grid[cell_at(gx, gy)].push(ei);
+                    grid[cell_at(gx, gy)].push(cand);
                 }
             }
         }
@@ -173,17 +196,22 @@ pub(super) fn hotspots_chunked(
             for gx in gx_lo..=gx_hi {
                 for gy in gy_lo..=gy_hi {
                     let bucket = &grid[cell_at(gx, gy)];
-                    for &ej in bucket {
+                    for &f in bucket {
+                        let ej = f.ei as usize;
                         if ej <= ei || visited[ej] == gen {
                             continue;
                         }
                         visited[ej] = gen;
-                        let f = &edges[ej];
                         let cross = e.poly != f.poly;
+                        // inline of `adjacent(e, f)`: same ring, consecutive idx (cyclic)
+                        let adj = e.poly == f.poly && e.ring == f.ring && {
+                            let d = e.idx.abs_diff(f.idx);
+                            d <= 1 || d == e.n - 1
+                        };
                         let want_this = match want {
                             Want::Clearance => cross,
-                            Want::Width => !cross && !adjacent(e, f),
-                            Want::Both => cross || !adjacent(e, f),
+                            Want::Width => !cross && !adj,
+                            Want::Both => cross || !adj,
                         };
                         if !want_this {
                             continue;
