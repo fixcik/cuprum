@@ -4,9 +4,13 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
 import { X, Search, UploadCloud, Download } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { api, type AddDesignSnapshot, type ProjectDesign } from "@/lib/api";
+import { api, type AddDesignSnapshot, type ProjectDesign, type PanelDoc } from "@/lib/api";
 import { DesignPickerRow } from "@/components/project/DesignPickerRow";
 import { Button } from "@/components/ui/Button";
+import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
+import { missingRequired } from "@/lib/layerColors";
+import { useSettings } from "@/settingsStore";
+import { VerdictBadge } from "@/components/preview/VerdictBadge";
 
 /** Root of the separate "Add design to panel" window (label "add-design"). */
 export function AddDesignWindow() {
@@ -17,6 +21,7 @@ export function AddDesignWindow() {
   const [dragOver, setDragOver] = useState(false);
   const prevIdsRef = useRef<Set<string>>(new Set());
   const snapReceivedRef = useRef(false);
+  const profile = useSettings((s) => s.profile);
 
   useEffect(() => {
     getCurrentWindow().setTitle(t("panel.add.window.title")).catch(() => {});
@@ -67,6 +72,61 @@ export function AddDesignWindow() {
     snapReceivedRef.current = true;
     prevIdsRef.current = ids;
   }, [designs]);
+
+  // Verdict for the currently selected design (mirrors DesignPickerRow logic).
+  const [selVerdict, setSelVerdict] = useState<Verdict | null>(null);
+  useEffect(() => {
+    setSelVerdict(null);
+    if (!selectedDesign || !workingDir) return;
+    let cancelled = false;
+    const hasRequired = missingRequired(selectedDesign.gerbers.map((g) => g.layer_type)).length === 0;
+    const panelDoc: PanelDoc = {
+      schema_version: 1,
+      width_mm: panel.widthMm,
+      height_mm: panel.heightMm,
+      origin_x_mm: 0,
+      origin_y_mm: 0,
+      instances: [],
+      tooling_holes: [],
+    };
+    api
+      .projectBoardMetrics(
+        workingDir,
+        selectedDesign.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
+      )
+      .then((m) => {
+        if (!cancelled && hasRequired) {
+          setSelVerdict(overallVerdict(evaluate(m.metrics, profile, panelDoc)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDesign, workingDir, profile, panel.widthMm, panel.heightMm]);
+
+  // Toast state for the add-to-panel result.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const pending = api.onAddDesignResult((r) => {
+      if (r.ok) {
+        void getCurrentWindow().close();
+      } else {
+        setToast(t(r.messageKey, r.params as Record<string, string> | undefined));
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = setTimeout(() => setToast(null), 2600);
+      }
+    });
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      void pending.then((un) => un());
+    };
+  }, [t]);
+
+  const addToPanel = () => {
+    if (selected) void api.emitAddDesignAddToPanel(selected);
+  };
 
   const pickZips = useCallback(async () => {
     const picked = await openDialog({
@@ -156,7 +216,7 @@ export function AddDesignWindow() {
           </div>
         </div>
 
-        {/* right: light preview card (schematic render is Phase 3) */}
+        {/* right: preview card with verdict badge */}
         <div className="min-w-0 flex-1 p-6">
           {selectedDesign ? (
             <div className="flex h-full flex-col">
@@ -165,6 +225,11 @@ export function AddDesignWindow() {
               <div className="mt-1 text-[12px] text-muted-foreground">
                 {t("designs.layerCount", { count: selectedDesign.gerbers.length })}
               </div>
+              {selVerdict && (
+                <div className="mt-3">
+                  <VerdictBadge verdict={selVerdict} />
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-center text-[12px] text-muted-foreground">
@@ -191,12 +256,17 @@ export function AddDesignWindow() {
           <Button variant="ghost" size="sm" onClick={() => void getCurrentWindow().close()}>
             {t("panel.add.cancel")}
           </Button>
-          {/* real add handler wired in Task 5 */}
-          <Button size="sm" disabled>
+          <Button size="sm" disabled={!selected} onClick={addToPanel}>
             {t("panel.add.add")}
           </Button>
         </div>
       </div>
+
+      {toast && (
+        <div className="absolute bottom-16 left-1/2 z-20 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-2 text-[12px] text-foreground shadow-xl">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

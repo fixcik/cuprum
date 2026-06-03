@@ -42,7 +42,12 @@
       "footerPick": "Pick a design",
       "cancel": "Cancel",
       "add": "Add to panel",
-      "notImpl": "Not implemented yet",
+      "toast": {
+        "added": "\"{{name}}\" added to the panel",
+        "noProject": "No open project",
+        "notFound": "Design not found",
+        "noSize": "Could not determine the design size"
+      },
       "importTitle": "Import design",
       "importHint": "Drop a ZIP or click to choose",
       "dropHint": "Release to import a Gerber package (.zip)"

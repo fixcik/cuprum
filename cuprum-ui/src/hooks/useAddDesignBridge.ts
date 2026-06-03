@@ -33,9 +33,9 @@ export function useAddDesignBridge() {
     const subs: Promise<() => void>[] = [
       api.onAddDesignReady(() => void emitSnapshot()),
       api.onAddDesignImport(({ paths }) => void useShell.getState().addDesignsFromPaths(paths)),
-      api.onAddDesignAddToPanel((_p) => {
-        // addBoardInstance is added in Task 5 — temporary no-op result for now.
-        void api.emitAddDesignResult({ ok: false, messageKey: "panel.add.notImpl" });
+      api.onAddDesignAddToPanel(async ({ designId }) => {
+        const r = await useShell.getState().addBoardInstance(designId);
+        void api.emitAddDesignResult(r);
       }),
     ];
     return () => {
