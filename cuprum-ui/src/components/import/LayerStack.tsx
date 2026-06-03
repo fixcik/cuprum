@@ -515,17 +515,22 @@ export function LayerStack({
             {visible.map((l) => {
               const isMask = l.type === "topMask" || l.type === "bottomMask";
               if (!isMask) {
-                // Edge cuts: render at half the gerber stroke width — a thinner
-                // outline that the soldermask overlaps; left unclipped since it IS
-                // the board outline. Every other layer (copper, silk, …) is clipped
-                // to the rounded board shape so nothing spills past the real edge.
+                // Copper/silk/edge are drawn UNCLIPPED. The board already reads as
+                // rounded via the clipped substrate + soldermask above; these
+                // line/geometry layers don't visibly spill past the edge, so they
+                // need no clip here. Clipping them is also harmful: under the zoom
+                // `scale()` transform a clip-path makes WebKit (Tauri's WKWebView)
+                // rasterize the group into a PRE-scale offscreen buffer, so thin
+                // strokes (silk text, traces) collapse to sub-pixel and the zoom
+                // magnifies them into broken "beads". The card-preview composite
+                // does its own outline clip separately (cuprum-core/src/preview.rs).
+                // Edge cuts render at half the gerber stroke width (thin cut line).
                 const isEdge = l.type === "edgeCuts";
                 const body = isEdge ? halveStrokeWidth(l.svgBody) : l.svgBody;
                 return (
                   <g
                     key={l.key}
                     style={{ color: l.color }}
-                    clipPath={!isEdge && boardClipD ? `url(#${clipId})` : undefined}
                     dangerouslySetInnerHTML={{ __html: body }}
                   />
                 );
