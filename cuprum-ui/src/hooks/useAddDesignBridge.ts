@@ -1,19 +1,19 @@
 import { useEffect } from "react";
 import { useShell } from "@/shellStore";
 import { api } from "@/lib/api";
+import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 
 /** Push the current project snapshot to the add-design window. */
 function emitSnapshot() {
   const s = useShell.getState();
-  return api.emitAddDesignSnapshot({
-    workingDir: s.workingDir,
-    currentPath: s.currentPath,
-    designs: s.currentManifest?.designs ?? [],
-    panel: {
-      widthMm: s.currentManifest?.panel?.width_mm ?? 100,
-      heightMm: s.currentManifest?.panel?.height_mm ?? 100,
-    },
-  });
+  return api.emitAddDesignSnapshot(
+    buildAddDesignSnapshot({
+      workingDir: s.workingDir,
+      currentPath: s.currentPath,
+      manifest: s.currentManifest,
+      preselectDesignId: s.pendingAddDesignId,
+    }),
+  );
 }
 
 /** Main-window side of the add-design bridge. Mount once in App. The add-design
@@ -31,7 +31,11 @@ export function useAddDesignBridge() {
 
   useEffect(() => {
     const subs: Promise<() => void>[] = [
-      api.onAddDesignReady(() => void emitSnapshot()),
+      api.onAddDesignReady(() => {
+        void emitSnapshot();
+        // One-shot: the preselect was just carried by the ready snapshot.
+        if (useShell.getState().pendingAddDesignId) useShell.setState({ pendingAddDesignId: null });
+      }),
       api.onAddDesignImport(({ paths }) => void useShell.getState().addDesignsFromPaths(paths)),
       api.onAddDesignAddToPanel(async ({ designId, nest }) => {
         const r = await useShell.getState().addBoardInstances(designId, nest);

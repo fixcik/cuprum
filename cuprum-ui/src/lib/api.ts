@@ -173,6 +173,9 @@ export interface AddDesignSnapshot {
   currentPath: string | null;
   designs: ProjectDesign[];
   panel: { widthMm: number; heightMm: number };
+  /** When set, the add-design window selects this design on receipt (one-shot,
+   *  carried only by the ready-driven snapshot). */
+  preselectDesignId?: string | null;
 }
 /** Result of an add-to-panel intent, sent back to the add-design window. */
 export interface AddDesignResult {

@@ -1,6 +1,8 @@
 import { create } from "zustand";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
 import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
+import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, newPanelDoc } from "@/lib/panel";
 import { packLayout } from "@/lib/panelPlacement";
 import { type NestSettings } from "@/lib/nest";
@@ -158,6 +160,14 @@ interface ShellStore {
    *  designId. Set at import time; absent for designs opened from disk. Not
    *  persisted — an in-memory u32 has no meaning across launches. */
   traceSessions: Record<string, number>;
+  /** Number of ZIP paths currently being imported (incremented per-path at start,
+   *  decremented in finally). Drives the importing spinner on the designs tab. */
+  importingCount: number;
+
+  /** Design id to preselect when the add-design window opens next (one-shot). */
+  pendingAddDesignId: string | null;
+  /** Open the add-design window with a specific design pre-selected. */
+  openAddDesignForDesign: (designId: string) => Promise<void>;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -185,6 +195,8 @@ export const useShell = create<ShellStore>((set, get) => ({
   _scaleLoaded: false,
   artifactProgress: {},
   traceSessions: {},
+  importingCount: 0,
+  pendingAddDesignId: null,
 
   scheduleArtifactFlush: (fresh) => {
     if (!fresh) return;
@@ -437,6 +449,31 @@ export const useShell = create<ShellStore>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
       throw e;
+    }
+  },
+
+  openAddDesignForDesign: async (designId) => {
+    // Stash the id so the preselect reaches the window. Two delivery paths:
+    //  - fresh window: it emits `ready` on mount → the bridge folds the pending
+    //    id into that snapshot and clears it (one-shot).
+    //  - already-open window: it won't remount or re-emit `ready` (the Rust
+    //    command just focuses it), so push the preselect snapshot directly here
+    //    and clear, otherwise the id would leak into the next reactive re-emit
+    //    and override the user's manual selection.
+    set({ pendingAddDesignId: designId });
+    const existing = await WebviewWindow.getByLabel("add-design");
+    await api.openAddDesignWindow();
+    if (existing) {
+      const s = get();
+      await api.emitAddDesignSnapshot(
+        buildAddDesignSnapshot({
+          workingDir: s.workingDir,
+          currentPath: s.currentPath,
+          manifest: s.currentManifest,
+          preselectDesignId: designId,
+        }),
+      );
+      set({ pendingAddDesignId: null });
     }
   },
 
@@ -701,45 +738,50 @@ export const useShell = create<ShellStore>((set, get) => ({
     const { currentPath, workingDir, currentManifest } = get();
     if (!currentPath || !workingDir || !currentManifest) return;
     if (paths.length === 0) return;
-    const prev = currentManifest;
-    // Copy each ZIP into the working dir as a new design (sequential: each add
-    // reserves its id from the gerbers/ dir the previous one just created).
-    // Collect successes; if one fails, still commit the ones that succeeded so
-    // their already-on-disk gerbers aren't orphaned, then surface the error.
-    const added: ProjectDesign[] = [];
-    const newTraceSessions: Record<string, number> = {};
-    let failure: unknown = null;
-    for (const zip of paths) {
+    set((s) => ({ importingCount: s.importingCount + paths.length }));
+    try {
+      const prev = currentManifest;
+      // Copy each ZIP into the working dir as a new design (sequential: each add
+      // reserves its id from the gerbers/ dir the previous one just created).
+      // Collect successes; if one fails, still commit the ones that succeeded so
+      // their already-on-disk gerbers aren't orphaned, then surface the error.
+      const added: ProjectDesign[] = [];
+      const newTraceSessions: Record<string, number> = {};
+      let failure: unknown = null;
+      for (const zip of paths) {
+        try {
+          const result = await api.addDesignFromZip(workingDir, zip);
+          added.push(result.design);
+          if (result.traceSession != null) {
+            newTraceSessions[result.design.id] = result.traceSession;
+          }
+        } catch (e) {
+          failure = e;
+          break;
+        }
+      }
       try {
-        const result = await api.addDesignFromZip(workingDir, zip);
-        added.push(result.design);
-        if (result.traceSession != null) {
-          newTraceSessions[result.design.id] = result.traceSession;
+        if (added.length > 0) {
+          const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
+          get()._recordUndo(prev);
+          set((s) => ({
+            currentManifest: manifest,
+            error: null,
+            traceSessions: Object.keys(newTraceSessions).length > 0
+              ? { ...s.traceSessions, ...newTraceSessions }
+              : s.traceSessions,
+          }));
+          // Persist: write the loose manifest then repack the .cuprum so the freshly
+          // copied gerbers land in the container too.
+          await get()._persistManifest(manifest);
         }
       } catch (e) {
-        failure = e;
-        break;
+        failure = failure ?? e;
       }
+      if (failure) set({ error: String(failure) });
+    } finally {
+      set((s) => ({ importingCount: Math.max(0, s.importingCount - paths.length) }));
     }
-    try {
-      if (added.length > 0) {
-        const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
-        get()._recordUndo(prev);
-        set((s) => ({
-          currentManifest: manifest,
-          error: null,
-          traceSessions: Object.keys(newTraceSessions).length > 0
-            ? { ...s.traceSessions, ...newTraceSessions }
-            : s.traceSessions,
-        }));
-        // Persist: write the loose manifest then repack the .cuprum so the freshly
-        // copied gerbers land in the container too.
-        await get()._persistManifest(manifest);
-      }
-    } catch (e) {
-      failure = failure ?? e;
-    }
-    if (failure) set({ error: String(failure) });
   },
 
   setDesignLayerType: async (designId, gerberPath, type) => {

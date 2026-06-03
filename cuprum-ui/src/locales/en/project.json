@@ -8,6 +8,28 @@
   "layersProgress": "Layers {{loaded}}/{{total}}",
   "building3d": "Building 3D model…",
   "designs": {
+    "title": "Designs",
+    "add": "Add",
+    "search": "Search designs…",
+    "noResults": "Nothing found",
+    "toPanel": "To panel",
+    "open": "Open",
+    "onPanel": "On panel · {{count}}",
+    "rollup": {
+      "ok": "{{count}} producible",
+      "warn_one": "{{count}} with a warning",
+      "warn_few": "{{count}} with warnings",
+      "warn_many": "{{count}} with warnings",
+      "warn_other": "{{count}} with warnings",
+      "block": "{{count}} not producible"
+    },
+    "empty": {
+      "title": "Add your first design",
+      "desc": "Drop a Gerber/Excellon fab package (.zip) here — Cuprum detects the layers, computes metrics and checks manufacturability.",
+      "cta": "Add design",
+      "pick": "Choose file"
+    },
+    "dropOverlay": "Release to import a Gerber package (.zip)",
     "back": "Back to designs",
     "addDesign": "Add design",
     "layerCount": "{{count}} layers",
