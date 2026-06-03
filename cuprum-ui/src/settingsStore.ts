@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { type CapabilityProfile, DEFAULT_PROFILE } from "@/lib/capabilityProfile";
 import { type PanelPreset } from "@/lib/panel";
+import { type NestSettings, DEFAULT_NEST } from "@/lib/nest";
 
 export type Language = "auto" | "en" | "ru";
 export type Units = "mm" | "imperial";
@@ -23,6 +24,10 @@ interface SettingsStore {
   panelPresets: PanelPreset[];
   addPanelPreset: (preset: PanelPreset) => void;
   removePanelPreset: (id: string) => void;
+  /** Last-used auto-placement (nesting) recipe; defaults for the add-design window. */
+  nest: NestSettings;
+  /** Patch one or more nesting fields. */
+  setNest: (patch: Partial<NestSettings>) => void;
 }
 
 export const useSettings = create<SettingsStore>()(
@@ -43,10 +48,13 @@ export const useSettings = create<SettingsStore>()(
             : [...s.panelPresets, preset],
         })),
       removePanelPreset: (id) => set((s) => ({ panelPresets: s.panelPresets.filter((p) => p.id !== id) })),
+      nest: DEFAULT_NEST,
+      setNest: (patch) => set((s) => ({ nest: { ...s.nest, ...patch } })),
     }),
     {
       name: "cuprum-settings",
-      version: 3,
+      version: 4,
+      migrate: (persisted) => persisted, // merge handles field defaulting across versions
       // Merge persisted values onto current defaults so fields added in later
       // versions (language, units, new profile fields) get their default.
       merge: (persisted, current) => {
@@ -58,6 +66,7 @@ export const useSettings = create<SettingsStore>()(
           language: p?.language ?? "auto",
           units: p?.units ?? "mm",
           panelPresets: p?.panelPresets ?? [],
+          nest: { ...DEFAULT_NEST, ...(p?.nest ?? {}) },
         };
       },
     },
