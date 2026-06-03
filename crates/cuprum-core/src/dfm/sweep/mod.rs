@@ -208,6 +208,33 @@ mod tests {
         );
     }
 
+    /// Two parallel horizontal 0.2 mm-wide traces separated by a 0.3 mm centre-to-centre
+    /// gap → edge-to-edge clearance = 0.3 - 0.2 = 0.1 mm. Verifies that coalesced
+    /// polyline stroking (PR2) preserves the correct clearance measurement.
+    #[test]
+    fn coalesced_traces_clearance_matches_gap() {
+        // Two 2mm-long horizontal traces, width 0.2mm, at y=0 and y=0.3mm.
+        // In 4.6 format (mm): 1 unit = 1e-6 mm, so 2mm = 2000000, 0.3mm = 300000.
+        const TWO_TRACES: &[u8] = b"%FSLAX46Y46*%\n%MOMM*%\n\
+            %ADD10C,0.200000*%\n\
+            D10*\nX0Y0D02*\nX2000000Y0D01*\n\
+            X0Y300000D02*\nX2000000Y300000D01*\nM02*\n";
+        let polys = layer_polygons(TWO_TRACES, &[]).unwrap();
+        assert_eq!(
+            polys.len(),
+            2,
+            "two separate trace islands expected: {polys:?}"
+        );
+        let (clear, _) = min_clearance_and_width(&polys);
+        // Edge-to-edge gap = centre gap (0.3) - width (0.2) = 0.1 mm.
+        let expected = 0.1;
+        assert!(
+            (clear.unwrap() - expected).abs() < 0.02,
+            "clearance ≈ {expected}: got {:?}",
+            clear
+        );
+    }
+
     #[test]
     fn clearance_hotspot_lands_in_the_gap() {
         use crate::geometry::fill_polygons;

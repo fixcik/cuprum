@@ -292,12 +292,47 @@ fn contours_for(prim: &GerberPrimitive, out: &mut Vec<Vec<[f64; 2]>>) {
 /// Convert every primitive to one or more solid contours, treating all as Add
 /// (v1: clear-polarity is not produced by the vendored gerber-viewer anyway —
 /// see the note in [`crate::svg`]).
+///
+/// Line primitives are first coalesced into polylines by [`crate::strokes`] so
+/// that each run emits one rect per segment plus one circle per vertex (round
+/// joins + end caps) rather than two full circles per segment endpoint.
 fn contours_of(prims: &[GerberPrimitive]) -> Vec<Vec<[f64; 2]>> {
+    use crate::strokes::{coalesce_strokes, Run};
     let mut contours: Vec<Vec<[f64; 2]>> = Vec::new();
-    for prim in prims {
-        contours_for(prim, &mut contours);
+    for run in coalesce_strokes(prims) {
+        match run {
+            Run::Polyline { width, pts, .. } => {
+                push_polyline_stroke(&mut contours, &pts, width / 2.0);
+            }
+            Run::Flash(prim) => contours_for(prim, &mut contours),
+        }
     }
     contours
+}
+
+/// Stroke a polyline (>=2 points) of half-width `half` into solid contours:
+/// one offset rectangle per segment + one full circle at EACH vertex (round
+/// join at interior vertices, round cap at the two ends). Replaces the old
+/// per-segment "rect + 2 circles", which duplicated a full circle at every
+/// shared joint and bloated the union input.
+fn push_polyline_stroke(out: &mut Vec<Vec<[f64; 2]>>, pts: &[[f64; 2]], half: f64) {
+    for w in pts.windows(2) {
+        let (ax, ay, bx, by) = (w[0][0], w[0][1], w[1][0], w[1][1]);
+        let (dx, dy) = (bx - ax, by - ay);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len >= 1e-9 {
+            let (nx, ny) = (-dy / len * half, dx / len * half);
+            out.push(vec![
+                [ax + nx, ay + ny],
+                [bx + nx, by + ny],
+                [bx - nx, by - ny],
+                [ax - nx, ay - ny],
+            ]);
+        }
+    }
+    for p in pts {
+        out.push(circle(p[0], p[1], half, CIRCLE_SEGS));
+    }
 }
 
 /// A stroked segment (offset rect by `half` on each side) plus round caps at
@@ -617,6 +652,22 @@ mod tests {
             }],
         );
         assert!((polys_area(&drilled) - (100.0 - std::f64::consts::PI)).abs() < 0.1);
+    }
+
+    // A 2mm-long straight trace (two collinear 1mm segments) of width 1mm:
+    // union area ~= 2*1 (body) + pi*0.5^2 (the two end half-caps = one circle) ~= 2.785 mm^2.
+    const STRAIGHT_TRACE: &[u8] =
+        b"%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,1.000000*%\nD10*\nX0Y0D02*\nX1000000Y0D01*\nX2000000Y0D01*\nM02*\n";
+
+    #[test]
+    fn coalesced_straight_trace_area_matches_capsule() {
+        let polys = layer_polygons(STRAIGHT_TRACE, &[]).unwrap();
+        let area = polys_area(&polys);
+        let expected = 2.0 + std::f64::consts::PI * 0.25;
+        assert!(
+            (area - expected).abs() < 0.05,
+            "area={area}, expected~{expected}"
+        );
     }
 
     #[test]
