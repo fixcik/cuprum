@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluate, overallVerdict, minAbove } from "@/lib/feasibility";
+import { evaluate, overallVerdict, minAbove, problemTypeOf, PROBLEM_TYPE_ORDER } from "@/lib/feasibility";
 import type { Finding } from "@/lib/feasibility";
 import type { BoardMetrics } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
@@ -217,5 +217,37 @@ describe("overallVerdict", () => {
 
   it("is ok for an empty finding list", () => {
     expect(overallVerdict([])).toBe("ok");
+  });
+});
+
+describe("problemTypeOf", () => {
+  it("maps copper finding ids to distinct types (not all lumped as 'copper')", () => {
+    expect(problemTypeOf("copper.minSpace")).toBe("clearance");
+    expect(problemTypeOf("copper.thinTrace.top")).toBe("width");
+    expect(problemTypeOf("copper.thinTrace.bottom")).toBe("width");
+    expect(problemTypeOf("copper.regionNeck")).toBe("neck");
+    expect(problemTypeOf("copper.annular")).toBe("annular");
+  });
+
+  it("maps drill/via/mask/silk families by prefix", () => {
+    expect(problemTypeOf("drill.minHole")).toBe("drill");
+    expect(problemTypeOf("drill.bitSnap")).toBe("drill");
+    expect(problemTypeOf("via.plating")).toBe("via");
+    expect(problemTypeOf("mask.dam")).toBe("mask");
+    expect(problemTypeOf("silk.line.top")).toBe("silk");
+  });
+
+  it("returns null for findings without preview hotspots (size/layers)", () => {
+    expect(problemTypeOf("size.fits")).toBeNull();
+    expect(problemTypeOf("layers.count")).toBeNull();
+    expect(problemTypeOf("layers.doubleSided")).toBeNull();
+  });
+
+  it("every mappable type is listed in PROBLEM_TYPE_ORDER", () => {
+    for (const id of ["copper.minSpace", "copper.thinTrace.top", "copper.regionNeck", "copper.annular", "drill.minHole", "via.plating", "mask.dam", "silk.line.top"]) {
+      const t = problemTypeOf(id);
+      expect(t).not.toBeNull();
+      expect(PROBLEM_TYPE_ORDER).toContain(t!);
+    }
   });
 });
