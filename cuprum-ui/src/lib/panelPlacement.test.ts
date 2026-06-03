@@ -6,15 +6,25 @@ import type { NestSettings } from "@/lib/nest";
 const nest = (o: Partial<NestSettings> = {}): NestSettings => ({ ...DEFAULT_NEST, ...o });
 
 describe("packLayout", () => {
-  it("places a single corner copy when nesting is disabled", () => {
-    // 40×30 board, 100×100 panel, margin 5 / gap 2 -> 2×2 capacity, bl corner.
+  it("places a single corner copy snug to the corner when nesting is disabled", () => {
+    // Nesting off = "one copy snug in the corner": the edge margin / gap are
+    // auto-nest params and do NOT apply, so the copy sits flush at the corner
+    // (0, …). 40×30 board on a 100×100 panel, bl corner.
     const r = packLayout(40, 30, 100, 100, nest({ enabled: false }));
-    expect(r.cols).toBe(2);
-    expect(r.rows).toBe(2);
-    expect(r.max).toBe(4);
     expect(r.n).toBe(1);
-    expect(r.placements).toEqual([{ x: 5, y: 65 }]);
+    expect(r.placements).toEqual([{ x: 0, y: 70 }]);
     expect([r.bw, r.bh]).toEqual([40, 30]);
+  });
+
+  it("places the snug single copy whenever it fits the raw panel, even if the margin would not", () => {
+    // Regression: with nesting off, a 228×98 board fits a 240×200 panel, but a
+    // 10mm edge margin (228 + 2·10 = 248 > 240) used to report zero capacity and
+    // reject it ("design larger than panel work area"). The edge margin must not
+    // gate the snug single copy.
+    const r = packLayout(228, 98, 240, 200, nest({ enabled: false, marginMm: 10 }));
+    expect(r.max).toBeGreaterThanOrEqual(1);
+    expect(r.n).toBe(1);
+    expect(r.placements).toEqual([{ x: 0, y: 102 }]);
   });
 
   it("fills a row-major grid from the top-left for an explicit copy count", () => {
