@@ -1,6 +1,7 @@
 //! Read/write the `.cuprum` container — a ZIP archive holding `manifest.json`
 //! and raw Gerber files under `gerbers/<import-id>/`.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -18,8 +19,46 @@ pub const MANIFEST_NAME: &str = "manifest.json";
 /// exclusion when packing the working directory.
 pub const PANEL_NAME: &str = "panel.json";
 
+/// Choose ZIP compression options based on the entry name.
+///
+/// PNG previews are already compressed — storing them avoids wasted deflate
+/// work and reduces flush latency. Everything else (manifest, gerbers, SVG,
+/// metrics) compresses reasonably well; level 1 favours speed over ratio.
+fn entry_options(name: &str) -> SimpleFileOptions {
+    if name.starts_with("artifacts/preview/") {
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored)
+    } else {
+        SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .compression_level(Some(1))
+    }
+}
+
+/// Try to open the existing archive at `path` and return a map of
+/// entry-name → crc32.  Returns `None` if the file does not exist or is not a
+/// valid ZIP (corrupt / truncated) — the caller falls back to a full repack.
+fn load_prev_crc_map(path: &Path) -> Option<HashMap<String, u32>> {
+    let file = File::open(path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let mut map = HashMap::with_capacity(archive.len());
+    for i in 0..archive.len() {
+        if let Ok(entry) = archive.by_index(i) {
+            map.insert(entry.name().to_string(), entry.crc32());
+        }
+    }
+    Some(map)
+}
+
 /// Write a complete container: the manifest plus every entry in `entries`
-/// (archive-relative path -> bytes). Gerbers are passed as entries by the caller.
+/// (archive-relative path -> bytes).
+///
+/// When an existing archive already lives at `path`, unchanged entries (same
+/// name and crc32) are copied without re-compression via
+/// `ZipWriter::raw_copy_file`.  Changed or new entries are deflated by policy.
+/// `manifest.json` is always written fresh.
+///
+/// If no prior archive exists (or it is unreadable), every entry is written
+/// from scratch — identical behaviour to the previous full-repack path.
 pub fn write(path: &Path, manifest: &Manifest, entries: &[(String, Vec<u8>)]) -> Result<()> {
     // Write to a sibling temp file, then atomically rename into place, so a
     // failed/partial write never corrupts an existing project file.
@@ -27,20 +66,66 @@ pub fn write(path: &Path, manifest: &Manifest, entries: &[(String, Vec<u8>)]) ->
     tmp_os.push(".tmp");
     let tmp = std::path::PathBuf::from(tmp_os);
 
+    // Build a crc32 map from the previous archive (if any) for unchanged-entry
+    // detection.  We open the file for reading here; a second handle will be
+    // opened inside the build closure for raw_copy_file so that the borrow
+    // checker is not confused by two ZipArchive views over the same handle.
+    let prev_crc_map: Option<HashMap<String, u32>> = load_prev_crc_map(path);
+
     let build = (|| -> Result<()> {
+        // Open a second read-handle for raw_copy_file (only when we have a
+        // prior crc map, i.e. the previous archive is readable).
+        let mut prev_archive: Option<zip::ZipArchive<File>> = if prev_crc_map.is_some() {
+            File::open(path)
+                .ok()
+                .and_then(|f| zip::ZipArchive::new(f).ok())
+        } else {
+            None
+        };
+
         let file = File::create(&tmp)?;
         let mut zip = zip::ZipWriter::new(file);
-        // Span wraps only the deflate writes (start_file/write_all/finish).
+        // Span wraps only the compression writes (start_file/write_all/finish).
         let _s = tracing::info_span!("zip_write", entries = entries.len()).entered();
-        let opts =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        zip.start_file(MANIFEST_NAME, opts)?;
+
+        // manifest.json is always written fresh — it changes on every save.
+        zip.start_file(MANIFEST_NAME, entry_options(MANIFEST_NAME))?;
         zip.write_all(serde_json::to_string_pretty(manifest)?.as_bytes())?;
+
         for (name, bytes) in entries {
-            zip.start_file(name.as_str(), opts)?;
-            zip.write_all(bytes)?;
+            let crc = crc32fast::hash(bytes);
+
+            // Raw-copy when the previous archive has the same entry with the
+            // same crc32 — no re-decompression or re-compression needed.
+            let copied =
+                if let (Some(ref map), Some(ref mut arch)) = (&prev_crc_map, &mut prev_archive) {
+                    if map.get(name.as_str()) == Some(&crc) {
+                        match arch.by_name(name.as_str()) {
+                            Ok(src) => {
+                                zip.raw_copy_file(src)?;
+                                true
+                            }
+                            Err(_) => false,
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+            if !copied {
+                zip.start_file(name.as_str(), entry_options(name))?;
+                zip.write_all(bytes)?;
+            }
         }
+
         zip.finish()?;
+
+        // Drop the read handles before rename so that all OS handles to the
+        // previous file are released (belt-and-suspenders; matters on Windows).
+        drop(prev_archive);
+
         Ok(())
     })();
 
@@ -191,6 +276,53 @@ mod tests {
     }
 
     #[test]
+    fn preview_stored_text_deflated() {
+        let dir = std::env::temp_dir().join(format!("cuprum-test-compress-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("compress.cuprum");
+
+        let preview_bytes: Vec<u8> =
+            b"\x89PNG\r\n\x1a\nsome binary preview data that looks like PNG".to_vec();
+        let gerber_bytes: Vec<u8> = b"G04 hello world hello world*".to_vec();
+
+        let entries = vec![
+            ("artifacts/preview/x.bin".to_string(), preview_bytes.clone()),
+            ("gerbers/a.gbr".to_string(), gerber_bytes.clone()),
+        ];
+        write(&path, &Manifest::new("t"), &entries).unwrap();
+
+        // Round-trip: content must be identical to what was written.
+        assert_eq!(
+            read_entry(&path, "artifacts/preview/x.bin").unwrap(),
+            preview_bytes
+        );
+        assert_eq!(read_entry(&path, "gerbers/a.gbr").unwrap(), gerber_bytes);
+
+        // Compression method must match the per-entry policy.
+        let file = std::fs::File::open(&path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+
+        let preview_method = archive
+            .by_name("artifacts/preview/x.bin")
+            .unwrap()
+            .compression();
+        assert_eq!(
+            preview_method,
+            zip::CompressionMethod::Stored,
+            "preview entry should be Stored"
+        );
+
+        let gerber_method = archive.by_name("gerbers/a.gbr").unwrap().compression();
+        assert_eq!(
+            gerber_method,
+            zip::CompressionMethod::Deflated,
+            "gerber entry should be Deflated"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn legacy_panel_read() {
         use crate::document::panel::PanelDoc;
         let dir = std::env::temp_dir().join(format!("cuprum-legacy-panel-{}", std::process::id()));
@@ -209,6 +341,141 @@ mod tests {
         )];
         write(&path, &Manifest::new("demo"), &entries).unwrap();
         assert_eq!(read_legacy_panel(&path).unwrap(), Some(p));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // -------------------------------------------------------------------------
+    // Incremental repack tests
+    // -------------------------------------------------------------------------
+
+    fn make_manifest(name: &str) -> Manifest {
+        Manifest::new(name)
+    }
+
+    /// Full incremental scenario: unchanged entry raw-copied, changed entry
+    /// re-deflated, removed entry absent, new entry present, manifest updated.
+    #[test]
+    fn incremental_repack_updates_changed_keeps_unchanged_drops_removed() {
+        let dir = std::env::temp_dir().join(format!("cuprum-test-incr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("incr.cuprum");
+
+        // v1: entries A, B, C.
+        let manifest1 = make_manifest("v1");
+        let entries1 = vec![
+            ("gerbers/a.gbr".to_string(), b"AAA".to_vec()),
+            ("gerbers/b.gbr".to_string(), b"BBB".to_vec()),
+            ("gerbers/c.gbr".to_string(), b"CCC".to_vec()),
+        ];
+        write(&path, &manifest1, &entries1).unwrap();
+
+        // v2: A unchanged, B changed, C removed, D new.
+        let manifest2 = make_manifest("v2");
+        let entries2 = vec![
+            ("gerbers/a.gbr".to_string(), b"AAA".to_vec()), // unchanged
+            ("gerbers/b.gbr".to_string(), b"BBBB".to_vec()), // changed
+            ("gerbers/d.gbr".to_string(), b"DDD".to_vec()), // new
+        ];
+        write(&path, &manifest2, &entries2).unwrap();
+
+        // Verify contents.
+        assert_eq!(read_entry(&path, "gerbers/a.gbr").unwrap(), b"AAA");
+        assert_eq!(read_entry(&path, "gerbers/b.gbr").unwrap(), b"BBBB");
+        assert_eq!(read_entry(&path, "gerbers/d.gbr").unwrap(), b"DDD");
+        // C must be gone.
+        assert!(
+            read_entry(&path, "gerbers/c.gbr").is_err(),
+            "removed entry must not appear in v2"
+        );
+        // Manifest updated.
+        assert_eq!(read_manifest(&path).unwrap(), manifest2);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// No prior archive — full repack, round-trip must be correct.
+    #[test]
+    fn incremental_falls_back_without_prior() {
+        let dir = std::env::temp_dir().join(format!("cuprum-test-noprior-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("noprior.cuprum");
+
+        let m = make_manifest("fresh");
+        let entries = vec![
+            ("gerbers/x.gbr".to_string(), b"X".to_vec()),
+            ("gerbers/y.gbr".to_string(), b"Y".to_vec()),
+        ];
+        write(&path, &m, &entries).unwrap();
+
+        assert_eq!(read_manifest(&path).unwrap(), m);
+        assert_eq!(read_entry(&path, "gerbers/x.gbr").unwrap(), b"X");
+        assert_eq!(read_entry(&path, "gerbers/y.gbr").unwrap(), b"Y");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Corrupt prior archive — must not panic; full repack must succeed.
+    #[test]
+    fn incremental_falls_back_on_corrupt_prior() {
+        let dir = std::env::temp_dir().join(format!("cuprum-test-corrupt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("corrupt.cuprum");
+
+        // Write garbage so that ZipArchive::new fails.
+        std::fs::write(&path, b"not a zip").unwrap();
+
+        let m = make_manifest("after-corrupt");
+        let entries = vec![("gerbers/z.gbr".to_string(), b"ZZZ".to_vec())];
+        // Must not panic.
+        write(&path, &m, &entries).unwrap();
+
+        assert_eq!(read_manifest(&path).unwrap(), m);
+        assert_eq!(read_entry(&path, "gerbers/z.gbr").unwrap(), b"ZZZ");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `update_manifest` reads every entry into memory and calls `write`, which
+    /// re-opens the same file for the crc map and raw-copies unchanged entries.
+    /// The manifest must be replaced while every other entry round-trips, and
+    /// the archive must hold exactly one `manifest.json`.
+    #[test]
+    fn update_manifest_preserves_entries_incrementally() {
+        let dir = std::env::temp_dir().join(format!("cuprum-test-upd-incr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("upd.cuprum");
+
+        let manifest1 = make_manifest("v1");
+        let gerber = b"G04 gerber payload*".to_vec();
+        let svg = b"<svg>artifact</svg>".to_vec();
+        let entries = vec![
+            ("gerbers/a.gbr".to_string(), gerber.clone()),
+            ("artifacts/svg/x.bin".to_string(), svg.clone()),
+        ];
+        write(&path, &manifest1, &entries).unwrap();
+
+        // Replace only the manifest.
+        let manifest2 = make_manifest("v2");
+        update_manifest(&path, &manifest2).unwrap();
+
+        // (a) manifest replaced.
+        assert_eq!(read_manifest(&path).unwrap(), manifest2);
+
+        // (b) original entries round-trip byte-for-byte.
+        assert_eq!(read_entry(&path, "gerbers/a.gbr").unwrap(), gerber);
+        assert_eq!(read_entry(&path, "artifacts/svg/x.bin").unwrap(), svg);
+
+        // (c) exactly one manifest.json entry in the archive.
+        let file = std::fs::File::open(&path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let manifest_count = (0..archive.len())
+            .filter(|&i| archive.by_index(i).unwrap().name() == MANIFEST_NAME)
+            .count();
+        assert_eq!(
+            manifest_count, 1,
+            "archive must hold exactly one manifest.json"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

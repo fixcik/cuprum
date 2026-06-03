@@ -31,5 +31,6 @@ rayon = "1"
 png = "0.17"
 rusqlite = { version = "0.31", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+crc32fast = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -11,5 +11,6 @@ serde.workspace = true
 serde_json.workspace = true
 rusqlite.workspace = true
 zip.workspace = true
+crc32fast.workspace = true
 tracing.workspace = true
 cuprum-core = { path = "../cuprum-core" }

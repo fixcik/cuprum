@@ -12,13 +12,27 @@ let _packChain: Promise<unknown> = Promise.resolve();
 /** Count of packs queued-but-not-yet-settled, so the UI can show a "saving"
  *  spinner while any repack (autosave flush included) is in flight. */
 let _packInFlight = 0;
+/** Set when scheduleArtifactFlush is called while a pack is already in flight.
+ *  Consumed once the queue drains: triggers exactly one trailing repack so no
+ *  freshly-computed artifact is lost. */
+let _flushDirty = false;
 function serializePack(fn: () => Promise<void>): Promise<void> {
   _packInFlight += 1;
   if (_packInFlight === 1) useShell.setState({ saving: true });
   const run = () =>
     fn().finally(() => {
       _packInFlight -= 1;
-      if (_packInFlight === 0) useShell.setState({ saving: false });
+      if (_packInFlight === 0) {
+        useShell.setState({ saving: false });
+        // If artifact flushes arrived while the pack queue was busy, fire one
+        // trailing flush now that the queue is empty.  We clear the flag first
+        // so a concurrent scheduleArtifactFlush (extremely unlikely here, but
+        // possible) will start its own fresh debounce rather than be swallowed.
+        if (_flushDirty) {
+          _flushDirty = false;
+          useShell.getState().scheduleArtifactFlush(true);
+        }
+      }
     });
   const next = _packChain.then(run, run);
   _packChain = next.catch(() => {});
@@ -157,6 +171,14 @@ export const useShell = create<ShellStore>((set, get) => ({
     if (!fresh) return;
     const { workingDir, currentPath } = get();
     if (!workingDir || !currentPath) return;
+    // If a repack is already queued/running, just mark dirty and exit.  Once the
+    // pack queue drains, serializePack will fire exactly one trailing flush so
+    // freshly-computed artifacts are not lost.  This collapses N concurrent flush
+    // requests into ≤2 actual api.saveProject calls.
+    if (_packInFlight > 0) {
+      _flushDirty = true;
+      return;
+    }
     const path = currentPath;
     if (_flushTimer) clearTimeout(_flushTimer);
     _flushTimer = setTimeout(() => {

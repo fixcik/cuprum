@@ -497,6 +497,7 @@ name = "cuprum-project"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "crc32fast",
  "cuprum-core",
  "rusqlite",
  "serde",
