@@ -106,7 +106,8 @@ interface ShellStore {
    *  one). Writes the manifest, refreshes recents, and syncs the open project if it
    *  happens to be the same one. */
   updateRecentMetadata: (path: string, name: string, description: string) => Promise<void>;
-  /** Write the panel blank (stackup -> manifest, dimensions -> panel.json). */
+  /** Write the panel blank (size + stackup) into the manifest, persisted via the
+   *  shared working-dir + autosave path. */
   savePanelConfig: (panel: PanelDoc, stackup: Stackup) => Promise<void>;
   /** Place a board instance on the panel (stop-gap corner placement for Phase 1).
    *  Returns an AddDesignResult so the add-design window can show a toast. */
@@ -406,14 +407,20 @@ export const useShell = create<ShellStore>((set, get) => ({
   },
 
   savePanelConfig: async (panel, stackup) => {
-    const path = get().currentPath;
-    if (!path) return;
+    const prev = get().currentManifest;
+    if (!prev) return;
+    // Persist the panel through the SAME working-dir + autosave path as every
+    // other mutation. It used to write straight to the .cuprum container via
+    // configure_panel and only mirror the loose manifest (no repack) — so a
+    // serialized working-dir repack (artifact flush on open, another mutation)
+    // would pack the panel-less loose manifest over the container, losing the
+    // edit on reopen. Routing through _persistManifest puts the panel in the
+    // loose manifest and repacks it via the serialized pack chain.
+    const manifest: Manifest = { ...prev, panel, stackup };
     try {
-      const prev = get().currentManifest;
-      const manifest = await api.configurePanel(path, panel, stackup);
-      if (prev) get()._recordUndo(prev);
+      get()._recordUndo(prev);
       set({ currentManifest: manifest, error: null });
-      await get()._mirrorManifest(manifest);
+      await get()._persistManifest(manifest);
     } catch (e) {
       set({ error: String(e) });
       throw e;

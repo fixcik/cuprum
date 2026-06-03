@@ -576,18 +576,6 @@ fn read_project_manifest(path: String) -> Result<cuprum_project::Manifest, Strin
     cuprum_project::read_project_manifest(Path::new(&path)).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn configure_panel(
-    app: AppHandle,
-    path: String,
-    panel: cuprum_project::PanelDoc,
-    stackup: cuprum_project::Stackup,
-) -> Result<cuprum_project::Manifest, String> {
-    let db = catalog_db_path(&app)?;
-    cuprum_project::configure_panel(&db, Path::new(&path), &panel, stackup, now_epoch())
-        .map_err(|e| e.to_string())
-}
-
 // ---- Working-dir gerber inspection (drill holes, SVG geometry) ----
 
 #[derive(serde::Serialize)]
@@ -1303,7 +1291,6 @@ fn main() {
             remove_recent,
             update_project_metadata,
             read_project_manifest,
-            configure_panel,
             add_design_from_zip,
             render_gerber_svg,
             render_layers_svg,
