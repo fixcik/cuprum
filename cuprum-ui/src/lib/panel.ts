@@ -1,10 +1,10 @@
 import type { PanelDoc, Stackup } from "@/lib/api";
 
-/** Default stackup for a fresh blank: 1 oz copper on 1.6 mm FR4, single-sided. */
+/** Default stackup for a fresh blank: 1 oz copper on 1.6 mm FR4, double-sided. */
 export const DEFAULT_STACKUP: Stackup = {
   copper_weight_oz: 1,
   substrate_thickness_mm: 1.6,
-  double_sided: false,
+  double_sided: true,
 };
 
 /** Selectable copper weights (oz). */
@@ -21,9 +21,9 @@ export interface PanelPreset {
 
 /** Built-in starter presets, always available alongside user presets. */
 export const BUILTIN_PANEL_PRESETS: PanelPreset[] = [
-  { id: "builtin-100x100", name: "100 × 100 · 1oz · 1.6 mm", widthMm: 100, heightMm: 100, stackup: { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: false } },
-  { id: "builtin-100x150", name: "100 × 150 · 1oz · 1.6 mm", widthMm: 100, heightMm: 150, stackup: { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: false } },
-  { id: "builtin-200x100", name: "200 × 100 · 1oz · 1.6 mm", widthMm: 200, heightMm: 100, stackup: { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: false } },
+  { id: "builtin-100x100", name: "100 × 100 · 1oz · 1.6 mm", widthMm: 100, heightMm: 100, stackup: { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: true } },
+  { id: "builtin-100x150", name: "100 × 150 · 1oz · 1.6 mm", widthMm: 100, heightMm: 150, stackup: { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: true } },
+  { id: "builtin-200x100", name: "200 × 100 · 1oz · 1.6 mm", widthMm: 200, heightMm: 100, stackup: { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: true } },
 ];
 
 /** Build a fresh PanelDoc at origin (0,0). */

@@ -32,6 +32,12 @@
       "allowed": "allowed",
       "unsupported": "unsupported",
       "bad": "Inner layers can't be made at home."
+    },
+    "doubleSided": {
+      "label": "Double-sided board",
+      "measured": "copper on both sides",
+      "limit": "single-sided panel",
+      "bad": "The design needs copper on both sides, but the panel is single-sided. Switch the panel stackup to double-sided."
     }
   },
   "trace": {

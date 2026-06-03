@@ -317,8 +317,8 @@ export function DesignInspector({ designId, onBack }: DesignInspectorProps) {
   // re-runs when the profile thresholds change too). The size check is against
   // the project panel (the design must fit on it); falls back to the machine max.
   const findings = useMemo(
-    () => evaluate(metrics, profile, manifest?.panel),
-    [metrics, profile, manifest?.panel],
+    () => evaluate(metrics, profile, manifest?.panel, manifest?.stackup),
+    [metrics, profile, manifest?.panel, manifest?.stackup],
   );
   const verdict = overallVerdict(findings);
 
