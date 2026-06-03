@@ -356,6 +356,12 @@ struct RecentProjectDto {
     name: String,
     last_opened_at: i64,
     exists: bool,
+    /// Number of designs (Home card footer); 0 for projects catalogued before
+    /// stats were tracked, until next open/save.
+    design_count: i64,
+    /// Panel blank size in mm; null until the panel is configured.
+    width_mm: Option<f64>,
+    height_mm: Option<f64>,
 }
 
 #[tauri::command]
@@ -369,6 +375,9 @@ fn list_recent_projects(app: AppHandle) -> Result<Vec<RecentProjectDto>, String>
             name: r.name,
             last_opened_at: r.last_opened_at,
             exists: r.exists,
+            design_count: r.design_count,
+            width_mm: r.width_mm,
+            height_mm: r.height_mm,
         })
         .collect())
 }
@@ -428,7 +437,13 @@ fn save_project(
     cuprum_core::trace::operation("flush", &traces_dir(&app), || {
         cuprum_project::workdir::pack(&wd, Path::new(&target_path))
     })
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    // Keep the Home-card stats (design count + panel size) fresh after edits.
+    // Best-effort: never fail a save because the catalog refresh hiccupped.
+    if let Ok(db) = catalog_db_path(&app) {
+        let _ = cuprum_project::refresh_recent_stats(&db, Path::new(&target_path));
+    }
+    Ok(())
 }
 
 /// Mirror the current manifest into the working dir (called after every mutation

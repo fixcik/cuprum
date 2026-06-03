@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { DesignCard } from "./DesignCard";
 import { DesignInspector } from "./DesignInspector";
+import { DashedAddTile } from "@/components/ui/DashedAddTile";
 import { useShell } from "@/shellStore";
 
 export function DesignsGallery() {
@@ -59,15 +60,13 @@ export function DesignsGallery() {
         ))}
         {/* No fixed aspect: the grid row stretches this tile to match a real card
             (thumbnail + footer); min-h keeps it sensible when it's the only tile. */}
-        <button
-          type="button"
+        <DashedAddTile
           onClick={addDesignsFromZips}
-          className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
-        >
-          <Plus className="size-6" />
-          <span className="text-[12px] font-medium">{t("designs.addDesign")}</span>
-          <span className="text-[11px] text-muted-foreground/70">{t("designs.dropHintShort")}</span>
-        </button>
+          icon={<Plus className="size-6" />}
+          title={t("designs.addDesign")}
+          subtitle={t("designs.dropHintShort")}
+          className="min-h-[200px]"
+        />
       </div>
       {manifest.designs.length === 0 && (
         <p className="mt-4 text-center text-[12px] text-muted-foreground">{t("designs.emptyDesc")}</p>
