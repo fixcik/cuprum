@@ -33,15 +33,21 @@ export function packLayout(
     bw = bh;
     bh = t;
   }
-  const innerW = panelWmm - 2 * nest.marginMm;
-  const innerH = panelHmm - 2 * nest.marginMm;
+  // Edge margin and inter-board gap are auto-nesting parameters. With nesting
+  // off ("one copy snug in the corner") neither applies: the single copy sits
+  // flush in the corner, so it stays placeable whenever the board fits the raw
+  // panel — not gated by an edge inset (board + 2·margin > panel).
+  const margin = nest.enabled ? nest.marginMm : 0;
+  const gap = nest.enabled ? nest.gapMm : 0;
+  const innerW = panelWmm - 2 * margin;
+  const innerH = panelHmm - 2 * margin;
   const cols =
-    bw + nest.gapMm > 0
-      ? Math.max(0, Math.floor((innerW + nest.gapMm) / (bw + nest.gapMm)))
+    bw + gap > 0
+      ? Math.max(0, Math.floor((innerW + gap) / (bw + gap)))
       : 0;
   const rows =
-    bh + nest.gapMm > 0
-      ? Math.max(0, Math.floor((innerH + nest.gapMm) / (bh + nest.gapMm)))
+    bh + gap > 0
+      ? Math.max(0, Math.floor((innerH + gap) / (bh + gap)))
       : 0;
   const max = cols * rows;
 
@@ -66,12 +72,12 @@ export function packLayout(
     // Anchor to the chosen corner.
     let x =
       nest.corner === "tr" || nest.corner === "br"
-        ? panelWmm - nest.marginMm - (c + 1) * bw - c * nest.gapMm
-        : nest.marginMm + c * (bw + nest.gapMm);
+        ? panelWmm - margin - (c + 1) * bw - c * gap
+        : margin + c * (bw + gap);
     let y =
       nest.corner === "bl" || nest.corner === "br"
-        ? panelHmm - nest.marginMm - (r + 1) * bh - r * nest.gapMm
-        : nest.marginMm + r * (bh + nest.gapMm);
+        ? panelHmm - margin - (r + 1) * bh - r * gap
+        : margin + r * (bh + gap);
     if (nest.enabled && nest.snapMm > 0) {
       x = Math.round(x / nest.snapMm) * nest.snapMm;
       y = Math.round(y / nest.snapMm) * nest.snapMm;
