@@ -942,6 +942,10 @@ async fn project_board_mesh(
     // hidden drill must remove its holes from the board, not just its barrels —
     // which means re-drilling the substrate, so it's a server-side rebuild.
     excluded_keys: Vec<String>,
+    // FR4 substrate thickness in mm (from the panel stackup; the frontend falls
+    // back to the default when the panel is not configured). Bakes the board Z,
+    // so it's part of the cache key.
+    thickness_mm: f32,
 ) -> Result<tauri::ipc::Response, String> {
     // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
     // main thread so concurrent calls (one per design card) don't serialize.
@@ -952,9 +956,10 @@ async fn project_board_mesh(
             loaded.push((g.rel.clone(), g.layer_type, bytes));
         }
         let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
-        // Cache key: included layers only (rel-path key + type + bytes).
+        // Cache key: included layers only (rel-path key + type + bytes) + thickness.
         let mut hasher = cuprum_core::diskcache::Hasher::new();
-        hasher.add(b"mesh-v4");
+        hasher.add(b"mesh-v5");
+        hasher.add(&thickness_mm.to_le_bytes());
         for (rel, t, bytes) in &loaded {
             if excluded.contains(rel) {
                 continue;
@@ -978,7 +983,7 @@ async fn project_board_mesh(
                 })
                 .collect();
             cuprum_core::trace::operation("mesh", &traces_dir(&app), || {
-                pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs))
+                pack_board_mesh(cuprum_core::mesh::board_geometry(&inputs, thickness_mm))
             })
         });
         Ok(blob)

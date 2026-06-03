@@ -95,6 +95,10 @@ export interface Stackup {
   double_sided: boolean;
 }
 
+/** FR4 substrate thickness (mm) used for the 3D board when the panel stackup is
+ *  not configured. Mirrors `cuprum_core::mesh::DEFAULT_FR4_THICK`. */
+export const DEFAULT_FR4_THICKNESS_MM = 1.6;
+
 export type LayerRef = "Top" | "Bottom";
 export type ToolingHoleRole = "registration" | "flip" | "unused";
 
@@ -338,12 +342,20 @@ export const api = {
   maskPolygons: (workingDir: string, gerberRel: string, outlineRings: [number, number][][]) =>
     invoke<Poly[]>("mask_polygons", { workingDir, gerberRel, outlineRings }),
   /** Full triangulated 3D board mesh for a COMMITTED project, as a binary blob.
-   *  `excludedKeys` (gerber-rel strings) drop hidden drill layers. */
+   *  `excludedKeys` (gerber-rel strings) drop hidden drill layers. `thicknessMm`
+   *  is the FR4 substrate thickness from the panel stackup (bakes the board Z). */
   projectBoardMesh: (
     workingDir: string,
     gerbers: { rel: string; layerType: LayerType }[],
     excludedKeys: string[] = [],
-  ) => invoke<ArrayBuffer>("project_board_mesh", { workingDir, gerbers, excludedKeys }),
+    thicknessMm: number = DEFAULT_FR4_THICKNESS_MM,
+  ) =>
+    invoke<ArrayBuffer>("project_board_mesh", {
+      workingDir,
+      gerbers,
+      excludedKeys,
+      thicknessMm,
+    }),
   /** Measured manufacturing facts (DFM) for a committed design read from the
    *  working dir; judged client-side against the capability profile. */
   projectBoardMetrics: (

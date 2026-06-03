@@ -28,8 +28,9 @@ use rayon::prelude::*;
 
 use crate::geometry::{self, Hole, Poly};
 
-/// FR4 substrate thickness in mm (matches the JS `FR4_THICK`).
-const FR4_THICK: f32 = 1.6;
+/// Default FR4 substrate thickness in mm, used when the project's panel stackup
+/// is not configured. The real thickness is passed into [`board_geometry`].
+pub const DEFAULT_FR4_THICK: f32 = 1.6;
 /// Drill-bore cylinder facet count.
 const BARREL_SEGS: usize = 24;
 /// Facets for circles used when difference-drilling the substrate faces.
@@ -114,7 +115,7 @@ pub struct BoardMesh {
 /// Z of a surface layer plane: bottom layers hang below z=0, top layers sit
 /// above the FR4. Offsets spread the stack so it stays separable in the depth
 /// buffer (matches the JS `zOffsetFor`).
-fn z_for(role: Role, side: Side) -> f32 {
+fn z_for(role: Role, side: Side, thickness: f32) -> f32 {
     let off = match role {
         Role::Copper => 0.03,
         Role::Mask => 0.08,
@@ -123,7 +124,7 @@ fn z_for(role: Role, side: Side) -> f32 {
     };
     match side {
         Side::Bottom => -off,
-        _ => FR4_THICK + off,
+        _ => thickness + off,
     }
 }
 
@@ -379,7 +380,7 @@ fn ring_area(ring: &[[f64; 2]]) -> f64 {
 /// perimeter + inner-cutout walls. Drill bores get copper barrels instead of
 /// FR4 walls (added per drill layer), so they don't z-fight.
 #[tracing::instrument(skip_all, fields(loops = loops.len(), holes = holes.len()))]
-fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
+fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole], thickness: f32) -> Buffer {
     let mut buf = Buffer::default();
     if loops.is_empty() {
         return buf;
@@ -410,15 +411,15 @@ fn build_substrate(loops: &[Vec<[f64; 2]>], holes: &[Hole]) -> Buffer {
             // Top + bottom faces share the SAME 2D polygon — earcut once, emit
             // both. (Top first, then bottom, to match the prior vertex order.)
             if let Some((data, tris)) = triangulate_poly(p) {
-                emit_face(&mut buf, &data, &tris, FR4_THICK, 1.0); // top face
+                emit_face(&mut buf, &data, &tris, thickness, 1.0); // top face
                 emit_face(&mut buf, &data, &tris, 0.0, -1.0); // bottom face
             }
         }
     }
     // Walls only for the perimeter + inner cutouts (NOT drills).
-    add_wall(&mut buf, &loops[0], 0.0, FR4_THICK);
+    add_wall(&mut buf, &loops[0], 0.0, thickness);
     for inner in &loops[1..] {
-        add_wall(&mut buf, inner, 0.0, FR4_THICK);
+        add_wall(&mut buf, inner, 0.0, thickness);
     }
     buf
 }
@@ -430,6 +431,7 @@ fn build_surface_layer(
     layer: &LayerInput,
     holes: &[Hole],
     outline: &[Vec<[f64; 2]>],
+    thickness: f32,
 ) -> Option<LayerMesh> {
     let (kind, is_mask) = match layer.role {
         Role::Copper => (KIND_COPPER, false),
@@ -454,7 +456,7 @@ fn build_surface_layer(
     if polys.is_empty() {
         return None;
     }
-    let z = z_for(layer.role, layer.side);
+    let z = z_for(layer.role, layer.side, thickness);
     let nz = if matches!(layer.side, Side::Bottom) {
         -1.0
     } else {
@@ -484,8 +486,8 @@ fn build_surface_layer(
 /// - Edge layer → stitched into the board outline (perimeter + inner cutouts).
 /// - Surface layers (copper/mask/silk/paste/other) → clean polygons
 ///   (drill-subtracted; mask = board minus openings) triangulated in parallel.
-#[tracing::instrument(skip_all, fields(layers = layers.len()))]
-pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
+#[tracing::instrument(skip_all, fields(layers = layers.len(), thickness))]
+pub fn board_geometry(layers: &[LayerInput], thickness: f32) -> BoardMesh {
     // 1. Collect ALL drill holes (used to drill the substrate faces and cut fills).
     let mut holes: Vec<Hole> = Vec::new();
     {
@@ -523,14 +525,14 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
     // thread) stay its children and route to this operation's trace file.
     let dh = crate::trace::capture_dispatch();
     let (substrate, mut meshes) = rayon::join(
-        || dh.run(|| build_substrate(&outline, &holes)),
+        || dh.run(|| build_substrate(&outline, &holes, thickness)),
         || {
             dh.run(|| {
                 let _span = tracing::info_span!("triangulate_parallel").entered();
                 let dh = crate::trace::capture_dispatch();
                 layers
                     .par_iter()
-                    .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline)))
+                    .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline, thickness)))
                     .collect::<Vec<LayerMesh>>()
             })
         },
@@ -549,7 +551,7 @@ pub fn board_geometry(layers: &[LayerInput]) -> BoardMesh {
             let mut buf = Buffer::default();
             for h in &hs {
                 if h.d_mm > 0.0 {
-                    add_barrel(&mut buf, h.x_mm, h.y_mm, h.d_mm / 2.0, 0.0, FR4_THICK);
+                    add_barrel(&mut buf, h.x_mm, h.y_mm, h.d_mm / 2.0, 0.0, thickness);
                 }
             }
             if !buf.positions.is_empty() {
@@ -584,7 +586,7 @@ mod tests {
             side: Side::Top,
             bytes: FLASH_PAD,
         }];
-        let board = board_geometry(&layers);
+        let board = board_geometry(&layers, DEFAULT_FR4_THICK);
         assert_eq!(board.layers.len(), 1);
         let m = &board.layers[0];
         assert_eq!(m.kind, KIND_COPPER);
@@ -611,7 +613,7 @@ mod tests {
             side: Side::Both,
             bytes: EDGE_SQUARE,
         }];
-        let board = board_geometry(&layers);
+        let board = board_geometry(&layers, DEFAULT_FR4_THICK);
         assert!(
             !board.substrate.positions.is_empty(),
             "substrate should be built from the outline"
@@ -629,7 +631,7 @@ mod tests {
             side: Side::Both,
             bytes: DRL,
         }];
-        let board = board_geometry(&layers);
+        let board = board_geometry(&layers, DEFAULT_FR4_THICK);
         let barrels: Vec<_> = board
             .layers
             .iter()
@@ -658,7 +660,7 @@ mod tests {
         };
         let (data, tris) = triangulate_poly(&poly).expect("square triangulates");
         let mut buf = Buffer::default();
-        emit_face(&mut buf, &data, &tris, FR4_THICK, 1.0);
+        emit_face(&mut buf, &data, &tris, DEFAULT_FR4_THICK, 1.0);
         let vert_n = data.len() / 2;
         emit_face(&mut buf, &data, &tris, 0.0, -1.0);
 
@@ -671,7 +673,7 @@ mod tests {
             let bot = (vert_n + i) * 3;
             assert_eq!(buf.positions[top], buf.positions[bot], "x matches");
             assert_eq!(buf.positions[top + 1], buf.positions[bot + 1], "y matches");
-            assert_eq!(buf.positions[top + 2], FR4_THICK, "top z");
+            assert_eq!(buf.positions[top + 2], DEFAULT_FR4_THICK, "top z");
             assert_eq!(buf.positions[bot + 2], 0.0, "bottom z");
         }
         // Bottom winding (a, c, b) is the reverse of top (a, b, c), offset by vert_n.
@@ -683,6 +685,66 @@ mod tests {
             assert_eq!(bot[1], top[2] + vert_n as u32, "bottom swaps b/c (c)");
             assert_eq!(bot[2], top[1] + vert_n as u32, "bottom swaps b/c (b)");
         }
+    }
+
+    #[test]
+    fn thickness_drives_substrate_top_and_layer_z() {
+        // Build with a non-default thickness; the substrate top face, walls and
+        // surface-layer planes must follow it (not the hardcoded default).
+        const T: f32 = 3.2;
+        let layers = vec![
+            LayerInput {
+                key: "edge".into(),
+                role: Role::Edge,
+                side: Side::Both,
+                bytes: EDGE_SQUARE,
+            },
+            LayerInput {
+                key: "cu".into(),
+                role: Role::Copper,
+                side: Side::Top,
+                bytes: FLASH_PAD,
+            },
+        ];
+        let board = board_geometry(&layers, T);
+
+        // Substrate has top-face verts at z=T (and bottom at 0); none at the default.
+        let sub_z: Vec<f32> = board
+            .substrate
+            .positions
+            .chunks_exact(3)
+            .map(|c| c[2])
+            .collect();
+        assert!(sub_z.contains(&T), "substrate top face at custom z");
+        assert!(
+            !sub_z.contains(&DEFAULT_FR4_THICK),
+            "no verts at the hardcoded default thickness"
+        );
+        assert_eq!(
+            sub_z.iter().cloned().fold(f32::MIN, f32::max),
+            T,
+            "max z = thickness"
+        );
+
+        // Top copper plane sits at thickness + its stack offset.
+        let cu = board
+            .layers
+            .iter()
+            .find(|m| m.kind == KIND_COPPER)
+            .expect("copper");
+        let cu_z = cu
+            .buffer
+            .positions
+            .chunks_exact(3)
+            .map(|c| c[2])
+            .next()
+            .unwrap();
+        assert_eq!(
+            cu_z,
+            z_for(Role::Copper, Side::Top, T),
+            "copper z follows thickness"
+        );
+        assert_eq!(cu_z, T + 0.03, "copper z = thickness + copper offset");
     }
 
     #[test]
@@ -713,7 +775,9 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("cuprum-mesh-trace-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let cfg = crate::trace::TraceConfig::Dir(tmp.clone());
-        let board = crate::trace::run_with_config(&cfg, "mesh", &tmp, || board_geometry(&layers));
+        let board = crate::trace::run_with_config(&cfg, "mesh", &tmp, || {
+            board_geometry(&layers, DEFAULT_FR4_THICK)
+        });
         assert!(!board.substrate.positions.is_empty(), "board still built");
 
         let file = std::fs::read_dir(&tmp)
