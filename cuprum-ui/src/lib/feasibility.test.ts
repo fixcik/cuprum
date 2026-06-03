@@ -134,3 +134,41 @@ describe("evaluate — size", () => {
     expect(outline?.severity).toBe("warn");
   });
 });
+
+describe("evaluate — layers", () => {
+  it("blocks when copper layer count exceeds the machine maximum", () => {
+    const metrics = makeMetrics({ layers: { copperLayerCount: 3 } });
+    const findings = evaluate(metrics, makeProfile({ maxCopperLayers: 2 }));
+    const count = findings.find((f) => f.id === "layers.count");
+    expect(count?.severity).toBe("block");
+  });
+
+  it("blocks inner copper layers when the machine cannot make them", () => {
+    const metrics = makeMetrics({ layers: { innerCopperCount: 1 } });
+    const findings = evaluate(metrics, makeProfile({ allowInnerLayers: false }));
+    const inner = findings.find((f) => f.id === "layers.inner");
+    expect(inner?.severity).toBe("block");
+  });
+
+  it("blocks a double-sided design on a single-sided panel", () => {
+    const metrics = makeMetrics({
+      layers: { copperTop: true, copperBottom: true, copperLayerCount: 2 },
+    });
+    const stackup = {
+      copper_weight_oz: 1,
+      substrate_thickness_mm: 1.6,
+      double_sided: false,
+    };
+    const findings = evaluate(metrics, makeProfile(), null, stackup);
+    const ds = findings.find((f) => f.id === "layers.doubleSided");
+    expect(ds?.severity).toBe("block");
+  });
+
+  it("does not block double-sided copper when no stackup is set (treated as double-sided)", () => {
+    const metrics = makeMetrics({
+      layers: { copperTop: true, copperBottom: true, copperLayerCount: 2 },
+    });
+    const findings = evaluate(metrics, makeProfile());
+    expect(findings.find((f) => f.id === "layers.doubleSided")).toBeUndefined();
+  });
+});
