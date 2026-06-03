@@ -472,6 +472,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "criterion",
+ "cuprum-trace",
  "earcutr",
  "gerber_viewer",
  "goo",
@@ -486,7 +487,6 @@ dependencies = [
  "serde_json",
  "tiny-skia 0.12.0",
  "tracing",
- "tracing-subscriber",
  "tungstenite",
  "usvg",
  "uuid",
@@ -505,6 +505,16 @@ dependencies = [
  "serde_json",
  "tracing",
  "zip",
+]
+
+[[package]]
+name = "cuprum-trace"
+version = "0.3.0"
+dependencies = [
+ "rayon",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

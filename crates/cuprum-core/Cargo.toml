@@ -24,8 +24,8 @@ rayon.workspace = true
 png.workspace = true
 i_overlay = "4"
 earcutr = "0.4"
+cuprum-trace.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 
 [dev-dependencies]
 criterion = "0.5"
