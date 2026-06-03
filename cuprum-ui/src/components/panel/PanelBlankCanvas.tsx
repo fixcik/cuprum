@@ -249,16 +249,23 @@ export function PanelBlankCanvas({
               const instSide = inst.layer_ref === "Bottom" ? "bottom" : "top";
               if (!sz || instSide !== side) return null;
               const name = designById.get(inst.design_id)?.source_name ?? "";
-              // Axis-aligned footprint at (x_mm, y_mm): a 90°/270° instance occupies a
-              // swapped (h × w) slot — matches packLayout's placement. No Konva rotation.
-              const rot = ((inst.rotation_deg % 360) + 360) % 360;
-              const fw = rot === 90 || rot === 270 ? sz.h : sz.w;
-              const fh = rot === 90 || rot === 270 ? sz.w : sz.h;
+              // Centre-pivot: place the Group at the board centre, offset by half the
+              // board so local (0,0) is the unrotated top-left, then rotate about that
+              // centre. Matches instanceBounds / packLayout.
+              const cx = inst.x_mm + sz.w / 2;
+              const cy = inst.y_mm + sz.h / 2;
               return (
-                <Group key={inst.id} x={inst.x_mm} y={inst.y_mm}>
+                <Group
+                  key={inst.id}
+                  x={cx}
+                  y={cy}
+                  offsetX={sz.w / 2}
+                  offsetY={sz.h / 2}
+                  rotation={inst.rotation_deg}
+                >
                   <Rect
-                    width={fw}
-                    height={fh}
+                    width={sz.w}
+                    height={sz.h}
                     fill={COPPER_FILL}
                     stroke={COPPER_STROKE}
                     strokeWidth={1}
@@ -268,13 +275,12 @@ export function PanelBlankCanvas({
                   <Text
                     x={0}
                     y={0}
-                    width={fw}
-                    height={fh}
+                    width={sz.w}
+                    height={sz.h}
                     align="center"
                     verticalAlign="middle"
                     text={name}
-                    // mm — scales with the board rect inside the fit-scaled group
-                    fontSize={Math.max(Math.min(fw, fh) * 0.12, 1.5)}
+                    fontSize={Math.max(Math.min(sz.w, sz.h) * 0.12, 1.5)}
                     fill={COPPER_STROKE}
                     listening={false}
                   />
