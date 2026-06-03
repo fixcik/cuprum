@@ -309,3 +309,32 @@ describe("evaluate — drill", () => {
     expect(slots?.severity).toBe("ok");
   });
 });
+
+describe("evaluate — via plating", () => {
+  it("warns when at least one via-sized hole needs plating", () => {
+    const metrics = makeMetrics({ drill: { diameterHistogram: [[0.5, 3]] } });
+    const findings = evaluate(metrics, makeProfile());
+    const via = findings.find((f) => f.id === "via.plating");
+    expect(via?.severity).toBe("warn");
+  });
+
+  it("blocks when via-sized holes reach the block threshold", () => {
+    const metrics = makeMetrics({ drill: { diameterHistogram: [[0.5, 200]] } });
+    const findings = evaluate(metrics, makeProfile());
+    const via = findings.find((f) => f.id === "via.plating");
+    expect(via?.severity).toBe("block");
+  });
+
+  it("is ok when all holes are larger than the via threshold", () => {
+    const metrics = makeMetrics({ drill: { diameterHistogram: [[0.8, 5]] } });
+    const findings = evaluate(metrics, makeProfile());
+    const via = findings.find((f) => f.id === "via.plating");
+    expect(via?.severity).toBe("ok");
+  });
+
+  it("emits no via finding when plating is available", () => {
+    const metrics = makeMetrics({ drill: { diameterHistogram: [[0.5, 3]] } });
+    const findings = evaluate(metrics, makeProfile({ viaPlatingAvailable: true }));
+    expect(findings.find((f) => f.id === "via.plating")).toBeUndefined();
+  });
+});
