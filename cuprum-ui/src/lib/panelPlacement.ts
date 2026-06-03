@@ -135,3 +135,34 @@ export function isOffPanel(opts: {
   const b = instanceBounds(opts);
   return b.minX < -tol || b.minY < -tol || b.maxX > opts.panelW + tol || b.maxY > opts.panelH + tol;
 }
+
+type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
+/** Clamp a move delta (mm) so every supplied AABB stays within [0,panelW]×[0,panelH].
+ *  Clamps each axis to the tightest bound across all boxes. */
+export function clampDeltaToPanel(
+  boxes: Box[],
+  dxMm: number,
+  dyMm: number,
+  panelW: number,
+  panelH: number,
+): { dx: number; dy: number } {
+  let dx = dxMm;
+  let dy = dyMm;
+  for (const b of boxes) {
+    if (b.minX + dx < 0) dx = -b.minX;
+    if (b.maxX + dx > panelW) dx = panelW - b.maxX;
+    if (b.minY + dy < 0) dy = -b.minY;
+    if (b.maxY + dy > panelH) dy = panelH - b.maxY;
+  }
+  return { dx, dy };
+}
+
+/** Ids whose AABB intersects the marquee rect (mm). */
+export function marqueeHits(items: { id: string; box: Box }[], rect: Box): string[] {
+  return items
+    .filter(({ box }) =>
+      box.minX <= rect.maxX && box.maxX >= rect.minX && box.minY <= rect.maxY && box.maxY >= rect.minY,
+    )
+    .map(({ id }) => id);
+}

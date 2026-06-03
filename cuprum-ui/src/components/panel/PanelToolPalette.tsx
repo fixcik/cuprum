@@ -1,11 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { MousePointer2, Hand, FilePlus2, Copy, Trash2, type LucideIcon } from "lucide-react";
 import { api } from "@/lib/api";
+import { useShell } from "@/shellStore";
+import { usePanelSelection } from "@/panelSelectionStore";
 
 export type PanelTool = "select" | "pan";
 
-/** Floating tool palette over the panel canvas (KiCad/Photoshop style). Phase 1:
- *  only "add design" is functional; duplicate/delete are scaffolding (disabled). */
+/** Floating tool palette over the panel canvas (KiCad/Photoshop style). Add is
+ *  always available; delete acts on the current selection (duplicate lands later). */
 export function PanelToolPalette({
   tool,
   onToolChange,
@@ -14,6 +16,14 @@ export function PanelToolPalette({
   onToolChange: (t: PanelTool) => void;
 }) {
   const { t } = useTranslation("project");
+  const selected = usePanelSelection((s) => s.selected);
+  const removeInstances = useShell((s) => s.removeInstances);
+  const selectedCount = selected.size;
+  const deleteSelected = () => {
+    if (selectedCount === 0) return;
+    void removeInstances([...selected]);
+    usePanelSelection.getState().clear();
+  };
 
   const toolBtn = (id: PanelTool, Icon: LucideIcon, label: string) => {
     const active = tool === id;
@@ -59,7 +69,7 @@ export function PanelToolPalette({
       <div className="my-0.5 h-px w-6 bg-border" />
       {actionBtn(FilePlus2, t("panel.tool.add"), () => void api.openAddDesignWindow())}
       {actionBtn(Copy, t("panel.tool.duplicate"), undefined, true)}
-      {actionBtn(Trash2, t("panel.tool.delete"), undefined, true)}
+      {actionBtn(Trash2, t("panel.tool.delete"), deleteSelected, selectedCount === 0)}
     </div>
   );
 }
