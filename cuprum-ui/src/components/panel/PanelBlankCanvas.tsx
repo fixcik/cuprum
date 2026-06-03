@@ -10,10 +10,11 @@ import { CadGrid } from "@/components/editor/CadGrid";
 import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle } from "@/lib/panelPlacement";
+import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances } from "@/lib/panelPlacement";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
-import { api, type BoardInstance, type ProjectDesign } from "@/lib/api";
+import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
+import type { BoardInstance, ProjectDesign } from "@/lib/api";
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
 
@@ -45,7 +46,6 @@ export function PanelBlankCanvas({
   const pxPerMm = useShell((s) => s.pxPerMm);
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
-  const workingDir = useShell((s) => s.workingDir);
   const moveInstances = useShell((s) => s.moveInstances);
   const rotateInstancesBy = useShell((s) => s.rotateInstancesBy);
   const selected = usePanelSelection((s) => s.selected);
@@ -62,8 +62,8 @@ export function PanelBlankCanvas({
   const [spaceDown, setSpaceDown] = useState(false);
   const [tool, setTool] = useState<PanelTool>("select");
   const panMode = tool === "pan" || spaceDown;
-  // Resolved board extents (mm) keyed by design id, fetched once per referenced design.
-  const [sizes, setSizes] = useState<Record<string, { w: number; h: number }>>({});
+  // Resolved board extents (mm) keyed by design id — shared hook, fetched once per design.
+  const sizes = usePlacedBoardSizes();
   // Live drag preview (mm). While dragging selected instances we shift their render
   // by this delta and commit a single moveInstances on drag end; null when idle.
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
@@ -75,38 +75,6 @@ export function PanelBlankCanvas({
   // Live rotation preview: snapped delta (deg) applied to every selected instance's
   // render while the rotation knob is dragged; null when idle. Committed once on release.
   const [rotPreview, setRotPreview] = useState<number | null>(null);
-
-  // Resolve board extents (mm) for placed instances (cached metrics). Keyed by
-  // design id; fetched once per design referenced on the panel.
-  useEffect(() => {
-    if (!workingDir) return;
-    const needed = Array.from(new Set(instances.map((i) => i.design_id))).filter((id) => !sizes[id]);
-    let cancelled = false;
-    needed.forEach((id) => {
-      const d = designs.find((x) => x.id === id);
-      if (!d) return;
-      api
-        .projectBoardMetrics(
-          workingDir,
-          d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
-        )
-        .then((m) => {
-          if (cancelled) return;
-          setSizes((prev) => ({ ...prev, [id]: { w: m.metrics.board.widthMm, h: m.metrics.board.heightMm } }));
-        })
-        .catch(() => {});
-    });
-    // Drop cached extents for designs no longer placed (bound session growth).
-    const liveIds = new Set(instances.map((i) => i.design_id));
-    setSizes((prev) => {
-      const entries = Object.entries(prev).filter(([id]) => liveIds.has(id));
-      return entries.length === Object.keys(prev).length ? prev : Object.fromEntries(entries);
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingDir, instances, designs]);
 
   // O(1) design lookup for the instance render loop + labels.
   const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
@@ -313,6 +281,17 @@ export function PanelBlankCanvas({
       if (dx !== 0 || dy !== 0) await moveInstances(ids, dx, dy);
     })();
   }, [rotPreview, selected, rotateInstancesBy, moveInstances, sizes, W, H]);
+
+  // Duplicate the current selection with a clamped offset so copies stay within
+  // the panel bounds. Re-selects the new copies on completion.
+  const duplicateSelected = useCallback(() => {
+    const sel = [...usePanelSelection.getState().selected];
+    if (!sel.length) return;
+    const instById = new Map(instances.map((i) => [i.id, i]));
+    const picked = sel.map((id) => instById.get(id)).filter(Boolean) as typeof instances;
+    const { dx, dy } = clampDeltaToPanel(boxesForInstances(picked, sizes), 2, 2, W, H);
+    void useShell.getState().duplicateInstances(sel, dx, dy).then((ids) => usePanelSelection.getState().set(ids));
+  }, [instances, sizes, W, H]);
 
   // --- Instance interaction (select tool only) ---
   const onInstanceClick = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
@@ -550,7 +529,7 @@ export function PanelBlankCanvas({
         </Layer>
       </Stage>
 
-      <PanelToolPalette tool={tool} onToolChange={setTool} />
+      <PanelToolPalette tool={tool} onToolChange={setTool} onDuplicate={duplicateSelected} />
 
       <div className="absolute left-20 top-3 z-10">
         <SegmentedControl<"top" | "bottom">
