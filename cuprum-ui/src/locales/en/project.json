@@ -52,8 +52,8 @@
     "sectionBlank": "Size",
     "sectionStackup": "Stackup",
     "sides": "Sides",
-    "sidesSingle": "Single-sided",
-    "sidesDouble": "Double-sided"
+    "sidesSingle": "One",
+    "sidesDouble": "Two"
   },
   "aria": {
     "settings": "Project settings",
