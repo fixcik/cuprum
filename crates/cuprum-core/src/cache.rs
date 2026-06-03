@@ -1,13 +1,16 @@
-//! In-process render cache, keyed by file path + modification time.
+//! In-process render caches + the shared single-flight cache engine.
 //!
-//! Rasterizing a Gerber is the expensive step, and the same file is rendered
-//! repeatedly: the preview on every (re)load, and the native mask on every
-//! Expose. The Tauri Rust process outlives webview reloads, so caching here
-//! makes reloads and repeat-exposes instant. Entries auto-invalidate when the
-//! file's mtime changes (you edited/re-exported the Gerber).
+//! Two path+mtime caches live here ([`preview_png`], [`native_mask`]): rasterizing
+//! a Gerber is expensive and the same file is rendered repeatedly (preview on every
+//! reload, native mask on every Expose). Entries auto-invalidate on mtime change.
+//!
+//! The generic [`cached_single_flight`]/[`cached_single_flight_persistent`] engine
+//! (in-memory LRU + disk tier + per-key single-flight) also lives here, `pub(crate)`
+//! so the typed wrappers in their own domains use it: SVG renders in [`crate::svg`],
+//! board metrics in [`crate::dfm`], gerber parse in [`crate::gerber`]. Those wrappers
+//! are re-exported below under the historical `cache::` paths for existing callers.
 
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
@@ -18,7 +21,12 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::gerber::{self, RenderInfo, RenderOptions};
-use crate::svg::{self, LayerGeometry};
+
+// Facade: the typed cache wrappers now live with their domains; re-export them
+// under the historical `cache::` paths so existing callers (project / UI / in-core
+// preview) keep resolving `cuprum_core::cache::…` unchanged.
+pub use crate::dfm::{board_metrics_artifact, board_metrics_cached, metrics_artifact_key};
+pub use crate::svg::{layer_svg_artifact, layer_svg_cached, svg_artifact_key};
 
 /// A rasterized full-resolution (native-pitch) mask, ready to blit.
 pub struct Mask {
@@ -50,69 +58,6 @@ fn mask_cache() -> &'static Mutex<HashMap<PathBuf, MaskEntry>> {
     C.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// SVG cache key tag — single source of truth in `crate::artifact`.
-const SVG_CACHE_TAG: &[u8] = crate::artifact::SVG_VERSION;
-
-/// Disk cache budget/TTL for SVG entries. Centralized here now that SVG disk
-/// caching lives in core.
-const SVG_DISK_MAX_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
-const SVG_DISK_TTL: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
-
-const SVG_MEM_CAP: usize = 256;
-fn svg_cache() -> &'static Mutex<LruCache<String, LayerGeometry>> {
-    static C: OnceLock<Mutex<LruCache<String, LayerGeometry>>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(LruCache::new(NonZeroUsize::new(SVG_MEM_CAP).unwrap())))
-}
-
-/// Per-key locks to de-duplicate concurrent cache misses (single-flight): two
-/// threads missing the same key render once; the loser waits and reads the
-/// winner's result from the in-memory cache. Distinct keys never serialize.
-fn svg_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
-    static C: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Render a gerber layer to SVG, going through the in-memory and disk caches.
-/// Order: in-memory → disk → render. On a render, both caches are populated.
-/// Keyed by `hash(SVG_CACHE_TAG + bytes)` so a layer is never recomputed while
-/// its gerber bytes are unchanged. Honors `diskcache::cache_disabled()`.
-///
-/// `cache_dir` is the disk-cache directory. The SVG element id (scopes the
-/// clear-polarity mask) is derived internally from the content hash.
-pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerGeometry> {
-    let key = crate::diskcache::key_for(&[SVG_CACHE_TAG, bytes]);
-    // SVG element id derived from the content hash — unique per gerber content,
-    // scopes the clear-polarity mask. Derived here so the tag lives in one place.
-    let id = format!("ly{}", &key[..8]);
-    cached_single_flight(
-        svg_cache(),
-        svg_inflight(),
-        cache_dir,
-        &key,
-        SVG_DISK_MAX_BYTES,
-        SVG_DISK_TTL,
-        || svg::render_layer_svg(bytes, &id),
-    )
-}
-
-/// The content-hash key for a gerber's SVG artifact. Shared by the cache and by
-/// `artifact::gc` so the valid-key set matches what's written.
-pub fn svg_artifact_key(bytes: &[u8]) -> String {
-    crate::diskcache::key_for(&[SVG_CACHE_TAG, bytes])
-}
-
-/// Project-scoped, PERSISTENT SVG render (no TTL/eviction): in-memory → persistent
-/// disk → single-flight → render. Same key/output as `layer_svg_cached`; only the
-/// disk tier differs (these blobs live in `<workdir>/artifacts/svg` and ship in the
-/// `.cuprum`, reclaimed by `artifact::gc`).
-pub fn layer_svg_artifact(artifacts_svg_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerGeometry> {
-    let key = svg_artifact_key(bytes);
-    let id = format!("ly{}", &key[..8]);
-    cached_single_flight_persistent(svg_cache(), svg_inflight(), artifacts_svg_dir, &key, || {
-        svg::render_layer_svg(bytes, &id)
-    })
-}
-
 /// In-memory (LRU) + disk cache with single-flight de-dup of concurrent misses.
 /// Order: in-memory → disk → (NO_CACHE bypass) → per-key flight → render once.
 /// `mem` is the typed LRU store; `inflight` the per-key lock registry; `render`
@@ -123,7 +68,7 @@ pub fn layer_svg_artifact(artifacts_svg_dir: &Path, bytes: &[u8]) -> anyhow::Res
 /// taking the per-key `flight` lock; `mem` is locked only briefly for get/insert,
 /// never across `render()` or `flight.lock()`. If `render` panics its inflight
 /// entry leaks (bounded by distinct keys) — acceptable.
-fn cached_single_flight<T>(
+pub(crate) fn cached_single_flight<T>(
     mem: &Mutex<LruCache<String, T>>,
     inflight: &Mutex<HashMap<String, Arc<Mutex<()>>>>,
     cache_dir: &Path,
@@ -145,7 +90,7 @@ where
     )
 }
 
-fn cached_single_flight_persistent<T>(
+pub(crate) fn cached_single_flight_persistent<T>(
     mem: &Mutex<LruCache<String, T>>,
     inflight: &Mutex<HashMap<String, Arc<Mutex<()>>>>,
     dir: &Path,
@@ -230,77 +175,6 @@ where
     Ok(v)
 }
 
-/// Metrics cache: in-memory LRU bound (metrics JSON blobs are larger than SVG —
-/// silk/trace hotspots can be many — so a tighter cap) + content-keyed disk.
-const METRICS_MEM_CAP: usize = 128;
-const METRICS_DISK_MAX_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
-const METRICS_DISK_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
-
-fn metrics_cache() -> &'static Mutex<LruCache<String, crate::dfm::BoardMetrics>> {
-    static C: OnceLock<Mutex<LruCache<String, crate::dfm::BoardMetrics>>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(LruCache::new(NonZeroUsize::new(METRICS_MEM_CAP).unwrap())))
-}
-fn metrics_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
-    static C: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Cached `board_metrics` with single-flight: in-memory LRU + disk, de-duping
-/// concurrent cold misses of the same board (designs page renders many cards).
-/// `key` is the caller-built content key (it owns the metrics version tag +
-/// layer hashing). `render` computes the metrics (infallible) on a miss.
-pub fn board_metrics_cached(
-    cache_dir: &Path,
-    key: &str,
-    render: impl FnOnce() -> crate::dfm::BoardMetrics,
-) -> crate::dfm::BoardMetrics {
-    cached_single_flight(
-        metrics_cache(),
-        metrics_inflight(),
-        cache_dir,
-        key,
-        METRICS_DISK_MAX_BYTES,
-        METRICS_DISK_TTL,
-        || Ok(render()),
-    )
-    .expect("board_metrics render is infallible")
-}
-
-/// Build the metrics artifact key from loaded layers. Mirrors the historical
-/// `main.rs` construction (now centralized): version tag + per-layer
-/// `{type-debug}` + lowercase rel (plating inferred from the name) + bytes.
-/// Shared by the command and `artifact::gc`. `layers` is `(rel, type_debug, bytes)`.
-/// Takes borrowed byte slices to avoid cloning multi-MB gerber buffers on the hot path.
-pub fn metrics_artifact_key<'a>(
-    layers: impl IntoIterator<Item = (&'a str, &'a str, &'a [u8])>,
-) -> String {
-    let mut h = crate::diskcache::Hasher::new();
-    h.add(crate::artifact::METRICS_VERSION);
-    for (rel, type_debug, bytes) in layers {
-        h.add(type_debug.as_bytes());
-        h.add(rel.to_lowercase().as_bytes());
-        h.add(bytes);
-    }
-    h.finish()
-}
-
-/// Project-scoped, PERSISTENT metrics (no TTL/eviction). `key` is built via
-/// `metrics_artifact_key`. `render` computes the metrics (infallible) on a miss.
-pub fn board_metrics_artifact(
-    artifacts_metrics_dir: &Path,
-    key: &str,
-    render: impl FnOnce() -> crate::dfm::BoardMetrics,
-) -> crate::dfm::BoardMetrics {
-    cached_single_flight_persistent(
-        metrics_cache(),
-        metrics_inflight(),
-        artifacts_metrics_dir,
-        key,
-        || Ok(render()),
-    )
-    .expect("board_metrics render is infallible")
-}
-
 fn mtime(path: &Path) -> Result<SystemTime> {
     Ok(std::fs::metadata(path)?.modified()?)
 }
@@ -369,132 +243,7 @@ pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Flash a 1mm circle aperture at the origin — same fixture as svg.rs tests.
-    const GBR: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX0Y0D03*\nM02*\n";
-
-    #[test]
-    fn layer_svg_cached_memory_hit_skips_disk() {
-        let dir = std::env::temp_dir().join(format!("cuprum-svgcache-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        // First call: miss → render + populate both caches.
-        let a = layer_svg_cached(&dir, GBR).expect("render ok");
-        // Wipe the disk cache: a second hit now can only come from the in-memory layer.
-        let _ = std::fs::remove_dir_all(&dir);
-        let b = layer_svg_cached(&dir, GBR).expect("memory hit ok");
-        assert_eq!(a.svg_body, b.svg_body, "in-memory cached svg identical");
-        assert_eq!(a.bbox, b.bbox, "in-memory cached bbox identical");
-        assert_eq!(a.snap, b.snap, "in-memory cached snap identical");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn layer_svg_cached_distinct_bytes_produce_distinct_geometry() {
-        let dir = std::env::temp_dir().join(format!("cuprum-svgcache2-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let other: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\nD10*\nX0Y0D03*\nM02*\n";
-        let a = layer_svg_cached(&dir, GBR).expect("ok");
-        let b = layer_svg_cached(&dir, other).expect("ok");
-        // Different aperture diameter → different geometry: distinct bytes are not
-        // conflated into one cache entry.
-        assert_ne!(a.bbox, b.bbox, "distinct gerbers yield distinct geometry");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn single_flight_renders_once_under_concurrency() {
-        use crate::svg::BBox;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-        let dir = std::env::temp_dir().join(format!("cuprum-svcflight-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let key = "svgflightkey";
-        // The global caches outlive other tests; clear this key so the start is a
-        // guaranteed miss regardless of test order.
-        svg_cache().lock().unwrap().pop(key);
-        svg_inflight().lock().unwrap().remove(key);
-        let renders = Arc::new(AtomicUsize::new(0));
-        let geom = LayerGeometry {
-            svg_body: "<g></g>".to_string(),
-            bbox: BBox {
-                min_x: 0.0,
-                min_y: 0.0,
-                max_x: 1.0,
-                max_y: 1.0,
-            },
-            snap: vec![],
-        };
-        let mut handles = vec![];
-        for _ in 0..8 {
-            let dir = dir.clone();
-            let renders = Arc::clone(&renders);
-            let geom = geom.clone();
-            handles.push(std::thread::spawn(move || {
-                cached_single_flight(
-                    svg_cache(),
-                    svg_inflight(),
-                    &dir,
-                    key,
-                    SVG_DISK_MAX_BYTES,
-                    SVG_DISK_TTL,
-                    || {
-                        renders.fetch_add(1, Ordering::SeqCst);
-                        // simulate work so threads actually overlap on the per-key lock
-                        std::thread::sleep(std::time::Duration::from_millis(20));
-                        Ok(geom)
-                    },
-                )
-                .expect("ok")
-            }));
-        }
-        for h in handles {
-            let g = h.join().expect("thread ok");
-            assert_eq!(
-                g.svg_body, "<g></g>",
-                "all callers get the rendered geometry"
-            );
-        }
-        assert_eq!(
-            renders.load(Ordering::SeqCst),
-            1,
-            "render happens exactly once under single-flight"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn layer_svg_artifact_persists_and_keys_match() {
-        // Use a fixture distinct from GBR so this test does not race with other
-        // tests that also render GBR and share the same svg_cache() globals.
-        const GBR2: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,3.0*%\nD10*\nX0Y0D03*\nM02*\n";
-        let dir = std::env::temp_dir().join(format!("cuprum-svgart-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let key = svg_artifact_key(GBR2);
-        svg_cache().lock().unwrap().pop(&key);
-        // Render → blob lands at <dir>/<svg_artifact_key>.bin (persistent).
-        let g = layer_svg_artifact(&dir, GBR2).expect("render ok");
-        let blob_path = dir.join(format!("{key}.bin"));
-        assert!(
-            blob_path.exists(),
-            "persistent svg blob written at the keyed path"
-        );
-        // Wipe in-memory cache for this key so the next read can only come from disk.
-        svg_cache().lock().unwrap().pop(&key);
-        let g2 = layer_svg_artifact(&dir, GBR2).expect("disk hit ok");
-        assert_eq!(g.svg_body, g2.svg_body, "disk-persisted svg identical");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn metrics_artifact_key_is_version_and_content_sensitive() {
-        // (rel, layer_type_debug, bytes) tuples — mirrors how main.rs builds the key.
-        let mk = |bytes: &'static [u8]| metrics_artifact_key([("top.gbr", "TopCopper", bytes)]);
-        let a = mk(b"AAAA");
-        let b = mk(b"BBBB");
-        let c = mk(b"AAAA");
-        assert_ne!(a, b, "different bytes → different key");
-        assert_eq!(a, c, "same inputs → same key (deterministic)");
-    }
+    use std::num::NonZeroUsize;
 
     #[test]
     fn cached_single_flight_memoizes_and_separates_keys() {
