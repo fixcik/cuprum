@@ -312,6 +312,20 @@ pub fn update_project_metadata(
     Ok(manifest)
 }
 
+/// Read the manifest straight from a `.cuprum` container, without extracting a
+/// working dir — used to prefill the recents "edit name/description" dialog for a
+/// project that isn't open.
+pub fn read_project_manifest(container: &Path) -> Result<Manifest> {
+    ensure_project_exists(container)?;
+    container::read_manifest(container).map_err(|e| {
+        if !container.exists() {
+            anyhow::anyhow!(PROJECT_NOT_FOUND)
+        } else {
+            e
+        }
+    })
+}
+
 /// Read the panel blank from the manifest, or `None` if not yet configured.
 pub fn read_panel(container: &Path) -> Result<Option<PanelDoc>> {
     ensure_project_exists(container)?;

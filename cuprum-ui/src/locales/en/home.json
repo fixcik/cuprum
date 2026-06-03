@@ -12,5 +12,6 @@
   "empty": "No projects yet — create a new one or open an existing one.",
   "fileNotFound": "file not found — remove",
   "removeRecent": "Remove from recent",
+  "editRecent": "Name and description",
   "notFoundRemoved": "Project “{{name}}” not found — removed from the list."
 }

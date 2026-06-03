@@ -526,6 +526,13 @@ fn update_project_metadata(
         .map_err(|e| e.to_string())
 }
 
+/// Read a project's manifest straight from its `.cuprum` file (no working dir) so
+/// the recents "edit name/description" dialog can prefill without opening it.
+#[tauri::command]
+fn read_project_manifest(path: String) -> Result<cuprum_project::Manifest, String> {
+    cuprum_project::read_project_manifest(Path::new(&path)).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn configure_panel(
     app: AppHandle,
@@ -1214,6 +1221,7 @@ fn main() {
             read_restore_point,
             remove_recent,
             update_project_metadata,
+            read_project_manifest,
             configure_panel,
             add_design_from_zip,
             render_gerber_svg,

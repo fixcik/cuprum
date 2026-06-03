@@ -73,6 +73,10 @@ interface ShellStore {
   openProjectByPath: (path: string) => Promise<void>;
   removeRecent: (path: string) => Promise<void>;
   updateProjectMetadata: (name: string, description: string) => Promise<void>;
+  /** Edit name/description of a recent project by its `.cuprum` path (not the open
+   *  one). Writes the manifest, refreshes recents, and syncs the open project if it
+   *  happens to be the same one. */
+  updateRecentMetadata: (path: string, name: string, description: string) => Promise<void>;
   /** Write the panel blank (stackup -> manifest, dimensions -> panel.json). */
   savePanelConfig: (panel: PanelDoc, stackup: Stackup) => Promise<void>;
   /** Private: mirror the in-memory manifest into the working dir's loose
@@ -316,6 +320,32 @@ export const useShell = create<ShellStore>((set, get) => ({
           homeNotice: i18n.t("home:notFoundRemoved", { name: displayName }),
           error: null,
         });
+        return;
+      }
+      set({ error: String(e) });
+    }
+  },
+
+  updateRecentMetadata: async (path, name, description) => {
+    const n = name.trim();
+    if (!n) return;
+    try {
+      const manifest = await api.updateProjectMetadata(path, n, description.trim());
+      // If the edited recent is also the currently-open project, keep its in-memory
+      // manifest in sync so the open view reflects the new name/description.
+      if (get().currentPath === path) set({ currentManifest: manifest });
+      set({ error: null });
+      await get().loadRecents();
+    } catch (e) {
+      if (isProjectNotFound(e)) {
+        const displayName = projectDisplayName(path, get().recents);
+        try {
+          await api.removeRecent(path);
+        } catch {
+          /* catalog cleanup is best-effort */
+        }
+        await get().loadRecents();
+        set({ homeNotice: i18n.t("home:notFoundRemoved", { name: displayName }), error: null });
         return;
       }
       set({ error: String(e) });
