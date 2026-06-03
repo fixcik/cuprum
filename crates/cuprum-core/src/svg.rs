@@ -67,13 +67,35 @@ pub fn render_layer_svg(bytes: &[u8], id: &str) -> Result<LayerGeometry> {
     let mut cut = String::new();
     let mut snap: Vec<[f32; 2]> = Vec::new();
     let mut seen: HashSet<(i32, i32)> = HashSet::new();
+
+    use crate::strokes::{coalesce_strokes, Run};
+    // Snap points come from the original primitive stream (coalescing does not
+    // change feature positions).
     for prim in layer.primitives() {
-        let buf = match exposure_of(prim) {
-            Exposure::Add => &mut add,
-            Exposure::CutOut => &mut cut,
-        };
-        emit(prim, buf);
         collect_snap(prim, &mut seen, &mut snap);
+    }
+    // Geometry: coalesce connected line runs into single polyline paths.
+    for run in coalesce_strokes(layer.primitives()) {
+        match run {
+            Run::Polyline {
+                exposure,
+                width,
+                pts,
+            } => {
+                let buf = match exposure {
+                    Exposure::Add => &mut add,
+                    Exposure::CutOut => &mut cut,
+                };
+                emit_polyline(&pts, width, buf);
+            }
+            Run::Flash(prim) => {
+                let buf = match exposure_of(prim) {
+                    Exposure::Add => &mut add,
+                    Exposure::CutOut => &mut cut,
+                };
+                emit(prim, buf);
+            }
+        }
     }
 
     let svg_body = if cut.is_empty() {
@@ -232,6 +254,26 @@ fn emit(p: &GerberPrimitive, out: &mut String) {
     }
 }
 
+fn emit_polyline(pts: &[[f64; 2]], width: f64, out: &mut String) {
+    use std::fmt::Write;
+    let mut d = String::new();
+    for (i, p) in pts.iter().enumerate() {
+        let _ = write!(
+            d,
+            "{}{:.4} {:.4} ",
+            if i == 0 { "M" } else { "L" },
+            p[0],
+            p[1]
+        );
+    }
+    let _ = write!(
+        out,
+        r#"<path d="{}" fill="none" stroke-width="{:.4}" stroke-linecap="round" stroke-linejoin="round"/>"#,
+        d.trim_end(),
+        width
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,6 +319,21 @@ mod tests {
     fn empty_gerber_errors() {
         let err = render_layer_svg(b"G04 nothing*\nM02*\n", "x").unwrap_err();
         assert!(err.to_string().contains("no drawable geometry"));
+    }
+
+    const THREE_CONNECTED: &[u8] =
+        b"%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,0.100000*%\nD10*\nX0Y0D02*\nX1000000Y0D01*\nX1000000Y1000000D01*\nX0Y1000000D01*\nM02*\n";
+
+    #[test]
+    fn connected_silk_run_emits_one_path() {
+        let g = render_layer_svg(THREE_CONNECTED, "t").unwrap();
+        let paths = g.svg_body.matches(r#"fill="none""#).count();
+        assert_eq!(
+            paths, 1,
+            "expected one polyline path, got {paths}: {}",
+            g.svg_body
+        );
+        assert!(g.svg_body.contains(" L"), "polyline must have L commands");
     }
 
     /// The vendored gerber-viewer (gerber-viewer/src/layer.rs) does not handle
