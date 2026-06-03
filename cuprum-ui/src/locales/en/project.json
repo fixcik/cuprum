@@ -1,4 +1,5 @@
 {
+  "inspector": { "window": { "title": "Design: {{name}}" } },
   "noProject": "No project open.",
   "importZip": "Import ZIP",
   "importedPackages": "Imported packages",

@@ -13,6 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 lru.workspace = true
 md-5.workspace = true
+xxhash-rust.workspace = true
 uuid.workspace = true
 tungstenite.workspace = true
 gerber_viewer.workspace = true
@@ -23,8 +24,8 @@ rayon.workspace = true
 png.workspace = true
 i_overlay = "4"
 earcutr = "0.4"
+cuprum-trace.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 
 [dev-dependencies]
 criterion = "0.5"
