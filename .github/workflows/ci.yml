@@ -112,5 +112,9 @@ jobs:
         working-directory: cuprum-ui
         run: pnpm build
 
+      - name: Frontend tests
+        working-directory: cuprum-ui
+        run: pnpm test
+
       - name: Clippy Tauri backend
         run: cargo clippy --manifest-path cuprum-ui/src-tauri/Cargo.toml --all-targets -- -D warnings
