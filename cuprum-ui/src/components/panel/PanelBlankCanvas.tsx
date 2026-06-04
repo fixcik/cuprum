@@ -1308,6 +1308,7 @@ export function PanelBlankCanvas({
       selectedIds={[...selected]}
       instances={instances}
       toolingHoles={holes}
+      keepOutZones={zones}
       sizes={sizes}
       panelW={W}
       panelH={H}

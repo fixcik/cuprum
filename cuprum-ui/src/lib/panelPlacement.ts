@@ -492,19 +492,26 @@ export function registrationSetPositions(
   return count === 2 ? [tl, br] : [tl, tr, bl, br];
 }
 
-/** Unified placement-obstacle source: board instances + tooling holes (raw AABBs).
+/** Unified placement-obstacle source: board instances + tooling holes + keep-out zones (raw AABBs).
  *  `packLayoutAvoiding` inflates every obstacle by its `clearance` arg uniformly,
- *  so the fixturing gap around a pin equals the board gap. Future keep-out zones
- *  plug in here. */
+ *  so the fixturing gap around a pin equals the board gap. */
 export function panelObstacles(
-  panel: { instances: BoardInstance[]; tooling_holes: ToolingHole[] },
+  panel: {
+    instances: BoardInstance[];
+    tooling_holes: ToolingHole[];
+    keep_out_zones?: KeepOutZone[];
+  },
   sizes: Record<string, { w: number; h: number }>,
 ): Box[] {
   const boards = boxesForInstances(panel.instances, sizes);
   const holes = panel.tooling_holes.map((h) =>
     toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm }),
   );
-  return [...boards, ...holes];
+  // Every keep-out kind forbids boards (zoneForbidsBoard === true), so all zones are
+  // obstacles for the board packer. The tooling-only "dead" rule is a DFM concern,
+  // not a packer one (there is no tooling auto-nester).
+  const zones = (panel.keep_out_zones ?? []).map(keepOutBox);
+  return [...boards, ...holes, ...zones];
 }
 
 // --- Keep-out zone helpers ---

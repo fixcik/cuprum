@@ -200,6 +200,8 @@ export interface AddDesignSnapshot {
   placedSizes: Record<string, { w: number; h: number }>;
   /** Tooling holes on the panel (so the preview avoids them and shows them). */
   tooling_holes: ToolingHole[];
+  /** Keep-out zones on the panel (so the board packer avoids them). */
+  keep_out_zones: KeepOutZone[];
 }
 /** Result of an add-to-panel intent, sent back to the add-design window. */
 export interface AddDesignResult {

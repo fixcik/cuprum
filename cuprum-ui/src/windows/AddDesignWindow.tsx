@@ -163,7 +163,7 @@ export function AddDesignWindow() {
   const existingBoxes = useMemo(
     () =>
       panelObstacles(
-        { instances: snap?.instances ?? [], tooling_holes: snap?.tooling_holes ?? [] },
+        { instances: snap?.instances ?? [], tooling_holes: snap?.tooling_holes ?? [], keep_out_zones: snap?.keep_out_zones ?? [] },
         snap?.placedSizes ?? {},
       ),
     [snap],
