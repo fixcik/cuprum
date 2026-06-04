@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { UnitField } from "@/components/ui/settings/UnitField";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { DEFAULT_TOOLING_DIAMETER_MM, REGISTRATION_SET_MARGIN_MM } from "@/lib/panel";
+import { registrationSetPositions, clampToolingHoleCenter } from "@/lib/panelPlacement";
+import type { ToolingHole } from "@/lib/api";
 
 export interface RegistrationSetOptions {
   count: 2 | 4;
@@ -12,6 +14,11 @@ export interface RegistrationSetOptions {
   diameterMm: number;
   replace: boolean;
 }
+
+// Preview box budget (px). The panel is fit into this preserving aspect.
+const BOX_W = 300;
+const BOX_H = 150;
+const MIN_DOT_PX = 2.5;
 
 /** Small caption group (mirrors RenestDialog style). */
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
@@ -23,18 +30,90 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
+/** Live preview of the registration set on a scaled panel: existing holes (muted,
+ *  faded when they'll be replaced) + the set-to-be (copper). Pure render. */
+function RegSetPreview({
+  panelW,
+  panelH,
+  diameterMm,
+  positions,
+  existing,
+  replacing,
+}: {
+  panelW: number;
+  panelH: number;
+  diameterMm: number;
+  positions: { x: number; y: number }[];
+  existing: ToolingHole[];
+  replacing: boolean;
+}) {
+  if (panelW <= 0 || panelH <= 0) return null;
+  const scale = Math.min(BOX_W / panelW, BOX_H / panelH);
+  const vw = panelW * scale;
+  const vh = panelH * scale;
+  const r = Math.max((diameterMm / 2) * scale, MIN_DOT_PX);
+  return (
+    <div className="flex items-center justify-center rounded-md border border-border bg-background/40 p-3">
+      <svg width={vw} height={vh} className="overflow-visible">
+        <rect
+          x={0}
+          y={0}
+          width={vw}
+          height={vh}
+          rx={2}
+          style={{ fill: "hsl(var(--pcb-preview))", stroke: "hsl(var(--primary) / 0.85)" }}
+          strokeWidth={1.5}
+        />
+        {existing.map((h) => (
+          <circle
+            key={h.id}
+            cx={h.x_mm * scale}
+            cy={h.y_mm * scale}
+            r={Math.max((h.diameter_mm / 2) * scale, MIN_DOT_PX)}
+            style={{
+              fill: "hsl(var(--muted-foreground) / 0.15)",
+              stroke: "hsl(var(--muted-foreground) / 0.6)",
+            }}
+            strokeWidth={1}
+            opacity={replacing ? 0.3 : 1}
+          />
+        ))}
+        {positions.map((p, i) => {
+          // Mirror addRegistrationSet: clamp the bore fully inside the panel so the
+          // preview matches where the hole actually lands (WYSIWYG).
+          const c = clampToolingHoleCenter(p.x, p.y, diameterMm / 2, panelW, panelH);
+          return (
+            <circle
+              key={`new-${i}`}
+              cx={c.x * scale}
+              cy={c.y * scale}
+              r={r}
+              style={{ fill: "hsl(var(--primary) / 0.2)", stroke: "hsl(var(--primary))" }}
+              strokeWidth={1.5}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 /** Parameterised generator for a registration-hole set. Asks for layout (2
- *  diagonal / 4 corners), edge margin and diameter; when holes already exist it
- *  also offers add-vs-replace. Pure dialog — placement is delegated to onApply. */
+ *  diagonal / 4 corners), edge margin and diameter, with a live preview; when
+ *  holes already exist it also offers add-vs-replace. Placement → onApply. */
 export function RegistrationSetDialog({
   open,
   onClose,
-  hasExisting,
+  panelW,
+  panelH,
+  existingHoles,
   onApply,
 }: {
   open: boolean;
   onClose: () => void;
-  hasExisting: boolean;
+  panelW: number;
+  panelH: number;
+  existingHoles: ToolingHole[];
   onApply: (opts: RegistrationSetOptions) => void;
 }) {
   const { t } = useTranslation(["project", "common"]);
@@ -42,6 +121,13 @@ export function RegistrationSetDialog({
   const [marginMm, setMarginMm] = useState(REGISTRATION_SET_MARGIN_MM);
   const [diameterMm, setDiameterMm] = useState(DEFAULT_TOOLING_DIAMETER_MM);
   const [mode, setMode] = useState<"add" | "replace">("add");
+
+  const hasExisting = existingHoles.length > 0;
+  const replacing = hasExisting && mode === "replace";
+  const positions = useMemo(
+    () => registrationSetPositions(panelW, panelH, marginMm, count === "2" ? 2 : 4),
+    [panelW, panelH, marginMm, count],
+  );
 
   return (
     <Modal
@@ -55,12 +141,7 @@ export function RegistrationSetDialog({
           </Button>
           <Button
             onClick={() => {
-              onApply({
-                count: count === "2" ? 2 : 4,
-                marginMm,
-                diameterMm,
-                replace: hasExisting && mode === "replace",
-              });
+              onApply({ count: count === "2" ? 2 : 4, marginMm, diameterMm, replace: replacing });
               onClose();
             }}
           >
@@ -70,6 +151,15 @@ export function RegistrationSetDialog({
       }
     >
       <div className="flex flex-col gap-4 text-[12px]">
+        <RegSetPreview
+          panelW={panelW}
+          panelH={panelH}
+          diameterMm={diameterMm}
+          positions={positions}
+          existing={existingHoles}
+          replacing={replacing}
+        />
+
         <Group title={t("panel.regset.placement")}>
           <SegmentedControl<"2" | "4">
             value={count}
