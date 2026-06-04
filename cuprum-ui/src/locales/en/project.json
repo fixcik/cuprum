@@ -125,7 +125,18 @@
       "delete": "Delete",
       "tooling": "Tooling hole",
       "addHole": "Add tooling hole",
-      "registrationSet": "Registration set"
+      "registrationSet": "Registration set",
+      "keepout": "Forbidden zone"
+    },
+    "keepout": {
+      "kind": {
+        "fixture": "Clamp",
+        "dead": "Dead zone",
+        "reserved": "Reserved"
+      },
+      "delete": "Delete",
+      "setKind": "Zone type",
+      "draw": "Draw a forbidden zone"
     },
     "tooling": {
       "diameter": "Diameter",

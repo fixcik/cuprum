@@ -42,8 +42,10 @@ import { RenestDialog } from "@/components/panel/RenestDialog";
 import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog";
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
 import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
+import { KeepOutLayer } from "@/components/panel/KeepOutLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
-import { api, type BoardInstance, type ProjectDesign, type ToolingHole } from "@/lib/api";
+import { api, type BoardInstance, type KeepOutZone, type ProjectDesign, type ToolingHole } from "@/lib/api";
+import { useKeepOutSelection } from "@/keepOutSelectionStore";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -60,6 +62,7 @@ const SNAP_PX = 6;   // magnetic snap threshold in screen pixels
 const EMPTY_INSTANCES: BoardInstance[] = [];
 const EMPTY_DESIGNS: ProjectDesign[] = [];
 const EMPTY_HOLES: ToolingHole[] = [];
+const EMPTY_ZONES: KeepOutZone[] = [];
 
 /** Schematic preview of an empty FR4 blank, in the dark CAD-canvas style of the
  *  exposure editor. Structure stays NEUTRAL (copper is reserved for selection):
@@ -91,6 +94,7 @@ export function PanelBlankCanvas({
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
   const holes = useShell((s) => s.currentManifest?.panel?.tooling_holes ?? EMPTY_HOLES);
+  const zones = useShell((s) => s.currentManifest?.panel?.keep_out_zones ?? EMPTY_ZONES);
   const moveInstances = useShell((s) => s.moveInstances);
   const rotateInstancesBy = useShell((s) => s.rotateInstancesBy);
   const addToolingHole = useShell((s) => s.addToolingHole);
@@ -99,10 +103,18 @@ export function PanelBlankCanvas({
   const setToolingHoleDiameter = useShell((s) => s.setToolingHoleDiameter);
   const setToolingHoleRole = useShell((s) => s.setToolingHoleRole);
   const addRegistrationSet = useShell((s) => s.addRegistrationSet);
+  const addKeepOutZone = useShell((s) => s.addKeepOutZone);
+  const moveKeepOutZones = useShell((s) => s.moveKeepOutZones);
+  const removeKeepOutZones = useShell((s) => s.removeKeepOutZones);
+  const setKeepOutKind = useShell((s) => s.setKeepOutKind);
   const selected = usePanelSelection((s) => s.selected);
   const setSelection = usePanelSelection((s) => s.set);
   const toggleSelection = usePanelSelection((s) => s.toggle);
   const clearSelection = usePanelSelection((s) => s.clear);
+  const keepOutSelected = useKeepOutSelection((s) => s.selected);
+  const setKeepOutSelection = useKeepOutSelection((s) => s.set);
+  const toggleKeepOutSelection = useKeepOutSelection((s) => s.toggle);
+  const clearKeepOutSelection = useKeepOutSelection((s) => s.clear);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   // The mm fit-group: getRelativePointerPosition() maps the pointer into panel mm,
@@ -163,6 +175,12 @@ export function PanelBlankCanvas({
   // Live rotation preview: snapped delta (deg) applied to every selected instance's
   // render while the rotation knob is dragged; null when idle. Committed once on release.
   const [rotPreview, setRotPreview] = useState<number | null>(null);
+  // Keep-out zone draw preview (mm) while dragging in "keepout" tool mode.
+  const [keepOutDraw, setKeepOutDraw] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const keepOutDrawStart = useRef<{ x: number; y: number } | null>(null);
+  // Live drag delta for selected keep-out zones (mm). Committed on drag end.
+  const [keepOutDragDelta, setKeepOutDragDelta] = useState<{ dx: number; dy: number } | null>(null);
+  const keepOutDragStart = useRef<{ x: number; y: number } | null>(null);
 
   // O(1) design lookup for the instance render loop + labels.
   const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
@@ -172,6 +190,11 @@ export function PanelBlankCanvas({
   useEffect(() => {
     usePanelSelection.getState().retain(new Set(instances.map((i) => i.id)));
   }, [instances]);
+
+  // Prune the keep-out selection to zone ids still present.
+  useEffect(() => {
+    useKeepOutSelection.getState().retain(new Set(zones.map((z) => z.id)));
+  }, [zones]);
 
   // Visible instances on the current side (with resolved extents) — the candidate
   // set for marquee hit-testing and selection.
@@ -477,9 +500,16 @@ export function PanelBlankCanvas({
 
   const deleteSelected = useCallback(() => {
     const ids = [...usePanelSelection.getState().selected];
-    if (!ids.length) return;
-    void useShell.getState().removeInstances(ids);
-    usePanelSelection.getState().clear();
+    const zoneIds = [...useKeepOutSelection.getState().selected];
+    if (!ids.length && !zoneIds.length) return;
+    if (ids.length) {
+      void useShell.getState().removeInstances(ids);
+      usePanelSelection.getState().clear();
+    }
+    if (zoneIds.length) {
+      void useShell.getState().removeKeepOutZones(zoneIds);
+      useKeepOutSelection.getState().clear();
+    }
   }, []);
 
   // Open the inspector window for the single selected instance's design (matches
@@ -541,6 +571,8 @@ export function PanelBlankCanvas({
   const onInstanceClick = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
     if (tool !== "select") return;
     e.cancelBubble = true; // don't trigger the empty-canvas click → clear
+    // Clicking a board clears zone selection.
+    clearKeepOutSelection();
     const native = e.evt;
     if (native.shiftKey || native.ctrlKey || native.metaKey) toggleSelection(id);
     else setSelection([id]);
@@ -649,6 +681,57 @@ export function PanelBlankCanvas({
     if (dx !== 0 || dy !== 0) void moveToolingHole(id, dx, dy);
   };
 
+  // --- Keep-out zone interaction handlers ---
+  const onZoneMouseDown = (id: string, e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true;
+    // Clicking a zone clears board selection and selects this zone.
+    clearSelection();
+    const native = e.evt;
+    if (native.shiftKey || native.ctrlKey || native.metaKey) toggleKeepOutSelection(id);
+    else setKeepOutSelection([id]);
+    keepOutDragStart.current = pointerMm();
+    setKeepOutDragDelta({ dx: 0, dy: 0 });
+  };
+
+  const onZoneDragMove = (id: string, e: KonvaEventObject<DragEvent>) => {
+    e.cancelBubble = true;
+    if (!keepOutDragStart.current) return;
+    const p = pointerMm();
+    if (!p) return;
+    let dx = p.x - keepOutDragStart.current.x;
+    let dy = p.y - keepOutDragStart.current.y;
+    // Snap to 1 mm grid.
+    dx = Math.round(dx);
+    dy = Math.round(dy);
+    // Clamp delta so all selected zones stay inside the panel.
+    const selZones = zones.filter((z) => keepOutSelected.has(z.id));
+    let cdx = dx;
+    let cdy = dy;
+    for (const z of selZones) {
+      cdx = Math.max(cdx, -z.x_mm);
+      cdx = Math.min(cdx, W - z.x_mm - z.width_mm);
+      cdy = Math.max(cdy, -z.y_mm);
+      cdy = Math.min(cdy, H - z.y_mm - z.height_mm);
+    }
+    setKeepOutDragDelta({ dx: cdx, dy: cdy });
+    // Pin the dragged Konva node back to its committed pose (store-driven render).
+    const node = e.target;
+    const zone = zones.find((z) => z.id === id);
+    if (zone) { node.x(zone.x_mm + cdx); node.y(zone.y_mm + cdy); }
+  };
+
+  const onZoneDragEnd = (id: string, e: KonvaEventObject<DragEvent>) => {
+    e.cancelBubble = true;
+    const d = keepOutDragDelta;
+    keepOutDragStart.current = null;
+    setKeepOutDragDelta(null);
+    // Reset the node position back to the committed pose.
+    const node = e.target;
+    const zone = zones.find((z) => z.id === id);
+    if (zone) { node.x(zone.x_mm); node.y(zone.y_mm); }
+    if (d && (d.dx !== 0 || d.dy !== 0)) void moveKeepOutZones([...keepOutSelected], d.dx, d.dy);
+  };
+
   // --- Empty-canvas click + marquee (select tool only) ---
   const isEmptyTarget = (e: KonvaEventObject<MouseEvent>) =>
     e.target === e.target.getStage() || e.target.name() === "panel-bg";
@@ -672,7 +755,18 @@ export function PanelBlankCanvas({
       })();
       return;
     }
+    if (tool === "keepout") {
+      // Drag on empty canvas starts drawing a new keep-out zone.
+      const p = pointerMm();
+      if (!p) return;
+      clearKeepOutSelection();
+      keepOutDrawStart.current = p;
+      setKeepOutDraw({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+      return;
+    }
     if (tool !== "select") return;
+    // On select tool: clear keep-out selection too when clicking empty canvas.
+    clearKeepOutSelection();
     const p = pointerMm();
     if (!p) return;
     marqueeStart.current = p;
@@ -708,6 +802,11 @@ export function PanelBlankCanvas({
       const p = pointerMm();
       setGhostMm(p ? { x: p.x, y: p.y } : null);
     }
+    // Live keep-out zone draw preview.
+    if (tool === "keepout" && keepOutDrawStart.current) {
+      const p = pointerMm();
+      if (p) setKeepOutDraw({ x0: keepOutDrawStart.current.x, y0: keepOutDrawStart.current.y, x1: p.x, y1: p.y });
+    }
     // Live marquee (select tool) — unchanged.
     if (!marqueeStart.current) return;
     const p = pointerMm();
@@ -716,6 +815,23 @@ export function PanelBlankCanvas({
   };
 
   const onBgMouseUp = () => {
+    // Commit a keep-out zone draw.
+    if (tool === "keepout" && keepOutDrawStart.current && keepOutDraw) {
+      const d = keepOutDraw;
+      keepOutDrawStart.current = null;
+      setKeepOutDraw(null);
+      const x_mm = Math.min(d.x0, d.x1);
+      const y_mm = Math.min(d.y0, d.y1);
+      const width_mm = Math.round(Math.abs(d.x1 - d.x0));
+      const height_mm = Math.round(Math.abs(d.y1 - d.y0));
+      // Minimum 1 mm × 1 mm to avoid accidental tiny zones.
+      if (width_mm < 1 || height_mm < 1) return;
+      void addKeepOutZone({ x_mm: Math.round(x_mm), y_mm: Math.round(y_mm), width_mm, height_mm, kind: "fixture" });
+      return;
+    }
+    keepOutDrawStart.current = null;
+    setKeepOutDraw(null);
+
     const start = marqueeStart.current;
     const m = marquee;
     marqueeStart.current = null;
@@ -757,11 +873,16 @@ export function PanelBlankCanvas({
   }, []);
 
   // Clear hole selection + disarm placement when leaving tooling mode.
+  // Clear keep-out draw state when leaving keepout mode.
   useEffect(() => {
     if (tool !== "tooling") {
       setSelectedHoleId(null);
       setAddArmed(false);
       setGhostMm(null);
+    }
+    if (tool !== "keepout") {
+      keepOutDrawStart.current = null;
+      setKeepOutDraw(null);
     }
   }, [tool]);
 
@@ -790,13 +911,34 @@ export function PanelBlankCanvas({
     return () => window.removeEventListener("keydown", onKey);
   }, [tool, selectedHoleId, addArmed, removeToolingHole]);
 
+  // Delete/Backspace removes selected keep-out zones; Esc clears selection.
+  // Works in both "select" and "keepout" modes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (tool !== "select" && tool !== "keepout") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      const zonesSelected = useKeepOutSelection.getState().selected;
+      if ((e.key === "Delete" || e.key === "Backspace") && zonesSelected.size > 0) {
+        e.preventDefault();
+        const ids = [...zonesSelected];
+        useKeepOutSelection.getState().clear();
+        void removeKeepOutZones(ids);
+      } else if (e.key === "Escape" && zonesSelected.size > 0) {
+        useKeepOutSelection.getState().clear();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tool, removeKeepOutZones]);
+
   return (
     <>
     <ContextMenu>
       <ContextMenuTrigger asChild>
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : addArmed ? "cursor-crosshair" : ""}`}
+      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : addArmed || tool === "keepout" ? "cursor-crosshair" : ""}`}
     >
       <Stage
         ref={stageRef}
@@ -840,6 +982,17 @@ export function PanelBlankCanvas({
                 listening={false}
               />
             )}
+            {/* Keep-out zones rendered UNDER board instances. */}
+            <KeepOutLayer
+              zones={zones}
+              selected={keepOutSelected}
+              dragDelta={keepOutDragDelta}
+              pxPerMm={viewport.pxPerMm}
+              interactive={tool === "select" || tool === "keepout"}
+              onZoneMouseDown={onZoneMouseDown}
+              onZoneDragMove={onZoneDragMove}
+              onZoneDragEnd={onZoneDragEnd}
+            />
             {instances.map((inst) => {
               const sz = sizes[inst.design_id];
               const instSide = inst.layer_ref === "Bottom" ? "bottom" : "top";
@@ -989,6 +1142,21 @@ export function PanelBlankCanvas({
                 listening={false}
               />
             )}
+            {/* Keep-out zone draw preview while dragging in keepout tool mode. */}
+            {keepOutDraw && (
+              <Rect
+                x={Math.min(keepOutDraw.x0, keepOutDraw.x1)}
+                y={Math.min(keepOutDraw.y0, keepOutDraw.y1)}
+                width={Math.abs(keepOutDraw.x1 - keepOutDraw.x0)}
+                height={Math.abs(keepOutDraw.y1 - keepOutDraw.y0)}
+                stroke="rgba(99,130,190,0.8)"
+                strokeWidth={1.5}
+                strokeScaleEnabled={false}
+                dash={[3, 2]}
+                fill="rgba(99,130,190,0.12)"
+                listening={false}
+              />
+            )}
           </Group>
         </Layer>
       </Stage>
@@ -1085,29 +1253,51 @@ export function PanelBlankCanvas({
     </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem disabled={selected.size !== 1} onSelect={() => openSelectedDesign()}>
-          {t("panel.menu.openDesign")}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem disabled={!hasSelection} onSelect={() => duplicateSelected()}>
-          {t("panel.menu.duplicate")}
-        </ContextMenuItem>
-        <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(90)}>
-          {t("panel.menu.rotateCw")}
-        </ContextMenuItem>
-        <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(-90)}>
-          {t("panel.menu.rotateCcw")}
-        </ContextMenuItem>
-        <ContextMenuItem disabled={!hasSelection} onSelect={() => resetSelectionRotation()}>
-          {t("panel.menu.resetRotation")}
-        </ContextMenuItem>
-        <ContextMenuItem disabled={!hasSelection} onSelect={() => setRenestOpen(true)}>
-          {t("panel.menu.renest")}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem disabled={!hasSelection} onSelect={() => deleteSelected()}>
-          {t("panel.menu.delete")}
-        </ContextMenuItem>
+        {keepOutSelected.size > 0 ? (
+          // Keep-out zone context menu.
+          <>
+            <ContextMenuItem onSelect={() => void setKeepOutKind([...keepOutSelected], "fixture")}>
+              {t("panel.keepout.kind.fixture")}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void setKeepOutKind([...keepOutSelected], "dead")}>
+              {t("panel.keepout.kind.dead")}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void setKeepOutKind([...keepOutSelected], "reserved")}>
+              {t("panel.keepout.kind.reserved")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => { void removeKeepOutZones([...keepOutSelected]); clearKeepOutSelection(); }}>
+              {t("panel.keepout.delete")}
+            </ContextMenuItem>
+          </>
+        ) : (
+          // Board instance context menu.
+          <>
+            <ContextMenuItem disabled={selected.size !== 1} onSelect={() => openSelectedDesign()}>
+              {t("panel.menu.openDesign")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={!hasSelection} onSelect={() => duplicateSelected()}>
+              {t("panel.menu.duplicate")}
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(90)}>
+              {t("panel.menu.rotateCw")}
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(-90)}>
+              {t("panel.menu.rotateCcw")}
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!hasSelection} onSelect={() => resetSelectionRotation()}>
+              {t("panel.menu.resetRotation")}
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!hasSelection} onSelect={() => setRenestOpen(true)}>
+              {t("panel.menu.renest")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={!hasSelection} onSelect={() => deleteSelected()}>
+              {t("panel.menu.delete")}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
     <RenestDialog

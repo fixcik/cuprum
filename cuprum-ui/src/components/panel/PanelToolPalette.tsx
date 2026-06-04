@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { MousePointer2, Hand, FilePlus2, Copy, Trash2, Target, Grid2x2, CirclePlus, type LucideIcon } from "lucide-react";
+import { MousePointer2, Hand, FilePlus2, Copy, Trash2, Target, Grid2x2, CirclePlus, OctagonAlert, type LucideIcon } from "lucide-react";
 import { RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
+import { useKeepOutSelection } from "@/keepOutSelectionStore";
 
-export type PanelTool = "select" | "pan" | "tooling";
+export type PanelTool = "select" | "pan" | "tooling" | "keepout";
 
 /** Floating tool palette over the panel canvas (KiCad/Photoshop style). Add is
  *  always available; duplicate and delete act on the current selection. The
@@ -29,12 +30,21 @@ export function PanelToolPalette({
 }) {
   const { t } = useTranslation("project");
   const selected = usePanelSelection((s) => s.selected);
+  const keepOutSelected = useKeepOutSelection((s) => s.selected);
   const removeInstances = useShell((s) => s.removeInstances);
+  const removeKeepOutZones = useShell((s) => s.removeKeepOutZones);
   const selectedCount = selected.size;
+  const keepOutSelectedCount = keepOutSelected.size;
   const deleteSelected = () => {
-    if (selectedCount === 0) return;
-    void removeInstances([...selected]);
-    usePanelSelection.getState().clear();
+    if (selectedCount === 0 && keepOutSelectedCount === 0) return;
+    if (selectedCount > 0) {
+      void removeInstances([...selected]);
+      usePanelSelection.getState().clear();
+    }
+    if (keepOutSelectedCount > 0) {
+      void removeKeepOutZones([...keepOutSelected]);
+      useKeepOutSelection.getState().clear();
+    }
   };
 
   const toolBtn = (id: PanelTool, Icon: LucideIcon, label: string) => {
@@ -85,17 +95,18 @@ export function PanelToolPalette({
       {toolBtn("select", MousePointer2, t("panel.tool.select"))}
       {toolBtn("pan", Hand, t("panel.tool.pan"))}
       {toolBtn("tooling", Target, t("panel.tool.tooling"))}
+      {toolBtn("keepout", OctagonAlert, t("panel.tool.keepout"))}
       <div className="my-0.5 h-px w-6 bg-border" />
       {tool === "tooling" ? (
         <>
           {actionBtn(CirclePlus, t("panel.tool.addHole"), onAddHole, false, addArmed)}
           {actionBtn(Grid2x2, t("panel.tool.registrationSet"), onAddRegistrationSet)}
         </>
-      ) : (
+      ) : tool === "keepout" ? null : (
         <>
           {actionBtn(FilePlus2, t("panel.tool.add"), () => void api.openAddDesignWindow())}
           {actionBtn(Copy, t("panel.tool.duplicate"), selectedCount === 0 ? undefined : onDuplicate, selectedCount === 0)}
-          {actionBtn(Trash2, t("panel.tool.delete"), deleteSelected, selectedCount === 0)}
+          {actionBtn(Trash2, t("panel.tool.delete"), deleteSelected, selectedCount === 0 && keepOutSelectedCount === 0)}
         </>
       )}
     </div>
