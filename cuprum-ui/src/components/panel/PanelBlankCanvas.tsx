@@ -8,6 +8,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
+import { gridSteps } from "@/lib/canvasTicks";
 import {
   MIN_SCALE,
   MAX_SCALE,
@@ -95,7 +96,9 @@ export function PanelBlankCanvas({
   // overlay can follow the imperative Konva stage transform. Cursor position (CSS
   // px) drives the hover crosshair/readout; null when the pointer is off-canvas.
   const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
-  const [hoverPx, setHoverPx] = useState<{ x: number; y: number } | null>(null);
+  // `snapped` marks the crosshair locked onto a blank/instance corner/edge/centre
+  // (→ a lock ring); false for a free point (Alt held) or a plain grid node.
+  const [hoverPx, setHoverPx] = useState<{ x: number; y: number; snapped: boolean } | null>(null);
   // The hover crosshair + readout is opt-in (off by default — it's busy and most
   // placement is done by eye/snap).
   const [showCrosshair, setShowCrosshair] = useState(false);
@@ -103,8 +106,8 @@ export function PanelBlankCanvas({
   // would re-render the whole instance tree on every pixel of movement. The latest
   // pointer lives in a ref; the frame flushes whatever is freshest.
   const hoverRaf = useRef<number | null>(null);
-  const pendingHover = useRef<{ x: number; y: number } | null>(null);
-  const queueHover = useCallback((p: { x: number; y: number } | null) => {
+  const pendingHover = useRef<{ x: number; y: number; snapped: boolean } | null>(null);
+  const queueHover = useCallback((p: { x: number; y: number; snapped: boolean } | null) => {
     pendingHover.current = p;
     if (p === null) {
       if (hoverRaf.current != null) {
@@ -310,6 +313,54 @@ export function PanelBlankCanvas({
 
   // Pointer position in panel mm via the fit-group's local coordinate system.
   const pointerMm = useCallback(() => fitGroupRef.current?.getRelativePointerPosition() ?? null, []);
+
+  // Snap candidates (panel mm) for the hover crosshair: the blank's corners / edge
+  // midpoints / centre, plus the same nine points of every visible instance's
+  // (rotated) AABB. Mirrors the design preview's feature/board snapping.
+  const snapPts = useMemo(() => {
+    const pts: { x: number; y: number }[] = [];
+    const pushBox = (b: { minX: number; minY: number; maxX: number; maxY: number }) => {
+      const cx = (b.minX + b.maxX) / 2;
+      const cy = (b.minY + b.maxY) / 2;
+      pts.push(
+        { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.minX, y: b.maxY }, { x: b.maxX, y: b.maxY },
+        { x: cx, y: b.minY }, { x: cx, y: b.maxY }, { x: b.minX, y: cy }, { x: b.maxX, y: cy }, { x: cx, y: cy },
+      );
+    };
+    pushBox({ minX: 0, minY: 0, maxX: W, maxY: H });
+    for (const i of visibleInstances) {
+      const sz = sizes[i.design_id];
+      if (!sz) continue;
+      pushBox(instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg }));
+    }
+    return pts;
+  }, [W, H, visibleInstances, sizes]);
+
+  // Resolve a pointer-mm position to a snapped board point (+ whether it locked
+  // onto a real candidate). Priority: candidate within threshold → grid node →
+  // raw. The threshold is SNAP_PX in screen px, converted to mm via the live zoom.
+  const snapPointMm = useCallback(
+    (pm: { x: number; y: number }): { mm: { x: number; y: number }; feature: boolean } => {
+      const ppm = viewport.pxPerMm;
+      if (ppm <= 0) return { mm: pm, feature: false };
+      const thr = SNAP_PX / ppm;
+      let best: { x: number; y: number } | null = null;
+      let bestD = thr;
+      for (const c of snapPts) {
+        const d = Math.hypot(c.x - pm.x, c.y - pm.y);
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      if (best) return { mm: best, feature: true };
+      const step = gridSteps(ppm).minor;
+      if (step > 0) {
+        const gx = Math.round(pm.x / step) * step;
+        const gy = Math.round(pm.y / step) * step;
+        if (Math.hypot(gx - pm.x, gy - pm.y) < thr) return { mm: { x: gx, y: gy }, feature: false };
+      }
+      return { mm: pm, feature: false };
+    },
+    [snapPts, viewport.pxPerMm],
+  );
 
   // AABBs (mm) of the currently selected instances — used to clamp drags/marquee.
   const selectedBoxes = useCallback(
@@ -565,12 +616,29 @@ export function PanelBlankCanvas({
     setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
   };
 
-  const onStageMouseMove = () => {
+  const onStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
     // Track the cursor (CSS px) for the rulers' crosshair/readout — only while the
-    // crosshair is on, so an idle hover doesn't churn state when it's off.
+    // crosshair is on, so an idle hover doesn't churn state when it's off. The
+    // crosshair snaps to the blank/instance corners/edges/centre; Alt = free.
     if (showCrosshair) {
       const pt = stageRef.current?.getPointerPosition() ?? null;
-      queueHover(pt ? { x: pt.x, y: pt.y } : null);
+      if (!pt) {
+        queueHover(null);
+      } else if (e.evt.altKey) {
+        queueHover({ x: pt.x, y: pt.y, snapped: false });
+      } else {
+        const pm = pointerMm();
+        if (!pm) {
+          queueHover({ x: pt.x, y: pt.y, snapped: false });
+        } else {
+          const sn = snapPointMm(pm);
+          queueHover({
+            x: viewport.originX + sn.mm.x * viewport.pxPerMm,
+            y: viewport.originY + sn.mm.y * viewport.pxPerMm,
+            snapped: sn.feature,
+          });
+        }
+      }
     }
     // Live marquee (select tool) — unchanged.
     if (!marqueeStart.current) return;
