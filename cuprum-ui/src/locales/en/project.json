@@ -162,6 +162,11 @@
       "bottom": "Align bottom edges",
       "distributeH": "Distribute horizontally",
       "distributeV": "Distribute vertically"
+    },
+    "hud": {
+      "rotate": "Rotate 90°",
+      "duplicate": "Duplicate",
+      "delete": "Delete"
     }
   },
   "operations": {

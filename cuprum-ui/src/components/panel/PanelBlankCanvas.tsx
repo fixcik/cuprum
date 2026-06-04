@@ -33,6 +33,7 @@ import { usePanelSelection } from "@/panelSelectionStore";
 import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
 import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
+import { SelectionHud } from "@/components/panel/SelectionHud";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { RenestDialog } from "@/components/panel/RenestDialog";
@@ -911,16 +912,24 @@ export function PanelBlankCanvas({
               rotPreview={rotPreview}
               pxPerMm={viewport.pxPerMm}
             />
-            {tool === "select" && !dragDelta && selectionBBox && (
-              <RotationHandle
-                cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
-                cy={(selectionBBox.minY + selectionBBox.maxY) / 2}
-                radiusMm={(selectionBBox.maxY - selectionBBox.minY) / 2 + Math.max(W, H) * 0.06}
-                pointerMm={pointerMm}
-                onRotate={onRotatePreview}
-                onCommit={onRotateCommit}
-              />
-            )}
+            {tool === "select" && !dragDelta && selectionBBox && (() => {
+              // Knob hangs off the top-right bbox corner (diagonal stub), leaving the
+              // top-centre clear for the selection HUD; rotation pivot stays the centre.
+              const k = (Math.max(W, H) * 0.06) / Math.SQRT2;
+              return (
+                <RotationHandle
+                  cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
+                  cy={(selectionBBox.minY + selectionBBox.maxY) / 2}
+                  anchorX={selectionBBox.maxX}
+                  anchorY={selectionBBox.minY}
+                  knobX={selectionBBox.maxX + k}
+                  knobY={selectionBBox.minY - k}
+                  pointerMm={pointerMm}
+                  onRotate={onRotatePreview}
+                  onCommit={onRotateCommit}
+                />
+              );
+            })()}
             <SnapGuides guides={guides} />
             <ToolingHoleLayer
               holes={holes}
@@ -980,6 +989,19 @@ export function PanelBlankCanvas({
         hover={showCrosshair ? hoverPx : null}
         extentVariant="muted"
       />
+
+      {tool === "select" && (
+        <SelectionHud
+          viewport={viewport}
+          size={size}
+          panelW={W}
+          panelH={H}
+          livePose={{ dragDelta, rotPreview }}
+          onDuplicate={duplicateSelected}
+          onDelete={deleteSelected}
+          onRotate90={() => rotateSelectionBy(90)}
+        />
+      )}
 
       <PanelToolPalette
         tool={tool}
