@@ -309,43 +309,17 @@ export function RulersOverlay({
       <line x1={rulerLeft} y1={0} x2={rulerLeft} y2={size.h} stroke="hsl(var(--border))" strokeWidth={1} />
       <line x1={0} y1={rulerTop} x2={size.w} y2={rulerTop} stroke="hsl(var(--border))" strokeWidth={1} />
 
-      {/* Always-on axis readout: a light caret that runs along each ruler at the
-          cursor, with the coordinate as plain haloed text (no heavy chip) — read the
-          axis value without enabling the crosshair. Anchor-relative → matches the
-          tick labels. */}
-      {axisCursor && axisCursor.x > rulerLeft && axisCursor.y > rulerTop && (() => {
-        const cxp = axisCursor.x;
-        const cyp = axisCursor.y;
-        const xText = fmt(mmFromX(cxp) - anchorMm.x);
-        const yText = fmt(mmFromY(cyp) - anchorMm.y);
-        // Plain text with a dark halo (paint-order stroke) stays legible over any
-        // content without a boxed background.
-        const halo = {
-          paintOrder: "stroke",
-          stroke: "rgba(0,0,0,0.6)",
-          strokeWidth: 3,
-          strokeLinejoin: "round",
-          fontSize: "10px",
-          fontVariantNumeric: "tabular-nums",
-          fill: READOUT_FG,
-        } as const;
-        const xLabelX = Math.max(rulerLeft + 12, Math.min(size.w - 12, cxp));
-        const yLabelY = Math.max(rulerTop + 9, Math.min(size.h - 4, cyp + 3));
-        return (
-          <g fill={accent}>
-            {/* Top ruler caret + value */}
-            <path d={`M ${cxp} ${rulerTop} L ${cxp - 4} ${rulerTop - 6} L ${cxp + 4} ${rulerTop - 6} Z`} />
-            <text x={xLabelX} y={rulerTop + 12} textAnchor="middle" style={halo}>
-              {xText}
-            </text>
-            {/* Left ruler caret + value */}
-            <path d={`M ${rulerLeft} ${cyp} L ${rulerLeft - 6} ${cyp - 4} L ${rulerLeft - 6} ${cyp + 4} Z`} />
-            <text x={rulerLeft + 5} y={yLabelY} textAnchor="start" style={halo}>
-              {yText}
-            </text>
-          </g>
-        );
-      })()}
+      {/* Always-on axis carets: a light marker runs along each ruler at the cursor
+          so you can line the position up against the ticks without enabling the
+          crosshair. No text — the carets alone stay quiet over busy content. */}
+      {axisCursor && axisCursor.x > rulerLeft && axisCursor.y > rulerTop && (
+        <g fill={accent}>
+          {/* Top ruler caret */}
+          <path d={`M ${axisCursor.x} ${rulerTop} L ${axisCursor.x - 4} ${rulerTop - 6} L ${axisCursor.x + 4} ${rulerTop - 6} Z`} />
+          {/* Left ruler caret */}
+          <path d={`M ${rulerLeft} ${axisCursor.y} L ${rulerLeft - 6} ${axisCursor.y - 4} L ${rulerLeft - 6} ${axisCursor.y + 4} Z`} />
+        </g>
+      )}
 
       {/* Hover readout chip — over everything. */}
       {readout && (
