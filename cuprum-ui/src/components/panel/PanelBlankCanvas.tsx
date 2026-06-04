@@ -27,7 +27,7 @@ import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
-import type { BoardInstance, ProjectDesign } from "@/lib/api";
+import { api, type BoardInstance, type ProjectDesign } from "@/lib/api";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -395,6 +395,15 @@ export function PanelBlankCanvas({
     void useShell.getState().removeInstances(ids);
     usePanelSelection.getState().clear();
   }, []);
+
+  // Open the inspector window for the single selected instance's design (matches
+  // the "Open" action on a design card). Only meaningful for one instance.
+  const openSelectedDesign = useCallback(() => {
+    const ids = [...usePanelSelection.getState().selected];
+    if (ids.length !== 1) return;
+    const inst = instances.find((i) => i.id === ids[0]);
+    if (inst) void api.openInspectorWindow(inst.design_id);
+  }, [instances]);
 
   // Build AlignItem array for the current selection (instances with resolved sizes).
   const selectedAlignItems = useCallback(
@@ -787,6 +796,10 @@ export function PanelBlankCanvas({
     </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem disabled={selected.size !== 1} onSelect={() => openSelectedDesign()}>
+          {t("panel.menu.openDesign")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem disabled={!hasSelection} onSelect={() => duplicateSelected()}>
           {t("panel.menu.duplicate")}
         </ContextMenuItem>
