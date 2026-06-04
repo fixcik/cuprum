@@ -121,11 +121,14 @@ pub fn machine_connect(
                 Err(e) => {
                     r_stop.store(true, Ordering::Relaxed);
                     let _ = r_app.emit("machine://error", e.to_string());
+                    // Notify the frontend only on an unexpected drop (read error /
+                    // unplug). A clean disconnect is frontend-initiated and already
+                    // tore the store down, so it needs no event here.
+                    let _ = r_app.emit("machine://disconnected", ());
                     break;
                 }
             }
         }
-        let _ = r_app.emit("machine://disconnected", ());
     });
 
     // Poller thread: status query every 200 ms.
