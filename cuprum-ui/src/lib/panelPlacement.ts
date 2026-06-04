@@ -136,7 +136,7 @@ export function isOffPanel(opts: {
   return b.minX < -tol || b.minY < -tol || b.maxX > opts.panelW + tol || b.maxY > opts.panelH + tol;
 }
 
-type Box = { minX: number; minY: number; maxX: number; maxY: number };
+export type Box = { minX: number; minY: number; maxX: number; maxY: number };
 
 /** Clamp a move delta (mm) so every supplied AABB stays within [0,panelW]×[0,panelH].
  *  Clamps each axis to the tightest bound across all boxes. */
@@ -190,4 +190,57 @@ export function snapAngle(deg: number, fine: boolean): number {
   const step = fine ? 1 : 15;
   const snapped = Math.round(deg / step) * step;
   return ((snapped % 360) + 360) % 360;
+}
+
+/** Which edge/centre the selection aligns to. Mirrors the layout store's type. */
+export type AlignEdge = "left" | "hcenter" | "right" | "top" | "vmiddle" | "bottom";
+
+export type AlignItem = { id: string; x_mm: number; y_mm: number; box: Box };
+type Pose = { id: string; x_mm: number; y_mm: number };
+
+const pose = ({ id, x_mm, y_mm }: AlignItem): Pose => ({ id, x_mm, y_mm });
+
+/** Align ≥2 instances to their shared bounding box. Each instance's x_mm/y_mm is
+ *  shifted by the delta that moves its rotated AABB edge/centre onto the target;
+ *  translating the centre of rotation translates the AABB by the same amount. */
+export function alignInstances(items: AlignItem[], edge: AlignEdge): Pose[] {
+  if (items.length < 2) return items.map(pose);
+  const minX = Math.min(...items.map((i) => i.box.minX));
+  const maxX = Math.max(...items.map((i) => i.box.maxX));
+  const minY = Math.min(...items.map((i) => i.box.minY));
+  const maxY = Math.max(...items.map((i) => i.box.maxY));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  return items.map((i) => {
+    const bcx = (i.box.minX + i.box.maxX) / 2;
+    const bcy = (i.box.minY + i.box.maxY) / 2;
+    let dx = 0;
+    let dy = 0;
+    switch (edge) {
+      case "left": dx = minX - i.box.minX; break;
+      case "right": dx = maxX - i.box.maxX; break;
+      case "hcenter": dx = cx - bcx; break;
+      case "top": dy = minY - i.box.minY; break;
+      case "bottom": dy = maxY - i.box.maxY; break;
+      case "vmiddle": dy = cy - bcy; break;
+    }
+    return { id: i.id, x_mm: i.x_mm + dx, y_mm: i.y_mm + dy };
+  });
+}
+
+/** Evenly space ≥3 instances' AABB centres along an axis; the extreme two stay put. */
+export function distributeInstances(items: AlignItem[], axis: "h" | "v"): Pose[] {
+  if (items.length < 3) return items.map(pose);
+  const centre = (i: AlignItem) =>
+    axis === "h" ? (i.box.minX + i.box.maxX) / 2 : (i.box.minY + i.box.maxY) / 2;
+  const sorted = [...items].sort((a, b) => centre(a) - centre(b));
+  const c0 = centre(sorted[0]);
+  const step = (centre(sorted[sorted.length - 1]) - c0) / (sorted.length - 1);
+  const next = new Map<string, Pose>();
+  sorted.forEach((i, idx) => {
+    const target = c0 + step * idx;
+    const delta = target - centre(i);
+    next.set(i.id, { id: i.id, x_mm: i.x_mm + (axis === "h" ? delta : 0), y_mm: i.y_mm + (axis === "v" ? delta : 0) });
+  });
+  return items.map((i) => next.get(i.id)!);
 }
