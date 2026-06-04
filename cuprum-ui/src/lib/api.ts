@@ -180,6 +180,8 @@ export interface AddDesignSnapshot {
   instances: BoardInstance[];
   /** Board extent (mm) per placed design_id, for drawing/avoiding existing instances. */
   placedSizes: Record<string, { w: number; h: number }>;
+  /** Tooling holes on the panel (so the preview avoids them and shows them). */
+  tooling_holes: ToolingHole[];
 }
 /** Result of an add-to-panel intent, sent back to the add-design window. */
 export interface AddDesignResult {

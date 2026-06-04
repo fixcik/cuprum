@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { packLayoutAvoiding, type Box } from "@/lib/panelPlacement";
 import type { NestSettings } from "@/lib/nest";
+import type { ToolingHole } from "@/lib/api";
 
 /** Live "on the panel" layout preview: the FR4 blank with the packed copies.
- *  Existing instances are drawn dimmed underneath; new copies go in free cells. */
+ *  Existing instances are drawn dimmed underneath; tooling holes are rendered as
+ *  dimmed circles; new copies go in free cells. */
 export function PanelLayoutPreview({
   boardWmm,
   boardHmm,
@@ -12,6 +14,7 @@ export function PanelLayoutPreview({
   nest,
   obstacles,
   clearanceMm,
+  toolingHoles,
 }: {
   boardWmm: number;
   boardHmm: number;
@@ -20,6 +23,7 @@ export function PanelLayoutPreview({
   nest: NestSettings;
   obstacles?: Box[];
   clearanceMm?: number;
+  toolingHoles?: ToolingHole[];
 }) {
   const pack = useMemo(
     () => packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, obstacles ?? [], clearanceMm ?? 0),
@@ -58,6 +62,22 @@ export function PanelLayoutPreview({
             }}
           />
         ))}
+        {/* Tooling holes rendered as dimmed circles (WYSIWYG obstacles) */}
+        {(toolingHoles ?? []).map((h) => {
+          const r = (h.diameter_mm / 2) * scale;
+          return (
+            <div
+              key={h.id}
+              className="absolute rounded-full border border-muted-foreground/50 bg-muted-foreground/20"
+              style={{
+                left: h.x_mm * scale - r,
+                top: h.y_mm * scale - r,
+                width: r * 2,
+                height: r * 2,
+              }}
+            />
+          );
+        })}
         {/* New copies placed into free cells */}
         {pack.placements.map((p, i) => (
           <div

@@ -14,7 +14,7 @@ import { PreviewPane, type PreviewMode } from "@/components/preview/PreviewPane"
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
 import { NestingControls } from "@/components/panel/NestingControls";
-import { packLayoutAvoiding, boxesForInstances } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, panelObstacles } from "@/lib/panelPlacement";
 import { usePreviewData } from "@/hooks/usePreviewData";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 
@@ -158,9 +158,13 @@ export function AddDesignWindow() {
     return () => void pending.then((un) => un());
   }, []);
 
-  // Boxes for already-placed instances (for obstacle rendering and free-cell packing).
+  // Combined obstacles: placed board instances + tooling holes (for packing + preview).
   const existingBoxes = useMemo(
-    () => boxesForInstances(snap?.instances ?? [], snap?.placedSizes ?? {}),
+    () =>
+      panelObstacles(
+        { instances: snap?.instances ?? [], tooling_holes: snap?.tooling_holes ?? [] },
+        snap?.placedSizes ?? {},
+      ),
     [snap],
   );
 
@@ -258,6 +262,7 @@ export function AddDesignWindow() {
                     nest={nest}
                     obstacles={existingBoxes}
                     clearanceMm={clearance}
+                    toolingHoles={snap?.tooling_holes ?? []}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted-foreground">

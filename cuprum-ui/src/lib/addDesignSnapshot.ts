@@ -22,5 +22,6 @@ export function buildAddDesignSnapshot(args: {
     preselectDesignId: args.preselectDesignId,
     instances: args.manifest?.panel?.instances ?? [],
     placedSizes: args.placedSizes ?? {},
+    tooling_holes: args.manifest?.panel?.tooling_holes ?? [],
   };
 }
