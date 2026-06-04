@@ -702,6 +702,7 @@ export function LayerStack({
           hover={showCrosshair && tool !== "measure" ? cursorPx : null}
           rulerTop={RULER}
           rulerLeft={RULER}
+          extentVariant="muted"
         />
       )}
 
