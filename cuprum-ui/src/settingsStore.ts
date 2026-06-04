@@ -28,6 +28,10 @@ interface SettingsStore {
   nest: NestSettings;
   /** Patch one or more nesting fields. */
   setNest: (patch: Partial<NestSettings>) => void;
+  /** Right panel-inspector UI state (persisted): dock width, collapsed rail, and
+   *  which accordion sections are open. */
+  panelInspector: { width: number; collapsed: boolean; sizeOpen: boolean; stackupOpen: boolean };
+  setPanelInspector: (patch: Partial<SettingsStore["panelInspector"]>) => void;
 }
 
 export const useSettings = create<SettingsStore>()(
@@ -50,6 +54,8 @@ export const useSettings = create<SettingsStore>()(
       removePanelPreset: (id) => set((s) => ({ panelPresets: s.panelPresets.filter((p) => p.id !== id) })),
       nest: DEFAULT_NEST,
       setNest: (patch) => set((s) => ({ nest: { ...s.nest, ...patch } })),
+      panelInspector: { width: 330, collapsed: false, sizeOpen: true, stackupOpen: true },
+      setPanelInspector: (patch) => set((s) => ({ panelInspector: { ...s.panelInspector, ...patch } })),
     }),
     {
       name: "cuprum-settings",
@@ -67,6 +73,7 @@ export const useSettings = create<SettingsStore>()(
           units: p?.units ?? "mm",
           panelPresets: p?.panelPresets ?? [],
           nest: { ...DEFAULT_NEST, ...(p?.nest ?? {}) },
+          panelInspector: { width: 330, collapsed: false, sizeOpen: true, stackupOpen: true, ...(p?.panelInspector ?? {}) },
         };
       },
     },
