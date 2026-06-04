@@ -9,6 +9,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
+import { useDrillBridge } from "@/hooks/useDrillBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
 import { useMachineBridge } from "@/hooks/useMachineBridge";
 import { useUpdater } from "@/updaterStore";
@@ -21,6 +22,7 @@ export default function App() {
   const loadDisplayScale = useShell((s) => s.loadDisplayScale);
 
   useAddDesignBridge();
+  useDrillBridge();
   useInspectorBridge();
   useMachineBridge();
 

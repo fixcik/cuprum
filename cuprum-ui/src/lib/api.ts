@@ -236,6 +236,16 @@ export interface AddDesignResult {
   params?: Record<string, unknown>;
 }
 
+/** Snapshot pushed from the main window to the drill-preview window.
+ *  Contains the minimum data needed to build the drill plan; tool inventory
+ *  and capability profile are read from useSettings inside the window. */
+export interface DrillSnapshot {
+  workingDir: string | null;
+  manifest: Manifest | null;
+  /** Board extent (mm) per placed design_id; needed for panel drill plan. */
+  placedSizes: Record<string, { w: number; h: number }>;
+}
+
 export interface Orphan {
   workdir: string;
   sourcePath: string;
@@ -471,6 +481,8 @@ export const api = {
 
   /** Open (or focus) the "Add design to panel" child window. */
   openAddDesignWindow: () => invoke<void>("open_add_design_window"),
+  /** Open (or focus) the drill-preview window (label "drill"). */
+  openDrillWindow: () => invoke<void>("open_drill_window"),
   /** Open (or focus) the inspector window for a design (label `inspector-<id>`). */
   openInspectorWindow: (designId: string) => invoke<void>("open_inspector_window", { designId }),
 
@@ -533,6 +545,13 @@ export const api = {
   emitInspectorArtifactsFresh: (fresh: boolean) => emit("inspector:artifacts-fresh", { fresh }),
   onInspectorArtifactsFresh: (cb: (p: { fresh: boolean }) => void): Promise<UnlistenFn> =>
     listen<{ fresh: boolean }>("inspector:artifacts-fresh", (e) => cb(e.payload)),
+
+  // Drill-preview window bridge events (main ↔ drill window).
+  emitDrillReady: () => emit("drill://ready"),
+  onDrillReady: (cb: () => void): Promise<UnlistenFn> => listen("drill://ready", () => cb()),
+  emitDrillSnapshot: (s: DrillSnapshot) => emit("drill://snapshot", s),
+  onDrillSnapshot: (cb: (s: DrillSnapshot) => void): Promise<UnlistenFn> =>
+    listen<DrillSnapshot>("drill://snapshot", (e) => cb(e.payload)),
 
   /** Apply localised native-menu labels (called on mount and on language change). */
   setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),
