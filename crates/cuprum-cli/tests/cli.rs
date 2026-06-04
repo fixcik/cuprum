@@ -55,3 +55,21 @@ fn render_writes_a_png() {
     let bytes = std::fs::read(&out).unwrap();
     assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']), "PNG magic");
 }
+
+#[test]
+fn svg_writes_an_svg() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("b.svg");
+    Command::cargo_bin("cuprum")
+        .unwrap()
+        .args([
+            "svg",
+            gerber_fixture().to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let s = std::fs::read_to_string(&out).unwrap();
+    assert!(s.contains("<svg"), "is an SVG document");
+}

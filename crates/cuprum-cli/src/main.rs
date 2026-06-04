@@ -32,6 +32,12 @@ enum Command {
         #[arg(long, default_value_t = 1024)]
         max_px: u32,
     },
+    /// Composite SVG (top side).
+    Svg {
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -41,6 +47,7 @@ fn main() -> ExitCode {
         Command::Render { input, out, max_px } => {
             commands::render::run(input, out.clone(), *max_px)
         }
+        Command::Svg { input, out } => commands::svg::run(input, out.clone()),
     };
     match result {
         Ok(()) => ExitCode::from(output::EXIT_OK as u8),
