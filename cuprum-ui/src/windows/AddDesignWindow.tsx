@@ -14,7 +14,7 @@ import { PreviewPane, type PreviewMode } from "@/components/preview/PreviewPane"
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
 import { NestingControls } from "@/components/panel/NestingControls";
-import { packLayout } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, boxesForInstances } from "@/lib/panelPlacement";
 import { usePreviewData } from "@/hooks/usePreviewData";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 
@@ -158,16 +158,25 @@ export function AddDesignWindow() {
     return () => void pending.then((un) => un());
   }, []);
 
-  // Footer fit-line: summarises how many copies land on the panel.
+  // Boxes for already-placed instances (for obstacle rendering and free-cell packing).
+  const existingBoxes = useMemo(
+    () => boxesForInstances(snap?.instances ?? [], snap?.placedSizes ?? {}),
+    [snap],
+  );
+
+  const clearance = nest.enabled ? nest.gapMm : 0;
+
+  // Footer fit-line: summarises how many copies will land on the panel.
   const fit = useMemo(() => {
     if (!selectedDesign || !selSize) return { text: t("panel.add.footerPick"), warn: false };
-    const p = packLayout(selSize.w, selSize.h, panel.widthMm, panel.heightMm, nest);
+    const p = packLayoutAvoiding(selSize.w, selSize.h, panel.widthMm, panel.heightMm, nest, existingBoxes, clearance);
     if (p.max === 0) return { text: t("panel.add.fit.tooBig"), warn: true };
+    if (p.n === 0) return { text: t("panel.add.fit.noSpace"), warn: true };
     if (!nest.enabled) return { text: t("panel.add.fit.one"), warn: false };
-    if (p.requested > p.max)
-      return { text: t("panel.add.fit.overflow", { fit: p.max, requested: p.requested, missing: p.requested - p.max }), warn: true };
+    if (p.requested > p.n)
+      return { text: t("panel.add.fit.overflow", { fit: p.n, requested: p.requested, missing: p.requested - p.n }), warn: true };
     return { text: t("panel.add.fit.grid", { cols: p.cols, rows: p.rows, n: p.n }), warn: false };
-  }, [selectedDesign, selSize, panel.widthMm, panel.heightMm, nest, t]);
+  }, [selectedDesign, selSize, panel.widthMm, panel.heightMm, nest, existingBoxes, clearance, t]);
 
   return (
     <div className="relative flex h-screen w-screen flex-col bg-card text-foreground">
@@ -247,6 +256,8 @@ export function AddDesignWindow() {
                     panelWmm={panel.widthMm}
                     panelHmm={panel.heightMm}
                     nest={nest}
+                    obstacles={existingBoxes}
+                    clearanceMm={clearance}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted-foreground">

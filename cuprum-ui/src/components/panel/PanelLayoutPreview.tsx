@@ -1,24 +1,29 @@
 import { useMemo } from "react";
-import { packLayout } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, type Box } from "@/lib/panelPlacement";
 import type { NestSettings } from "@/lib/nest";
 
-/** Live "on the panel" layout preview: the FR4 blank with the packed copies. */
+/** Live "on the panel" layout preview: the FR4 blank with the packed copies.
+ *  Existing instances are drawn dimmed underneath; new copies go in free cells. */
 export function PanelLayoutPreview({
   boardWmm,
   boardHmm,
   panelWmm,
   panelHmm,
   nest,
+  obstacles,
+  clearanceMm,
 }: {
   boardWmm: number;
   boardHmm: number;
   panelWmm: number;
   panelHmm: number;
   nest: NestSettings;
+  obstacles?: Box[];
+  clearanceMm?: number;
 }) {
   const pack = useMemo(
-    () => packLayout(boardWmm, boardHmm, panelWmm, panelHmm, nest),
-    [boardWmm, boardHmm, panelWmm, panelHmm, nest],
+    () => packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, obstacles ?? [], clearanceMm ?? 0),
+    [boardWmm, boardHmm, panelWmm, panelHmm, nest, obstacles, clearanceMm],
   );
   const VIEW_W = 520; // px width budget
   const VIEW_H = 420; // px height budget (pane minus p-6 padding)
@@ -40,6 +45,20 @@ export function PanelLayoutPreview({
           backgroundSize: `${5 * scale}px ${5 * scale}px`,
         }}
       >
+        {/* Existing placed instances (obstacles) rendered dimmed, below new copies */}
+        {(obstacles ?? []).map((o, i) => (
+          <div
+            key={`obs-${i}`}
+            className="absolute rounded-[1px] bg-muted-foreground/15 ring-1 ring-muted-foreground/40"
+            style={{
+              left: o.minX * scale,
+              top: o.minY * scale,
+              width: (o.maxX - o.minX) * scale,
+              height: (o.maxY - o.minY) * scale,
+            }}
+          />
+        ))}
+        {/* New copies placed into free cells */}
         {pack.placements.map((p, i) => (
           <div
             key={i}
