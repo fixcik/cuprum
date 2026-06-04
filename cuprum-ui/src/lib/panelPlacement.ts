@@ -1,5 +1,8 @@
 import type { NestSettings } from "@/lib/nest";
 
+/** Axis-aligned bounding box (mm). */
+export type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
 /** Result of packing a board into a panel under a nesting recipe. All mm. */
 export interface PackResult {
   /** Effective board footprint after optional 90° rotation. */
@@ -17,14 +20,24 @@ export interface PackResult {
   placements: { x: number; y: number }[];
 }
 
-/** Grid-pack `nest` copies of a board into a panel, anchored to a corner.
- *  Identical rectangles only (real heterogeneous nesting is a later task). */
-export function packLayout(
+/** Strict AABB overlap (touching edges do not count) with a float tolerance. */
+function boxesOverlap(a: Box, b: Box, tol = 1e-6): boolean {
+  return a.minX < b.maxX - tol && a.maxX > b.minX + tol && a.minY < b.maxY - tol && a.maxY > b.minY + tol;
+}
+
+/** Like {@link packLayout}, but skips grid cells that collide with `obstacles`
+ *  (existing instances' AABBs, mm), each inflated by `clearanceMm` so new copies
+ *  keep that gap from placed boards. Places the first `requested` FREE cells in
+ *  the same traversal order; existing boards are never moved. With no obstacles
+ *  and zero clearance it is identical to packLayout. */
+export function packLayoutAvoiding(
   boardWmm: number,
   boardHmm: number,
   panelWmm: number,
   panelHmm: number,
   nest: NestSettings,
+  obstacles: Box[] = [],
+  clearanceMm = 0,
 ): PackResult {
   let bw = boardWmm;
   let bh = boardHmm;
@@ -33,22 +46,12 @@ export function packLayout(
     bw = bh;
     bh = t;
   }
-  // Edge margin and inter-board gap are auto-nesting parameters. With nesting
-  // off ("one copy snug in the corner") neither applies: the single copy sits
-  // flush in the corner, so it stays placeable whenever the board fits the raw
-  // panel — not gated by an edge inset (board + 2·margin > panel).
   const margin = nest.enabled ? nest.marginMm : 0;
   const gap = nest.enabled ? nest.gapMm : 0;
   const innerW = panelWmm - 2 * margin;
   const innerH = panelHmm - 2 * margin;
-  const cols =
-    bw + gap > 0
-      ? Math.max(0, Math.floor((innerW + gap) / (bw + gap)))
-      : 0;
-  const rows =
-    bh + gap > 0
-      ? Math.max(0, Math.floor((innerH + gap) / (bh + gap)))
-      : 0;
+  const cols = bw + gap > 0 ? Math.max(0, Math.floor((innerW + gap) / (bw + gap))) : 0;
+  const rows = bh + gap > 0 ? Math.max(0, Math.floor((innerH + gap) / (bh + gap))) : 0;
   const max = cols * rows;
 
   let requested: number;
@@ -56,10 +59,15 @@ export function packLayout(
   else if (nest.fillMode === "copies") requested = nest.copies;
   else requested = Math.floor((max * nest.fillPct) / 100);
 
-  const n = Math.max(0, Math.min(requested, max));
+  const inflated = obstacles.map((o) => ({
+    minX: o.minX - clearanceMm,
+    minY: o.minY - clearanceMm,
+    maxX: o.maxX + clearanceMm,
+    maxY: o.maxY + clearanceMm,
+  }));
 
   const placements: { x: number; y: number }[] = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < max && placements.length < requested; i++) {
     let r: number;
     let c: number;
     if (nest.enabled && nest.dir === "cols") {
@@ -69,7 +77,6 @@ export function packLayout(
       r = Math.floor(i / Math.max(1, cols));
       c = i % Math.max(1, cols);
     }
-    // Anchor to the chosen corner.
     let x =
       nest.corner === "tr" || nest.corner === "br"
         ? panelWmm - margin - (c + 1) * bw - c * gap
@@ -82,9 +89,23 @@ export function packLayout(
       x = Math.round(x / nest.snapMm) * nest.snapMm;
       y = Math.round(y / nest.snapMm) * nest.snapMm;
     }
+    const cell = { minX: x, minY: y, maxX: x + bw, maxY: y + bh };
+    if (inflated.some((o) => boxesOverlap(cell, o))) continue;
     placements.push({ x, y });
   }
-  return { bw, bh, cols, rows, max, requested, n, placements };
+  return { bw, bh, cols, rows, max, requested, n: placements.length, placements };
+}
+
+/** Grid-pack `nest` copies of a board into a panel, anchored to a corner.
+ *  Identical rectangles only (real heterogeneous nesting is a later task). */
+export function packLayout(
+  boardWmm: number,
+  boardHmm: number,
+  panelWmm: number,
+  panelHmm: number,
+  nest: NestSettings,
+): PackResult {
+  return packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, [], 0);
 }
 
 /** Axis-aligned bounding box (mm) of a placed board. `(x, y)` is the top-left of
@@ -135,8 +156,6 @@ export function isOffPanel(opts: {
   const b = instanceBounds(opts);
   return b.minX < -tol || b.minY < -tol || b.maxX > opts.panelW + tol || b.maxY > opts.panelH + tol;
 }
-
-export type Box = { minX: number; minY: number; maxX: number; maxY: number };
 
 /** Clamp a move delta (mm) so every supplied AABB stays within [0,panelW]×[0,panelH].
  *  Clamps each axis to the tightest bound across all boxes. */
