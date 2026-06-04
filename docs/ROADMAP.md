@@ -370,9 +370,23 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   повышена `pub(crate)`→`pub` (зовёт preview/dfm). Из core убраны ставшие неиспользуемыми
   `earcutr`/`i_overlay`. Заодно `mesh.rs` (836) разбит на `mesh/{lib,emit,outline,build}.rs`.
   Чистое перемещение, вывод не тронут.
-- [ ] **PR9 — `cuprum-dfm`** (+ разбивка `dfm/metrics/mod.rs` 516). Слоистость: `cuprum-dfm` →
-  `cuprum-mesh`+`cuprum-gerber`. После этого `cuprum-core` = только оркестрация
-  (compose/preview/cache-path-хелперы/cal).
+- [x] **PR9 — вынести `cuprum-dfm` + разгрузить `metrics/mod.rs`** (✅ 2026-06-04): весь каталог
+  `dfm/` → новый крейт `cuprum-dfm` (deps: `cuprum-cache`/`cuprum-gerber`/`cuprum-mesh`/
+  `cuprum-diskcache`/`cuprum-trace` + serde/serde_json/lru/rayon/gerber_viewer/tracing). В core —
+  фасад `pub use cuprum_dfm as dfm;`, так что `cuprum_core::dfm::…` (CLI, UI, cache-фасад)
+  резолвится без правок вызовов; внутри переписаны `crate::dfm::`→`crate::`,
+  `crate::{geometry,gerber,drill}`→`cuprum_gerber::…`, `crate::mesh`→`cuprum_mesh`,
+  `crate::trace`→`cuprum_trace`, `crate::{diskcache,artifact}`→`cuprum_diskcache::…`. Из core
+  убраны ставшие неиспользуемыми `gerber_viewer`/`lru`/`serde`/`serde_json`/`cuprum-cache`.
+  `metrics/mod.rs` (516, из них ~460 — тесты) разгружен: тело тестов → `metrics/tests.rs`
+  (mod.rs стал 54 строки). Чистое перемещение, вывод не тронут.
+
+**Итог кампании:** монолит `cuprum-core` распался на **11 крейтов** (core + trace/diskcache/
+cache/goo/sdcp/gerber/mesh/dfm + cli/project), DAG ацикличен. `cuprum-core` теперь = только
+оркестрация: `compose` (растеризация+печать), `preview` (path→PNG), `cache` (path+mtime
+render-кеши + фасады), `cal`. Крупные файлы разбиты (trace 1108, diskcache, geometry 683,
+mesh 836, metrics 516). Публичный API и кеш-теги ни в одном PR не тронуты — всё через фасады
+`pub use cuprum_X …` под историческими путями.
 
 ## Workstream: переосмысление CLI с нуля
 

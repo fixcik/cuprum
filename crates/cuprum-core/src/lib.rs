@@ -4,7 +4,6 @@
 pub mod cache;
 pub mod cal;
 pub mod compose;
-pub mod dfm;
 pub mod preview;
 
 // Tracing now lives in its own leaf crate; re-export under the historical path so
@@ -35,3 +34,8 @@ pub use cuprum_gerber::{drill, geometry, gerber, strokes, svg};
 // historical path so `cuprum_core::mesh::…` (and in-crate `crate::mesh::…`) keep
 // resolving for the UI and the in-core consumers (preview, dfm).
 pub use cuprum_mesh as mesh;
+
+// DFM metrics + hotspot sweep + verdict live in their own crate; re-export under
+// the historical path so `cuprum_core::dfm::…` (and in-crate `crate::dfm::…`, e.g.
+// the cache-wrapper facade) keep resolving for the CLI and the UI.
+pub use cuprum_dfm as dfm;

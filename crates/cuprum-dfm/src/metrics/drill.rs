@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::mesh::Role;
+use cuprum_mesh::Role;
 
 use super::parse::DrillData;
 use super::types::{DrillMetrics, MetricLayerInput};
