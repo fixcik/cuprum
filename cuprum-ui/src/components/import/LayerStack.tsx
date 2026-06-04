@@ -182,11 +182,12 @@ export function LayerStack({
   // already has the click-to-measure tool, so an always-on crosshair is busy).
   const [showCrosshair, setShowCrosshair] = useState(false);
   // Cursor in screen px for that crosshair; coalesced to one update per frame so a
-  // bare mousemove doesn't re-render the whole layer stack.
-  const [cursorPx, setCursorPx] = useState<{ x: number; y: number } | null>(null);
+  // bare mousemove doesn't re-render the whole layer stack. `snapped` = the point
+  // locked onto a real feature/board node (→ a lock ring on the crosshair).
+  const [cursorPx, setCursorPx] = useState<{ x: number; y: number; snapped: boolean } | null>(null);
   const cursorRaf = useRef<number | null>(null);
-  const pendingCursor = useRef<{ x: number; y: number } | null>(null);
-  const queueCursor = useCallback((p: { x: number; y: number } | null) => {
+  const pendingCursor = useRef<{ x: number; y: number; snapped: boolean } | null>(null);
+  const queueCursor = useCallback((p: { x: number; y: number; snapped: boolean } | null) => {
     pendingCursor.current = p;
     if (p === null) {
       if (cursorRaf.current != null) {
@@ -454,12 +455,18 @@ export function LayerStack({
     return { g: g0, feature: false };
   };
 
+  // Resolve a cursor (screen px) to a board point. Holding Alt/Option bypasses
+  // snapping → the raw point under the cursor (free placement); shared by both the
+  // ruler and the hover crosshair so the modifier behaves identically.
+  const pickPoint = (px: number, py: number, alt: boolean): { g: [number, number]; feature: boolean } =>
+    alt ? { g: toGerber(px, py), feature: false } : snapCursor(px, py);
+
   const onDown = (e: React.MouseEvent) => {
     if (!chrome) return; // thumbnail mode: no pan
     if (tool === "measure") {
       if (e.button !== 0) { setMA(null); setMB(null); return; } // right/middle clears
       const rect = svgRef.current!.getBoundingClientRect();
-      const snap = snapCursor(e.clientX - rect.left, e.clientY - rect.top);
+      const snap = pickPoint(e.clientX - rect.left, e.clientY - rect.top, e.altKey);
       const p: MPoint = { g: snap.g, feature: snap.feature };
       if (!mA || (mA && mB)) { setMA(p); setMB(null); } else { setMB(p); }
       return;
@@ -469,13 +476,22 @@ export function LayerStack({
   const onMove = (e: React.MouseEvent) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (tool === "measure") {
-      if (rect) setHover(snapCursor(e.clientX - rect.left, e.clientY - rect.top));
+      if (rect) setHover(pickPoint(e.clientX - rect.left, e.clientY - rect.top, e.altKey));
       return;
     }
     // Track the cursor only when the crosshair is on, so an idle hover doesn't
-    // churn state through the whole layer stack when it's off.
+    // churn state through the whole layer stack when it's off. The crosshair snaps
+    // to the same candidates as the ruler (Alt/Option = free, no snap).
     if (chrome && showCrosshair && rect) {
-      queueCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      if (e.altKey) {
+        queueCursor({ x: px, y: py, snapped: false }); // free, no snap
+      } else {
+        const sn = snapCursor(px, py);
+        const [sx, sy] = toScreen(sn.g); // land the crosshair on the snapped point
+        queueCursor({ x: sx, y: sy, snapped: sn.feature });
+      }
     }
     const d = drag.current;
     if (!d) return;

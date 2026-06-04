@@ -28,8 +28,10 @@ export interface RulersOverlayProps {
   workAreaMm?: { w: number; h: number } | null;
   /** Localised label for the work-area rectangle. */
   workAreaLabel?: string;
-  /** Cursor position in screen px (for the crosshair/readout). Null when off-canvas. */
-  hover?: { x: number; y: number } | null;
+  /** Cursor position in screen px (for the crosshair/readout). Null when off-canvas.
+   *  `snapped` marks the point locked onto a feature/edge/corner → a lock ring is
+   *  drawn at the crosshair intersection. */
+  hover?: { x: number; y: number; snapped?: boolean } | null;
   /** Draw the origin (0,0) marker. Default true. */
   showOrigin?: boolean;
   /** Ruler band thickness in px (defaults to the shared RULER_TOP/RULER_LEFT). The
@@ -172,10 +174,16 @@ export function RulersOverlay({
         )}
 
         {inPlot && hover && (
-          <g stroke={COPPER_70} strokeWidth={1} strokeDasharray="4 3">
-            <line x1={hover.x} y1={rulerTop} x2={hover.x} y2={size.h} />
-            <line x1={rulerLeft} y1={hover.y} x2={size.w} y2={hover.y} />
-          </g>
+          <>
+            <g stroke={COPPER_70} strokeWidth={1} strokeDasharray="4 3">
+              <line x1={hover.x} y1={rulerTop} x2={hover.x} y2={size.h} />
+              <line x1={rulerLeft} y1={hover.y} x2={size.w} y2={hover.y} />
+            </g>
+            {/* Lock ring when the crosshair snapped onto a feature/edge/corner. */}
+            {hover.snapped && (
+              <circle cx={hover.x} cy={hover.y} r={6} fill="none" stroke={COPPER} strokeWidth={1.5} strokeDasharray="3 2" />
+            )}
+          </>
         )}
       </g>
 
