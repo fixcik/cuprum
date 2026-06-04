@@ -24,6 +24,10 @@ export function PanelAlignBar({
   onDistribute: (axis: "h" | "v") => void;
 }) {
   const { t } = useTranslation("project");
+  // Raw selection size, not the resolved-size-filtered count. Board sizes resolve
+  // shortly after mount; in the brief window where a selected instance has no size
+  // yet, the handler skips it (and the action no-ops) rather than misplacing it —
+  // same async-size-window behaviour as drag/marquee. Keeps the bar presentational.
   const count = usePanelSelection((s) => s.selected.size);
   if (count < 2) return null;
   const canDistribute = count >= 3;
