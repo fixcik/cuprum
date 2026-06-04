@@ -9,6 +9,7 @@ import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useDesignVerdict } from "@/hooks/useDesignVerdict";
 import { RenameDesignModal } from "@/components/project/RenameDesignModal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ringFraction } from "@/lib/artifactProgress";
 
@@ -39,6 +40,9 @@ export function DesignCard({
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  // Confirm before deleting a design that's placed on the panel (the delete
+  // cascades its BoardInstances off the panel — don't drop them silently).
+  const [confirming, setConfirming] = useState(false);
   const [svgReady, setSvgReady] = useState(false);
   const { fmtLen } = useUnitFormat();
 
@@ -252,7 +256,7 @@ export function DesignCard({
         </button>
         <button
           type="button"
-          onClick={onDelete}
+          onClick={() => (placedCount > 0 ? setConfirming(true) : onDelete())}
           aria-label={t("designs.delete")}
           title={t("designs.delete")}
           className="grid size-7 cursor-pointer place-items-center rounded-md bg-card/90 text-muted-foreground shadow-sm ring-1 ring-border/60 transition-colors hover:text-destructive"
@@ -262,6 +266,15 @@ export function DesignCard({
       </div>
 
       <RenameDesignModal open={renaming} onClose={() => setRenaming(false)} design={design} />
+      <ConfirmDialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        onConfirm={onDelete}
+        title={t("designs.deleteConfirm.title")}
+        message={t("designs.deleteConfirm.message", { name: design.source_name, count: placedCount })}
+        confirmLabel={t("designs.deleteConfirm.confirm")}
+        cancelLabel={t("designs.deleteConfirm.cancel")}
+      />
     </div>
   );
 }

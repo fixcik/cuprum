@@ -40,6 +40,12 @@
     "delete": "Remove design",
     "rename": "Rename",
     "renameTitle": "Rename design",
+    "deleteConfirm": {
+      "title": "Delete design?",
+      "message": "“{{name}}” is placed on the panel: {{count}}. Deleting removes the design and all its placements from the panel. Continue?",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    },
     "preparingArtifacts": "Preparing artifacts {{done}}/{{total}}"
   },
   "tab": {
