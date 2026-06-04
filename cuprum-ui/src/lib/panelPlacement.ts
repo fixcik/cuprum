@@ -25,11 +25,17 @@ function boxesOverlap(a: Box, b: Box, tol = 1e-6): boolean {
   return a.minX < b.maxX - tol && a.maxX > b.minX + tol && a.minY < b.maxY - tol && a.maxY > b.minY + tol;
 }
 
-/** Like {@link packLayout}, but skips grid cells that collide with `obstacles`
- *  (existing instances' AABBs, mm), each inflated by `clearanceMm` so new copies
- *  keep that gap from placed boards. Places the first `requested` FREE cells in
- *  the same traversal order; existing boards are never moved. With no obstacles
- *  and zero clearance it is identical to packLayout. */
+/** Like {@link packLayout}, but avoids `obstacles` (existing instances' AABBs, mm).
+ *
+ * - **No obstacles** → exact even grid (identical to packLayout; preserves parity).
+ * - **Obstacles present** → greedy fill on a FIXED candidate lattice whose step is
+ *   `nest.snapMm > 0 ? nest.snapMm : 1` mm, independent of `gap`. A larger gap can
+ *   only shrink the set of feasible positions, so the placed count is monotonically
+ *   non-increasing as gap grows (no phase-flip artefacts from the grid pitch).
+ *   Each candidate is accepted when it fits inside the margin band, does not overlap
+ *   any obstacle inflated by `clearanceMm`, and does not overlap any already-placed
+ *   copy inflated by `gap`. `cols/rows/max/requested` are computed as before.
+ */
 export function packLayoutAvoiding(
   boardWmm: number,
   boardHmm: number,
@@ -59,39 +65,92 @@ export function packLayoutAvoiding(
   else if (nest.fillMode === "copies") requested = nest.copies;
   else requested = Math.floor((max * nest.fillPct) / 100);
 
-  const inflated = obstacles.map((o) => ({
-    minX: o.minX - clearanceMm,
-    minY: o.minY - clearanceMm,
-    maxX: o.maxX + clearanceMm,
-    maxY: o.maxY + clearanceMm,
-  }));
+  // Clean panel → exact even grid (unchanged; preserves packLayout parity).
+  if (obstacles.length === 0) {
+    const placements: { x: number; y: number }[] = [];
+    for (let i = 0; i < max && placements.length < requested; i++) {
+      let r: number;
+      let c: number;
+      if (nest.enabled && nest.dir === "cols") {
+        c = Math.floor(i / Math.max(1, rows));
+        r = i % Math.max(1, rows);
+      } else {
+        r = Math.floor(i / Math.max(1, cols));
+        c = i % Math.max(1, cols);
+      }
+      let x =
+        nest.corner === "tr" || nest.corner === "br"
+          ? panelWmm - margin - (c + 1) * bw - c * gap
+          : margin + c * (bw + gap);
+      let y =
+        nest.corner === "bl" || nest.corner === "br"
+          ? panelHmm - margin - (r + 1) * bh - r * gap
+          : margin + r * (bh + gap);
+      if (nest.enabled && nest.snapMm > 0) {
+        x = Math.round(x / nest.snapMm) * nest.snapMm;
+        y = Math.round(y / nest.snapMm) * nest.snapMm;
+      }
+      placements.push({ x, y });
+    }
+    return { bw, bh, cols, rows, max, requested, n: placements.length, placements };
+  }
 
-  const placements: { x: number; y: number }[] = [];
-  for (let i = 0; i < max && placements.length < requested; i++) {
-    let r: number;
-    let c: number;
-    if (nest.enabled && nest.dir === "cols") {
-      c = Math.floor(i / Math.max(1, rows));
-      r = i % Math.max(1, rows);
+  // Obstacles present → greedy fill on a FIXED candidate lattice (independent of gap),
+  // so a larger gap can only remove feasible positions, never add (monotonic).
+  const inflate = (b: Box, by: number): Box => ({
+    minX: b.minX - by,
+    minY: b.minY - by,
+    maxX: b.maxX + by,
+    maxY: b.maxY + by,
+  });
+  const infObstacles = obstacles.map((o) => inflate(o, clearanceMm));
+  const step = nest.snapMm > 0 ? nest.snapMm : 1; // gap-independent lattice pitch (mm)
+  const x0 = margin;
+  const y0 = margin;
+  const xEnd = panelWmm - margin - bw; // last fitting top-left x
+  const yEnd = panelHmm - margin - bh; // last fitting top-left y
+  // Candidate coordinates honouring the anchor corner. Generated directly in the
+  // anchor direction so the corner-adjacent position (xEnd/yEnd) is always included
+  // even when `step` doesn't divide the range — the first candidate sits flush to
+  // the chosen corner. Order controls which cells win the `requested` cap, not the count.
+  const axisCandidates = (start: number, end: number, fromEnd: boolean): number[] => {
+    const out: number[] = [];
+    if (fromEnd) {
+      for (let v = end; v >= start - 1e-9; v -= step) out.push(v);
     } else {
-      r = Math.floor(i / Math.max(1, cols));
-      c = i % Math.max(1, cols);
+      for (let v = start; v <= end + 1e-9; v += step) out.push(v);
     }
-    let x =
-      nest.corner === "tr" || nest.corner === "br"
-        ? panelWmm - margin - (c + 1) * bw - c * gap
-        : margin + c * (bw + gap);
-    let y =
-      nest.corner === "bl" || nest.corner === "br"
-        ? panelHmm - margin - (r + 1) * bh - r * gap
-        : margin + r * (bh + gap);
-    if (nest.enabled && nest.snapMm > 0) {
-      x = Math.round(x / nest.snapMm) * nest.snapMm;
-      y = Math.round(y / nest.snapMm) * nest.snapMm;
-    }
+    return out;
+  };
+  const xs = axisCandidates(x0, xEnd, nest.corner === "tr" || nest.corner === "br");
+  const ys = axisCandidates(y0, yEnd, nest.corner === "bl" || nest.corner === "br");
+  const placed: Box[] = [];
+  const placements: { x: number; y: number }[] = [];
+  const tryCell = (x: number, y: number): void => {
+    if (placements.length >= requested) return;
     const cell = { minX: x, minY: y, maxX: x + bw, maxY: y + bh };
-    if (inflated.some((o) => boxesOverlap(cell, o))) continue;
+    if (infObstacles.some((o) => boxesOverlap(cell, o))) return;
+    if (placed.some((p) => boxesOverlap(cell, inflate(p, gap)))) return; // gap between copies
+    placed.push(cell);
     placements.push({ x, y });
+  };
+  // dir "cols" → iterate columns (x outer), else rows (y outer) — mirrors the grid path.
+  if (nest.dir === "cols") {
+    for (const x of xs) {
+      if (placements.length >= requested) break;
+      for (const y of ys) {
+        if (placements.length >= requested) break;
+        tryCell(x, y);
+      }
+    }
+  } else {
+    for (const y of ys) {
+      if (placements.length >= requested) break;
+      for (const x of xs) {
+        if (placements.length >= requested) break;
+        tryCell(x, y);
+      }
+    }
   }
   return { bw, bh, cols, rows, max, requested, n: placements.length, placements };
 }

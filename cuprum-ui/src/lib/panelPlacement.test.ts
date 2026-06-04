@@ -320,7 +320,7 @@ describe("computeSmartGuides", () => {
 });
 
 describe("packLayoutAvoiding", () => {
-  const n = (o = {}) => ({ ...DEFAULT_NEST, ...o });
+  const n = (o: Partial<NestSettings> = {}): NestSettings => ({ ...DEFAULT_NEST, ...o });
 
   it("matches packLayout when there are no obstacles", () => {
     const a = packLayout(40, 30, 100, 100, n({ enabled: true, fillMode: "copies", copies: 3, corner: "tl" }));
@@ -350,15 +350,15 @@ describe("packLayoutAvoiding", () => {
   });
 
   it("treats a cell within the clearance of an obstacle as occupied", () => {
-    // nesting off, tl → candidate (0,0) box [0,40]×[0,30]. Obstacle [41,0]-[80,30] is 1mm away;
-    // with clearance 5 the inflated obstacle becomes [36,-5]-[85,35] in all directions.
-    // Cells (0,0)=[0,40]×[0,30] and (40,0)=[40,80]×[0,30] and (0,30)=[0,40]×[30,60]
-    // and (40,30)=[40,80]×[30,60] all overlap the inflated obstacle.
-    // First free cell (row-major) is (0,60).
-    const nest = n({ enabled: false, marginMm: 0, gapMm: 0, corner: "tl" });
-    const r = packLayoutAvoiding(40, 30, 100, 100, nest, [{ minX: 41, minY: 0, maxX: 80, maxY: 30 }], 5);
-    // (0,0) excluded (within 5mm of obstacle); first truly free row-major cell is (0,60).
-    expect(r.placements).toEqual([{ x: 0, y: 60 }]);
+    // nesting off, tl, margin=0, gap=0. Obstacle [41,0]-[80,30]; clearance=5 →
+    // inflated obstacle [36,-5]-[85,35]. Greedy lattice (step=1) places the board
+    // flush against the clearance boundary: first y where [0,40]×[y,y+30] clears
+    // the inflated obstacle's maxY=35 is y=35 (strict overlap test: 35 < 35 is false).
+    // Old grid logic placed at (0,60) because it only tested board-pitch-aligned cells.
+    const nestOpts = n({ enabled: false, marginMm: 0, gapMm: 0, corner: "tl" });
+    const r = packLayoutAvoiding(40, 30, 100, 100, nestOpts, [{ minX: 41, minY: 0, maxX: 80, maxY: 30 }], 5);
+    // Greedy packs tight to the clearance boundary, not to a board-pitch grid cell.
+    expect(r.placements).toEqual([{ x: 0, y: 35 }]);
   });
 
   it("flags overflow via requested when free cells run out", () => {
@@ -369,6 +369,31 @@ describe("packLayoutAvoiding", () => {
     expect(r.max).toBe(6);
     expect(r.requested).toBe(6);
     expect(r.n).toBe(3);
+  });
+
+  it("placed count is non-increasing as the board gap grows (with obstacles)", () => {
+    // 18 obstacles (27.1×40 in a 6×3 grid), gerber 11.4×7 on 200×150, edge 4, fill 15%.
+    const obst: ReturnType<typeof box>[] = [];
+    const mw = 27.1, mh = 40, mg = 2, mm = 5;
+    for (let r = 0; r < 3; r++)
+      for (let c = 0; c < 6; c++)
+        obst.push({ minX: mm + c * (mw + mg), minY: mm + r * (mh + mg), maxX: mm + c * (mw + mg) + mw, maxY: mm + r * (mh + mg) + mh });
+    let prev = Infinity;
+    for (const gap of [1, 1.5, 2, 2.5, 3]) {
+      const r = packLayoutAvoiding(11.4, 7, 200, 150, n({ enabled: true, marginMm: 4, gapMm: gap, fillMode: "fill", fillPct: 15, corner: "tl" }), obst, gap);
+      expect(r.n).toBeLessThanOrEqual(prev); // bigger gap never fits MORE
+      prev = r.n;
+    }
+  });
+
+  it("anchors the greedy fill flush to the corner even when step doesn't divide the range", () => {
+    // board 10×10 on 100×95, no margin/gap, snap 3 (step 3 ∤ yEnd=85), corner bl, 1 copy.
+    // Obstacle parked at the top so it doesn't block the bottom-left target.
+    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, snapMm: 3, corner: "bl", fillMode: "copies", copies: 1 });
+    const r = packLayoutAvoiding(10, 10, 100, 95, nest, [box(0, 0, 10, 10)], 0);
+    // bl → first candidate flush to the bottom (yEnd = 95−10 = 85), not 84 (the
+    // largest multiple of 3 from y0). Left-anchored x stays at 0.
+    expect(r.placements[0]).toEqual({ x: 0, y: 85 });
   });
 });
 
