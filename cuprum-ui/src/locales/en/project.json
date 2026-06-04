@@ -122,6 +122,17 @@
       "pan": "Pan",
       "add": "Add design",
       "duplicate": "Duplicate",
+      "delete": "Delete",
+      "tooling": "Tooling hole",
+      "registrationSet": "Registration set"
+    },
+    "tooling": {
+      "diameter": "Diameter",
+      "role": {
+        "registration": "Registration",
+        "flip": "Flip",
+        "unused": "Unused"
+      },
       "delete": "Delete"
     },
     "menu": {
