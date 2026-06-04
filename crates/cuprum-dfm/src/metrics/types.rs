@@ -83,6 +83,44 @@ pub struct GeoMetrics {
     pub drill_hotspots: Vec<Hotspot>,
 }
 
+impl GeoMetrics {
+    /// Drop all located-hotspot lists (keeps scalar measurements). Used by the
+    /// CLI to emit lean output unless `--hotspots` is given.
+    pub fn clear_hotspots(&mut self) {
+        self.clearance_hotspots.clear();
+        self.copper_width_hotspots.clear();
+        self.thin_trace_conductors.clear();
+        self.annular_hotspots.clear();
+        self.mask_dam_hotspots.clear();
+        self.overshoot_hotspots.clear();
+        self.silk_hotspots.clear();
+        self.trace_hotspots.clear();
+        self.drill_hotspots.clear();
+    }
+
+    /// All located-hotspot lists with stable labels, worst-first. For reporting.
+    pub fn hotspot_groups(&self) -> Vec<(&'static str, &[Hotspot])> {
+        vec![
+            ("clearance", &self.clearance_hotspots),
+            ("copperWidth", &self.copper_width_hotspots),
+            ("thinTrace", &self.thin_trace_conductors),
+            ("annular", &self.annular_hotspots),
+            ("maskDam", &self.mask_dam_hotspots),
+            ("overshoot", &self.overshoot_hotspots),
+            ("silk", &self.silk_hotspots),
+            ("trace", &self.trace_hotspots),
+            ("drill", &self.drill_hotspots),
+        ]
+    }
+}
+
+impl BoardMetrics {
+    /// Drop all located hotspots (delegates to geo). See [`GeoMetrics::clear_hotspots`].
+    pub fn clear_hotspots(&mut self) {
+        self.geo.clear_hotspots();
+    }
+}
+
 /// Board outline facts, from the Edge_Cuts layer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,4 +179,59 @@ pub struct DrillMetrics {
     /// (diameter_mm, count), sorted by diameter — lets the frontend apply a
     /// configurable "via ≤ d" threshold for the via heuristic.
     pub diameter_histogram: Vec<(f32, u32)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_hotspot(v: f32) -> Hotspot {
+        Hotspot {
+            a: [0.0, 0.0],
+            b: [0.1, 0.0],
+            v,
+            side: "top".into(),
+        }
+    }
+
+    #[test]
+    fn clear_hotspots_empties_all_groups() {
+        let mut geo = GeoMetrics {
+            clearance_hotspots: vec![make_hotspot(0.1)],
+            copper_width_hotspots: vec![make_hotspot(0.2)],
+            ..Default::default()
+        };
+        // Groups report the hotspots before clearing.
+        let before: usize = geo.hotspot_groups().iter().map(|(_, g)| g.len()).sum();
+        assert_eq!(before, 2, "two hotspots before clear");
+
+        geo.clear_hotspots();
+
+        assert!(
+            geo.hotspot_groups().iter().all(|(_, g)| g.is_empty()),
+            "all groups must be empty after clear_hotspots"
+        );
+    }
+
+    #[test]
+    fn board_metrics_clear_hotspots_delegates_to_geo() {
+        let mut m = BoardMetrics {
+            board: BoardDims {
+                width_mm: 10.0,
+                height_mm: 10.0,
+                outline_closed: true,
+                cutout_count: 0,
+                has_edge_layer: true,
+            },
+            layers: LayerSummary::default(),
+            copper: vec![],
+            drill: DrillMetrics::default(),
+            geo: GeoMetrics {
+                annular_hotspots: vec![make_hotspot(0.3)],
+                ..Default::default()
+            },
+        };
+        m.clear_hotspots();
+        assert!(m.geo.annular_hotspots.is_empty());
+    }
 }

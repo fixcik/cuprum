@@ -10,7 +10,7 @@ use cuprum_project::resolve::{resolve_design, ResolveOpts};
 use crate::output::EXIT_GATE_FAIL;
 
 /// Returns the process exit code (gate failure → EXIT_GATE_FAIL).
-pub fn run(input: &Path, profile_path: Option<PathBuf>, json: bool) -> Result<i32> {
+pub fn run(input: &Path, profile_path: Option<PathBuf>, json: bool, hotspots: bool) -> Result<i32> {
     let rd = resolve_design(input, &ResolveOpts::default())?;
     let inputs: Vec<MetricLayerInput> = rd
         .layers
@@ -27,12 +27,16 @@ pub fn run(input: &Path, profile_path: Option<PathBuf>, json: bool) -> Result<i3
             }
         })
         .collect();
-    let metrics = board_metrics(&inputs);
+    let mut metrics = board_metrics(&inputs);
     let profile: GateProfile = match profile_path {
         Some(p) => serde_json::from_slice(&std::fs::read(&p)?)?,
         None => GateProfile::default(),
     };
     let report = gate(&metrics, &profile);
+    // Strip hotspot lists from output unless --hotspots is given.
+    if !hotspots {
+        metrics.clear_hotspots();
+    }
 
     if json {
         println!(
@@ -56,6 +60,22 @@ pub fn run(input: &Path, profile_path: Option<PathBuf>, json: bool) -> Result<i3
                 println!("gate: FAIL");
                 for f in &report.failures {
                     println!("  {} {:.3}mm < {:.3}mm", f.limit, f.measured_mm, f.limit_mm);
+                }
+            }
+        }
+        if hotspots {
+            let groups = metrics.geo.hotspot_groups();
+            let total: usize = groups.iter().map(|(_, g)| g.len()).sum();
+            println!("hotspots ({total}):");
+            for (name, g) in groups {
+                if let Some(w) = g.first() {
+                    println!(
+                        "  {name}: {} (worst {:.3}mm @ {:.2},{:.2})",
+                        g.len(),
+                        w.v,
+                        w.a[0],
+                        w.a[1]
+                    );
                 }
             }
         }

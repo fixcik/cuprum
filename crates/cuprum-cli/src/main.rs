@@ -49,10 +49,14 @@ enum Command {
         format: Option<String>,
     },
     /// Measure DFM facts and gate against manufacturability limits.
+    /// Use --hotspots to include located issue lists in the output.
     Check {
         input: PathBuf,
         #[arg(long)]
         profile: Option<PathBuf>,
+        /// Include located hotspot lists in the output (omitted by default for lean output).
+        #[arg(long)]
+        hotspots: bool,
     },
 }
 
@@ -67,7 +71,11 @@ fn main() -> ExitCode {
         Command::Mesh { input, out, format } => {
             commands::mesh::run(input, out.clone(), format.clone()).map(|_| 0)
         }
-        Command::Check { input, profile } => commands::check::run(input, profile.clone(), cli.json),
+        Command::Check {
+            input,
+            profile,
+            hotspots,
+        } => commands::check::run(input, profile.clone(), cli.json, *hotspots),
     };
     match result {
         Ok(code) => ExitCode::from(code as u8),
