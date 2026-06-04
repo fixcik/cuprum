@@ -40,6 +40,7 @@ struct MachineConn {
     stop: Arc<AtomicBool>,
     reader_handle: Option<JoinHandle<()>>,
     poller_handle: Option<JoinHandle<()>>,
+    ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
 }
 
 #[derive(Default)]
@@ -92,11 +93,14 @@ pub fn machine_connect(
     let (writer, mut reader) = grbl::open(&port, baud).map_err(|e| e.to_string())?;
     let writer = Arc::new(Mutex::new(writer));
     let stop = Arc::new(AtomicBool::new(false));
+    let ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>> =
+        Arc::new(Mutex::new(None));
 
     // Reader thread: parse lines, push status + raw rx lines.
     let r_stop = stop.clone();
     let r_tel = telemetry.clone();
     let r_app = app.clone();
+    let r_ack = ack_tx.clone();
     let reader_handle = std::thread::spawn(move || {
         let mut tracker = grbl::StatusTracker::default();
         while !r_stop.load(Ordering::Relaxed) {
@@ -106,8 +110,17 @@ pub fn machine_connect(
                         dir: "rx".into(),
                         text: line.clone(),
                     });
-                    if let grbl::Line::Status(rep) = grbl::parse_line(&line) {
-                        let s = tracker.resolve(&rep);
+                    let parsed = grbl::parse_line(&line);
+                    if matches!(
+                        parsed,
+                        grbl::Line::Ok | grbl::Line::Error(_) | grbl::Line::Alarm(_)
+                    ) {
+                        if let Some(tx) = r_ack.lock().unwrap().as_ref() {
+                            let _ = tx.send(parsed.clone());
+                        }
+                    }
+                    if let grbl::Line::Status(rep) = &parsed {
+                        let s = tracker.resolve(rep);
                         let _ = r_tel.send(Telemetry::Status {
                             state: state_str(s.state).into(),
                             mpos: s.mpos,
@@ -149,6 +162,7 @@ pub fn machine_connect(
         stop,
         reader_handle: Some(reader_handle),
         poller_handle: Some(poller_handle),
+        ack_tx,
     });
     drop(guard);
     let _ = app.emit("machine://connected", ());
@@ -261,4 +275,25 @@ pub fn machine_feed_hold(state: State<MachineState>) -> Result<(), String> {
 #[tauri::command]
 pub fn machine_cycle_start(state: State<MachineState>) -> Result<(), String> {
     send_realtime(&state, grbl::CYCLE_START, "~")
+}
+
+impl MachineState {
+    pub(crate) fn writer(&self) -> Option<Arc<Mutex<GrblWriter>>> {
+        self.0.lock().unwrap().as_ref().map(|c| c.writer.clone())
+    }
+
+    pub(crate) fn ack_slot(
+        &self,
+    ) -> Option<Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>> {
+        self.0.lock().unwrap().as_ref().map(|c| c.ack_tx.clone())
+    }
+
+    pub(crate) fn is_connected(&self) -> bool {
+        self.0.lock().unwrap().is_some()
+    }
+}
+
+#[tauri::command]
+pub fn machine_is_connected(state: State<MachineState>) -> bool {
+    state.is_connected()
 }

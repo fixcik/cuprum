@@ -106,6 +106,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(PendingOpen::default())
         .manage(commands::machine::MachineState::default())
+        .manage(commands::drill_run::DrillJob::default())
         .menu(|handle| build_app_menu(handle, &default_menu_labels()))
         .on_menu_event(|app, event| {
             // Manual "Check for Updates…" → the frontend runs a loud check (surfaces
@@ -200,7 +201,13 @@ fn main() {
             commands::machine::machine_send,
             commands::machine::machine_soft_reset,
             commands::machine::machine_feed_hold,
-            commands::machine::machine_cycle_start
+            commands::machine::machine_cycle_start,
+            commands::machine::machine_is_connected,
+            commands::drill_run::drill_run_start,
+            commands::drill_run::drill_run_pause,
+            commands::drill_run::drill_run_resume,
+            commands::drill_run::drill_run_confirm_tool_change,
+            commands::drill_run::drill_run_stop
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");
