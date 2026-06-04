@@ -5,17 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Which physical copper layer a board instance sits on. `side` (top/bottom) is
-/// derived; the enum is widened to `In1..InN` later for multilayer without a
-/// migration.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[serde(rename_all = "PascalCase")]
-pub enum LayerRef {
-    #[default]
-    Top,
-    Bottom,
-}
-
 /// Purpose of a tooling hole on the panel.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -38,8 +27,6 @@ pub struct BoardInstance {
     pub y_mm: f32,
     /// Rotation in degrees — arbitrary (boards may be round/polygonal).
     pub rotation_deg: f32,
-    #[serde(default)]
-    pub layer_ref: LayerRef,
 }
 
 /// Classification of a keep-out rectangle on the panel.
@@ -140,16 +127,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn layer_ref_serializes_pascal_case() {
-        assert_eq!(serde_json::to_string(&LayerRef::Top).unwrap(), "\"Top\"");
-        assert_eq!(
-            serde_json::to_string(&LayerRef::Bottom).unwrap(),
-            "\"Bottom\""
-        );
-        assert_eq!(LayerRef::default(), LayerRef::Top);
-    }
-
-    #[test]
     fn role_serializes_lowercase() {
         assert_eq!(
             serde_json::to_string(&ToolingHoleRole::Registration).unwrap(),
@@ -166,17 +143,20 @@ mod tests {
             x_mm: 10.0,
             y_mm: 15.0,
             rotation_deg: 37.5, // arbitrary angle
-            layer_ref: LayerRef::Bottom,
         };
         let json = serde_json::to_string(&inst).unwrap();
         assert_eq!(serde_json::from_str::<BoardInstance>(&json).unwrap(), inst);
     }
 
     #[test]
-    fn board_instance_defaults_layer_ref_to_top() {
-        let json = r#"{"id":"i","design_id":"d","x_mm":0.0,"y_mm":0.0,"rotation_deg":0.0}"#;
+    fn board_instance_ignores_legacy_layer_ref() {
+        // Older projects persisted a per-instance `layerRef` (placement side). The
+        // field is gone now; legacy files must still load, with it ignored.
+        let json = r#"{"id":"i","design_id":"d","x_mm":1.0,"y_mm":2.0,"rotation_deg":0.0,"layer_ref":"Bottom"}"#;
         let inst: BoardInstance = serde_json::from_str(json).unwrap();
-        assert_eq!(inst.layer_ref, LayerRef::Top);
+        assert_eq!(inst.id, "i");
+        assert_eq!(inst.x_mm, 1.0);
+        assert_eq!(inst.y_mm, 2.0);
     }
 
     #[test]

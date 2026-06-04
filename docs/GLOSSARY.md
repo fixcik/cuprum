@@ -38,7 +38,7 @@
 | Координаты заготовки в мм — общая система для всех Design'ов на Panel | **Panel space** | `Panel coordinates`, `Work coordinates` |
 | Координаты конкретного станка — пиксели LCD у принтера, миллиметры от нуля стола у CNC | **Machine space** | `Machine coordinates`, `Pixel space` |
 
-Перевод: `Board space` → `Panel space` — через `BoardInstance` (x, y, rotation, layer_ref). `Panel space` → `Machine space` — через `compose_layout` (UV) или G-code эмиссию (CNC).
+Перевод: `Board space` → `Panel space` — через `BoardInstance` (x, y, rotation). `Panel space` → `Machine space` — через `compose_layout` (UV) или G-code эмиссию (CNC).
 
 ## C. Материалы
 
@@ -56,8 +56,6 @@
 |---|---|---|
 | Один gerber-файл, например `F_Cu.gbr` — это **рисунок**, изображение | **GerberLayer** | `Gerber layer`, `Image` |
 | Один **физический медный слой** в пироге (верхняя медь, нижняя медь, внутренние) | **CopperLayer** | `Copper layer`, `Conductor layer` |
-| Указатель «это Top / это Bottom / это In1»; через него BoardInstance говорит, на какой стороне он лежит | **LayerRef** | (нет единого термина, чаще `Layer position`) |
-| derived от LayerRef: «top» или «bottom» — для UI | **side** | `side` |
 
 ## E. Процесс
 
@@ -132,4 +130,4 @@
 
 ---
 
-*Ревизия 2026-06-02.*
+*Ревизия 2026-06-05.*

@@ -146,7 +146,6 @@ export interface Stackup {
  *  not configured. Mirrors `cuprum_core::mesh::DEFAULT_FR4_THICK`. */
 export const DEFAULT_FR4_THICKNESS_MM = 1.6;
 
-export type LayerRef = "Top" | "Bottom";
 export type ToolingHoleRole = "registration" | "flip" | "unused";
 export type KeepOutKind = "fixture" | "dead" | "reserved";
 
@@ -165,7 +164,6 @@ export interface BoardInstance {
   x_mm: number;
   y_mm: number;
   rotation_deg: number;
-  layer_ref: LayerRef;
 }
 
 export interface ToolingHole {

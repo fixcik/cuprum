@@ -581,7 +581,7 @@ describe("panelObstacles", () => {
   it("merges board boxes and raw tooling-hole bounds", () => {
     const sizes = { d1: { w: 10, h: 10 } };
     const panel = {
-      instances: [{ id: "i1", design_id: "d1", x_mm: 0, y_mm: 0, rotation_deg: 0, layer_ref: "Top" }],
+      instances: [{ id: "i1", design_id: "d1", x_mm: 0, y_mm: 0, rotation_deg: 0 }],
       tooling_holes: [{ id: "th-1", x_mm: 50, y_mm: 50, diameter_mm: 4, role: "registration" }],
     } as any;
     const obs = panelObstacles(panel, sizes);

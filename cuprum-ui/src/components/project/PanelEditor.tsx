@@ -37,8 +37,6 @@ export function PanelEditor() {
   const [substrate, setSubstrate] = useState(DEFAULT_STACKUP.substrate_thickness_mm);
   const [doubleSided, setDoubleSided] = useState(DEFAULT_STACKUP.double_sided);
   const [saveError, setSaveError] = useState<string | null>(null);
-  // Visible side of the blank, owned here so Ctrl+A can scope its selection to it.
-  const [side, setSide] = useState<"top" | "bottom">("top");
   const [presetOpen, setPresetOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
   // Board extents (mm) per placed design — shared hook, fetched once per design.
@@ -142,9 +140,6 @@ export function PanelEditor() {
   // panel dims are read via refs so the listener needn't re-bind on every edit.
   const panelDims = useRef({ w: width, h: height });
   panelDims.current = { w: width, h: height };
-  // Current visible side, read by the once-bound keydown listener (Ctrl+A scope).
-  const sideRef = useRef(side);
-  sideRef.current = side;
   // Sizes ref so the keydown listener (bound once) always reads the current map.
   const sizesRef = useRef(sizes);
   sizesRef.current = sizes;
@@ -163,12 +158,8 @@ export function PanelEditor() {
         usePanelSelection.getState().clear();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        // Only the visible side is selectable on-canvas; scope Ctrl+A to it so a
-        // following Delete can't silently drop hidden back-side instances.
-        const side = sideRef.current;
-        const ids = (useShell.getState().currentManifest?.panel?.instances ?? [])
-          .filter((i) => (i.layer_ref === "Bottom" ? "bottom" : "top") === side)
-          .map((i) => i.id);
+        // Placements are side-agnostic — Ctrl+A selects every instance.
+        const ids = (useShell.getState().currentManifest?.panel?.instances ?? []).map((i) => i.id);
         usePanelSelection.getState().set(ids);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
         if (!sel.length) return;
@@ -235,7 +226,7 @@ export function PanelEditor() {
     <div className="flex h-full min-h-0">
       {/* Canvas is the hero now */}
       <div className="relative min-w-0 flex-1">
-        <PanelBlankCanvas widthMm={width || 1} heightMm={height || 1} doubleSided={doubleSided} side={side} onSideChange={setSide} />
+        <PanelBlankCanvas widthMm={width || 1} heightMm={height || 1} />
         {saveError && (
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-destructive/90 px-3 py-1.5 text-[11px] text-destructive-foreground shadow-md">
             {saveError}

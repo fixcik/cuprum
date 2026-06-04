@@ -56,7 +56,6 @@
   "panel": {
     "canvas": {
       "copper": "Cu",
-      "noCopper": "нет меди",
       "workArea": "рабочая зона"
     },
     "add": {
@@ -113,7 +112,6 @@
         "cols": "Колонками",
         "step": "Шаг",
         "behavior": "Поведение",
-        "side": "Сторона",
         "repack": "Перепаковка"
       }
     },
@@ -217,8 +215,6 @@
     "savePreset": "Сохранить",
     "presetModalTitle": "Сохранить пресет",
     "presetNamePlaceholder": "Название пресета",
-    "sideTop": "Верх",
-    "sideBottom": "Низ",
     "sectionBlank": "Размер",
     "sectionStackup": "Параметры заготовки",
     "sides": "Стороны",

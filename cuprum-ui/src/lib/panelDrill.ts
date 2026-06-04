@@ -42,16 +42,16 @@ export function collectDesignHoles(holesAbs: Hole[], originXMm: number, originYM
 }
 
 /** Project a board-local hole (Y-up, origin at the board's min corner) onto the
- *  panel (Y-down). Mirrors X for a Bottom instance, flips Y into the footprint,
- *  then applies the same center-rotation as instanceBounds. */
+ *  panel (Y-down). Flips Y into the footprint, then applies the same
+ *  center-rotation as instanceBounds. Drilling is done from the top; per-side
+ *  flip/mirror is a concern of the drill operation, not the placement. */
 export function projectHoleToPanel(
   local: { xMm: number; yMm: number },
-  inst: Pick<BoardInstance, "x_mm" | "y_mm" | "rotation_deg" | "layer_ref">,
+  inst: Pick<BoardInstance, "x_mm" | "y_mm" | "rotation_deg">,
   boardWmm: number,
   boardHmm: number,
 ): PlanHole {
-  const lx = inst.layer_ref === "Bottom" ? boardWmm - local.xMm : local.xMm;
-  const ux = inst.x_mm + lx;
+  const ux = inst.x_mm + local.xMm;
   // Gerber Y-up → panel Y-down footprint: local y=0 (board bottom) maps to the
   // footprint's bottom edge (y_mm + boardH).
   const uy = inst.y_mm + (boardHmm - local.yMm);

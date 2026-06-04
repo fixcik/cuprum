@@ -1,6 +1,6 @@
 /** Auto-placement (nesting) recipe. All lengths in mm. Lives in settingsStore as
- *  the last-used defaults and travels with the add-to-panel intent. `side` matches
- *  BoardInstance.layer_ref so it can be assigned directly. */
+ *  the last-used defaults and travels with the add-to-panel intent. A placement is
+ *  side-agnostic — a board occupies its panel slot on both sides. */
 export interface NestSettings {
   /** Off → a single copy tucked into the corner; on → fill with an array. */
   enabled: boolean;
@@ -21,8 +21,6 @@ export interface NestSettings {
   dir: "rows" | "cols";
   /** Snap placement to this grid step, mm (0 = off). */
   snapMm: number;
-  /** Side to place on (BoardInstance.layer_ref). */
-  side: "Top" | "Bottom";
   /** Re-pack the whole panel on add/remove. Stored only in Phase 2 (no behaviour
    *  yet — the interactive editor wires it). */
   repack: boolean;
@@ -40,6 +38,5 @@ export const DEFAULT_NEST: NestSettings = {
   corner: "bl",
   dir: "rows",
   snapMm: 0,
-  side: "Top",
   repack: true,
 };
