@@ -763,6 +763,7 @@ export function PanelBlankCanvas({
         workAreaMm={{ w: maxPanelW, h: maxPanelH }}
         workAreaLabel={t("panel.canvas.workArea")}
         hover={showCrosshair ? hoverPx : null}
+        extentVariant="muted"
       />
 
       <PanelToolPalette tool={tool} onToolChange={setTool} onDuplicate={duplicateSelected} />
