@@ -36,6 +36,10 @@ export interface RulersOverlayProps {
    *  design preview keeps its slimmer 20px bands; the panel uses the defaults. */
   rulerTop?: number;
   rulerLeft?: number;
+  /** Accent for the extent highlight + edge reticles + origin marker. `"copper"`
+   *  (default) suits the panel blank; `"muted"` is a neutral dark tint for the
+   *  busy design preview, where copper fought the PCB colours. */
+  extentVariant?: "copper" | "muted";
 }
 
 const COPPER = "hsl(var(--primary))";
@@ -68,6 +72,7 @@ export function RulersOverlay({
   showOrigin = true,
   rulerTop = RULER_TOP,
   rulerLeft = RULER_LEFT,
+  extentVariant = "copper",
 }: RulersOverlayProps) {
   // Strip the colons React's useId emits — they trip up `url(#…)` fragment refs
   // in some WebKit builds (WKWebView).
@@ -87,6 +92,10 @@ export function RulersOverlay({
   // Screen span of an mm interval (left edge + positive width).
   const spanX = (a: number, b: number) => ({ x: screenX(a), w: (b - a) * pxPerMm });
   const spanY = (a: number, b: number) => ({ y: screenY(a), h: (b - a) * pxPerMm });
+  // Extent highlight / reticles / origin accent. Copper for the panel blank; a
+  // neutral dark tint for the design preview, where copper clashed with the board.
+  const accent = extentVariant === "muted" ? "hsl(var(--muted-foreground))" : COPPER;
+  const accentFill = extentVariant === "muted" ? "hsl(var(--muted-foreground) / 0.12)" : COPPER_14;
   // Origin (ruler "0") marker sits at the anchor — the board corner / panel origin.
   const ax = screenX(anchorMm.x);
   const ay = screenY(anchorMm.y);
@@ -149,8 +158,8 @@ export function RulersOverlay({
 
         {showOrigin && (
           <g>
-            <line x1={ax - 7} y1={ay} x2={ax + 7} y2={ay} stroke={COPPER} strokeWidth={1} />
-            <line x1={ax} y1={ay - 7} x2={ax} y2={ay + 7} stroke={COPPER} strokeWidth={1} />
+            <line x1={ax - 7} y1={ay} x2={ax + 7} y2={ay} stroke={accent} strokeWidth={1} />
+            <line x1={ax} y1={ay - 7} x2={ax} y2={ay + 7} stroke={accent} strokeWidth={1} />
             <text x={ax + 5} y={ay - 4} style={{ fill: "hsl(var(--muted-foreground))", fontSize: "10px" }}>
               0,0
             </text>
@@ -175,18 +184,18 @@ export function RulersOverlay({
         const ey = spanY(extentMm.y, extentMm.y + extentMm.h);
         return (
         <>
-          <rect x={ex.x} y={0} width={ex.w} height={rulerTop} fill={COPPER_14} />
-          <rect x={0} y={ey.y} width={rulerLeft} height={ey.h} fill={COPPER_14} />
+          <rect x={ex.x} y={0} width={ex.w} height={rulerTop} fill={accentFill} />
+          <rect x={0} y={ey.y} width={rulerLeft} height={ey.h} fill={accentFill} />
           {/* Copper reticles at the extent edges (0 and W / H). */}
           {[extentMm.x, extentMm.x + extentMm.w].map((mm, i) => {
             const x = screenX(mm);
             if (x < rulerLeft || x > size.w) return null;
-            return <line key={`ev${i}`} x1={x} y1={0} x2={x} y2={rulerTop} stroke={COPPER} strokeWidth={1.5} />;
+            return <line key={`ev${i}`} x1={x} y1={0} x2={x} y2={rulerTop} stroke={accent} strokeWidth={1.5} />;
           })}
           {[extentMm.y, extentMm.y + extentMm.h].map((mm, i) => {
             const y = screenY(mm);
             if (y < rulerTop || y > size.h) return null;
-            return <line key={`eh${i}`} x1={0} y1={y} x2={rulerLeft} y2={y} stroke={COPPER} strokeWidth={1.5} />;
+            return <line key={`eh${i}`} x1={0} y1={y} x2={rulerLeft} y2={y} stroke={accent} strokeWidth={1.5} />;
           })}
         </>
         );
