@@ -179,6 +179,20 @@ fn board_size_from_edge_square() {
 }
 
 #[test]
+fn board_dims_without_edge_layer_has_zero_origin() {
+    // No Edge_Cuts layer at all → both early-return branches must yield origin (0, 0).
+    let no_edge = board_metrics(&[MetricLayerInput {
+        role: Role::Copper,
+        side: Side::Top,
+        inner: false,
+        plated: false,
+        bytes: CU_TRACE,
+    }]);
+    assert_eq!(no_edge.board.origin_x_mm, 0.0, "no-edge origin_x");
+    assert_eq!(no_edge.board.origin_y_mm, 0.0, "no-edge origin_y");
+}
+
+#[test]
 fn no_edge_layer_is_flagged() {
     let m = board_metrics(&[MetricLayerInput {
         role: Role::Copper,

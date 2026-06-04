@@ -23,7 +23,8 @@ pub const SVG_VERSION: &[u8] = b"svg-v2";
 /// v15: annular hotspots now carry the pad's copper side instead of hardcoded "both".
 /// v16: trace/line strokes coalesced into round-joined polylines.
 /// v17: per-family hotspot cap raised 40→500; drill/via unified onto cell dedup.
-pub const METRICS_VERSION: &[u8] = b"metrics-v17";
+/// v18: BoardDims gains origin_x_mm/origin_y_mm (Edge_Cuts outline min corner).
+pub const METRICS_VERSION: &[u8] = b"metrics-v18";
 
 /// Bump when the preview composition/palette/size changes.
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
