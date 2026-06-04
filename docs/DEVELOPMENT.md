@@ -6,10 +6,11 @@ Derived artifacts are cached on disk, keyed by a hash of `(source + version tag)
 — the disk cache lives in the `cuprum-diskcache` crate (re-exported as
 `cuprum_core::diskcache`). **If you change logic that affects the output, you must
 bump the corresponding version tag**, otherwise users will get a stale result from
-the cache. The `svg` / `metrics` / `preview` tags live in one place,
+the cache. All four tags live in one place,
 `crates/cuprum-diskcache/src/artifact.rs` (`SVG_VERSION` / `METRICS_VERSION` /
-`PREVIEW_VERSION`) — except `mesh-vN`, still a `b"mesh-v6"` literal in
-`cuprum-ui/src-tauri/src/main.rs` (`board_mesh_cached`):
+`PREVIEW_VERSION` / `MESH_VERSION`). `svg`/`metrics`/`preview` key persistent
+`.cuprum` artifacts; `mesh` keys the OS app-cache blob (TTL/LRU) instead, so it is
+absent from `artifact::gc`:
 
 | Tag          | Covers                        | Bump when editing |
 |--------------|-------------------------------|-------------------|

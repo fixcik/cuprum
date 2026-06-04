@@ -166,7 +166,7 @@ pub(crate) async fn project_board_mesh(
         let excluded: std::collections::HashSet<String> = excluded_keys.into_iter().collect();
         // Cache key: included layers only (rel-path key + type + bytes) + thickness.
         let mut hasher = cuprum_core::diskcache::Hasher::new();
-        hasher.add(b"mesh-v6");
+        hasher.add(cuprum_core::artifact::MESH_VERSION);
         hasher.add(&thickness_mm.to_le_bytes());
         for (rel, t, bytes) in &loaded {
             if excluded.contains(rel) {

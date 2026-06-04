@@ -9,6 +9,11 @@
 //! Rule: when you change how an artifact is produced (SVG render, metrics
 //! algorithm, preview composition), bump the matching `*_VERSION` here. That is
 //! the ONLY place a version lives — keep it out of `main.rs` and the manifest.
+//!
+//! `MESH_VERSION` also lives here for the same single-source-of-truth reason, but
+//! the 3D mesh is NOT a persistent project artifact: it is cached in the global OS
+//! app-cache (TTL + LRU), never packed into the `.cuprum`, so it is intentionally
+//! absent from the `gc` sweep below.
 
 /// Bump when `svg::render_layer_svg` output changes.
 /// v2: connected line segments coalesced into one polyline path.
@@ -24,6 +29,12 @@ pub const METRICS_VERSION: &[u8] = b"metrics-v17";
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
 /// v3: substrate/mask/layers clipped to the rounded Edge_Cuts outline.
 pub const PREVIEW_VERSION: &[u8] = b"preview-v3";
+
+/// Bump when `mesh::board_geometry` output changes (triangulation, layer/barrel
+/// emission, substrate Z). Unlike the others this keys the OS app-cache mesh blob,
+/// not a packed `.cuprum` artifact (see module docs) — bumping just orphans the
+/// old cache entry, which the TTL/LRU reclaims.
+pub const MESH_VERSION: &[u8] = b"mesh-v6";
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -60,12 +71,16 @@ mod tests {
 
     #[test]
     fn versions_are_distinct_nonempty() {
-        for v in [SVG_VERSION, METRICS_VERSION, PREVIEW_VERSION] {
+        let all = [SVG_VERSION, METRICS_VERSION, PREVIEW_VERSION, MESH_VERSION];
+        for v in all {
             assert!(!v.is_empty(), "version tag must be non-empty");
         }
-        assert_ne!(SVG_VERSION, METRICS_VERSION);
-        assert_ne!(SVG_VERSION, PREVIEW_VERSION);
-        assert_ne!(METRICS_VERSION, PREVIEW_VERSION);
+        // Every pair must be distinct so tags never collide across artifact kinds.
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                assert_ne!(a, b, "version tags must be distinct");
+            }
+        }
     }
 
     #[test]
