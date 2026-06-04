@@ -61,8 +61,8 @@ impl Default for RenderOptions {
         // Default to the printer's native (anisotropic) pixel pitch so the mask
         // is exposure-ready: one output pixel == one LCD pixel.
         Self {
-            px_per_mm_x: crate::goo::SCREEN_PX_PER_MM_X,
-            px_per_mm_y: crate::goo::SCREEN_PX_PER_MM_Y,
+            px_per_mm_x: cuprum_goo::SCREEN_PX_PER_MM_X,
+            px_per_mm_y: cuprum_goo::SCREEN_PX_PER_MM_Y,
             margin_mm: 1.0,
             mirror_x: false,
             invert: false,
@@ -277,7 +277,7 @@ pub fn render_preview_png(path: &Path, max_px: u32) -> Result<(Vec<u8>, RenderIn
     // Render close to the screen's native pitch so the preview is as crisp as the
     // real exposure; never exceed it (no extra detail beyond one LCD pixel), and
     // cap by max_px so a large board doesn't produce a huge PNG.
-    let native = crate::goo::SCREEN_PX_PER_MM_X;
+    let native = cuprum_goo::SCREEN_PX_PER_MM_X;
     let pitch = (max_px as f32 / longest).clamp(1.0, native);
     let opts = RenderOptions {
         margin_mm: 0.0,
@@ -435,10 +435,10 @@ fn parse_layer(bytes: &[u8]) -> anyhow::Result<GerberLayer> {
 /// Lock discipline: the `inflight` registry lock is released before taking the
 /// per-key `flight` lock; the LRU is locked only briefly, never across `parse_layer()`.
 pub fn parse_layer_cached(bytes: &[u8]) -> anyhow::Result<Arc<GerberLayer>> {
-    if crate::diskcache::cache_disabled() {
+    if cuprum_diskcache::diskcache::cache_disabled() {
         return Ok(Arc::new(parse_layer(bytes)?));
     }
-    let key = crate::diskcache::key_for(&[bytes]);
+    let key = cuprum_diskcache::diskcache::key_for(&[bytes]);
     if let Some(v) = parse_cache().lock().unwrap().get(&key) {
         return Ok(v.clone());
     }
@@ -484,7 +484,7 @@ mod parse_cache_tests {
     fn parse_layer_cached_dedups_under_concurrency_and_memoizes() {
         // Unique aperture diameter → a guaranteed-cold key regardless of test order.
         const UNIQ: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.111*%\nD10*\nX0Y0D03*\nM02*\n";
-        let key = crate::diskcache::key_for(&[UNIQ]);
+        let key = cuprum_diskcache::diskcache::key_for(&[UNIQ]);
         parse_cache().lock().unwrap().pop(&key);
         parse_inflight().lock().unwrap().remove(&key);
 

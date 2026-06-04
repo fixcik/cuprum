@@ -281,12 +281,12 @@ fn emit_polyline(pts: &[[f64; 2]], width: f64, out: &mut String) {
 // ---- SVG render cache ----
 //
 // Cached entry points around `render_layer_svg`, sharing the single-flight engine
-// in `crate::cache`. Live here (next to the renderer) so the cache module doesn't
-// reach into svg to define them — it only re-exports these under `cache::` for the
-// historical call paths (project/UI/preview).
+// in `cuprum_cache`. Live here (next to the renderer) so the cache module doesn't
+// reach into svg to define them — `cuprum_core::cache` only re-exports these under
+// `cache::` for the historical call paths (project/UI/preview).
 
-/// SVG cache key tag — single source of truth in `crate::artifact`.
-const SVG_CACHE_TAG: &[u8] = crate::artifact::SVG_VERSION;
+/// SVG cache key tag — single source of truth in `cuprum_diskcache::artifact`.
+const SVG_CACHE_TAG: &[u8] = cuprum_diskcache::artifact::SVG_VERSION;
 
 /// Disk cache budget/TTL for SVG entries.
 const SVG_DISK_MAX_BYTES: u64 = 256 * 1024 * 1024; // 256 MB
@@ -314,7 +314,7 @@ fn svg_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
 /// `cache_dir` is the disk-cache directory. The SVG element id (scopes the
 /// clear-polarity mask) is derived internally from the content hash.
 pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerGeometry> {
-    let key = crate::diskcache::key_for(&[SVG_CACHE_TAG, bytes]);
+    let key = cuprum_diskcache::diskcache::key_for(&[SVG_CACHE_TAG, bytes]);
     // SVG element id derived from the content hash — unique per gerber content,
     // scopes the clear-polarity mask. Derived here so the tag lives in one place.
     let id = format!("ly{}", &key[..8]);
@@ -332,7 +332,7 @@ pub fn layer_svg_cached(cache_dir: &Path, bytes: &[u8]) -> anyhow::Result<LayerG
 /// The content-hash key for a gerber's SVG artifact. Shared by the cache and by
 /// `artifact::gc` so the valid-key set matches what's written.
 pub fn svg_artifact_key(bytes: &[u8]) -> String {
-    crate::diskcache::key_for(&[SVG_CACHE_TAG, bytes])
+    cuprum_diskcache::diskcache::key_for(&[SVG_CACHE_TAG, bytes])
 }
 
 /// Project-scoped, PERSISTENT SVG render (no TTL/eviction): in-memory → persistent
