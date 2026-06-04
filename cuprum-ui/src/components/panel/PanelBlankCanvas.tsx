@@ -31,7 +31,8 @@ import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
+import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
+import type { Severity } from "@/lib/feasibility";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
@@ -185,6 +186,23 @@ export function PanelBlankCanvas({
   // Live resize preview for a single keep-out zone (mm). Committed on mouseup.
   const [keepOutResize, setKeepOutResize] = useState<{ id: string; x_mm: number; y_mm: number; width_mm: number; height_mm: number } | null>(null);
   const keepOutResizeRef = useRef<{ id: string; corner: ZoneCorner; fixedX: number; fixedY: number } | null>(null);
+
+  // Live keep-out resize preview → drives real-time DFM tinting of boards/holes.
+  const keepOutPreviewBox = keepOutResize ? keepOutBox(keepOutResize) : null;
+  const keepOutPreviewKind = keepOutResize
+    ? zones.find((z) => z.id === keepOutResize.id)?.kind
+    : undefined;
+
+  // During a resize of a DEAD zone, holes inside the preview rect tint live.
+  const liveToolingSeverity = useMemo((): Map<string, Severity> => {
+    if (!keepOutPreviewBox || keepOutPreviewKind !== "dead") return byTooling;
+    const m = new Map(byTooling);
+    for (const h of holes) {
+      const hb = toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm });
+      if (boxesOverlap(hb, keepOutPreviewBox)) m.set(h.id, "block");
+    }
+    return m;
+  }, [keepOutPreviewBox, keepOutPreviewKind, byTooling, holes]);
 
   // O(1) design lookup for the instance render loop + labels.
   const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
@@ -1086,7 +1104,19 @@ export function PanelBlankCanvas({
               // overlap, spacing, work-area). During a live drag/rotate the committed
               // value may lag the render; fall back to liveOff for block.
               const committedSev = byInstance.get(inst.id);
-              const isBlock = liveOff || committedSev === "block";
+              const liveZoneHit = keepOutPreviewBox
+                ? boxesOverlap(
+                    instanceBounds({
+                      xMm: inst.x_mm + shift.dx,
+                      yMm: inst.y_mm + shift.dy,
+                      boardW: sz.w,
+                      boardH: sz.h,
+                      rotationDeg: rotation,
+                    }),
+                    keepOutPreviewBox,
+                  )
+                : false;
+              const isBlock = liveOff || liveZoneHit || committedSev === "block";
               const isWarn = !isBlock && committedSev === "warn";
               return (
                 <Group
@@ -1162,7 +1192,7 @@ export function PanelBlankCanvas({
               selectedId={tool === "tooling" ? selectedHoleId : null}
               pxPerMm={viewport.pxPerMm}
               interactive={tool === "tooling" && !addArmed}
-              severityByHole={byTooling}
+              severityByHole={liveToolingSeverity}
               onHoleMouseDown={onHoleMouseDown}
               onHoleDragEnd={onHoleDragEnd}
             />
