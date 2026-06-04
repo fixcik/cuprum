@@ -19,7 +19,6 @@ import { UnitField } from "@/components/ui/settings/UnitField";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { StackupDiagram } from "@/components/project/StackupDiagram";
-import { PlacementFields } from "@/components/project/PlacementFields";
 import { COPPER_WEIGHTS, type PanelPreset } from "@/lib/panel";
 
 // ---- local sub-components ----
@@ -210,11 +209,6 @@ export function PanelInspector({
 
           {/* Scrollable accordion body */}
           <div className="min-h-0 flex-1 overflow-auto">
-            {/* Numeric placement inspector for the current selection (self-
-                contained: subscribes to the selection + panel stores). Renders
-                nothing when no instance is selected. */}
-            <PlacementFields panelW={width} panelH={height} />
-
             {/* Size accordion */}
             <AccordionSection
               icon={Ruler}

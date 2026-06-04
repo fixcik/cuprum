@@ -1,17 +1,19 @@
 import { Fragment } from "react";
-import { Rect, Circle, Line } from "react-konva";
+import { Rect } from "react-konva";
 import { instanceBounds } from "@/lib/panelPlacement";
 import { COPPER_STROKE } from "@/components/editor/canvasStyle";
 import type { BoardInstance } from "@/lib/api";
 
-// Pin marker screen sizes (px), kept constant at any zoom by dividing by pxPerMm.
-const PIN_RADIUS_PX = 4;
-const PIN_STEM_PX = 7;
+// Corner handle screen size (px), kept constant at any zoom by dividing by pxPerMm.
+const HANDLE_PX = 7;
+// Canvas background — the handle's outline colour (so copper squares read on any art).
+const CANVAS_BG = "#0a0c10";
 
 /** Copper selection affordance for each selected instance (drawn in the mm
- *  fit-group): a solid copper ring around the AABB plus a copper map-pin above
- *  the top edge. Copper is the ACTION/SELECTION role, so the selection reads
- *  instantly against the neutral structure + content of the canvas. */
+ *  fit-group): a solid copper ring around the AABB plus four square corner handles.
+ *  Copper is the ACTION/SELECTION role, so the selection reads instantly against the
+ *  neutral structure + content of the canvas. The top-centre is intentionally left
+ *  clear for the floating selection HUD; free rotation lives on a corner knob. */
 export function SelectionOverlay({
   instances,
   sizes,
@@ -31,10 +33,9 @@ export function SelectionOverlay({
   // Screen px per mm — used to keep the pin a constant size at any zoom.
   pxPerMm: number;
 }) {
-  // mm per screen px; 0 until the viewport is measured → skip the pin (ring only).
+  // mm per screen px; 0 until the viewport is measured → skip handles (ring only).
   const mmPerPx = pxPerMm > 0 ? 1 / pxPerMm : 0;
-  const radiusMm = PIN_RADIUS_PX * mmPerPx;
-  const stemMm = PIN_STEM_PX * mmPerPx;
+  const handleMm = HANDLE_PX * mmPerPx;
   return (
     <>
       {instances
@@ -49,10 +50,14 @@ export function SelectionOverlay({
             boardH: sz.h,
             rotationDeg: i.rotation_deg + (rotPreview ?? 0),
           });
-          const cx = (b.minX + b.maxX) / 2;
-          // Pin sits above the top edge: a short stem up to the filled circle.
-          const stemTop = b.minY - stemMm;
-          const pinCy = stemTop - radiusMm;
+          const corners = mmPerPx > 0
+            ? [
+                [b.minX, b.minY],
+                [b.maxX, b.minY],
+                [b.minX, b.maxY],
+                [b.maxX, b.maxY],
+              ]
+            : [];
           return (
             <Fragment key={i.id}>
               <Rect
@@ -65,18 +70,21 @@ export function SelectionOverlay({
                 strokeScaleEnabled={false}
                 listening={false}
               />
-              {mmPerPx > 0 && (
-                <>
-                  <Line
-                    points={[cx, stemTop, cx, b.minY]}
-                    stroke={COPPER_STROKE}
-                    strokeWidth={1.5}
-                    strokeScaleEnabled={false}
-                    listening={false}
-                  />
-                  <Circle x={cx} y={pinCy} radius={radiusMm} fill={COPPER_STROKE} listening={false} />
-                </>
-              )}
+              {corners.map(([hx, hy], idx) => (
+                <Rect
+                  key={idx}
+                  x={hx - handleMm / 2}
+                  y={hy - handleMm / 2}
+                  width={handleMm}
+                  height={handleMm}
+                  cornerRadius={handleMm * 0.25}
+                  fill={COPPER_STROKE}
+                  stroke={CANVAS_BG}
+                  strokeWidth={1.5}
+                  strokeScaleEnabled={false}
+                  listening={false}
+                />
+              ))}
             </Fragment>
           );
         })}

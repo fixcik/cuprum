@@ -6,25 +6,34 @@ import type { KonvaEventObject } from "konva/lib/Node";
 const HANDLE_STROKE = "#5b9dff";
 const HANDLE_FILL = "#0a0c10";
 
-/** Free-rotation knob for the current panel selection. Drawn in the mm fit-group:
- *  a small circle sitting `radiusMm` above the selection-bbox centre, joined to the
- *  centre by a thin line. Dragging the knob rotates the selection; the angle is the
- *  pointer's bearing about the centre (mm), and the reported value is the DELTA from
- *  the bearing at drag start (so multi-select rotates each instance about its OWN
- *  centre by the same amount). Snap (15°/1°) is applied by the parent via
- *  `e.shiftKey || e.altKey`. The knob position is purely derived from props (the
- *  parent re-renders with a live preview angle); on drag end the parent commits. */
+/** Free-rotation knob for the current panel selection. The knob sits just OUTSIDE a
+ *  bbox corner (diagonal stub), leaving the top-centre clear for the selection HUD;
+ *  rotation is still about the selection-bbox centre `(cx,cy)`. Dragging the knob
+ *  rotates the selection by the DELTA of the pointer's bearing about the centre since
+ *  drag start (so multi-select rotates each instance about its OWN centre by the same
+ *  amount). Snap (15°/1°) is applied by the parent via `e.shiftKey || e.altKey`. The
+ *  knob is pinned to its derived pose (parent feeds a live preview angle); on drag end
+ *  the parent commits. All coordinates in panel mm. */
 export function RotationHandle({
   cx,
   cy,
-  radiusMm,
+  anchorX,
+  anchorY,
+  knobX,
+  knobY,
   pointerMm,
   onRotate,
   onCommit,
 }: {
+  /** Rotation pivot = selection-bbox centre (mm). */
   cx: number;
   cy: number;
-  radiusMm: number;
+  /** Stub line start — the bbox corner the knob hangs off (mm). */
+  anchorX: number;
+  anchorY: number;
+  /** Knob position — corner offset diagonally outward (mm). */
+  knobX: number;
+  knobY: number;
   /** Pointer position in panel mm (via the fit-group's relative pointer). */
   pointerMm: () => { x: number; y: number } | null;
   /** Live rotation delta (deg) since drag start. `fine` = shift/alt held. */
@@ -49,10 +58,10 @@ export function RotationHandle({
   const onDragMove = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
     // Pin the knob back to its derived pose — movement is driven by the preview
-    // angle the parent feeds back through cx/cy/radius, not the Konva drag.
+    // angle the parent feeds back through the corner props, not the Konva drag.
     const node = e.target as Konva.Circle;
-    node.x(cx);
-    node.y(cy - radiusMm);
+    node.x(knobX);
+    node.y(knobY);
     if (startAngle.current === null) return;
     const now = bearing();
     if (now === null) return;
@@ -62,8 +71,8 @@ export function RotationHandle({
   const onDragEnd = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
     const node = e.target as Konva.Circle;
-    node.x(cx);
-    node.y(cy - radiusMm);
+    node.x(knobX);
+    node.y(knobY);
     startAngle.current = null;
     onCommit();
   };
@@ -71,15 +80,15 @@ export function RotationHandle({
   return (
     <Group listening>
       <Line
-        points={[cx, cy, cx, cy - radiusMm]}
+        points={[anchorX, anchorY, knobX, knobY]}
         stroke={HANDLE_STROKE}
         strokeWidth={1}
         strokeScaleEnabled={false}
         listening={false}
       />
       <Circle
-        x={cx}
-        y={cy - radiusMm}
+        x={knobX}
+        y={knobY}
         radius={4}
         fill={HANDLE_FILL}
         stroke={HANDLE_STROKE}
