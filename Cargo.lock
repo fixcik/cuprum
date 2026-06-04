@@ -493,12 +493,10 @@ dependencies = [
  "gerber_viewer",
  "i_overlay",
  "lru",
- "png 0.17.16",
  "rayon",
  "resvg",
  "serde",
  "serde_json",
- "tiny-skia 0.12.0",
  "tracing",
  "usvg",
 ]
