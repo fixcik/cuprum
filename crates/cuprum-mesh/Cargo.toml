@@ -1,0 +1,18 @@
+[package]
+name = "cuprum-mesh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Full 3D board mesh triangulation (substrate, surface layers, drill barrels) for Cuprum"
+
+[dependencies]
+gerber_viewer.workspace = true
+i_overlay = "4"
+earcutr = "0.4"
+rayon.workspace = true
+tracing.workspace = true
+cuprum-gerber.workspace = true
+cuprum-trace.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

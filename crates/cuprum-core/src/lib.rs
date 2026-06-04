@@ -5,7 +5,6 @@ pub mod cache;
 pub mod cal;
 pub mod compose;
 pub mod dfm;
-pub mod mesh;
 pub mod preview;
 
 // Tracing now lives in its own leaf crate; re-export under the historical path so
@@ -31,3 +30,8 @@ pub use cuprum_goo as goo;
 // svg,geometry,strokes,drill}::…` (and in-crate `crate::…`) keep resolving for the
 // CLI, the UI, and the in-core consumers (cache, mesh, dfm, compose, preview).
 pub use cuprum_gerber::{drill, geometry, gerber, strokes, svg};
+
+// Full 3D board mesh triangulation lives in its own crate; re-export under the
+// historical path so `cuprum_core::mesh::…` (and in-crate `crate::mesh::…`) keep
+// resolving for the UI and the in-core consumers (preview, dfm).
+pub use cuprum_mesh as mesh;
