@@ -202,7 +202,15 @@
     "stackupDouble": "двухсторонняя",
     "stackupTotal": "≈ {{mm}} мм общая",
     "stackupCopper": "Медь {{mic}} мкм",
-    "stackupFr4": "FR4 {{mm}} мм"
+    "stackupFr4": "FR4 {{mm}} мм",
+    "placement": {
+      "title": "Размещение",
+      "x": "X",
+      "y": "Y",
+      "rotation": "Поворот",
+      "size": "Размер",
+      "multi": "Выбрано плат: {{count}}. Выберите одну для точных координат."
+    }
   },
   "aria": {
     "settings": "Настройки проекта",

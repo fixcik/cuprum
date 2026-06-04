@@ -202,7 +202,15 @@
     "stackupDouble": "double-sided",
     "stackupTotal": "≈ {{mm}} mm total",
     "stackupCopper": "Copper {{mic}} µm",
-    "stackupFr4": "FR4 {{mm}} mm"
+    "stackupFr4": "FR4 {{mm}} mm",
+    "placement": {
+      "title": "Placement",
+      "x": "X",
+      "y": "Y",
+      "rotation": "Rotation",
+      "size": "Size",
+      "multi": "Boards selected: {{count}}. Select one for exact coordinates."
+    }
   },
   "aria": {
     "settings": "Project settings",
