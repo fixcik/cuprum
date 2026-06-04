@@ -10,21 +10,22 @@ use cuprum_project::layer::LayerType;
 use cuprum_project::resolve::{resolve_design, ResolveOpts};
 
 use crate::commands::render::default_out;
-
-fn type_key(t: LayerType) -> String {
-    serde_json::to_value(t)
-        .ok()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default()
-}
+use crate::commands::type_key;
 
 pub fn run(input: &Path, out: Option<PathBuf>) -> Result<()> {
     let rd = resolve_design(input, &ResolveOpts::default())?;
     // Parse each non-drill layer to its SVG geometry; skip layers that fail to
     // parse (blank silk/paste is common) so one bad layer doesn't abort the doc.
+    // The render id must be unique within the document (it scopes SVG mask ids),
+    // so use the layer index; the compose key is the camelCase type (colour/z-order).
     let mut composed = Vec::new();
-    for l in rd.layers.iter().filter(|l| l.kind != LayerType::Drill) {
-        match render_layer_svg(&l.bytes, &type_key(l.kind)) {
+    for (i, l) in rd
+        .layers
+        .iter()
+        .filter(|l| l.kind != LayerType::Drill)
+        .enumerate()
+    {
+        match render_layer_svg(&l.bytes, &format!("l{i}")) {
             Ok(g) => composed.push((type_key(l.kind), g)),
             Err(_) => continue,
         }

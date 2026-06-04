@@ -8,13 +8,7 @@ use cuprum_core::preview::{render_design_preview, PreviewLayer};
 use cuprum_project::layer::LayerType;
 use cuprum_project::resolve::{resolve_design, ResolveOpts};
 
-/// camelCase layer-type string `preview` expects (e.g. "topCopper").
-fn type_key(t: LayerType) -> String {
-    serde_json::to_value(t)
-        .ok()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default()
-}
+use crate::commands::type_key;
 
 pub fn run(input: &Path, out: Option<PathBuf>, max_px: u32) -> Result<()> {
     let rd = resolve_design(input, &ResolveOpts::default())?;
