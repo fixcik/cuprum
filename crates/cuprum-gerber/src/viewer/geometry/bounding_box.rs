@@ -1,7 +1,4 @@
-use log::trace;
-use nalgebra::{Matrix3, Point2, Vector2, Vector3};
-
-use crate::viewer::geometry::transform::GerberTransform;
+use nalgebra::Point2;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct BoundingBox {
@@ -10,14 +7,6 @@ pub struct BoundingBox {
 }
 
 impl BoundingBox {
-    /// Use to generate an outline of the bbox
-    pub fn transform_vertices(&self, transform: &GerberTransform) -> Vec<Point2<f64>> {
-        self.vertices()
-            .into_iter()
-            .map(|v| transform.apply_to_position(v))
-            .collect::<Vec<_>>()
-    }
-
     pub fn expand(&mut self, other: &BoundingBox) {
         self.min.x = self.min.x.min(other.min.x);
         self.min.y = self.min.y.min(other.min.y);
@@ -49,86 +38,6 @@ impl BoundingBox {
     }
     pub fn height(&self) -> f64 {
         self.max.y - self.min.y
-    }
-
-    pub fn apply_transform_matrix(&self, matrix: &Matrix3<f64>) -> Self {
-        // Step 1: Transform each corner of the original bbox
-        let transformed_bbox_vertices: Vec<_> = self
-            .vertices()
-            .into_iter()
-            .map(|v| {
-                // Convert to homogeneous coordinates
-                let point_vec = Vector3::new(v.x, v.y, 1.0);
-
-                let transformed = matrix * point_vec;
-                Point2::new(transformed.x, transformed.y)
-            })
-            .collect();
-
-        // Step 2: Create a new axis-aligned bbox from transformed points (for viewport fitting)
-        let result = BoundingBox::from_points(&transformed_bbox_vertices);
-        trace!(
-            "Applying transform matrix to bbox.  matrix {:?}: before: {:?}, after: {:?}",
-            matrix,
-            self,
-            result
-        );
-        result
-    }
-
-    pub fn apply_transform(&self, transform: &GerberTransform) -> Self {
-        // Step 1: Transform each corner of the original bbox
-        let transformed_bbox_vertices: Vec<_> = self
-            .vertices()
-            .into_iter()
-            .map(|v| transform.apply_to_position(v))
-            .collect();
-
-        // Step 2: Create a new axis-aligned bbox from transformed points (for viewport fitting)
-        let result = BoundingBox::from_points(&transformed_bbox_vertices);
-        trace!(
-            "Applying transform to bbox.  transform {:?}: before: {:?}, after: {:?}",
-            transform,
-            self,
-            result
-        );
-        result
-    }
-
-    /// Returns a new bounding box with X and/or Y mirroring applied.
-    pub fn apply_mirroring(&self, mirror_x: bool, mirror_y: bool, offset: Vector2<f64>) -> Self {
-        let mut vertices = self.vertices();
-
-        for position in &mut vertices {
-            if mirror_x {
-                position.x = offset.x - (position.x - offset.x);
-            }
-            if mirror_y {
-                position.y = offset.y - (position.y - offset.y);
-            }
-        }
-
-        Self::from_points(&vertices)
-    }
-
-    /// Returns a new bounding box rotated around origin (0, 0) by given angle in radians.
-    /// positive = counter-clockwise
-    pub fn apply_rotation(&self, radians: f64, offset: Vector2<f64>) -> Self {
-        let (sin_theta, cos_theta) = radians.sin_cos();
-        let mut corners = self.vertices();
-
-        for pt in &mut corners {
-            let x = pt.x - offset.x;
-            let y = pt.y - offset.y;
-
-            let rotated_x = x * cos_theta - y * sin_theta;
-            let rotated_y = x * sin_theta + y * cos_theta;
-
-            pt.x = rotated_x + offset.x;
-            pt.y = rotated_y + offset.y;
-        }
-
-        Self::from_points(&corners)
     }
 
     /// Returns the geometric center of the bounding box as a Point2
@@ -169,7 +78,7 @@ impl BoundingBox {
 
 #[cfg(test)]
 mod bbox_tests {
-    use nalgebra::{Point2, Vector2};
+    use nalgebra::Point2;
     use rstest::rstest;
 
     use crate::viewer::geometry::bounding_box::BoundingBox;
@@ -180,32 +89,6 @@ mod bbox_tests {
     #[case(BoundingBox { min: Point2::new(-10.0, -10.0), max: Point2::new(10.0, 10.0) }, false)]
     pub fn test_is_empty(#[case] input: BoundingBox, #[case] expected: bool) {
         assert_eq!(input.is_empty(), expected);
-    }
-
-    #[test]
-    pub fn test_apply_rotation_90_degrees_zero_offset() {
-        let bbox = BoundingBox {
-            min: Point2::new(1.0, 2.0),
-            max: Point2::new(3.0, 4.0),
-        };
-
-        let rotated = bbox.apply_rotation(std::f64::consts::FRAC_PI_2, Vector2::new(0.0, 0.0)); // 90 degrees
-
-        // Expected:
-        // Points rotate CCW around origin:
-        // (1,2) => (-2,1)
-        // (1,4) => (-4,1)
-        // (3,2) => (-2,3)
-        // (3,4) => (-4,3)
-        //
-        // So bounds are:
-        // min_x = -4, max_x = -2
-        // min_y = 1,  max_y = 3
-
-        assert!((rotated.min.x - -4.0).abs() < 1e-6);
-        assert!((rotated.max.x - -2.0).abs() < 1e-6);
-        assert!((rotated.min.y - 1.0).abs() < 1e-6);
-        assert!((rotated.max.y - 3.0).abs() < 1e-6);
     }
 
     #[rstest]

@@ -82,7 +82,7 @@ pub(crate) fn contours_for(prim: &GerberPrimitive, out: &mut Vec<Vec<[f64; 2]>>)
 }
 
 /// Convert every primitive to one or more solid contours, treating all as Add
-/// (v1: clear-polarity is not produced by the vendored gerber-viewer anyway —
+/// (v1: clear-polarity is not produced by the forked parsing core anyway —
 /// see the note in [`crate::svg`]).
 ///
 /// Line primitives are first coalesced into polylines by [`crate::strokes`] so

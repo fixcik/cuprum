@@ -130,7 +130,7 @@ pub fn fill_polygons(contours: &[Vec<[f64; 2]>], holes: &[Hole]) -> Vec<Poly> {
     // overlapping at a trace BEND cancel to winding 0 and leave a triangular notch
     // ("mouse bites"). Forcing all contours CCW makes overlaps accumulate winding
     // (>=1) so the whole covered area fills. (All contours are additive here —
-    // the vendored gerber-viewer emits no clear-polarity — so there are no
+    // the forked parsing core emits no clear-polarity — so there are no
     // intended winding-holes to preserve; drills are subtracted separately.)
     let subj: Vec<Vec<[f64; 2]>> = contours.iter().map(|c| to_ccw(c.clone())).collect();
 

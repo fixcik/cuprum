@@ -413,7 +413,7 @@ mod tests {
         assert!(g.svg_body.contains(" L"), "polyline must have L commands");
     }
 
-    /// The vendored gerber-viewer (gerber-viewer/src/layer.rs) does not handle
+    /// The forked parsing core (`crate::viewer::layer`) does not handle
     /// the `%LPC*%` (load polarity clear / `ExtendedCode::LoadPolarity(Polarity::Clear)`)
     /// command — the match arm for `LoadPolarity` is absent, so it falls through to the
     /// catch-all `_ => {}` and every flash is emitted as `Exposure::Add`.  Until the

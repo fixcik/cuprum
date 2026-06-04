@@ -105,7 +105,6 @@ impl GerberLayer {
         }
     }
 
-    #[allow(unused)]
     pub fn primitives(&self) -> &[GerberPrimitive] {
         &self.gerber_primitives
     }
