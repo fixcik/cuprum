@@ -22,8 +22,33 @@ export interface PackResult {
 }
 
 /** Strict AABB overlap (touching edges do not count) with a float tolerance. */
-function boxesOverlap(a: Box, b: Box, tol = 1e-6): boolean {
+export function boxesOverlap(a: Box, b: Box, tol = 1e-6): boolean {
   return a.minX < b.maxX - tol && a.maxX > b.minX + tol && a.minY < b.maxY - tol && a.maxY > b.minY + tol;
+}
+
+/** Minimum keep-out zone side (mm). */
+export const KEEPOUT_MIN_MM = 1;
+
+/** Normalise a (possibly negative-size) zone rect to positive w/h, clamp it into
+ *  [0,W]×[0,H] trimming BOTH edges, and enforce a minimum size. Authoritative
+ *  geometry guard shared by add + resize of keep-out zones. */
+export function clampZoneRect(
+  rect: { x_mm: number; y_mm: number; width_mm: number; height_mm: number },
+  panelW: number,
+  panelH: number,
+  minMm: number,
+): { x_mm: number; y_mm: number; width_mm: number; height_mm: number } {
+  const nx = rect.width_mm < 0 ? rect.x_mm + rect.width_mm : rect.x_mm;
+  const ny = rect.height_mm < 0 ? rect.y_mm + rect.height_mm : rect.y_mm;
+  const nw = Math.abs(rect.width_mm);
+  const nh = Math.abs(rect.height_mm);
+  let cx = Math.max(0, Math.min(nx, panelW));
+  let cy = Math.max(0, Math.min(ny, panelH));
+  let cw = Math.min(nx + nw, panelW) - cx;
+  let ch = Math.min(ny + nh, panelH) - cy;
+  if (cw < minMm) { cw = Math.min(minMm, panelW); cx = Math.min(cx, panelW - cw); }
+  if (ch < minMm) { ch = Math.min(minMm, panelH); cy = Math.min(cy, panelH - ch); }
+  return { x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch };
 }
 
 /** Like {@link packLayout}, but avoids `obstacles` (existing instances' AABBs, mm).

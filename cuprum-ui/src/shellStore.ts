@@ -4,7 +4,7 @@ import i18n from "@/i18n";
 import { api, type AddDesignResult, type BoardInstance, type KeepOutKind, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
-import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
@@ -191,6 +191,8 @@ interface ShellStore {
    *  is open. Width/height are normalised to positive values; the zone is clamped
    *  into [0, panelW] × [0, panelH]. Default kind is "fixture". */
   addKeepOutZone: (z: { x_mm: number; y_mm: number; width_mm: number; height_mm: number; kind?: KeepOutKind }) => Promise<string>;
+  /** Resize a keep-out zone; new rect is normalised and clamped into the panel. */
+  resizeKeepOutZone: (id: string, rect: { x_mm: number; y_mm: number; width_mm: number; height_mm: number }) => Promise<void>;
   /** Translate the given keep-out zones by (dxMm, dyMm), clamped to the panel. */
   moveKeepOutZones: (ids: string[], dxMm: number, dyMm: number) => Promise<void>;
   /** Remove the given keep-out zones. */
@@ -766,22 +768,25 @@ export const useShell = create<ShellStore>((set, get) => ({
     const panel = get().currentManifest?.panel;
     const stackup = get().currentManifest?.stackup;
     if (!panel || !stackup) return "";
-    // Normalise rect to positive width/height.
-    const nx = width_mm < 0 ? x_mm + width_mm : x_mm;
-    const ny = height_mm < 0 ? y_mm + height_mm : y_mm;
-    const nw = Math.abs(width_mm);
-    const nh = Math.abs(height_mm);
-    // Clamp the zone box into [0, panelW] × [0, panelH] — trim BOTH sides, so a
-    // rect straddling an edge keeps only its in-panel part (not just the right clip).
-    const cx = Math.max(0, Math.min(nx, panel.width_mm));
-    const cy = Math.max(0, Math.min(ny, panel.height_mm));
-    const cw = Math.min(nx + nw, panel.width_mm) - cx;
-    const ch = Math.min(ny + nh, panel.height_mm) - cy;
+    const { x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch } =
+      clampZoneRect({ x_mm, y_mm, width_mm, height_mm }, panel.width_mm, panel.height_mm, KEEPOUT_MIN_MM);
     const id = crypto.randomUUID();
     const zone: KeepOutZone = { id, x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch, kind };
     const next: PanelDoc = { ...panel, keep_out_zones: [...(panel.keep_out_zones ?? []), zone] };
     await get().savePanelConfig(next, stackup);
     return id;
+  },
+
+  resizeKeepOutZone: async (id, rect) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const clamped = clampZoneRect(rect, panel.width_mm, panel.height_mm, KEEPOUT_MIN_MM);
+    const next: PanelDoc = {
+      ...panel,
+      keep_out_zones: (panel.keep_out_zones ?? []).map((z) => (z.id === id ? { ...z, ...clamped } : z)),
+    };
+    await get().savePanelConfig(next, stackup);
   },
 
   moveKeepOutZones: async (ids, dxMm, dyMm) => {
