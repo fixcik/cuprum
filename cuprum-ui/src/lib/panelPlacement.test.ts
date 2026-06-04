@@ -12,6 +12,10 @@ import {
   distributeInstances,
   computeSmartGuides,
   renestSelection,
+  toolingHoleBounds,
+  clampToolingHoleCenter,
+  registrationSetPositions,
+  panelObstacles,
   type AlignEdge,
   type GuideLine,
 } from "@/lib/panelPlacement";
@@ -480,5 +484,47 @@ describe("renestSelection", () => {
     expect(r.requested).toBe(0);
     expect(r.placed).toBe(0);
     expect(r.transforms).toEqual([]);
+  });
+});
+
+describe("toolingHoleBounds", () => {
+  it("AABB centred on the centre, side == diameter", () => {
+    expect(toolingHoleBounds({ xMm: 10, yMm: 20, diameterMm: 4 })).toEqual({ minX: 8, minY: 18, maxX: 12, maxY: 22 });
+  });
+});
+
+describe("clampToolingHoleCenter", () => {
+  it("keeps the whole bore inside the panel", () => {
+    expect(clampToolingHoleCenter(0, 0, 1.5, 100, 80)).toEqual({ x: 1.5, y: 1.5 });
+    expect(clampToolingHoleCenter(200, 200, 1.5, 100, 80)).toEqual({ x: 98.5, y: 78.5 });
+  });
+  it("centres when the panel is smaller than the bore", () => {
+    expect(clampToolingHoleCenter(5, 5, 10, 12, 12)).toEqual({ x: 6, y: 6 });
+  });
+});
+
+describe("registrationSetPositions", () => {
+  it("four corners inset by margin (TL, TR, BL, BR)", () => {
+    expect(registrationSetPositions(100, 80, 5)).toEqual([
+      { x: 5, y: 5 }, { x: 95, y: 5 }, { x: 5, y: 75 }, { x: 95, y: 75 },
+    ]);
+  });
+  it("clamps margin to half the shorter side", () => {
+    expect(registrationSetPositions(8, 8, 5)).toEqual([
+      { x: 4, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 4 },
+    ]);
+  });
+});
+
+describe("panelObstacles", () => {
+  it("merges board boxes and raw tooling-hole bounds", () => {
+    const sizes = { d1: { w: 10, h: 10 } };
+    const panel = {
+      instances: [{ id: "i1", design_id: "d1", x_mm: 0, y_mm: 0, rotation_deg: 0, layer_ref: "Top" }],
+      tooling_holes: [{ id: "th-1", x_mm: 50, y_mm: 50, diameter_mm: 4, role: "registration" }],
+    } as any;
+    const obs = panelObstacles(panel, sizes);
+    expect(obs).toContainEqual({ minX: 48, minY: 48, maxX: 52, maxY: 52 });
+    expect(obs.length).toBe(2);
   });
 });

@@ -1,4 +1,5 @@
 import type { NestSettings } from "@/lib/nest";
+import type { BoardInstance, ToolingHole } from "@/lib/api";
 
 /** Axis-aligned bounding box (mm). */
 export type Box = { minX: number; minY: number; maxX: number; maxY: number };
@@ -375,6 +376,60 @@ export function renestSelection(opts: {
     });
   }
   return { transforms, requested, placed };
+}
+
+/** Axis-aligned bounding box (mm) for a tooling hole, centred on (xMm, yMm) with
+ *  side length equal to the bore diameter. */
+export function toolingHoleBounds(h: { xMm: number; yMm: number; diameterMm: number }): Box {
+  const r = h.diameterMm / 2;
+  return { minX: h.xMm - r, minY: h.yMm - r, maxX: h.xMm + r, maxY: h.yMm + r };
+}
+
+/** Keep the whole bore inside the panel. If the panel is smaller than the bore,
+ *  centre the hole on the panel axis instead. `r` is the bore radius (mm). */
+export function clampToolingHoleCenter(
+  x: number,
+  y: number,
+  r: number,
+  panelW: number,
+  panelH: number,
+): { x: number; y: number } {
+  const cx = panelW >= 2 * r ? Math.min(panelW - r, Math.max(r, x)) : panelW / 2;
+  const cy = panelH >= 2 * r ? Math.min(panelH - r, Math.max(r, y)) : panelH / 2;
+  return { x: cx, y: cy };
+}
+
+/** Four corner positions for a registration-hole set, inset from each edge by
+ *  `marginMm` (clamped to half the shorter side so holes stay on the panel).
+ *  Order: TL, TR, BL, BR. All mm. */
+export function registrationSetPositions(
+  panelW: number,
+  panelH: number,
+  marginMm: number,
+): { x: number; y: number }[] {
+  const mx = Math.min(marginMm, panelW / 2);
+  const my = Math.min(marginMm, panelH / 2);
+  return [
+    { x: mx, y: my },
+    { x: panelW - mx, y: my },
+    { x: mx, y: panelH - my },
+    { x: panelW - mx, y: panelH - my },
+  ];
+}
+
+/** Unified placement-obstacle source: board instances + tooling holes (raw AABBs).
+ *  `packLayoutAvoiding` inflates every obstacle by its `clearance` arg uniformly,
+ *  so the fixturing gap around a pin equals the board gap. Future keep-out zones
+ *  plug in here. */
+export function panelObstacles(
+  panel: { instances: BoardInstance[]; tooling_holes: ToolingHole[] },
+  sizes: Record<string, { w: number; h: number }>,
+): Box[] {
+  const boards = boxesForInstances(panel.instances, sizes);
+  const holes = panel.tooling_holes.map((h) =>
+    toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm }),
+  );
+  return [...boards, ...holes];
 }
 
 /** Evenly space ≥3 instances' AABB centres along an axis; the extreme two stay put. */
