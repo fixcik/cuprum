@@ -10,6 +10,7 @@ import type enPrinter from "@/locales/en/printer.json";
 import type enProject from "@/locales/en/project.json";
 import type enLayers from "@/locales/en/layers.json";
 import type enMenu from "@/locales/en/menu.json";
+import type enDrill from "@/locales/en/drill.json";
 
 declare module "react-i18next" {
   interface CustomTypeOptions {
@@ -26,6 +27,7 @@ declare module "react-i18next" {
       project: typeof enProject;
       layers: typeof enLayers;
       menu: typeof enMenu;
+      drill: typeof enDrill;
     };
   }
 }

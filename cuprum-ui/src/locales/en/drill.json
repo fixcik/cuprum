@@ -1,0 +1,27 @@
+{
+  "window": {
+    "title": "Drill Plan"
+  },
+  "summary": {
+    "holes_one": "{{count}} hole",
+    "holes_few": "{{count}} holes",
+    "holes_many": "{{count}} holes",
+    "holes_other": "{{count}} holes",
+    "tools_one": "{{count}} tool",
+    "tools_few": "{{count}} tools",
+    "tools_many": "{{count}} tools",
+    "tools_other": "{{count}} tools",
+    "noTool": "no drill",
+    "unmatchedWarning": "No matching drill bit for: {{diameters}}"
+  },
+  "class": {
+    "registration": "registration",
+    "pth": "PTH",
+    "npth": "NPTH",
+    "mechanical": "mech"
+  },
+  "empty": {
+    "noProject": "No project open",
+    "noHoles": "No drill holes found"
+  }
+}
