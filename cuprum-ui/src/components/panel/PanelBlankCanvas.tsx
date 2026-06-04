@@ -6,8 +6,19 @@ import { Maximize, Plus, Minus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
-import { CadGrid } from "@/components/editor/CadGrid";
-import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
+import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
+import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
+import {
+  MIN_SCALE,
+  MAX_SCALE,
+  COPPER_STROKE,
+  COPPER_FILL,
+  NO_COPPER_STROKE,
+  RULER_TOP,
+  RULER_LEFT,
+} from "@/components/editor/canvasStyle";
+import { useSettings } from "@/settingsStore";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
 import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, type AlignEdge } from "@/lib/panelPlacement";
@@ -52,6 +63,10 @@ export function PanelBlankCanvas({
 }) {
   const { t } = useTranslation(["project", "common"]);
   const pxPerMm = useShell((s) => s.pxPerMm);
+  const { fmtLen } = useUnitFormat();
+  // Machine bed limit (mm) → dashed work-area rectangle on the canvas.
+  const maxPanelW = useSettings((s) => s.profile.maxPanelWidthMm);
+  const maxPanelH = useSettings((s) => s.profile.maxPanelHeightMm);
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
   const moveInstances = useShell((s) => s.moveInstances);
@@ -67,6 +82,33 @@ export function PanelBlankCanvas({
   const fitGroupRef = useRef<Konva.Group>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [zoomPct, setZoomPct] = useState(100);
+  // Screen-space viewport descriptor mirrored into React state so the (SVG) rulers
+  // overlay can follow the imperative Konva stage transform. Cursor position (CSS
+  // px) drives the hover crosshair/readout; null when the pointer is off-canvas.
+  const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
+  const [hoverPx, setHoverPx] = useState<{ x: number; y: number } | null>(null);
+  // Coalesce hover updates to one per animation frame: a bare mousemove handler
+  // would re-render the whole instance tree on every pixel of movement. The latest
+  // pointer lives in a ref; the frame flushes whatever is freshest.
+  const hoverRaf = useRef<number | null>(null);
+  const pendingHover = useRef<{ x: number; y: number } | null>(null);
+  const queueHover = useCallback((p: { x: number; y: number } | null) => {
+    pendingHover.current = p;
+    if (p === null) {
+      if (hoverRaf.current != null) {
+        cancelAnimationFrame(hoverRaf.current);
+        hoverRaf.current = null;
+      }
+      setHoverPx(null);
+      return;
+    }
+    if (hoverRaf.current != null) return;
+    hoverRaf.current = requestAnimationFrame(() => {
+      hoverRaf.current = null;
+      setHoverPx(pendingHover.current);
+    });
+  }, []);
+  useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
   const [spaceDown, setSpaceDown] = useState(false);
   const [tool, setTool] = useState<PanelTool>("select");
   const panMode = tool === "pan" || spaceDown;
@@ -108,7 +150,20 @@ export function PanelBlankCanvas({
   const H = Math.max(heightMm, 1);
   const hasCopper = side === "top" || doubleSided;
 
-  const fit = useMemo(() => Math.min(size.w / W, size.h / H) * 0.9, [size.w, size.h, W, H]);
+  // Fit the blank into the plot area (right of / below the ruler bands) so it never
+  // sits under the rulers.
+  const fit = useMemo(
+    () => Math.min((size.w - RULER_LEFT) / W, (size.h - RULER_TOP) / H) * 0.9,
+    [size.w, size.h, W, H],
+  );
+
+  // Mirror the imperative Konva stage transform into React state for the rulers
+  // overlay: screen px/mm = stage scale × fit; world origin (mm 0,0) = stage pos.
+  const syncViewport = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    setViewport({ pxPerMm: stage.scaleX() * fit, originX: stage.x(), originY: stage.y() });
+  }, [fit]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -154,17 +209,23 @@ export function PanelBlankCanvas({
       const stage = stageRef.current;
       if (!stage) return;
       const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-      const pos = clampPos((size.w - W * fit * s) / 2, (size.h - H * fit * s) / 2, s);
+      // Centre within the plot area (offset by the ruler bands).
+      const pos = clampPos(
+        RULER_LEFT + (size.w - RULER_LEFT - W * fit * s) / 2,
+        RULER_TOP + (size.h - RULER_TOP - H * fit * s) / 2,
+        s,
+      );
       if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: s, scaleY: s, duration: 0.16, easing: Konva.Easings.EaseOut });
+        stage.to({ x: pos.x, y: pos.y, scaleX: s, scaleY: s, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
       } else {
         stage.scale({ x: s, y: s });
         stage.position(pos);
         stage.batchDraw();
+        syncViewport();
       }
       setZoomPct(Math.round((fit * s / pxPerMm) * 100));
     },
-    [clampPos, fit, size.w, size.h, W, H, pxPerMm],
+    [clampPos, fit, size.w, size.h, W, H, pxPerMm, syncViewport],
   );
 
   const fitView = useCallback(() => centerAt(1, true), [centerAt]);
@@ -192,15 +253,16 @@ export function PanelBlankCanvas({
       const wy = (pointer.y - stage.y()) / oldScale;
       const pos = clampPos(pointer.x - wx * newScale, pointer.y - wy * newScale, newScale);
       if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: newScale, scaleY: newScale, duration: 0.16, easing: Konva.Easings.EaseOut });
+        stage.to({ x: pos.x, y: pos.y, scaleX: newScale, scaleY: newScale, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
       } else {
         stage.scale({ x: newScale, y: newScale });
         stage.position(pos);
         stage.batchDraw();
+        syncViewport();
       }
       setZoomPct(Math.round((fit * newScale / pxPerMm) * 100));
     },
-    [clampPos, fit, pxPerMm],
+    [clampPos, fit, pxPerMm, syncViewport],
   );
 
   const onWheel = (e: KonvaEventObject<WheelEvent>) => {
@@ -445,7 +507,11 @@ export function PanelBlankCanvas({
     setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
   };
 
-  const onBgMouseMove = () => {
+  const onStageMouseMove = () => {
+    // Track the cursor (CSS px) for the rulers' crosshair/readout.
+    const pt = stageRef.current?.getPointerPosition() ?? null;
+    queueHover(pt ? { x: pt.x, y: pt.y } : null);
+    // Live marquee (select tool) — unchanged.
     if (!marqueeStart.current) return;
     const p = pointerMm();
     if (!p) return;
@@ -496,14 +562,16 @@ export function PanelBlankCanvas({
         dragBoundFunc={dragBound}
         onWheel={onWheel}
         onMouseDown={onBgMouseDown}
-        onMouseMove={onBgMouseMove}
+        onMouseMove={onStageMouseMove}
+        onMouseLeave={() => queueHover(null)}
         onMouseUp={onBgMouseUp}
         onDragStart={() => setCursor("grabbing")}
-        onDragEnd={() => setCursor(panMode ? "grab" : "")}
+        onDragMove={syncViewport}
+        onDragEnd={() => { setCursor(panMode ? "grab" : ""); syncViewport(); }}
       >
         <Layer>
           <Group ref={fitGroupRef} x={0} y={0} scaleX={fit} scaleY={fit}>
-            <CadGrid widthMm={W} heightMm={H} />
+            <AdaptiveGrid widthMm={W} heightMm={H} />
             <Rect
               name="panel-bg"
               x={0}
@@ -621,6 +689,16 @@ export function PanelBlankCanvas({
           </Group>
         </Layer>
       </Stage>
+
+      <RulersOverlay
+        viewport={viewport}
+        size={size}
+        fmt={fmtLen}
+        extentMm={{ x: 0, y: 0, w: W, h: H }}
+        workAreaMm={{ w: maxPanelW, h: maxPanelH }}
+        workAreaLabel={t("panel.canvas.workArea")}
+        hover={hoverPx}
+      />
 
       <PanelToolPalette tool={tool} onToolChange={setTool} onDuplicate={duplicateSelected} />
       <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />

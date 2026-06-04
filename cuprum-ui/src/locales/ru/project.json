@@ -50,7 +50,8 @@
   "panel": {
     "canvas": {
       "copper": "Cu",
-      "noCopper": "нет меди"
+      "noCopper": "нет меди",
+      "workArea": "рабочая зона"
     },
     "add": {
       "window": {
