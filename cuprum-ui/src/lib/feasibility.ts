@@ -468,8 +468,10 @@ export function evaluate(
 }
 
 /** Overall verdict: block if any blocker, else warn if any risk, else ok.
- *  `info` findings are advisory and never escalate the verdict. */
-export function overallVerdict(findings: Finding[]): Verdict {
+ *  `info` findings are advisory and never escalate the verdict.
+ *  Accepts any array of objects with a `severity` field so it can be shared
+ *  with panel-level findings (`PanelFinding`) as well as design-level ones. */
+export function overallVerdict(findings: { severity: Severity }[]): Verdict {
   if (findings.some((f) => f.severity === "block")) return "block";
   if (findings.some((f) => f.severity === "warn")) return "warn";
   return "ok";

@@ -21,6 +21,7 @@ import {
   INSTANCE_LABEL,
   INSTANCE_OFF_STROKE,
   INSTANCE_OFF_FILL,
+  INSTANCE_WARN_STROKE,
   RULER_TOP,
   RULER_LEFT,
 } from "@/components/editor/canvasStyle";
@@ -29,6 +30,7 @@ import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
 import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
+import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
@@ -141,6 +143,9 @@ export function PanelBlankCanvas({
   const panMode = tool === "pan" || spaceDown;
   // Resolved board extents (mm) keyed by design id — shared hook, fetched once per design.
   const sizes = usePlacedBoardSizes();
+  // Panel-level findings from the single source of truth (evaluatePanel).
+  // byInstance maps each instance id to its worst severity — drives canvas highlight.
+  const { byInstance } = usePanelFindings();
   // Live drag preview (mm). While dragging selected instances we shift their render
   // by this delta and commit a single moveInstances on drag end; null when idle.
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
@@ -816,10 +821,11 @@ export function PanelBlankCanvas({
               // Live rotation preview: spin selected instances by the snapped delta
               // (each about its own centre) until the knob is released and committed.
               const rotation = inst.rotation_deg + (isSelected && rotPreview != null ? rotPreview : 0);
-              // Poking past the panel edge → red outline + faint red fill (matches the
-              // editor's off-panel warning). Computed on the rendered pose (incl. live
-              // drag/rotate preview) so the highlight tracks where the board is drawn.
-              const off = isOffPanel({
+              // Live off-panel check on the rendered pose (incl. drag/rotate preview)
+              // so the red highlight tracks the board while it moves. This is the
+              // "live" path; the committed severity from usePanelFindings is used
+              // when the board is idle.
+              const liveOff = isOffPanel({
                 xMm: inst.x_mm + shift.dx,
                 yMm: inst.y_mm + shift.dy,
                 boardW: sz.w,
@@ -828,6 +834,12 @@ export function PanelBlankCanvas({
                 panelW: W,
                 panelH: H,
               });
+              // Committed severity from the single findings source (covers off-panel,
+              // overlap, spacing, work-area). During a live drag/rotate the committed
+              // value may lag the render; fall back to liveOff for block.
+              const committedSev = byInstance.get(inst.id);
+              const isBlock = liveOff || committedSev === "block";
+              const isWarn = !isBlock && committedSev === "warn";
               return (
                 <Group
                   key={inst.id}
@@ -849,9 +861,9 @@ export function PanelBlankCanvas({
                   <Rect
                     width={sz.w}
                     height={sz.h}
-                    fill={off ? INSTANCE_OFF_FILL : INSTANCE_FILL}
-                    stroke={off ? INSTANCE_OFF_STROKE : INSTANCE_STROKE}
-                    strokeWidth={off ? 1.5 : 1}
+                    fill={isBlock ? INSTANCE_OFF_FILL : INSTANCE_FILL}
+                    stroke={isBlock ? INSTANCE_OFF_STROKE : isWarn ? INSTANCE_WARN_STROKE : INSTANCE_STROKE}
+                    strokeWidth={isBlock || isWarn ? 1.5 : 1}
                     strokeScaleEnabled={false}
                     cornerRadius={0.3}
                   />
