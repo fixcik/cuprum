@@ -1,0 +1,54 @@
+{
+  "title": "Machine",
+  "connection": {
+    "port": "Port",
+    "refresh": "Refresh",
+    "noPorts": "No serial ports",
+    "baud": "Baud",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "disconnected": "Disconnected"
+  },
+  "state": {
+    "idle": "Idle",
+    "run": "Run",
+    "hold": "Hold",
+    "jog": "Jog",
+    "alarm": "Alarm",
+    "home": "Homing",
+    "door": "Door",
+    "check": "Check",
+    "sleep": "Sleep",
+    "unknown": "—"
+  },
+  "dro": {
+    "work": "Work",
+    "machine": "Machine",
+    "zeroAxis": "Zero {{axis}}",
+    "zeroAll": "Zero XYZ"
+  },
+  "jog": {
+    "title": "Jog",
+    "step": "Step",
+    "feed": "Feed"
+  },
+  "spindle": {
+    "title": "Spindle",
+    "on": "On",
+    "off": "Off",
+    "rpm": "RPM"
+  },
+  "controls": {
+    "home": "Home",
+    "unlock": "Unlock",
+    "feedHold": "Feed hold",
+    "cycleStart": "Resume",
+    "softReset": "Soft reset"
+  },
+  "console": {
+    "title": "Console",
+    "placeholder": "G-code…",
+    "send": "Send"
+  },
+  "alarm": "Machine in alarm — unlock or soft-reset to continue."
+}
