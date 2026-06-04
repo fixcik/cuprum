@@ -27,6 +27,16 @@ pub enum Telemetry {
     },
 }
 
+/// Position snapshot broadcast as the global `machine://status` event so the
+/// separate drill webview can track the tool without the main window's Channel.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachinePos {
+    state: String,
+    mpos: [f32; 3],
+    wpos: [f32; 3],
+}
+
 #[derive(Serialize)]
 pub struct PortDto {
     pub name: String,
@@ -128,6 +138,15 @@ pub fn machine_connect(
                             feed: s.feed,
                             spindle: s.spindle,
                         });
+                        // Global broadcast for other windows (drill webview).
+                        let _ = r_app.emit(
+                            "machine://status",
+                            MachinePos {
+                                state: state_str(s.state).into(),
+                                mpos: s.mpos,
+                                wpos: s.wpos,
+                            },
+                        );
                     }
                 }
                 Ok(None) => {}
