@@ -7,6 +7,9 @@ import {
   marqueeHits,
   snapAngle,
   boxesForInstances,
+  alignInstances,
+  distributeInstances,
+  type AlignEdge,
 } from "@/lib/panelPlacement";
 import { DEFAULT_NEST } from "@/lib/nest";
 import type { NestSettings } from "@/lib/nest";
@@ -195,5 +198,65 @@ describe("snapAngle", () => {
   it("normalises into [0,360)", () => {
     expect(snapAngle(-15, false)).toBe(345);
     expect(snapAngle(375, false)).toBe(15);
+  });
+});
+
+// Helper for align/distribute tests: creates an axis-aligned item (no rotation).
+const mk = (id: string, x: number, y: number, w: number, h: number) => ({
+  id, x_mm: x, y_mm: y,
+  box: { minX: x, minY: y, maxX: x + w, maxY: y + h },
+});
+
+// Suppress unused-type lint warning: AlignEdge is imported for typing clarity.
+void (undefined as unknown as AlignEdge);
+
+describe("alignInstances", () => {
+  it("align left: every box's minX meets the selection's minX (x_mm shifts by delta)", () => {
+    const items = [mk("a", 10, 0, 20, 10), mk("b", 40, 0, 10, 10)];
+    const out = alignInstances(items, "left");
+    expect(out.find((o) => o.id === "a")!.x_mm).toBe(10);
+    expect(out.find((o) => o.id === "b")!.x_mm).toBe(10); // 40 + (10 - 40)
+  });
+  it("align right: boxes' maxX meet selection maxX", () => {
+    const items = [mk("a", 10, 0, 20, 10), mk("b", 40, 0, 10, 10)];
+    const out = alignInstances(items, "right");
+    // selection maxX = max(30,50)=50; a: x=50-20=30; b: x=50-10=40
+    expect(out.find((o) => o.id === "a")!.x_mm).toBe(30);
+    expect(out.find((o) => o.id === "b")!.x_mm).toBe(40);
+  });
+  it("align hcenter: box centres meet selection centre", () => {
+    const items = [mk("a", 0, 0, 20, 10), mk("b", 100, 0, 10, 10)];
+    const out = alignInstances(items, "hcenter");
+    // sel centre x = (0+110)/2 = 55; a centre→55: x=55-10=45; b: x=55-5=50
+    expect(out.find((o) => o.id === "a")!.x_mm).toBe(45);
+    expect(out.find((o) => o.id === "b")!.x_mm).toBe(50);
+  });
+  it("offset between box and x_mm (rotated) is preserved", () => {
+    // box.minX is 5 to the right of x_mm (as if rotated): delta applies to x_mm.
+    const it = { id: "r", x_mm: 0, y_mm: 0, box: { minX: 5, minY: 0, maxX: 25, maxY: 10 } };
+    const other = mk("o", 100, 0, 10, 10);
+    const out = alignInstances([it, other], "left");
+    // selection minX = 5; r already there → x_mm unchanged 0; o: minX100→5 ⇒ x=100+(5-100)=5
+    expect(out.find((o) => o.id === "r")!.x_mm).toBe(0);
+    expect(out.find((o) => o.id === "o")!.x_mm).toBe(5);
+  });
+  it("returns input unchanged for < 2 items", () => {
+    const items = [mk("a", 10, 0, 20, 10)];
+    expect(alignInstances(items, "left")).toEqual(items.map(({ id, x_mm, y_mm }) => ({ id, x_mm, y_mm })));
+  });
+});
+
+describe("distributeInstances", () => {
+  it("evenly spaces centres along H (needs ≥3)", () => {
+    const items = [mk("a", 0, 0, 10, 10), mk("c", 100, 0, 10, 10), mk("b", 30, 0, 10, 10)];
+    const out = distributeInstances(items, "h");
+    // centres sorted: a=5, b=35, c=105; ends fixed; middle centre → (5+105)/2=55 ⇒ b.x=55-5=50
+    expect(out.find((o) => o.id === "a")!.x_mm).toBe(0);
+    expect(out.find((o) => o.id === "c")!.x_mm).toBe(100);
+    expect(out.find((o) => o.id === "b")!.x_mm).toBe(50);
+  });
+  it("returns input unchanged for < 3 items", () => {
+    const items = [mk("a", 0, 0, 10, 10), mk("b", 30, 0, 10, 10)];
+    expect(distributeInstances(items, "h").map((o) => o.x_mm)).toEqual([0, 30]);
   });
 });
