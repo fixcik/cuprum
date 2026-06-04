@@ -244,27 +244,10 @@ fn run_job(
             break;
         }
 
-        // Tool-change gate.
-        if step.pause_for_tool_change {
-            ctrl.confirm_tool_change.store(false, Relaxed);
-            let _ = app.emit(
-                "drill-run://toolchange",
-                ToolChangePayload {
-                    tool_name: step.tool_name.clone().unwrap_or_default(),
-                    diameter_mm: step.diameter_mm.unwrap_or(0.0),
-                },
-            );
-            emit_state("awaitingToolChange");
-            while !ctrl.confirm_tool_change.load(Relaxed) && !ctrl.abort.load(Relaxed) {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            if ctrl.abort.load(Relaxed) {
-                break;
-            }
-            emit_state("running");
-        }
-
-        // Stream lines, waiting for ok per line.
+        // Stream the step's lines FIRST (waiting for ok per line). For a
+        // tool-change step this stops the spindle (M5) and retracts to safe Z
+        // before we pause for the operator — so the bit is swapped with the
+        // spindle stopped (safety). The tool-change pause happens after this block.
         for line in &step.lines {
             if ctrl.abort.load(Relaxed) {
                 break 'outer;
@@ -305,6 +288,29 @@ fn run_job(
                     }
                 }
             }
+        }
+
+        // Tool-change gate — AFTER the step's lines (the spindle was stopped and
+        // Z retracted above), so the operator swaps the bit with the spindle off.
+        // Spindle-up (M3 S…) lives on the next group's first hole step, streamed
+        // only after the operator confirms.
+        if step.pause_for_tool_change {
+            ctrl.confirm_tool_change.store(false, Relaxed);
+            let _ = app.emit(
+                "drill-run://toolchange",
+                ToolChangePayload {
+                    tool_name: step.tool_name.clone().unwrap_or_default(),
+                    diameter_mm: step.diameter_mm.unwrap_or(0.0),
+                },
+            );
+            emit_state("awaitingToolChange");
+            while !ctrl.confirm_tool_change.load(Relaxed) && !ctrl.abort.load(Relaxed) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if ctrl.abort.load(Relaxed) {
+                break;
+            }
+            emit_state("running");
         }
 
         if step.kind == "hole" {
