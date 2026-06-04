@@ -972,6 +972,23 @@ export function PanelBlankCanvas({
     return () => window.removeEventListener("keydown", onKey);
   }, [tool, removeKeepOutZones]);
 
+  // Commit an in-progress keep-out resize even if the mouse is released OUTSIDE
+  // the canvas/window — the Stage onMouseUp won't fire there. The ref null-check
+  // avoids a double commit: the Stage handler runs first and clears the ref, so
+  // this listener then sees null and bails.
+  useEffect(() => {
+    const onUp = () => {
+      if (!keepOutResizeRef.current) return;
+      const r = keepOutResize;
+      const id = keepOutResizeRef.current.id;
+      keepOutResizeRef.current = null;
+      setKeepOutResize(null);
+      if (r) void resizeKeepOutZone(id, r);
+    };
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, [keepOutResize, resizeKeepOutZone]);
+
   return (
     <>
     <ContextMenu>
