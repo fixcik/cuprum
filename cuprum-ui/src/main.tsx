@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import { AddDesignWindow } from "./windows/AddDesignWindow";
+import { DrillWindow } from "./windows/DrillWindow";
 import { InspectorWindow } from "./windows/InspectorWindow";
 import "./styles.css";
 import i18n from "./i18n";
@@ -45,6 +46,8 @@ const INSPECTOR_PREFIX = "inspector-";
 let windowRoot: React.ReactNode;
 if (label === "add-design") {
   windowRoot = <AddDesignWindow />;
+} else if (label === "drill") {
+  windowRoot = <DrillWindow />;
 } else if (label.startsWith(INSPECTOR_PREFIX)) {
   windowRoot = <InspectorWindow designId={label.slice(INSPECTOR_PREFIX.length)} />;
 } else {

@@ -1,0 +1,27 @@
+{
+  "window": {
+    "title": "План сверловки"
+  },
+  "summary": {
+    "holes_one": "{{count}} отверстие",
+    "holes_few": "{{count}} отверстия",
+    "holes_many": "{{count}} отверстий",
+    "holes_other": "{{count}} отверстий",
+    "tools_one": "{{count}} инструмент",
+    "tools_few": "{{count}} инструмента",
+    "tools_many": "{{count}} инструментов",
+    "tools_other": "{{count}} инструментов",
+    "noTool": "нет сверла",
+    "unmatchedWarning": "Нет подходящего сверла: {{diameters}}"
+  },
+  "class": {
+    "registration": "реперное",
+    "pth": "сквозное",
+    "npth": "несквозное",
+    "mechanical": "механика"
+  },
+  "empty": {
+    "noProject": "Нет открытого проекта",
+    "noHoles": "Отверстия не найдены"
+  }
+}
