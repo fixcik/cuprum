@@ -1,14 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { evaluatePanel, MIN_PANEL_GAP_MM } from "@/lib/panelFeasibility";
 import { overallVerdict } from "@/lib/feasibility";
-import type { PanelDoc } from "@/lib/api";
+import type { PanelDoc, KeepOutZone, ToolingHole } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
 const prof = { maxPanelWidthMm: 200, maxPanelHeightMm: 100 } as CapabilityProfile;
 const inst = (id: string, design_id: string, x: number, y: number, rot = 0) =>
   ({ id, design_id, x_mm: x, y_mm: y, rotation_deg: rot, layer_ref: "Top" as const });
-const panel = (w: number, h: number, instances: ReturnType<typeof inst>[]): PanelDoc =>
-  ({ width_mm: w, height_mm: h, instances, tooling_holes: [] } as unknown as PanelDoc);
+const panel = (w: number, h: number, instances: ReturnType<typeof inst>[], tooling_holes: ToolingHole[] = [], keep_out_zones: KeepOutZone[] = []): PanelDoc =>
+  ({ width_mm: w, height_mm: h, instances, tooling_holes, keep_out_zones } as unknown as PanelDoc);
+const zone = (id: string, x: number, y: number, w: number, h: number, kind: KeepOutZone["kind"] = "fixture"): KeepOutZone =>
+  ({ id, x_mm: x, y_mm: y, width_mm: w, height_mm: h, kind });
+const hole = (id: string, x: number, y: number, d = 3): ToolingHole =>
+  ({ id, x_mm: x, y_mm: y, diameter_mm: d, role: "registration" as const });
 
 describe("evaluatePanel", () => {
   it("empty panel → single info finding, verdict ok", () => {
@@ -120,5 +124,35 @@ describe("evaluatePanel", () => {
     });
     expect(f).toHaveLength(0);
     expect(overallVerdict(f)).toBe("ok");
+  });
+
+  it("flags a board intersecting any keep-out zone (block)", () => {
+    // 20×20 board at (10,10) → AABB [10,30]×[10,30]; zone [15,45]×[15,45] → overlap
+    const f = evaluatePanel({
+      panel: panel(100, 100, [inst("b1", "d1", 10, 10)], [], [zone("z1", 15, 15, 30, 30)]),
+      sizes: { d1: { w: 20, h: 20 } }, profile: prof, designVerdicts: { d1: "ok" },
+    });
+    const ko = f.find((x) => x.category === "keep-out");
+    expect(ko?.severity).toBe("block");
+    expect(ko?.instanceIds).toEqual(["b1"]);
+    expect(overallVerdict(f)).toBe("block");
+  });
+
+  it("flags a tooling hole in a dead zone, ignores fixture/reserved (block)", () => {
+    // h1 at (20,20) d=3 → AABB [18.5,21.5]×[18.5,21.5]; dead zone [10,30]×[10,30] → overlap
+    // h2 at (80,20) d=3 → AABB [78.5,81.5]×[18.5,21.5]; fixture zone [70,90]×[10,30] → NOT flagged
+    const f = evaluatePanel({
+      panel: panel(
+        100, 100,
+        [inst("clear", "d1", 50, 50)],
+        [hole("h1", 20, 20), hole("h2", 80, 20)],
+        [zone("z1", 10, 10, 20, 20, "dead"), zone("z2", 70, 10, 20, 20, "fixture")],
+      ),
+      sizes: { d1: { w: 5, h: 5 } }, profile: prof, designVerdicts: { d1: "ok" },
+    });
+    const ko = f.find((x) => x.category === "keep-out-tooling");
+    expect(ko?.severity).toBe("block");
+    expect(ko?.toolingHoleIds).toEqual(["h1"]);
+    expect(overallVerdict(f)).toBe("block");
   });
 });

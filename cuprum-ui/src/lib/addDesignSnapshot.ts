@@ -23,5 +23,6 @@ export function buildAddDesignSnapshot(args: {
     instances: args.manifest?.panel?.instances ?? [],
     placedSizes: args.placedSizes ?? {},
     tooling_holes: args.manifest?.panel?.tooling_holes ?? [],
+    keep_out_zones: args.manifest?.panel?.keep_out_zones ?? [],
   };
 }

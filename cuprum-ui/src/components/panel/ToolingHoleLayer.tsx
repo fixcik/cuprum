@@ -1,6 +1,7 @@
 import { Group, Circle, Line } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { COPPER_STROKE, INSTANCE_STROKE } from "@/components/editor/canvasStyle";
+import { COPPER_STROKE, INSTANCE_OFF_STROKE, INSTANCE_STROKE } from "@/components/editor/canvasStyle";
+import type { Severity } from "@/lib/feasibility";
 import type { ToolingHole } from "@/lib/api";
 
 /** Konva layer rendering tooling holes inside the mm fit-group. Each hole is a
@@ -11,6 +12,7 @@ export function ToolingHoleLayer({
   selectedId,
   pxPerMm,
   interactive,
+  severityByHole,
   onHoleMouseDown,
   onHoleDragMove,
   onHoleDragEnd,
@@ -19,6 +21,7 @@ export function ToolingHoleLayer({
   selectedId: string | null;
   pxPerMm: number;
   interactive: boolean;
+  severityByHole?: Map<string, Severity>;
   onHoleMouseDown?: (id: string, e: KonvaEventObject<MouseEvent>) => void;
   onHoleDragMove?: (id: string, e: KonvaEventObject<DragEvent>) => void;
   onHoleDragEnd?: (id: string, e: KonvaEventObject<DragEvent>) => void;
@@ -37,6 +40,7 @@ export function ToolingHoleLayer({
         const isSelected = hole.id === selectedId;
         const isUnused = hole.role === "unused";
         const isFlip = hole.role === "flip";
+        const isBlock = severityByHole?.get(hole.id) === "block";
 
         return (
           <Group
@@ -91,8 +95,8 @@ export function ToolingHoleLayer({
             {/* Main bore circle */}
             <Circle
               radius={r}
-              stroke={INSTANCE_STROKE}
-              strokeWidth={1.2}
+              stroke={isBlock ? INSTANCE_OFF_STROKE : INSTANCE_STROKE}
+              strokeWidth={isBlock ? 1.8 : 1.2}
               strokeScaleEnabled={false}
               dash={isUnused ? [2, 2] : undefined}
               listening={false}

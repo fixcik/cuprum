@@ -163,7 +163,7 @@ export function AddDesignWindow() {
   const existingBoxes = useMemo(
     () =>
       panelObstacles(
-        { instances: snap?.instances ?? [], tooling_holes: snap?.tooling_holes ?? [] },
+        { instances: snap?.instances ?? [], tooling_holes: snap?.tooling_holes ?? [], keep_out_zones: snap?.keep_out_zones ?? [] },
         snap?.placedSizes ?? {},
       ),
     [snap],
@@ -270,6 +270,7 @@ export function AddDesignWindow() {
                     obstacles={boardBoxes}
                     clearanceMm={clearance}
                     toolingHoles={snap?.tooling_holes ?? []}
+                    keepOutZones={snap?.keep_out_zones ?? []}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted-foreground">

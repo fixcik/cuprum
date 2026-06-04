@@ -25,6 +25,7 @@ import {
 } from "@/lib/panelPlacement";
 import { DEFAULT_NEST } from "@/lib/nest";
 import type { NestSettings } from "@/lib/nest";
+import type { BoardInstance, ToolingHole } from "@/lib/api";
 
 const nest = (o: Partial<NestSettings> = {}): NestSettings => ({ ...DEFAULT_NEST, ...o });
 
@@ -584,6 +585,17 @@ describe("panelObstacles", () => {
     const obs = panelObstacles(panel, sizes);
     expect(obs).toContainEqual({ minX: 48, minY: 48, maxX: 52, maxY: 52 });
     expect(obs.length).toBe(2);
+  });
+  it("includes keep-out zones as obstacles for boards", () => {
+    const panel = {
+      instances: [] as BoardInstance[],
+      tooling_holes: [] as ToolingHole[],
+      keep_out_zones: [
+        { id: "z1", x_mm: 10, y_mm: 20, width_mm: 5, height_mm: 8, kind: "fixture" as const },
+      ],
+    };
+    const obs = panelObstacles(panel, {});
+    expect(obs).toContainEqual({ minX: 10, minY: 20, maxX: 15, maxY: 28 });
   });
 });
 
