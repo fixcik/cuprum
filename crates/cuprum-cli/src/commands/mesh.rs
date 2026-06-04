@@ -68,7 +68,11 @@ pub fn run(input: &Path, out: Option<PathBuf>, format: Option<String>) -> Result
         Format::Stl => std::fs::write(&out, export::to_stl(&mesh))?,
         Format::Obj => {
             let mtl_path = out.with_extension("mtl");
-            let mtl_name = mtl_path.file_name().unwrap().to_string_lossy().into_owned();
+            let mtl_name = mtl_path
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("cannot derive MTL filename from {:?}", mtl_path))?
+                .to_string_lossy()
+                .into_owned();
             let (obj, mtl) = export::to_obj(&mesh, &mtl_name);
             std::fs::write(&out, obj)?;
             std::fs::write(&mtl_path, mtl)?;
