@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import { type CapabilityProfile, DEFAULT_PROFILE } from "@/lib/capabilityProfile";
 import { type PanelPreset } from "@/lib/panel";
 import { type NestSettings, DEFAULT_NEST } from "@/lib/nest";
+import { type CncProfile, DEFAULT_CNC_PROFILE } from "@/lib/cncProfile";
 
 export type Language = "auto" | "en" | "ru";
 export type Units = "mm" | "imperial";
@@ -32,6 +33,9 @@ interface SettingsStore {
    *  which accordion sections are open. */
   panelInspector: { width: number; collapsed: boolean; sizeOpen: boolean; stackupOpen: boolean; feasibilityOpen: boolean };
   setPanelInspector: (patch: Partial<SettingsStore["panelInspector"]>) => void;
+  /** CNC machine profile (connection + jog/spindle defaults). */
+  cncProfile: CncProfile;
+  setCncProfile: (patch: Partial<CncProfile>) => void;
 }
 
 export const useSettings = create<SettingsStore>()(
@@ -56,10 +60,12 @@ export const useSettings = create<SettingsStore>()(
       setNest: (patch) => set((s) => ({ nest: { ...s.nest, ...patch } })),
       panelInspector: { width: 330, collapsed: false, sizeOpen: true, stackupOpen: true, feasibilityOpen: true },
       setPanelInspector: (patch) => set((s) => ({ panelInspector: { ...s.panelInspector, ...patch } })),
+      cncProfile: DEFAULT_CNC_PROFILE,
+      setCncProfile: (patch) => set((s) => ({ cncProfile: { ...s.cncProfile, ...patch } })),
     }),
     {
       name: "cuprum-settings",
-      version: 4,
+      version: 5,
       migrate: (persisted) => persisted, // merge handles field defaulting across versions
       // Merge persisted values onto current defaults so fields added in later
       // versions (language, units, new profile fields) get their default.
@@ -74,6 +80,7 @@ export const useSettings = create<SettingsStore>()(
           panelPresets: p?.panelPresets ?? [],
           nest: { ...DEFAULT_NEST, ...(p?.nest ?? {}) },
           panelInspector: { width: 330, collapsed: false, sizeOpen: true, stackupOpen: true, feasibilityOpen: true, ...(p?.panelInspector ?? {}) },
+          cncProfile: { ...DEFAULT_CNC_PROFILE, ...(p?.cncProfile ?? {}) },
         };
       },
     },
