@@ -146,7 +146,6 @@ browser, so they don't re-trigger the warning).
 ```
 crates/          Rust workspace (core, cli, project model)
 cuprum-ui/       Tauri 2 + React desktop app
-vendor/          Vendored dependencies (see Acknowledgements)
 testdata/        Sample Gerber files
 docs/            Vision, design system, and development notes
 ```
@@ -156,9 +155,10 @@ bump the relevant disk-cache version tag when you change derived output).
 
 ## Acknowledgements
 
-- Gerber rendering builds on
+- Gerber parsing builds on
   [MakerPnP/gerber-viewer](https://github.com/MakerPnP/gerber-viewer)
-  (MIT OR Apache-2.0), vendored under `vendor/gerber-viewer`.
+  (MIT OR Apache-2.0), forked and trimmed to the parsing core under
+  `crates/cuprum-gerber/src/viewer`.
 
 ## License
 
