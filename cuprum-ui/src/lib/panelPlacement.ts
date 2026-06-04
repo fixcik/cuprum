@@ -335,7 +335,10 @@ export function renestSelection(opts: {
     groups.get(s.design_id)!.push(s.id);
   }
 
-  const rotated = nest.enabled && nest.rotate;
+  // groupNest forces enabled:true (re-nest always grids), so the packer swaps the
+  // footprint on nest.rotate alone — the pose flip must follow the same flag, NOT
+  // the raw nest.enabled (false by default → would desync pose from the packed cell).
+  const rotated = nest.rotate;
   const placedBoxes: Box[] = [];
   const transforms: RenestTransform[] = [];
   let requested = 0;

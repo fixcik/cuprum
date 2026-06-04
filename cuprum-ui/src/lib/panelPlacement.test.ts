@@ -421,6 +421,19 @@ describe("renestSelection", () => {
     expect(r.transforms).toEqual([{ id: "a", x_mm: -5, y_mm: 5, rotation_deg: 90 }]);
   });
 
+  it("rotate works when nest.enabled is false (default settings)", () => {
+    // re-nest always grids (groupNest forces enabled:true), so rotate alone must
+    // drive the 90° flip even with the persisted default nest.enabled === false.
+    const r = renestSelection({
+      selected: [{ id: "a", design_id: "d1" }],
+      sizes: { d1: { w: 40, h: 30 } },
+      obstacles: [],
+      panelW: 100, panelH: 100,
+      nest: { ...NEST, enabled: false, rotate: true },
+    });
+    expect(r.transforms).toEqual([{ id: "a", x_mm: -5, y_mm: 5, rotation_deg: 90 }]);
+  });
+
   it("two designs pack into non-overlapping groups", () => {
     // d1 40×30 (1 copy) → (0,0); d2 40×30 (1 copy) avoids d1's new cell → (40,0).
     const r = renestSelection({
