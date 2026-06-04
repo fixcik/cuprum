@@ -41,6 +41,7 @@ pub fn open(port: &str, baud: u32) -> Result<(GrblWriter, GrblReader)> {
         .open()
         .with_context(|| format!("open serial port {port} @ {baud}"))?;
     let read_handle = handle.try_clone().context("clone serial handle")?;
+    tracing::debug!(port, baud, "opened serial port");
     Ok((
         GrblWriter { port: handle },
         GrblReader {
@@ -96,7 +97,12 @@ impl GrblReader {
                 Ok(0) => return Ok(None),
                 Ok(n) => self.buf.extend_from_slice(&tmp[..n]),
                 Err(e) if e.kind() == io::ErrorKind::TimedOut => return Ok(None),
-                Err(e) => return Err(e).context("serial read"),
+                // A read interrupted by a signal is transient — loop and read again.
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    tracing::warn!(error = %e, "serial read failed");
+                    return Err(e).context("serial read");
+                }
             }
         }
     }

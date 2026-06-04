@@ -8,3 +8,4 @@ description = "GRBL 1.1 client: serial transport, status/line parsing, command e
 [dependencies]
 anyhow.workspace = true
 serialport.workspace = true
+tracing.workspace = true
