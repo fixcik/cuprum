@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
-import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
+import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
-import { DEFAULT_STACKUP, newPanelDoc } from "@/lib/panel";
-import { packLayoutAvoiding, boxesForInstances } from "@/lib/panelPlacement";
+import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, REGISTRATION_SET_MARGIN_MM, newPanelDoc } from "@/lib/panel";
+import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions } from "@/lib/panelPlacement";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
@@ -172,12 +172,35 @@ interface ShellStore {
   pendingAddDesignId: string | null;
   /** Open the add-design window with a specific design pre-selected. */
   openAddDesignForDesign: (designId: string) => Promise<void>;
+
+  /** Add a tooling hole centred at (xMm, yMm) with the default diameter.
+   *  Returns the new hole id, or "" when no panel is open. */
+  addToolingHole: (xMm: number, yMm: number) => Promise<string>;
+  /** Translate an existing tooling hole by (dxMm, dyMm), clamped to the panel. */
+  moveToolingHole: (id: string, dxMm: number, dyMm: number) => Promise<void>;
+  /** Remove a tooling hole by id. */
+  removeToolingHole: (id: string) => Promise<void>;
+  /** Change the bore diameter of a tooling hole; re-clamps the centre. */
+  setToolingHoleDiameter: (id: string, diameterMm: number) => Promise<void>;
+  /** Change the role of a tooling hole. */
+  setToolingHoleRole: (id: string, role: ToolingHoleRole) => Promise<void>;
+  /** Add a corner registration set (4 holes) in one undo step. */
+  addRegistrationSet: () => Promise<void>;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
 function stem(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? path;
   return base.replace(/\.(cu|cuprum)$/i, "");
+}
+
+// Next "th-N" id beyond the current max — stable across deletions.
+function nextToolingId(holes: ToolingHole[]): string {
+  const max = holes.reduce((m, h) => {
+    const n = parseInt(h.id.replace(/^th-/, ""), 10);
+    return Number.isFinite(n) ? Math.max(m, n) : m;
+  }, 0);
+  return `th-${max + 1}`;
 }
 
 export const useShell = create<ShellStore>((set, get) => ({
@@ -526,7 +549,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     // path, so the live re-read here is sufficient (no need to serialize the write).
     const panel: PanelDoc = get().currentManifest?.panel ?? newPanelDoc(100, 100);
     const stackup = get().currentManifest?.stackup ?? DEFAULT_STACKUP;
-    const obstacles = boxesForInstances(panel.instances, sizes);
+    const obstacles = panelObstacles(panel, sizes);
     const clearance = nest.enabled ? nest.gapMm : 0;
     const pack = packLayoutAvoiding(w, h, panel.width_mm, panel.height_mm, nest, obstacles, clearance);
     if (pack.n === 0) return { ok: false, messageKey: "panel.add.toast.noFit", params: { name: design.source_name } };
@@ -645,6 +668,82 @@ export const useShell = create<ShellStore>((set, get) => ({
     const next: PanelDoc = { ...panel, instances: [...panel.instances, ...copies] };
     await get().savePanelConfig(next, stackup);
     return copies.map((c) => c.id);
+  },
+
+  addToolingHole: async (xMm, yMm) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return "";
+    const r = DEFAULT_TOOLING_DIAMETER_MM / 2;
+    const { x, y } = clampToolingHoleCenter(xMm, yMm, r, panel.width_mm, panel.height_mm);
+    const id = nextToolingId(panel.tooling_holes);
+    const hole: ToolingHole = { id, x_mm: x, y_mm: y, diameter_mm: DEFAULT_TOOLING_DIAMETER_MM, role: "registration" };
+    const next: PanelDoc = { ...panel, tooling_holes: [...panel.tooling_holes, hole] };
+    await get().savePanelConfig(next, stackup);
+    return id;
+  },
+
+  moveToolingHole: async (id, dxMm, dyMm) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const next: PanelDoc = {
+      ...panel,
+      tooling_holes: panel.tooling_holes.map((h) => {
+        if (h.id !== id) return h;
+        const { x, y } = clampToolingHoleCenter(h.x_mm + dxMm, h.y_mm + dyMm, h.diameter_mm / 2, panel.width_mm, panel.height_mm);
+        return { ...h, x_mm: x, y_mm: y };
+      }),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  removeToolingHole: async (id) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const next: PanelDoc = { ...panel, tooling_holes: panel.tooling_holes.filter((h) => h.id !== id) };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  setToolingHoleDiameter: async (id, diameterMm) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const next: PanelDoc = {
+      ...panel,
+      tooling_holes: panel.tooling_holes.map((h) => {
+        if (h.id !== id) return h;
+        const { x, y } = clampToolingHoleCenter(h.x_mm, h.y_mm, diameterMm / 2, panel.width_mm, panel.height_mm);
+        return { ...h, diameter_mm: diameterMm, x_mm: x, y_mm: y };
+      }),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  setToolingHoleRole: async (id, role) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const next: PanelDoc = {
+      ...panel,
+      tooling_holes: panel.tooling_holes.map((h) => (h.id === id ? { ...h, role } : h)),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  addRegistrationSet: async () => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const positions = registrationSetPositions(panel.width_mm, panel.height_mm, REGISTRATION_SET_MARGIN_MM);
+    let holes = [...panel.tooling_holes];
+    for (const pos of positions) {
+      const id = nextToolingId(holes);
+      holes = [...holes, { id, x_mm: pos.x, y_mm: pos.y, diameter_mm: DEFAULT_TOOLING_DIAMETER_MM, role: "registration" }];
+    }
+    const next: PanelDoc = { ...panel, tooling_holes: holes };
+    await get().savePanelConfig(next, stackup);
   },
 
   _mirrorManifest: async (manifest) => {
