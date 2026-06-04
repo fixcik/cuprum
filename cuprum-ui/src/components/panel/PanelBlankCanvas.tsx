@@ -21,7 +21,8 @@ import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, type AlignEdge } from "@/lib/panelPlacement";
+import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
+import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/ContextMenu";
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
+const SNAP_PX = 6;   // magnetic snap threshold in screen pixels
 
 // Stable empty fallbacks so the store selectors keep a constant reference when
 // the panel/designs are absent (avoids re-running the sizes effect every render).
@@ -120,6 +122,8 @@ export function PanelBlankCanvas({
   // Live drag preview (mm). While dragging selected instances we shift their render
   // by this delta and commit a single moveInstances on drag end; null when idle.
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
+  // Active smart-guide lines (mm) while a drag is in progress; cleared on drag end.
+  const [guides, setGuides] = useState<GuideLine[]>([]);
   // Pointer-mm position where the current instance drag started.
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   // Live marquee rect (mm), drawn while drag-selecting over empty canvas; null when idle.
@@ -461,6 +465,7 @@ export function PanelBlankCanvas({
     if (!selected.has(id)) setSelection([id]);
     dragStart.current = pointerMm();
     setDragDelta({ dx: 0, dy: 0 });
+    setGuides([]);
   };
 
   const onInstanceDragMove = (e: KonvaEventObject<DragEvent>) => {
@@ -470,13 +475,39 @@ export function PanelBlankCanvas({
     if (!p) return;
     let dx = p.x - dragStart.current.x;
     let dy = p.y - dragStart.current.y;
-    // Snap the delta to 1 mm unless Alt is held (free move).
+    let nextGuides: GuideLine[] = [];
     if (!e.evt.altKey) {
-      dx = Math.round(dx);
-      dy = Math.round(dy);
+      // Selection AABB after the raw delta.
+      const sb = selectedBoxes();
+      if (sb.length) {
+        const moving = {
+          minX: Math.min(...sb.map((b) => b.minX)) + dx,
+          minY: Math.min(...sb.map((b) => b.minY)) + dy,
+          maxX: Math.max(...sb.map((b) => b.maxX)) + dx,
+          maxY: Math.max(...sb.map((b) => b.maxY)) + dy,
+        };
+        const targets = visibleInstances
+          .filter((i) => !selected.has(i.id))
+          .map((i) => {
+            const sz = sizes[i.design_id];
+            return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg });
+          });
+        targets.push({ minX: 0, minY: 0, maxX: W, maxY: H }); // panel frame → edges + centre
+        const scale = fit * (stageRef.current?.scaleX() ?? 1);
+        const thresholdMm = SNAP_PX / scale;
+        const snap = computeSmartGuides({ movingBox: moving, targets, thresholdMm });
+        // Snapped axes win; un-snapped axes fall back to the 1 mm grid.
+        dx = snap.guides.some((g) => g.axis === "x") ? dx + snap.dx : Math.round(dx);
+        dy = snap.guides.some((g) => g.axis === "y") ? dy + snap.dy : Math.round(dy);
+        nextGuides = snap.guides;
+      } else {
+        dx = Math.round(dx);
+        dy = Math.round(dy);
+      }
     }
     const clamped = clampDeltaToPanel(selectedBoxes(), dx, dy, W, H);
     setDragDelta(clamped);
+    setGuides(nextGuides);
     // The render shifts ALL selected instances (incl. this node) by dragDelta, so
     // pin the dragged Konva node back to its committed pose — we drive movement
     // purely through dragDelta to keep the whole selection in lock-step.
@@ -495,6 +526,7 @@ export function PanelBlankCanvas({
     const d = dragDelta;
     dragStart.current = null;
     setDragDelta(null);
+    setGuides([]);
     if (d && (d.dx !== 0 || d.dy !== 0)) void moveInstances([...selected], d.dx, d.dy);
   };
 
@@ -678,6 +710,7 @@ export function PanelBlankCanvas({
                 onCommit={onRotateCommit}
               />
             )}
+            <SnapGuides guides={guides} />
             {marquee && (
               <Rect
                 x={Math.min(marquee.x0, marquee.x1)}
