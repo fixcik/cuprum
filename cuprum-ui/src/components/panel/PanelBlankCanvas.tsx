@@ -1124,7 +1124,9 @@ export function PanelBlankCanvas({
     <RegistrationSetDialog
       open={regSetOpen}
       onClose={() => setRegSetOpen(false)}
-      hasExisting={holes.length > 0}
+      panelW={W}
+      panelH={H}
+      existingHoles={holes}
       onApply={(opts) => void addRegistrationSet(opts)}
     />
     </>
