@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { RULER_TOP, RULER_LEFT } from "@/components/editor/canvasStyle";
 import { gridSteps, ticksFor } from "@/lib/canvasTicks";
 
@@ -87,6 +87,35 @@ export function RulersOverlay({
   const { pxPerMm, originX, originY } = viewport;
   const ready = pxPerMm > 0 && size.w > 0 && size.h > 0;
 
+  // Always-on axis readout: the overlay tracks the pointer itself (own listener, so
+  // the host never re-renders on a bare hover) and shows the coordinate under the
+  // cursor on each ruler. Distinct from the opt-in crosshair (`hover`) — no full
+  // cross lines, just value pills on the scales. Coalesced to one update per frame.
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [axisCursor, setAxisCursor] = useState<{ x: number; y: number } | null>(null);
+  const axisRaf = useRef<number | null>(null);
+  const axisPending = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const el = svgRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      axisPending.current = x >= 0 && y >= 0 && x <= r.width && y <= r.height ? { x, y } : null;
+      if (axisRaf.current != null) return;
+      axisRaf.current = requestAnimationFrame(() => {
+        axisRaf.current = null;
+        setAxisCursor(axisPending.current);
+      });
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      if (axisRaf.current != null) cancelAnimationFrame(axisRaf.current);
+    };
+  }, []);
+
   const screenX = (mm: number) => originX + mm * pxPerMm;
   const screenY = (mm: number) => originY + mm * pxPerMm;
   const mmFromX = (px: number) => (px - originX) / pxPerMm;
@@ -126,6 +155,7 @@ export function RulersOverlay({
 
   return (
     <svg
+      ref={svgRef}
       className="pointer-events-none absolute inset-0"
       width={size.w}
       height={size.h}
@@ -278,6 +308,39 @@ export function RulersOverlay({
       <rect x={0} y={0} width={rulerLeft} height={rulerTop} fill="hsl(var(--card))" />
       <line x1={rulerLeft} y1={0} x2={rulerLeft} y2={size.h} stroke="hsl(var(--border))" strokeWidth={1} />
       <line x1={0} y1={rulerTop} x2={size.w} y2={rulerTop} stroke="hsl(var(--border))" strokeWidth={1} />
+
+      {/* Always-on axis value readout on the rulers — read the coordinate under the
+          cursor without enabling the crosshair. Anchor-relative, so it matches the
+          tick labels. */}
+      {axisCursor && axisCursor.x > rulerLeft && axisCursor.y > rulerTop && (() => {
+        const cxp = axisCursor.x;
+        const cyp = axisCursor.y;
+        const xText = fmt(mmFromX(cxp) - anchorMm.x);
+        const yText = fmt(mmFromY(cyp) - anchorMm.y);
+        const xw = xText.length * 6 + 12;
+        const yw = yText.length * 6 + 12;
+        const h = 16;
+        const xLeft = Math.max(rulerLeft + 1, Math.min(size.w - xw - 1, cxp - xw / 2));
+        const yTop = Math.max(rulerTop + 1, Math.min(size.h - h - 1, cyp - h / 2));
+        return (
+          <>
+            <line x1={cxp} y1={rulerTop} x2={cxp} y2={rulerTop + 3} stroke={accent} strokeWidth={1} />
+            <g transform={`translate(${xLeft} ${rulerTop + 3})`}>
+              <rect width={xw} height={h} rx={4} style={{ fill: READOUT_BG, stroke: accent }} />
+              <text x={xw / 2} y={11} textAnchor="middle" style={{ fill: READOUT_FG, fontSize: "10px", fontVariantNumeric: "tabular-nums" }}>
+                {xText}
+              </text>
+            </g>
+            <line x1={rulerLeft} y1={cyp} x2={rulerLeft + 3} y2={cyp} stroke={accent} strokeWidth={1} />
+            <g transform={`translate(${rulerLeft + 3} ${yTop})`}>
+              <rect width={yw} height={h} rx={4} style={{ fill: READOUT_BG, stroke: accent }} />
+              <text x={yw / 2} y={11} textAnchor="middle" style={{ fill: READOUT_FG, fontSize: "10px", fontVariantNumeric: "tabular-nums" }}>
+                {yText}
+              </text>
+            </g>
+          </>
+        );
+      })()}
 
       {/* Hover readout chip — over everything. */}
       {readout && (
