@@ -24,6 +24,7 @@
 
 mod build;
 mod emit;
+pub mod export;
 mod outline;
 
 pub use build::board_geometry;

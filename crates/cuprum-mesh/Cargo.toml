@@ -11,8 +11,8 @@ i_overlay = "4"
 earcutr = "0.4"
 rayon.workspace = true
 tracing.workspace = true
+serde_json.workspace = true
 cuprum-gerber.workspace = true
 cuprum-trace.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
