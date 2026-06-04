@@ -119,6 +119,8 @@ interface ShellStore {
   moveInstances: (ids: string[], dxMm: number, dyMm: number) => Promise<void>;
   /** Set absolute x_mm/y_mm poses for a batch of instances. One undo step. */
   setInstancePoses: (poses: { id: string; x_mm: number; y_mm: number }[]) => Promise<void>;
+  /** Set x_mm/y_mm/rotation_deg for a batch of instances. One undo step. */
+  setInstanceTransforms: (items: { id: string; x_mm: number; y_mm: number; rotation_deg: number }[]) => Promise<void>;
   /** Remove the given instances from the panel. One undo step. */
   removeInstances: (ids: string[]) => Promise<void>;
   /** Set the rotation of the given instances to an absolute angle (deg). One undo. */
@@ -577,6 +579,21 @@ export const useShell = create<ShellStore>((set, get) => ({
       instances: panel.instances.map((i) => {
         const p = byId.get(i.id);
         return p ? { ...i, x_mm: p.x_mm, y_mm: p.y_mm } : i;
+      }),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  setInstanceTransforms: async (items) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || items.length === 0) return;
+    const byId = new Map(items.map((p) => [p.id, p]));
+    const next: PanelDoc = {
+      ...panel,
+      instances: panel.instances.map((i) => {
+        const p = byId.get(i.id);
+        return p ? { ...i, x_mm: p.x_mm, y_mm: p.y_mm, rotation_deg: p.rotation_deg } : i;
       }),
     };
     await get().savePanelConfig(next, stackup);
