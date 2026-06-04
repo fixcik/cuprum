@@ -9,7 +9,9 @@ import {
   boxesForInstances,
   alignInstances,
   distributeInstances,
+  computeSmartGuides,
   type AlignEdge,
+  type GuideLine,
 } from "@/lib/panelPlacement";
 import { DEFAULT_NEST } from "@/lib/nest";
 import type { NestSettings } from "@/lib/nest";
@@ -258,5 +260,59 @@ describe("distributeInstances", () => {
   it("returns input unchanged for < 3 items", () => {
     const items = [mk("a", 0, 0, 10, 10), mk("b", 30, 0, 10, 10)];
     expect(distributeInstances(items, "h").map((o) => o.x_mm)).toEqual([0, 30]);
+  });
+});
+
+const box = (minX: number, minY: number, maxX: number, maxY: number) => ({ minX, minY, maxX, maxY });
+
+// Suppress unused-type lint warning: GuideLine is imported for typing clarity.
+void (undefined as unknown as GuideLine);
+
+describe("computeSmartGuides", () => {
+  const panel = box(0, 0, 100, 100);
+  it("snaps moving left edge to a target left edge within threshold", () => {
+    const moving = box(11, 50, 31, 60); // left=11
+    const target = box(10, 0, 20, 10);  // left=10
+    const r = computeSmartGuides({ movingBox: moving, targets: [target, panel], thresholdMm: 2 });
+    expect(r.dx).toBeCloseTo(-1); // 11 → 10
+    expect(r.dy).toBe(0);
+    expect(r.guides.some((g) => g.axis === "x" && Math.abs(g.pos - 10) < 1e-6)).toBe(true);
+  });
+  it("snaps centre-to-centre", () => {
+    const moving = box(40, 40, 60, 60); // cx=50
+    const target = box(0, 0, 104, 10);  // cx=52
+    const r = computeSmartGuides({ movingBox: moving, targets: [target], thresholdMm: 3 });
+    expect(r.dx).toBeCloseTo(2); // 50 → 52
+  });
+  it("no snap beyond threshold → zero delta, no guides", () => {
+    const moving = box(40, 40, 60, 60);
+    const target = box(0, 0, 6, 6);
+    const r = computeSmartGuides({ movingBox: moving, targets: [target], thresholdMm: 1 });
+    expect(r.dx).toBe(0);
+    expect(r.dy).toBe(0);
+    expect(r.guides).toHaveLength(0);
+  });
+  it("snaps to panel right edge (panel box as target)", () => {
+    const moving = box(78, 10, 99, 30); // right=99
+    const r = computeSmartGuides({ movingBox: moving, targets: [panel], thresholdMm: 2 });
+    expect(r.dx).toBeCloseTo(1); // right 99 → 100
+    expect(r.guides.some((g) => g.axis === "x" && Math.abs(g.pos - 100) < 1e-6)).toBe(true);
+  });
+  it("snaps both axes independently", () => {
+    const moving = box(11, 21, 31, 41); // left=11, top=21
+    const target = box(10, 20, 20, 30); // left=10, top=20
+    const r = computeSmartGuides({ movingBox: moving, targets: [target], thresholdMm: 2 });
+    expect(r.dx).toBeCloseTo(-1);
+    expect(r.dy).toBeCloseTo(-1);
+    expect(r.guides.filter((g) => g.axis === "x")).toHaveLength(1);
+    expect(r.guides.filter((g) => g.axis === "y")).toHaveLength(1);
+  });
+  it("picks the nearest of several candidates on an axis", () => {
+    const moving = box(12, 50, 32, 60); // left=12
+    const near = box(10, 0, 30, 10);    // left=10 (Δ2), right=30 → moving.left? no; centre=20
+    const r = computeSmartGuides({ movingBox: moving, targets: [near], thresholdMm: 5 });
+    // candidates for moving.left=12: near.left=10 (Δ-2); moving.right=32: near.right=30 (Δ-2);
+    // moving.centre=22: near.centre=20 (Δ-2). All −2 ⇒ dx=−2.
+    expect(r.dx).toBeCloseTo(-2);
   });
 });

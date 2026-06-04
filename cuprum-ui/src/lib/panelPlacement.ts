@@ -228,6 +228,68 @@ export function alignInstances(items: AlignItem[], edge: AlignEdge): Pose[] {
   });
 }
 
+/** A snap guide line to render while dragging. axis "x" = a vertical line at x=pos
+ *  spanning y∈[from,to]; axis "y" = a horizontal line at y=pos spanning x∈[from,to].
+ *  All mm. */
+export type GuideLine = { axis: "x" | "y"; pos: number; from: number; to: number };
+
+/** Magnetic alignment of a dragged selection to other boards + the panel frame.
+ *  `movingBox` is the selection's AABB after the raw drag delta; `targets` are
+ *  static AABBs (non-selected instances PLUS the panel box {0,0,W,H} — the panel
+ *  box yields its edges and centre for free). Returns the extra delta that aligns
+ *  the closest edge/centre pair within `thresholdMm` on each axis (independently),
+ *  and the guide lines to draw. No match on an axis → 0 delta and no line there. */
+export function computeSmartGuides(opts: {
+  movingBox: Box;
+  targets: Box[];
+  thresholdMm: number;
+}): { dx: number; dy: number; guides: GuideLine[] } {
+  const { movingBox, targets, thresholdMm } = opts;
+  const linesX = (b: Box) => [b.minX, (b.minX + b.maxX) / 2, b.maxX];
+  const linesY = (b: Box) => [b.minY, (b.minY + b.maxY) / 2, b.maxY];
+  const probesX = linesX(movingBox);
+  const probesY = linesY(movingBox);
+
+  // Best (smallest |delta|) snap on one axis across all targets.
+  const bestAxis = (
+    probes: number[],
+    targetLines: (b: Box) => number[],
+  ): { delta: number; pos: number; target: Box } | null => {
+    let best: { delta: number; pos: number; target: Box } | null = null;
+    for (const t of targets) {
+      for (const line of targetLines(t)) {
+        for (const probe of probes) {
+          const d = line - probe;
+          if (Math.abs(d) <= thresholdMm && (best === null || Math.abs(d) < Math.abs(best.delta))) {
+            best = { delta: d, pos: line, target: t };
+          }
+        }
+      }
+    }
+    return best;
+  };
+
+  const bx = bestAxis(probesX, linesX);
+  const by = bestAxis(probesY, linesY);
+  const dx = bx?.delta ?? 0;
+  const dy = by?.delta ?? 0;
+
+  // Span each guide across the union of the snapped moving box and the matched
+  // target, so the line visibly connects the two aligned features.
+  const guides: GuideLine[] = [];
+  if (bx) {
+    const from = Math.min(movingBox.minY + dy, bx.target.minY);
+    const to = Math.max(movingBox.maxY + dy, bx.target.maxY);
+    guides.push({ axis: "x", pos: bx.pos, from, to });
+  }
+  if (by) {
+    const from = Math.min(movingBox.minX + dx, by.target.minX);
+    const to = Math.max(movingBox.maxX + dx, by.target.maxX);
+    guides.push({ axis: "y", pos: by.pos, from, to });
+  }
+  return { dx, dy, guides };
+}
+
 /** Evenly space ≥3 instances' AABB centres along an axis; the extreme two stay put. */
 export function distributeInstances(items: AlignItem[], axis: "h" | "v"): Pose[] {
   if (items.length < 3) return items.map(pose);
