@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-cache"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "cuprum-diskcache",
@@ -468,7 +468,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-dfm"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cuprum-cache",
  "cuprum-diskcache",
@@ -517,7 +517,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-diskcache"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cuprum-trace",
  "serde_json",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-gerber"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "approx",
@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-goo"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "goo",
@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-mesh"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cuprum-gerber",
  "cuprum-trace",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-project"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "crc32fast",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-sdcp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "md-5",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "cuprum-trace"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rayon",
  "serde_json",
