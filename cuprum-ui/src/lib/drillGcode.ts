@@ -1,6 +1,7 @@
 import type { PanelDrillPlan, DrillGroup, PlanHole } from "@/lib/panelDrill";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
+import { orderNearest } from "@/lib/drillRoute";
 
 /** Context for emitting a drill program: the panel height (for the Y-flip),
  *  the CNC profile (safe-Z / spindle / G-code wrappers), the tool library (rpm /
@@ -33,31 +34,6 @@ const fmt = (n: number) => n.toFixed(3);
 /** Panel space (Y-down, origin top-left) → machine (Y-up, origin = panel bottom-left). */
 function machineXY(h: PlanHole, panelHeightMm: number): [number, number] {
   return [h.xMm, panelHeightMm - h.yMm];
-}
-
-/** Greedy nearest-neighbour ordering (machine coords) from a start point. Stable:
- *  ties resolve to the earlier index, so output is deterministic for golden tests. */
-function orderNearest(points: [number, number][], startX: number, startY: number): number[] {
-  const remaining = points.map((_, i) => i);
-  const order: number[] = [];
-  let cx = startX;
-  let cy = startY;
-  while (remaining.length) {
-    let bi = 0;
-    let bd = Infinity;
-    for (let k = 0; k < remaining.length; k++) {
-      const [px, py] = points[remaining[k]];
-      const d = (px - cx) ** 2 + (py - cy) ** 2;
-      if (d < bd) {
-        bd = d;
-        bi = k;
-      }
-    }
-    const idx = remaining.splice(bi, 1)[0];
-    order.push(idx);
-    [cx, cy] = points[idx];
-  }
-  return order;
 }
 
 /** Emit a GRBL drill program for the whole panel. Pure. */
