@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, type LucideIcon } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, type LucideIcon } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
@@ -8,6 +8,7 @@ import { useShell } from "@/shellStore";
 import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
+import { api } from "@/lib/api";
 
 type ProjectTab = "panel" | "designs" | "operations";
 
@@ -195,11 +196,23 @@ export function ProjectPage() {
         {tab === "panel" && <PanelEditor />}
         {tab === "designs" && <DesignsGallery />}
         {tab === "operations" && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <div className="text-[15px] font-semibold text-foreground">{t("operations.placeholder.title")}</div>
-            <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-              {t("operations.placeholder.desc")}
-            </p>
+          <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
+            {/* Drill-panel operation card */}
+            <button
+              type="button"
+              onClick={() => void api.openDrillWindow()}
+              className="flex w-full max-w-md items-start gap-4 rounded-xl border border-border bg-card px-5 py-4 text-left transition-colors hover:border-primary/50 hover:bg-card/80"
+            >
+              <div className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-lg border border-border bg-background text-primary">
+                <Drill className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[14px] font-semibold text-foreground">{t("operations.drill.title")}</div>
+                <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{t("operations.drill.desc")}</p>
+              </div>
+            </button>
+            {/* Full process-step editor (#201) lands later */}
+            <p className="text-[12px] text-muted-foreground">{t("operations.placeholder.desc")}</p>
           </div>
         )}
       </div>
