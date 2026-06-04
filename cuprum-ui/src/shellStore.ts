@@ -771,11 +771,12 @@ export const useShell = create<ShellStore>((set, get) => ({
     const ny = height_mm < 0 ? y_mm + height_mm : y_mm;
     const nw = Math.abs(width_mm);
     const nh = Math.abs(height_mm);
-    // Clamp the zone box into [0, panelW] × [0, panelH].
+    // Clamp the zone box into [0, panelW] × [0, panelH] — trim BOTH sides, so a
+    // rect straddling an edge keeps only its in-panel part (not just the right clip).
     const cx = Math.max(0, Math.min(nx, panel.width_mm));
     const cy = Math.max(0, Math.min(ny, panel.height_mm));
-    const cw = Math.min(nw, panel.width_mm - cx);
-    const ch = Math.min(nh, panel.height_mm - cy);
+    const cw = Math.min(nx + nw, panel.width_mm) - cx;
+    const ch = Math.min(ny + nh, panel.height_mm) - cy;
     const id = crypto.randomUUID();
     const zone: KeepOutZone = { id, x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch, kind };
     const next: PanelDoc = { ...panel, keep_out_zones: [...(panel.keep_out_zones ?? []), zone] };

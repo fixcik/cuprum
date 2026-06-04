@@ -687,8 +687,10 @@ export function PanelBlankCanvas({
     // Clicking a zone clears board selection and selects this zone.
     clearSelection();
     const native = e.evt;
+    // Only replace the selection when this zone isn't already in it — otherwise
+    // dragging one of several selected zones would collapse the selection to it.
     if (native.shiftKey || native.ctrlKey || native.metaKey) toggleKeepOutSelection(id);
-    else setKeepOutSelection([id]);
+    else if (!useKeepOutSelection.getState().selected.has(id)) setKeepOutSelection([id]);
     keepOutDragStart.current = pointerMm();
     setKeepOutDragDelta({ dx: 0, dy: 0 });
   };
