@@ -61,6 +61,7 @@ export function RenestDialog({
   const { t } = useTranslation(["project", "common"]);
   const nest = useSettings((s) => s.nest);
   const setNest = useSettings((s) => s.setNest);
+  const profile = useSettings((s) => s.profile);
 
   const result = useMemo(() => {
     const sel = new Set(selectedIds);
@@ -72,9 +73,10 @@ export function RenestDialog({
     const obstacles = panelObstacles(
       { instances: instances.filter((i) => !sel.has(i.id)), tooling_holes: toolingHoles, keep_out_zones: keepOutZones },
       sizes,
+      { clampRadiusMm: profile.toolingClampRadiusMm },
     );
     return renestSelection({ selected, sizes, obstacles, panelW, panelH, nest });
-  }, [selectedIds, instances, toolingHoles, keepOutZones, sizes, panelW, panelH, nest]);
+  }, [selectedIds, instances, toolingHoles, keepOutZones, sizes, panelW, panelH, nest, profile]);
 
   const summary =
     result.placed === 0

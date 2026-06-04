@@ -159,14 +159,15 @@ export function AddDesignWindow() {
     return () => void pending.then((un) => un());
   }, []);
 
-  // Full obstacle set (boards + tooling holes) for the fit-line packer.
+  // Full obstacle set (boards + tooling holes + clamp zones) for the fit-line packer.
   const existingBoxes = useMemo(
     () =>
       panelObstacles(
         { instances: snap?.instances ?? [], tooling_holes: snap?.tooling_holes ?? [], keep_out_zones: snap?.keep_out_zones ?? [] },
         snap?.placedSizes ?? {},
+        { clampRadiusMm: profile.toolingClampRadiusMm },
       ),
-    [snap],
+    [snap, profile.toolingClampRadiusMm],
   );
   // Board-only boxes for the preview's dim squares; the preview folds tooling holes
   // (passed separately) into its own packer and draws them as circles.
@@ -271,6 +272,7 @@ export function AddDesignWindow() {
                     clearanceMm={clearance}
                     toolingHoles={snap?.tooling_holes ?? []}
                     keepOutZones={snap?.keep_out_zones ?? []}
+                    clampRadiusMm={profile.toolingClampRadiusMm}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted-foreground">

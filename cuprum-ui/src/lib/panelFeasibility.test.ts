@@ -155,4 +155,37 @@ describe("evaluatePanel", () => {
     expect(ko?.toolingHoleIds).toEqual(["h1"]);
     expect(overallVerdict(f)).toBe("block");
   });
+
+  it("flags a board overlapping a registration hole's clamp zone (block)", () => {
+    // board [10,30]×[10,30]; hole at (25,25) d=3, clampRadius=5 → half=1.5+5=6.5 → clamp [18.5,31.5]×[18.5,31.5]
+    const f = evaluatePanel({
+      panel: panel(100, 100, [inst("a", "d1", 10, 10, 0)], [hole("h1", 25, 25, 3)]),
+      sizes: { d1: { w: 20, h: 20 } },
+      profile: { ...prof, toolingClampRadiusMm: 5 } as CapabilityProfile,
+      designVerdicts: {},
+    });
+    const c = f.find((x) => x.category === "clamp");
+    expect(c?.severity).toBe("block");
+    expect(c?.instanceIds).toEqual(["a"]);
+  });
+
+  it("no clamp finding when radius is 0", () => {
+    const f = evaluatePanel({
+      panel: panel(100, 100, [inst("a", "d1", 10, 10, 0)], [hole("h1", 25, 25, 3)]),
+      sizes: { d1: { w: 20, h: 20 } },
+      profile: { ...prof, toolingClampRadiusMm: 0 } as CapabilityProfile,
+      designVerdicts: {},
+    });
+    expect(f.some((x) => x.category === "clamp")).toBe(false);
+  });
+
+  it("ignores unused-role holes for the clamp zone", () => {
+    const f = evaluatePanel({
+      panel: panel(100, 100, [inst("a", "d1", 10, 10, 0)], [{ id: "h1", x_mm: 25, y_mm: 25, diameter_mm: 3, role: "unused" as const }]),
+      sizes: { d1: { w: 20, h: 20 } },
+      profile: { ...prof, toolingClampRadiusMm: 5 } as CapabilityProfile,
+      designVerdicts: {},
+    });
+    expect(f.some((x) => x.category === "clamp")).toBe(false);
+  });
 });

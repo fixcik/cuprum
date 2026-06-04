@@ -519,7 +519,9 @@ export function registrationSetPositions(
 
 /** Unified placement-obstacle source: board instances + tooling holes + keep-out zones (raw AABBs).
  *  `packLayoutAvoiding` inflates every obstacle by its `clearance` arg uniformly,
- *  so the fixturing gap around a pin equals the board gap. */
+ *  so the fixturing gap around a pin equals the board gap.
+ *  When `opts.clampRadiusMm > 0`, derived clamp zones around registration/flip holes
+ *  are also added as obstacles so new boards are packed outside the clamp footprint. */
 export function panelObstacles(
   panel: {
     instances: BoardInstance[];
@@ -527,6 +529,7 @@ export function panelObstacles(
     keep_out_zones?: KeepOutZone[];
   },
   sizes: Record<string, { w: number; h: number }>,
+  opts?: { clampRadiusMm?: number },
 ): Box[] {
   const boards = boxesForInstances(panel.instances, sizes);
   const holes = panel.tooling_holes.map((h) =>
@@ -536,7 +539,8 @@ export function panelObstacles(
   // obstacles for the board packer. The tooling-only "dead" rule is a DFM concern,
   // not a packer one (there is no tooling auto-nester).
   const zones = (panel.keep_out_zones ?? []).map(keepOutBox);
-  return [...boards, ...holes, ...zones];
+  const clamps = clampZonesForHoles(panel.tooling_holes, opts?.clampRadiusMm ?? 0).map((c) => c.box);
+  return [...boards, ...holes, ...zones, ...clamps];
 }
 
 // --- Keep-out zone helpers ---
