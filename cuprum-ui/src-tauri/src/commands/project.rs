@@ -102,6 +102,10 @@ pub(crate) struct RecentProjectDto {
     /// Panel blank size in mm; null until the panel is configured.
     pub width_mm: Option<f64>,
     pub height_mm: Option<f64>,
+    /// Cached panel feasibility verdict ("ok"/"warn"/"block"); null until computed.
+    pub panel_verdict: Option<String>,
+    /// Hash of the capability profile used to compute `panel_verdict`; null until set.
+    pub profile_hash: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -135,6 +139,8 @@ pub(crate) fn list_recent_projects(app: AppHandle) -> Result<Vec<RecentProjectDt
             design_count: r.design_count,
             width_mm: r.width_mm,
             height_mm: r.height_mm,
+            panel_verdict: r.panel_verdict,
+            profile_hash: r.profile_hash,
         })
         .collect())
 }
@@ -317,4 +323,21 @@ pub(crate) fn update_project_metadata(
 #[tauri::command]
 pub(crate) fn read_project_manifest(path: String) -> Result<cuprum_project::Manifest, String> {
     cuprum_project::read_project_manifest(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+/// Persist the panel verdict and profile hash into the recents catalog for
+/// the given project path, WITHOUT touching `last_opened_at` or stat columns.
+/// Called by the frontend once the panel verdict is fully computed (all board
+/// sizes and metrics resolved). Best-effort: silently no-ops if the path isn't
+/// in the catalog.
+#[tauri::command]
+pub(crate) fn set_recent_verdict(
+    app: AppHandle,
+    path: String,
+    verdict: String,
+    profile_hash: String,
+) -> Result<(), String> {
+    let db = catalog_db_path(&app)?;
+    cuprum_project::set_recent_verdict(&db, &path, &verdict, &profile_hash)
+        .map_err(|e| e.to_string())
 }

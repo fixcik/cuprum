@@ -145,6 +145,7 @@ fn main() {
             commands::project::remove_recent,
             commands::project::update_project_metadata,
             commands::project::read_project_manifest,
+            commands::project::set_recent_verdict,
             commands::project::add_design_from_zip,
             commands::render::render_gerber_svg,
             commands::render::render_layers_svg,
