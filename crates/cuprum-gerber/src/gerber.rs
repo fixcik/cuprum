@@ -1,6 +1,6 @@
 //! Gerber (RS-274X) parsing and rasterization to an exposure mask.
 //!
-//! We reuse the (vendored, MIT/Apache) `gerber_viewer` crate for the hard part —
+//! We reuse the forked (MIT/Apache) `crate::viewer` parsing core for the hard part —
 //! parsing commands into geometry primitives (apertures, macros, regions,
 //! polarity, coordinates). We own only the rasterizer: walk the primitives and
 //! paint them into a `tiny-skia` Pixmap (white = UV on, black = UV off).
@@ -13,9 +13,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
+use crate::gerber_types::Command;
+use crate::{Exposure, GerberLayer, GerberPrimitive};
 use anyhow::{anyhow, Context, Result};
-use gerber_viewer::gerber_types::Command;
-use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
 use lru::LruCache;
 use tiny_skia::{
     Color, FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform,
@@ -26,8 +26,8 @@ use tiny_skia::{
 pub fn parse_file(path: &Path) -> Result<Vec<Command>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let doc = gerber_viewer::gerber_parser::parse(reader)
-        .map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
+    let doc =
+        crate::gerber_parser::parse(reader).map_err(|(_doc, e)| anyhow!("parse error: {e:?}"))?;
     Ok(doc.into_commands())
 }
 
@@ -421,7 +421,7 @@ fn parse_inflight() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
 /// cached; `parse_layer_cached` wraps this with memoization.
 fn parse_layer(bytes: &[u8]) -> anyhow::Result<GerberLayer> {
     let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
-    let doc = gerber_viewer::gerber_parser::parse(reader)
+    let doc = crate::gerber_parser::parse(reader)
         .map_err(|(_doc, e)| anyhow::anyhow!("parse error: {e:?}"))?;
     Ok(GerberLayer::new(doc.into_commands()))
 }

@@ -1,11 +1,11 @@
 //! Primitive tessellation and ring winding helpers.
 //!
-//! Walks the `gerber_viewer::GerberPrimitive` stream and emits solid contours
+//! Walks the `crate::GerberPrimitive` stream and emits solid contours
 //! (Add-only): flashes become discs/rects/polygons, routed Line/Arc become
 //! stroked rectangles plus round caps/joins. Plus the shoelace/CCW helpers the
 //! boolean stage relies on. See [`super`] for the layer conventions.
 
-use gerber_viewer::GerberPrimitive;
+use crate::GerberPrimitive;
 
 /// Arc tessellation steps — matches the visual fidelity of [`crate::svg`].
 const ARC_STEPS: usize = 64;

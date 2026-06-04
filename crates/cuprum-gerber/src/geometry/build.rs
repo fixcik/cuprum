@@ -2,8 +2,8 @@
 //! its primitives, union into clean shapes via `i_overlay`, and subtract drill
 //! holes / mask openings. All entry points funnel through [`fill_polygons`].
 
+use crate::{GerberLayer, GerberPrimitive};
 use anyhow::Result;
-use gerber_viewer::{GerberLayer, GerberPrimitive};
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::overlay::FloatOverlay;

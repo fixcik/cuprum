@@ -4,7 +4,7 @@
 //! polyline) and the geometry stroker (one round-joined stroke instead of a
 //! full circle at every segment endpoint), so both paths get lighter input.
 
-use gerber_viewer::{Exposure, GerberPrimitive};
+use crate::{Exposure, GerberPrimitive};
 
 /// Connectivity tolerance in millimetres: endpoints closer than this are the
 /// same point. Much smaller than any real glyph/trace step (~0.05 mm), large
@@ -78,12 +78,12 @@ pub fn coalesce_strokes(prims: &[GerberPrimitive]) -> Vec<Run<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gerber_viewer::GerberLayer;
+    use crate::GerberLayer;
 
     fn runs(src: &[u8]) -> Vec<(usize, f64)> {
         let reader = std::io::BufReader::new(std::io::Cursor::new(src));
         // Same unpack as svg.rs::render_layer_svg, unwrap in a test context.
-        let doc = gerber_viewer::gerber_parser::parse(reader)
+        let doc = crate::gerber_parser::parse(reader)
             .map_err(|(_d, e)| format!("{e:?}"))
             .unwrap();
         let layer = GerberLayer::new(doc.into_commands());

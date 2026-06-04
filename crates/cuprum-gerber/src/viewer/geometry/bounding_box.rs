@@ -1,9 +1,7 @@
 use log::trace;
 use nalgebra::{Matrix3, Point2, Vector2, Vector3};
 
-#[cfg(feature = "egui")]
-use crate::ToPos2;
-use crate::geometry::transform::GerberTransform;
+use crate::viewer::geometry::transform::GerberTransform;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct BoundingBox {
@@ -71,7 +69,9 @@ impl BoundingBox {
         let result = BoundingBox::from_points(&transformed_bbox_vertices);
         trace!(
             "Applying transform matrix to bbox.  matrix {:?}: before: {:?}, after: {:?}",
-            matrix, self, result
+            matrix,
+            self,
+            result
         );
         result
     }
@@ -88,7 +88,9 @@ impl BoundingBox {
         let result = BoundingBox::from_points(&transformed_bbox_vertices);
         trace!(
             "Applying transform to bbox.  transform {:?}: before: {:?}, after: {:?}",
-            transform, self, result
+            transform,
+            self,
+            result
         );
         result
     }
@@ -161,20 +163,7 @@ impl BoundingBox {
             max.y = max.y.max(position.y);
         }
 
-        Self {
-            min,
-            max,
-        }
-    }
-}
-
-#[cfg(feature = "egui")]
-impl From<BoundingBox> for egui::Rect {
-    fn from(value: BoundingBox) -> Self {
-        Self {
-            min: value.min.to_pos2(),
-            max: value.max.to_pos2(),
-        }
+        Self { min, max }
     }
 }
 
@@ -183,7 +172,7 @@ mod bbox_tests {
     use nalgebra::{Point2, Vector2};
     use rstest::rstest;
 
-    use crate::geometry::bounding_box::BoundingBox;
+    use crate::viewer::geometry::bounding_box::BoundingBox;
 
     #[rstest]
     #[case(BoundingBox::default(), true)]
@@ -226,7 +215,11 @@ mod bbox_tests {
     #[case((0.0, 0.0), (10.0, 5.0), (5.0, 2.5))] // Case 4: Origin 0, 10x5
     #[case((10.0, 10.0), (5.0, 10.0), (12.5, 15.0))] // Case 5: Origin 10, 5x10
     #[case((10.0, 10.0), (10.0, 5.0), (15.0, 12.5))] // Case 6: Origin 10, 10x5
-    fn test_geometric_center(#[case] origin: (f64, f64), #[case] size: (f64, f64), #[case] expected: (f64, f64)) {
+    fn test_geometric_center(
+        #[case] origin: (f64, f64),
+        #[case] size: (f64, f64),
+        #[case] expected: (f64, f64),
+    ) {
         // Create bounding box from origin and size
         let bbox = BoundingBox {
             min: Point2::new(origin.0, origin.1),

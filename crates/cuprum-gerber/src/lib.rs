@@ -1,7 +1,7 @@
 //! Gerber parsing, rendering and 2D polygon geometry for copper layers.
 //!
 //! This crate owns the read side of a fab package: parse a Gerber into the
-//! vendored `gerber_viewer` primitive stream ([`gerber`]), rasterize / SVG-render
+//! forked parsing core ([`viewer`]) primitive stream ([`gerber`]), rasterize / SVG-render
 //! a layer ([`gerber`], [`svg`]), turn primitives into clean filled polygons
 //! ([`geometry`]), tessellate aperture strokes ([`strokes`]) and parse Excellon
 //! drill files ([`drill`]).
@@ -16,3 +16,12 @@ pub mod geometry;
 pub mod gerber;
 pub mod strokes;
 pub mod svg;
+
+mod viewer;
+
+// Re-export the parsing core (forked gerber-viewer) under cuprum-gerber so
+// downstream crates use a single import path.
+pub use viewer::{Exposure, GerberLayer, GerberPrimitive};
+// External, untouched crates.io parser/types — re-exported for one import path.
+pub use gerber_parser;
+pub use gerber_types;

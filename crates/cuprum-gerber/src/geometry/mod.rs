@@ -6,7 +6,7 @@
 //! self-touching ground pour and wipes the whole layer. We move that work here,
 //! into Rust, using `i_overlay` (robust to self-intersection).
 //!
-//! This walks the SAME `gerber_viewer::GerberPrimitive` enum as [`crate::svg`]
+//! This walks the SAME `crate::GerberPrimitive` enum as [`crate::svg`]
 //! (read that module for the parse + arc-tessellation conventions): coordinates
 //! are absolute millimetres, Y up. Output is a set of CLEAN, simple,
 //! non-overlapping filled polygons (outer ring + holes).
@@ -50,7 +50,7 @@ pub struct Poly {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gerber_viewer::GerberLayer;
+    use crate::GerberLayer;
 
     // Shared Gerber fixture: a 1 mm pad flash (D10/D03) plus a 0.1 mm trace draw
     // (D11/D01). Used by region_polygons_excludes_trace_strokes and the from-layer
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn layer_polygons_from_matches_bytes() {
         let reader = std::io::BufReader::new(std::io::Cursor::new(PAD_AND_TRACE));
-        let doc = gerber_viewer::gerber_parser::parse(reader).unwrap();
+        let doc = crate::gerber_parser::parse(reader).unwrap();
         let layer = GerberLayer::new(doc.into_commands());
         let from_layer = layer_polygons_from(&layer, &[]);
         let from_bytes = layer_polygons(PAD_AND_TRACE, &[]).unwrap();
@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn region_polygons_from_matches_bytes() {
         let reader = std::io::BufReader::new(std::io::Cursor::new(PAD_AND_TRACE));
-        let doc = gerber_viewer::gerber_parser::parse(reader).unwrap();
+        let doc = crate::gerber_parser::parse(reader).unwrap();
         let layer = GerberLayer::new(doc.into_commands());
         let from_layer = region_polygons_from(&layer, &[]);
         let from_bytes = region_polygons(PAD_AND_TRACE, &[]).unwrap();

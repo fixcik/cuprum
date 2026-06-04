@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::str::Chars;
 
 use gerber_types::{MacroBoolean, MacroDecimal, MacroInteger};
@@ -13,10 +13,7 @@ pub struct MacroContext {
 
 impl MacroContext {
     pub fn get(&self, variable: &u32) -> f64 {
-        self.variables
-            .get(&variable)
-            .copied()
-            .unwrap_or(0.0)
+        self.variables.get(&variable).copied().unwrap_or(0.0)
     }
 
     pub fn put(&mut self, variable: u32, decimal: f64) -> Result<&mut f64, MacroContextError> {
@@ -52,7 +49,9 @@ pub fn macro_boolean_to_bool(
     match macro_boolean {
         MacroBoolean::Value(value) => Ok(*value),
         MacroBoolean::Variable(id) => Ok(context.get(id) == 1.0),
-        MacroBoolean::Expression(args) => evaluate_expression(args, context).map(|value| value != 0.0),
+        MacroBoolean::Expression(args) => {
+            evaluate_expression(args, context).map(|value| value != 0.0)
+        }
     }
 }
 
@@ -63,7 +62,9 @@ pub fn macro_integer_to_u32(
     match macro_integer {
         MacroInteger::Value(value) => Ok(*value),
         MacroInteger::Variable(id) => Ok(context.get(id) as u32),
-        MacroInteger::Expression(args) => evaluate_expression(args, context).map(|value| value as u32),
+        MacroInteger::Expression(args) => {
+            evaluate_expression(args, context).map(|value| value as u32)
+        }
     }
 }
 
@@ -89,11 +90,16 @@ pub enum ExpressionEvaluationError {
 }
 
 /// Evaluates a Gerber macro expression using a recursive descent parser.
-pub fn evaluate_expression(expr: &String, ctx: &MacroContext) -> Result<f64, ExpressionEvaluationError> {
+pub fn evaluate_expression(
+    expr: &String,
+    ctx: &MacroContext,
+) -> Result<f64, ExpressionEvaluationError> {
     let mut parser = Parser::new(expr, ctx);
     let result = parser.parse_expression()?;
     if parser.peek().is_some() {
-        Err(ExpressionEvaluationError::UnexpectedChar(parser.peek().unwrap()))
+        Err(ExpressionEvaluationError::UnexpectedChar(
+            parser.peek().unwrap(),
+        ))
     } else {
         Ok(result)
     }

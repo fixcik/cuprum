@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
+use cuprum_gerber::{Exposure, GerberLayer, GerberPrimitive};
 use rayon::prelude::*;
 
 use crate::sweep;

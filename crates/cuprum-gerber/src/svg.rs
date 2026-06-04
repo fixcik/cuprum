@@ -11,8 +11,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::{Exposure, GerberPrimitive};
 use anyhow::{Context, Result};
-use gerber_viewer::{Exposure, GerberPrimitive};
 use lru::LruCache;
 
 /// Axis-aligned bounds in millimetres (Y up).
