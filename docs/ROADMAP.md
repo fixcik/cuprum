@@ -423,6 +423,13 @@ render-кеши + фасады), `cal`. Крупные файлы разбиты
 mesh 836, metrics 516). Публичный API и кеш-теги ни в одном PR не тронуты — всё через фасады
 `pub use cuprum_X …` под историческими путями.
 
+- [ ] **Дальше (техдолг): свести mesh version-тег в `artifact.rs`.** Теги `svg`/`metrics`/
+  `preview` — именованные константы в одном месте (`cuprum-diskcache/src/artifact.rs`), а
+  тег меша до сих пор живёт магическим литералом `b"mesh-v6"` в `cuprum-ui/src-tauri/src/main.rs`
+  (`board_mesh_cached`) — единственный, выбивающийся из паттерна. Перенести как `MESH_VERSION`
+  в `artifact.rs`, чтобы все version-теги были в одном файле (и DEVELOPMENT.md перестал держать
+  исключение).
+
 ### Форк `gerber-viewer` → ядро парсинга в `cuprum-gerber`
 
 - [x] **Фаза A — форк-и-обрезка вендоренного `gerber-viewer`** (✅ 2026-06-04, PR #120):

@@ -3,21 +3,23 @@
 ## Bump the cache version when you change derived output
 
 Derived artifacts are cached on disk, keyed by a hash of `(source + version tag)`
-— see `crates/cuprum-core/src/diskcache.rs`. **If you change logic that affects
-the output, you must bump the corresponding version tag**, otherwise users will
-get a stale result from the cache. The tags live in one place,
-`crates/cuprum-core/src/artifact.rs` (`SVG_VERSION` / `METRICS_VERSION` /
-`PREVIEW_VERSION`) — except `mesh-vN`, still built in `cuprum-ui/src-tauri/src/main.rs`:
+— the disk cache lives in the `cuprum-diskcache` crate (re-exported as
+`cuprum_core::diskcache`). **If you change logic that affects the output, you must
+bump the corresponding version tag**, otherwise users will get a stale result from
+the cache. The `svg` / `metrics` / `preview` tags live in one place,
+`crates/cuprum-diskcache/src/artifact.rs` (`SVG_VERSION` / `METRICS_VERSION` /
+`PREVIEW_VERSION`) — except `mesh-vN`, still a `b"mesh-v6"` literal in
+`cuprum-ui/src-tauri/src/main.rs` (`board_mesh_cached`):
 
 | Tag          | Covers                        | Bump when editing |
 |--------------|-------------------------------|-------------------|
-| `svg-vN`     | layer rendering to SVG        | `svg.rs` |
-| `metrics-vN` | DFM measurements (`BoardMetrics`) | `metrics.rs`, `geometry.rs` (measurements: `clearance_width_hotspots` / `seg_seg_closest` / `*_hotspots`), `drill.rs` |
-| `preview-vN` | design-card preview PNG composition | `preview.rs` (palette / z-order / mask coverage / board-outline clip / `PREVIEW_MAX_PX`) |
-| `mesh-vN`    | 3D mesh triangulation         | `mesh.rs`, `geometry.rs` (polygons: `layer_polygons` / `fill_polygons` / `contours_of`) |
+| `svg-vN`     | layer rendering to SVG        | `cuprum-gerber/src/svg.rs` |
+| `metrics-vN` | DFM measurements (`BoardMetrics`) | `cuprum-dfm` (`metrics/*.rs`), `cuprum-gerber/src/geometry` (measurements: `clearance_width_hotspots` / `seg_seg_closest` / `*_hotspots`), `cuprum-gerber/src/drill.rs` |
+| `preview-vN` | design-card preview PNG composition | `cuprum-core/src/preview.rs` (palette / z-order / mask coverage / board-outline clip / `PREVIEW_MAX_PX`) |
+| `mesh-vN`    | 3D mesh triangulation         | `cuprum-mesh`, `cuprum-gerber/src/geometry` (polygons: `layer_polygons` / `fill_polygons` / `contours_of`) |
 
-A change in `geometry.rs` can touch **both** mesh (if polygons are affected)
-**and** metrics (if measurements are affected) — bump both relevant tags.
+A change in `cuprum-gerber/src/geometry` can touch **both** mesh (if polygons are
+affected) **and** metrics (if measurements are affected) — bump both relevant tags.
 
 ### Project-embedded artifacts (`<workdir>/artifacts/`)
 
@@ -179,7 +181,7 @@ in-memory, затем **персистентный** дисковый кеш в 
 вскрытия), растеризует через `resvg` в PNG (`PREVIEW_MAX_PX`) и персистит в
 `<workdir>/artifacts/preview`. Трейс-операция — `preview`.
 
-### Instrumented spans (in `cuprum-core`)
+### Instrumented spans (in the leaf crates, re-exported via `cuprum-core`)
 
 - `gerber.rs`: `parse_file`, `render_preview_png`
 - `geometry.rs`: `layer_polygons`, `copper_polygons`, `region_polygons`,
