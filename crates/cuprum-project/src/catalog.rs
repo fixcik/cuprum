@@ -105,12 +105,7 @@ pub fn update_stats(
 /// Update only the cached panel verdict + the profile hash it was computed against,
 /// WITHOUT touching `last_opened_at` or the stat columns. No-op if the path isn't
 /// in the catalog yet.
-pub fn set_verdict(
-    conn: &Connection,
-    path: &str,
-    verdict: &str,
-    profile_hash: &str,
-) -> Result<()> {
+pub fn set_verdict(conn: &Connection, path: &str, verdict: &str, profile_hash: &str) -> Result<()> {
     conn.execute(
         "UPDATE recent_projects SET panel_verdict = ?2, profile_hash = ?3 WHERE path = ?1",
         rusqlite::params![path, verdict, profile_hash],
@@ -197,8 +192,7 @@ mod tests {
 
     #[test]
     fn verdict_columns_survive_stats_updates() {
-        let dir =
-            std::env::temp_dir().join(format!("cuprum-verdict-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("cuprum-verdict-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("catalog.sqlite");
         let conn = open(&db).unwrap();
