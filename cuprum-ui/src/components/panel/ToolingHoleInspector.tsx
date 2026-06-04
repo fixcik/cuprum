@@ -30,7 +30,7 @@ export function ToolingHoleInspector({
           value={hole.diameter_mm}
           onChange={onDiameter}
           dim="fine"
-          className="w-24"
+          className="w-20"
         />
 
         <div className="h-5 w-px bg-border" />

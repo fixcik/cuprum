@@ -44,7 +44,7 @@ export function SegmentedControl<T extends string>({
             title={opt.title ?? opt.label}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "flex cursor-pointer items-center gap-1 px-2 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               opt.tone
                 ? active
                   ? TONE_CLS[opt.tone].active
