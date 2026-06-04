@@ -441,7 +441,7 @@ export const api = {
 
   /** Open (or focus) the "Add design to panel" child window. */
   openAddDesignWindow: () => invoke<void>("open_add_design_window"),
-  /** Open (or focus) the inspector window for a design (label `inspector:<id>`). */
+  /** Open (or focus) the inspector window for a design (label `inspector-<id>`). */
   openInspectorWindow: (designId: string) => invoke<void>("open_inspector_window", { designId }),
 
   // Dialogs for the project flows.

@@ -6,7 +6,7 @@ import { api, type InspectorSnapshot } from "@/lib/api";
 import { DesignInspector } from "@/components/project/DesignInspector";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 
-/** Root of a per-design inspector window (label `inspector:<designId>`). Thin
+/** Root of a per-design inspector window (label `inspector-<designId>`). Thin
  *  remote view: it receives live project snapshots from the main window and sends
  *  edit intents back, while heavy rendering (svg/mesh/metrics) runs locally. */
 export function InspectorWindow({ designId }: { designId: string }) {
