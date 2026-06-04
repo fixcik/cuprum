@@ -11,9 +11,13 @@ import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay"
 import {
   MIN_SCALE,
   MAX_SCALE,
-  COPPER_STROKE,
-  COPPER_FILL,
-  NO_COPPER_STROKE,
+  BLANK_STROKE,
+  BLANK_STROKE_BARE,
+  BLANK_FILL,
+  BLANK_LABEL,
+  INSTANCE_FILL,
+  INSTANCE_STROKE,
+  INSTANCE_LABEL,
   RULER_TOP,
   RULER_LEFT,
 } from "@/components/editor/canvasStyle";
@@ -45,9 +49,11 @@ const EMPTY_INSTANCES: BoardInstance[] = [];
 const EMPTY_DESIGNS: ProjectDesign[] = [];
 
 /** Schematic preview of an empty FR4 blank, in the dark CAD-canvas style of the
- *  exposure editor. Copper-clad side → solid amber outline + faint fill + "Cu";
- *  bare side → dashed grey outline + "no copper". Top always has copper; the
- *  bottom only when double-sided. Driven purely by props (no exposure store). */
+ *  exposure editor. Structure stays NEUTRAL (copper is reserved for selection):
+ *  copper-clad side → solid neutral outline + faint fill + "Cu"; bare side →
+ *  dashed neutral outline + "no copper". The solid-vs-dashed distinction carries
+ *  the side, only the amber is dropped. Top always has copper; the bottom only
+ *  when double-sided. Driven purely by props (no exposure store). */
 export function PanelBlankCanvas({
   widthMm,
   heightMm,
@@ -625,8 +631,8 @@ export function PanelBlankCanvas({
               y={0}
               width={W}
               height={H}
-              fill={hasCopper ? COPPER_FILL : undefined}
-              stroke={hasCopper ? COPPER_STROKE : NO_COPPER_STROKE}
+              fill={hasCopper ? BLANK_FILL : undefined}
+              stroke={hasCopper ? BLANK_STROKE : BLANK_STROKE_BARE}
               strokeWidth={hasCopper ? 1.25 : 1}
               strokeScaleEnabled={false}
               dash={hasCopper ? undefined : [3, 2]}
@@ -639,7 +645,7 @@ export function PanelBlankCanvas({
                 align="center"
                 text={hasCopper ? t("panel.canvas.copper") : t("panel.canvas.noCopper")}
                 fontSize={labelMm}
-                fill={hasCopper ? COPPER_STROKE : NO_COPPER_STROKE}
+                fill={BLANK_LABEL}
                 listening={false}
               />
             )}
@@ -681,8 +687,8 @@ export function PanelBlankCanvas({
                   <Rect
                     width={sz.w}
                     height={sz.h}
-                    fill={COPPER_FILL}
-                    stroke={COPPER_STROKE}
+                    fill={INSTANCE_FILL}
+                    stroke={INSTANCE_STROKE}
                     strokeWidth={1}
                     strokeScaleEnabled={false}
                     cornerRadius={0.3}
@@ -696,7 +702,7 @@ export function PanelBlankCanvas({
                     verticalAlign="middle"
                     text={name}
                     fontSize={Math.max(Math.min(sz.w, sz.h) * 0.12, 1.5)}
-                    fill={COPPER_STROKE}
+                    fill={INSTANCE_LABEL}
                     listening={false}
                   />
                 </Group>
@@ -708,6 +714,7 @@ export function PanelBlankCanvas({
               selected={selected}
               dragDelta={dragDelta}
               rotPreview={rotPreview}
+              pxPerMm={viewport.pxPerMm}
             />
             {tool === "select" && !dragDelta && selectionBBox && (
               <RotationHandle
