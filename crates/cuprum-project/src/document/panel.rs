@@ -1,7 +1,7 @@
 //! FR4 blank definition (`PanelDoc`): size, panel-space origin, board instances,
-//! and tooling holes. Embedded in `Manifest::panel` (manifest schema v4+;
-//! previously a separate `panel.json` entry). `PanelDoc` itself is schema v2
-//! (added `instances` + `tooling_holes`).
+//! tooling holes, and keep-out zones. Embedded in `Manifest::panel` (manifest
+//! schema v4+; previously a separate `panel.json` entry). `PanelDoc` itself is
+//! schema v3 (added `keep_out_zones`).
 
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +42,38 @@ pub struct BoardInstance {
     pub layer_ref: LayerRef,
 }
 
+/// Classification of a keep-out rectangle on the panel.
+///
+/// `fixture` (default) — a clamp or fixture: boards must not enter, but tooling
+/// holes may. `dead` — a machine dead zone: nothing (boards or tooling) may
+/// enter. `reserved` — a fiducial or service area: boards must not enter, but
+/// tooling holes may.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum KeepOutKind {
+    #[default]
+    Fixture,
+    Dead,
+    Reserved,
+}
+
+/// An axis-aligned rectangular keep-out zone in panel space.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KeepOutZone {
+    /// Stable id within the panel, e.g. "koz-1".
+    pub id: String,
+    /// Top-left corner X in panel space (mm).
+    pub x_mm: f64,
+    /// Top-left corner Y in panel space (mm).
+    pub y_mm: f64,
+    /// Width in mm (always positive).
+    pub width_mm: f64,
+    /// Height in mm (always positive).
+    pub height_mm: f64,
+    #[serde(default)]
+    pub kind: KeepOutKind,
+}
+
 /// A mechanical pin hole in the panel. Depth is always the full FR4 thickness
 /// (`stackup.substrate_thickness_mm`) and is not stored.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -57,7 +89,8 @@ pub struct ToolingHole {
 
 /// Bump when the on-disk shape changes incompatibly.
 /// v2: panel carries board instances and tooling holes.
-pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 2;
+/// v3: panel carries keep-out zones (`keep_out_zones`).
+pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 3;
 
 /// The FR4 blank definition (size + panel-space origin + layout). Embedded in
 /// `Manifest::panel` since manifest schema v4; previously a separate `panel.json`
@@ -81,6 +114,9 @@ pub struct PanelDoc {
     /// Tooling holes drilled into this panel.
     #[serde(default)]
     pub tooling_holes: Vec<ToolingHole>,
+    /// Keep-out zones on this panel.
+    #[serde(default)]
+    pub keep_out_zones: Vec<KeepOutZone>,
 }
 
 impl PanelDoc {
@@ -94,6 +130,7 @@ impl PanelDoc {
             origin_y_mm: 0.0,
             instances: Vec::new(),
             tooling_holes: Vec::new(),
+            keep_out_zones: Vec::new(),
         }
     }
 }
@@ -172,12 +209,13 @@ mod tests {
     }
 
     #[test]
-    fn panel_new_is_schema_v2_empty() {
+    fn panel_new_is_schema_v3_empty() {
         let p = PanelDoc::new(150.0, 100.0);
         assert_eq!(p.schema_version, CURRENT_PANEL_SCHEMA_VERSION);
-        assert_eq!(CURRENT_PANEL_SCHEMA_VERSION, 2);
+        assert_eq!(CURRENT_PANEL_SCHEMA_VERSION, 3);
         assert!(p.instances.is_empty());
         assert!(p.tooling_holes.is_empty());
+        assert!(p.keep_out_zones.is_empty());
     }
 
     #[test]
@@ -195,5 +233,60 @@ mod tests {
         let p: PanelDoc = serde_json::from_str(json).unwrap();
         assert_eq!(p.origin_x_mm, 0.0);
         assert_eq!(p.origin_y_mm, 0.0);
+    }
+
+    #[test]
+    fn keep_out_kind_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&KeepOutKind::Fixture).unwrap(),
+            "\"fixture\""
+        );
+        assert_eq!(
+            serde_json::to_string(&KeepOutKind::Dead).unwrap(),
+            "\"dead\""
+        );
+        assert_eq!(
+            serde_json::to_string(&KeepOutKind::Reserved).unwrap(),
+            "\"reserved\""
+        );
+        assert_eq!(KeepOutKind::default(), KeepOutKind::Fixture);
+    }
+
+    #[test]
+    fn keep_out_zone_round_trips() {
+        let z = KeepOutZone {
+            id: "koz-1".into(),
+            x_mm: 10.0,
+            y_mm: 5.0,
+            width_mm: 20.0,
+            height_mm: 15.0,
+            kind: KeepOutKind::Dead,
+        };
+        let json = serde_json::to_string(&z).unwrap();
+        assert_eq!(serde_json::from_str::<KeepOutZone>(&json).unwrap(), z);
+    }
+
+    #[test]
+    fn keep_out_zone_kind_defaults_to_fixture() {
+        let json = r#"{"id":"koz-1","x_mm":0.0,"y_mm":0.0,"width_mm":10.0,"height_mm":5.0}"#;
+        let z: KeepOutZone = serde_json::from_str(json).unwrap();
+        assert_eq!(z.kind, KeepOutKind::Fixture);
+    }
+
+    #[test]
+    fn panel_without_keep_out_zones_deserializes_empty() {
+        // Old v2 PanelDoc (no keep_out_zones field) must deserialise to an empty vec.
+        let json = r#"{"schema_version":2,"width_mm":200.0,"height_mm":100.0}"#;
+        let p: PanelDoc = serde_json::from_str(json).unwrap();
+        assert!(p.keep_out_zones.is_empty());
+    }
+
+    #[test]
+    fn panel_v1_loads_with_empty_keep_out_zones() {
+        let json = r#"{"schema_version":1,"width_mm":200.0,"height_mm":100.0}"#;
+        let p: PanelDoc = serde_json::from_str(json).unwrap();
+        assert!(p.keep_out_zones.is_empty());
+        assert!(p.instances.is_empty());
+        assert!(p.tooling_holes.is_empty());
     }
 }
