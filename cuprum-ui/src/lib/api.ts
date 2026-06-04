@@ -1,4 +1,4 @@
-import { invoke as rawInvoke } from "@tauri-apps/api/core";
+import { invoke as rawInvoke, Channel } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { type NestSettings } from "@/lib/nest";
@@ -24,6 +24,32 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 
 /** Overall panel feasibility verdict. Matches `Verdict` in `feasibility.ts`. */
 export type Verdict = "ok" | "warn" | "block";
+
+export type MachineStateName =
+  | "idle" | "run" | "hold" | "jog" | "alarm" | "home" | "door" | "check" | "sleep" | "unknown";
+
+export interface MachineStatus {
+  state: MachineStateName;
+  mpos: [number, number, number];
+  wpos: [number, number, number];
+  feed: number;
+  spindle: number;
+}
+
+export interface ConsoleLine {
+  dir: "rx" | "tx";
+  text: string;
+}
+
+/** Telemetry over the connect Channel. Matches `Telemetry` in machine.rs. */
+export type Telemetry =
+  | ({ type: "status" } & MachineStatus)
+  | ({ type: "line" } & ConsoleLine);
+
+export interface SerialPortInfo {
+  name: string;
+  kind: string;
+}
 
 // Physical exposure screen, from cuprum-core (14×19 µm pitch → 211.68 × 118.37 mm).
 export const SCREEN_W_MM = 211.68;
@@ -506,6 +532,27 @@ export const api = {
 
   /** Apply localised native-menu labels (called on mount and on language change). */
   setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),
+
+  machine: {
+    listPorts: () => invoke<SerialPortInfo[]>("list_serial_ports"),
+    connect: (port: string, baud: number, telemetry: Channel<Telemetry>) =>
+      invoke<void>("machine_connect", { port, baud, telemetry }),
+    disconnect: () => invoke<void>("machine_disconnect"),
+    jog: (dx: number, dy: number, dz: number, feed: number) =>
+      invoke<void>("machine_jog", { dx, dy, dz, feed }),
+    setZero: (x: boolean, y: boolean, z: boolean) => invoke<void>("machine_set_zero", { x, y, z }),
+    home: () => invoke<void>("machine_home"),
+    unlock: () => invoke<void>("machine_unlock"),
+    softReset: () => invoke<void>("machine_soft_reset"),
+    feedHold: () => invoke<void>("machine_feed_hold"),
+    cycleStart: () => invoke<void>("machine_cycle_start"),
+    spindle: (on: boolean, rpm: number) => invoke<void>("machine_spindle", { on, rpm }),
+    send: (line: string) => invoke<void>("machine_send", { line }),
+    onConnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://connected", () => cb()),
+    onDisconnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://disconnected", () => cb()),
+    onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>
+      listen<string>("machine://error", (e) => cb(e.payload)),
+  },
 };
 
 /** Labels passed to the native menu; keys match the Rust `MenuLabels` struct. */
