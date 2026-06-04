@@ -32,8 +32,10 @@ import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { RenestDialog } from "@/components/panel/RenestDialog";
+import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
+import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
-import { api, type BoardInstance, type ProjectDesign } from "@/lib/api";
+import { api, type BoardInstance, type ProjectDesign, type ToolingHole } from "@/lib/api";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -49,6 +51,7 @@ const SNAP_PX = 6;   // magnetic snap threshold in screen pixels
 // the panel/designs are absent (avoids re-running the sizes effect every render).
 const EMPTY_INSTANCES: BoardInstance[] = [];
 const EMPTY_DESIGNS: ProjectDesign[] = [];
+const EMPTY_HOLES: ToolingHole[] = [];
 
 /** Schematic preview of an empty FR4 blank, in the dark CAD-canvas style of the
  *  exposure editor. Structure stays NEUTRAL (copper is reserved for selection):
@@ -79,8 +82,15 @@ export function PanelBlankCanvas({
   const maxPanelH = useSettings((s) => s.profile.maxPanelHeightMm);
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
+  const holes = useShell((s) => s.currentManifest?.panel?.tooling_holes ?? EMPTY_HOLES);
   const moveInstances = useShell((s) => s.moveInstances);
   const rotateInstancesBy = useShell((s) => s.rotateInstancesBy);
+  const addToolingHole = useShell((s) => s.addToolingHole);
+  const moveToolingHole = useShell((s) => s.moveToolingHole);
+  const removeToolingHole = useShell((s) => s.removeToolingHole);
+  const setToolingHoleDiameter = useShell((s) => s.setToolingHoleDiameter);
+  const setToolingHoleRole = useShell((s) => s.setToolingHoleRole);
+  const addRegistrationSet = useShell((s) => s.addRegistrationSet);
   const selected = usePanelSelection((s) => s.selected);
   const setSelection = usePanelSelection((s) => s.set);
   const toggleSelection = usePanelSelection((s) => s.toggle);
@@ -604,12 +614,47 @@ export function PanelBlankCanvas({
     if (d && (d.dx !== 0 || d.dy !== 0)) void moveInstances([...selected], d.dx, d.dy);
   };
 
+  // --- Tooling hole interaction handlers ---
+  const onHoleMouseDown = (id: string, e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true;
+    setSelectedHoleId(id);
+  };
+
+  const onHoleDragEnd = (id: string, e: KonvaEventObject<DragEvent>) => {
+    e.cancelBubble = true;
+    const node = e.target;
+    // The node was dragged in panel mm coordinates (same as fit-group local space).
+    // Read the new position and compute delta vs committed hole position.
+    const hole = holes.find((h) => h.id === id);
+    if (!hole) return;
+    const newX = node.x();
+    const newY = node.y();
+    const dx = Math.round(newX - hole.x_mm);
+    const dy = Math.round(newY - hole.y_mm);
+    // Reset the node position back to the committed pose; the store mutation will
+    // re-render it correctly.
+    node.x(hole.x_mm);
+    node.y(hole.y_mm);
+    if (dx !== 0 || dy !== 0) void moveToolingHole(id, dx, dy);
+  };
+
   // --- Empty-canvas click + marquee (select tool only) ---
   const isEmptyTarget = (e: KonvaEventObject<MouseEvent>) =>
     e.target === e.target.getStage() || e.target.name() === "panel-bg";
 
   const onBgMouseDown = (e: KonvaEventObject<MouseEvent>) => {
-    if (panMode || tool !== "select" || !isEmptyTarget(e)) return;
+    if (panMode || !isEmptyTarget(e)) return;
+    if (tool === "tooling") {
+      // Place a new tooling hole at the click position.
+      const p = pointerMm();
+      if (!p) return;
+      void (async () => {
+        const id = await addToolingHole(p.x, p.y);
+        if (id) setSelectedHoleId(id);
+      })();
+      return;
+    }
+    if (tool !== "select") return;
     const p = pointerMm();
     if (!p) return;
     marqueeStart.current = p;
@@ -676,6 +721,31 @@ export function PanelBlankCanvas({
 
   const hasSelection = selected.size > 0;
   const [renestOpen, setRenestOpen] = useState(false);
+  const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
+
+  // Clear selected hole when leaving tooling mode.
+  useEffect(() => {
+    if (tool !== "tooling") setSelectedHoleId(null);
+  }, [tool]);
+
+  // Delete/Backspace removes the selected tooling hole; Esc deselects it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (tool !== "tooling") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedHoleId) {
+        e.preventDefault();
+        const id = selectedHoleId;
+        setSelectedHoleId(null);
+        void removeToolingHole(id);
+      } else if (e.key === "Escape" && selectedHoleId) {
+        setSelectedHoleId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tool, selectedHoleId, removeToolingHole]);
 
   return (
     <>
@@ -805,6 +875,14 @@ export function PanelBlankCanvas({
               />
             )}
             <SnapGuides guides={guides} />
+            <ToolingHoleLayer
+              holes={holes}
+              selectedId={tool === "tooling" ? selectedHoleId : null}
+              pxPerMm={viewport.pxPerMm}
+              interactive={tool === "tooling"}
+              onHoleMouseDown={onHoleMouseDown}
+              onHoleDragEnd={onHoleDragEnd}
+            />
             {marquee && (
               <Rect
                 x={Math.min(marquee.x0, marquee.x1)}
@@ -834,8 +912,25 @@ export function PanelBlankCanvas({
         extentVariant="muted"
       />
 
-      <PanelToolPalette tool={tool} onToolChange={setTool} onDuplicate={duplicateSelected} />
+      <PanelToolPalette
+        tool={tool}
+        onToolChange={setTool}
+        onDuplicate={duplicateSelected}
+        onAddRegistrationSet={() => void addRegistrationSet()}
+      />
       <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />
+
+      {tool === "tooling" && selectedHoleId && (() => {
+        const h = holes.find((x) => x.id === selectedHoleId);
+        return h ? (
+          <ToolingHoleInspector
+            hole={h}
+            onDiameter={(d) => void setToolingHoleDiameter(h.id, d)}
+            onRole={(r) => void setToolingHoleRole(h.id, r)}
+            onDelete={() => { removeToolingHole(h.id).catch(() => {}); setSelectedHoleId(null); }}
+          />
+        ) : null;
+      })()}
 
       <div className="absolute left-20 top-3 z-10">
         <SegmentedControl<"top" | "bottom">
