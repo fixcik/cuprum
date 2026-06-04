@@ -31,7 +31,7 @@ import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
+import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
@@ -42,7 +42,7 @@ import { RenestDialog } from "@/components/panel/RenestDialog";
 import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog";
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
 import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
-import { KeepOutLayer } from "@/components/panel/KeepOutLayer";
+import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import { api, type BoardInstance, type KeepOutZone, type ProjectDesign, type ToolingHole } from "@/lib/api";
 import { useKeepOutSelection } from "@/keepOutSelectionStore";
@@ -107,6 +107,7 @@ export function PanelBlankCanvas({
   const moveKeepOutZones = useShell((s) => s.moveKeepOutZones);
   const removeKeepOutZones = useShell((s) => s.removeKeepOutZones);
   const setKeepOutKind = useShell((s) => s.setKeepOutKind);
+  const resizeKeepOutZone = useShell((s) => s.resizeKeepOutZone);
   const selected = usePanelSelection((s) => s.selected);
   const setSelection = usePanelSelection((s) => s.set);
   const toggleSelection = usePanelSelection((s) => s.toggle);
@@ -181,6 +182,9 @@ export function PanelBlankCanvas({
   // Live drag delta for selected keep-out zones (mm). Committed on drag end.
   const [keepOutDragDelta, setKeepOutDragDelta] = useState<{ dx: number; dy: number } | null>(null);
   const keepOutDragStart = useRef<{ x: number; y: number } | null>(null);
+  // Live resize preview for a single keep-out zone (mm). Committed on mouseup.
+  const [keepOutResize, setKeepOutResize] = useState<{ id: string; x_mm: number; y_mm: number; width_mm: number; height_mm: number } | null>(null);
+  const keepOutResizeRef = useRef<{ id: string; corner: ZoneCorner; fixedX: number; fixedY: number } | null>(null);
 
   // O(1) design lookup for the instance render loop + labels.
   const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
@@ -734,6 +738,17 @@ export function PanelBlankCanvas({
     if (d && (d.dx !== 0 || d.dy !== 0)) void moveKeepOutZones([...keepOutSelected], d.dx, d.dy);
   };
 
+  const onZoneHandleDown = (id: string, corner: ZoneCorner) => {
+    const zone = zones.find((z) => z.id === id);
+    if (!zone) return;
+    clearSelection();                 // drop board selection
+    setKeepOutSelection([id]);        // resize implies single zone selection
+    const fixedX = corner === "tl" || corner === "bl" ? zone.x_mm + zone.width_mm : zone.x_mm;
+    const fixedY = corner === "tl" || corner === "tr" ? zone.y_mm + zone.height_mm : zone.y_mm;
+    keepOutResizeRef.current = { id, corner, fixedX, fixedY };
+    setKeepOutResize({ id, x_mm: zone.x_mm, y_mm: zone.y_mm, width_mm: zone.width_mm, height_mm: zone.height_mm });
+  };
+
   // --- Empty-canvas click + marquee (select tool only) ---
   const isEmptyTarget = (e: KonvaEventObject<MouseEvent>) =>
     e.target === e.target.getStage() || e.target.name() === "panel-bg";
@@ -776,6 +791,20 @@ export function PanelBlankCanvas({
   };
 
   const onStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
+    // Resize-in-progress takes priority over everything else.
+    if (keepOutResizeRef.current) {
+      const p = pointerMm();
+      if (!p) return;
+      const { fixedX, fixedY } = keepOutResizeRef.current;
+      const snap = !e.evt.altKey;                 // Alt disables 1 mm snap
+      const px = snap ? Math.round(p.x) : p.x;
+      const py = snap ? Math.round(p.y) : p.y;
+      const cxp = Math.max(0, Math.min(px, W));    // clamp pointer into panel
+      const cyp = Math.max(0, Math.min(py, H));
+      const rect = { x_mm: fixedX, y_mm: fixedY, width_mm: cxp - fixedX, height_mm: cyp - fixedY };
+      setKeepOutResize({ id: keepOutResizeRef.current.id, ...clampZoneRect(rect, W, H, KEEPOUT_MIN_MM) });
+      return;
+    }
     // Track the cursor (CSS px) for the rulers' crosshair/readout — only while the
     // crosshair is on, so an idle hover doesn't churn state when it's off. The
     // crosshair snaps to the blank/instance corners/edges/centre; Alt = free.
@@ -817,6 +846,15 @@ export function PanelBlankCanvas({
   };
 
   const onBgMouseUp = () => {
+    // Commit a keep-out zone resize.
+    if (keepOutResizeRef.current) {
+      const r = keepOutResize;
+      const id = keepOutResizeRef.current.id;
+      keepOutResizeRef.current = null;
+      setKeepOutResize(null);
+      if (r) void resizeKeepOutZone(id, { x_mm: r.x_mm, y_mm: r.y_mm, width_mm: r.width_mm, height_mm: r.height_mm });
+      return;
+    }
     // Commit a keep-out zone draw.
     if (tool === "keepout" && keepOutDrawStart.current && keepOutDraw) {
       const d = keepOutDraw;
@@ -994,6 +1032,8 @@ export function PanelBlankCanvas({
               onZoneMouseDown={onZoneMouseDown}
               onZoneDragMove={onZoneDragMove}
               onZoneDragEnd={onZoneDragEnd}
+              resizePreview={keepOutResize}
+              onHandleMouseDown={(id, corner) => onZoneHandleDown(id, corner)}
             />
             {instances.map((inst) => {
               const sz = sizes[inst.design_id];
