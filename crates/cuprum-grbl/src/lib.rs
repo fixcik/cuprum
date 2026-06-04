@@ -3,3 +3,4 @@
 //! `cuprum-sdcp` leaf-crate idiom. No serde — DTO mapping lives in the UI layer.
 
 pub mod parse;
+pub use parse::{parse_line, Line, MachineState, ResolvedStatus, StatusReport, StatusTracker};
