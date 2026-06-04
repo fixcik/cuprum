@@ -1,7 +1,7 @@
 //! Edge_Cuts outline: extract centreline segments from the edge gerber and
 //! stitch them into closed loops (perimeter first, then inner cutouts).
 
-use gerber_viewer::GerberPrimitive;
+use cuprum_gerber::GerberPrimitive;
 
 use super::{EDGE_ARC_STEPS, STITCH_EPS};
 

@@ -395,6 +395,30 @@ render-кеши + фасады), `cal`. Крупные файлы разбиты
 mesh 836, metrics 516). Публичный API и кеш-теги ни в одном PR не тронуты — всё через фасады
 `pub use cuprum_X …` под историческими путями.
 
+### Форк `gerber-viewer` → ядро парсинга в `cuprum-gerber`
+
+- [x] **Фаза A — форк-и-обрезка вендоренного `gerber-viewer`** (✅ 2026-06-04, PR #120):
+  вендоренный crate `vendor/gerber-viewer/` (6206 строк, рассчитан на egui-рендер) форкнут до
+  ядра парсинга Gerber→примитивы и влит в `cuprum-gerber` как модуль `src/viewer/`. Выкинут весь
+  egui-рендер (`renderer`/`ui`/`drawing`/`color`), `lyon`-тесселяция (`geometry/mesh.rs` + поле
+  `tessellation`), все `#[cfg(feature="egui")]`-элементы, и ставшая мёртвой render-математика
+  (`GerberTransform` + render-методы `BoundingBox` + весь `mirroring.rs`; `transform.rs` 952 →
+  влит в `geometry/mod.rs` как ~90-строчный `GerberImageTransform`). Зависимости egui/lyon/rand/
+  profiling убраны; остались `nalgebra`/`gerber_types`/`gerber_parser`/`thiserror`/`log`.
+  `vendor/`-дерево удалено, `exclude` в корневом `Cargo.toml` почищен. `cuprum-gerber` реэкспортит
+  `GerberLayer`/`GerberPrimitive`/`Exposure` + `gerber_parser`/`gerber_types`, так что `cuprum-mesh`/
+  `cuprum-dfm` поменяли только `use gerber_viewer::…`→`use cuprum_gerber::…` — публичный API наружу и
+  кеш-теги не тронуты. Атрибуция форка (MIT/Apache, NOTICE + LICENSE-*) на месте. Ядро: 6206 → 3859
+  строк; тесты ядра viewer'а теперь гоняются в воркспейсе (+47 нетто к набору).
+- [ ] **Фаза B — разбить `viewer/layer.rs`** (2501 строки — крупнейший файл): на фокусные модули
+  `primitive`/`bbox`/`build`/`layer` (типы примитивов / `WithBoundingBox` / билдер `GerberLayer` +
+  `Region`/`ApertureKind` / структура + аксессоры). Чистый перенос, поведение/число тестов не меняются.
+- [ ] **Техдолг: `GerberImageTransform` — полу-разведённая фича.** Команды MI/SF/OF/IR/AS парсятся
+  (`build_image_transform`) и хранятся в `GerberLayer.image_transform`, но `to_matrix()` нигде не
+  вызывается → трансформ **не применяется** к координатам примитивов: эти (deprecated) Gerber-команды
+  молча игнорируются при рендере/измерениях. Решить: либо применить трансформ в билдере, либо явно
+  убрать поле/аксессор и задокументировать как неподдерживаемые. (Найдено при форке gerber-viewer.)
+
 ## Workstream: переосмысление CLI с нуля
 
 `cuprum-cli` — древнейший крейт, с него начинался проект, и он морально устарел:

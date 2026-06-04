@@ -4,7 +4,7 @@
 //! length, and bounding box. This is NOT net-level connectivity: a net crossing a
 //! via to another layer, or merging into a zone, is several geometric conductors.
 
-use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
+use cuprum_gerber::{Exposure, GerberLayer, GerberPrimitive};
 use std::collections::HashMap;
 
 /// One geometrically-connected run of routed copper on a single layer.
@@ -135,11 +135,11 @@ pub fn conductors(layer: &GerberLayer) -> Vec<Conductor> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gerber_viewer::GerberLayer;
+    use cuprum_gerber::GerberLayer;
 
     fn layer(bytes: &[u8]) -> GerberLayer {
         let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
-        let doc = gerber_viewer::gerber_parser::parse(reader).ok().unwrap();
+        let doc = cuprum_gerber::gerber_parser::parse(reader).ok().unwrap();
         GerberLayer::new(doc.into_commands())
     }
 

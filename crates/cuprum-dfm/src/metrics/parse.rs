@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use gerber_viewer::GerberLayer;
+use cuprum_gerber::GerberLayer;
 use rayon::prelude::*;
 
 use cuprum_mesh::Role;

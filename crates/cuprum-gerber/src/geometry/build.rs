@@ -2,8 +2,8 @@
 //! its primitives, union into clean shapes via `i_overlay`, and subtract drill
 //! holes / mask openings. All entry points funnel through [`fill_polygons`].
 
+use crate::{GerberLayer, GerberPrimitive};
 use anyhow::Result;
-use gerber_viewer::{GerberLayer, GerberPrimitive};
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::overlay::FloatOverlay;
@@ -130,7 +130,7 @@ pub fn fill_polygons(contours: &[Vec<[f64; 2]>], holes: &[Hole]) -> Vec<Poly> {
     // overlapping at a trace BEND cancel to winding 0 and leave a triangular notch
     // ("mouse bites"). Forcing all contours CCW makes overlaps accumulate winding
     // (>=1) so the whole covered area fills. (All contours are additive here —
-    // the vendored gerber-viewer emits no clear-polarity — so there are no
+    // the forked parsing core emits no clear-polarity — so there are no
     // intended winding-holes to preserve; drills are subtracted separately.)
     let subj: Vec<Vec<[f64; 2]>> = contours.iter().map(|c| to_ccw(c.clone())).collect();
 

@@ -1,18 +1,4 @@
-#[cfg(feature = "egui")]
-use egui::{Pos2, Vec2};
 use nalgebra::{Point2, Vector2};
-
-#[cfg(feature = "egui")]
-pub trait ToPos2 {
-    fn to_pos2(self) -> Pos2;
-}
-
-#[cfg(feature = "egui")]
-impl ToPos2 for Point2<f64> {
-    fn to_pos2(self) -> Pos2 {
-        Pos2::new(self.x as f32, self.y as f32)
-    }
-}
 
 pub trait ToVector {
     fn to_vector(self) -> Vector2<f64>;
@@ -23,72 +9,6 @@ impl ToVector for Point2<f64> {
         Vector2::new(self.x, self.y)
     }
 }
-
-#[cfg(feature = "egui")]
-pub trait FromVec2 {
-    fn from(value: Vec2) -> Self;
-}
-
-#[cfg(feature = "egui")]
-impl FromVec2 for Point2<f64> {
-    fn from(value: Vec2) -> Self {
-        Self::new(value.x as f64, value.y as f64)
-    }
-}
-
-pub trait FromTuple2 {
-    fn from(value: (f64, f64)) -> Self;
-}
-
-impl FromTuple2 for Point2<f64> {
-    fn from(value: (f64, f64)) -> Self {
-        Self::new(value.0, value.1)
-    }
-}
-
-#[cfg(feature = "egui")]
-pub trait AddVec2 {
-    fn add(self, rhs: Vec2) -> Self;
-}
-
-#[cfg(feature = "egui")]
-impl AddVec2 for Point2<f64> {
-    fn add(self, rhs: Vec2) -> Self {
-        Self::new(self.x + rhs.x as f64, self.y + rhs.y as f64)
-    }
-}
-
-pub trait ToPosition {
-    fn to_position(self) -> Point2<f64>;
-}
-
-impl ToPosition for Vector2<f64> {
-    fn to_position(self) -> Point2<f64> {
-        Point2::new(self.x, self.y)
-    }
-}
-
-pub trait Invert {
-    fn invert_x(self) -> Self;
-    fn invert_y(self) -> Self;
-}
-
-macro_rules! impl_invert {
-    ($name:ty) => {
-        impl Invert for $name {
-            fn invert_x(self) -> Self {
-                Self::new(-self.x, self.y)
-            }
-
-            fn invert_y(self) -> Self {
-                Self::new(self.x, -self.y)
-            }
-        }
-    };
-}
-
-impl_invert!(Vector2<f64>);
-impl_invert!(Point2<f64>);
 
 pub mod deduplicate {
     use nalgebra::Point2;
@@ -150,7 +70,11 @@ pub mod deduplicate {
 
         #[test]
         fn test_no_duplicates() {
-            let vertices = vec![Point2::new(0.0, 0.0), Point2::new(1.0, 1.0), Point2::new(2.0, 2.0)];
+            let vertices = vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(2.0, 2.0),
+            ];
 
             let expected_result = vertices.clone();
 
@@ -178,10 +102,12 @@ pub mod deduplicate {
 
         #[test]
         fn test_dedup_would_leave_too_few() {
-            let vertices = vec![Point2::new(0.0, 0.0), Point2::new(0.0, 0.0), Point2::new(0.0, 0.0)];
-            let result = vertices
-                .clone()
-                .dedup_with_epsilon(1e-6);
+            let vertices = vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(0.0, 0.0),
+                Point2::new(0.0, 0.0),
+            ];
+            let result = vertices.clone().dedup_with_epsilon(1e-6);
             assert_eq!(result, vertices); // Should return original
         }
 

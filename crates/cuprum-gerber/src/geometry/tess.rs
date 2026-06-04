@@ -1,11 +1,11 @@
 //! Primitive tessellation and ring winding helpers.
 //!
-//! Walks the `gerber_viewer::GerberPrimitive` stream and emits solid contours
+//! Walks the `crate::GerberPrimitive` stream and emits solid contours
 //! (Add-only): flashes become discs/rects/polygons, routed Line/Arc become
 //! stroked rectangles plus round caps/joins. Plus the shoelace/CCW helpers the
 //! boolean stage relies on. See [`super`] for the layer conventions.
 
-use gerber_viewer::GerberPrimitive;
+use crate::GerberPrimitive;
 
 /// Arc tessellation steps — matches the visual fidelity of [`crate::svg`].
 const ARC_STEPS: usize = 64;
@@ -82,7 +82,7 @@ pub(crate) fn contours_for(prim: &GerberPrimitive, out: &mut Vec<Vec<[f64; 2]>>)
 }
 
 /// Convert every primitive to one or more solid contours, treating all as Add
-/// (v1: clear-polarity is not produced by the vendored gerber-viewer anyway —
+/// (v1: clear-polarity is not produced by the forked parsing core anyway —
 /// see the note in [`crate::svg`]).
 ///
 /// Line primitives are first coalesced into polylines by [`crate::strokes`] so

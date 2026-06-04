@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use gerber_viewer::GerberLayer;
+use cuprum_gerber::GerberLayer;
 
 use crate::sweep;
 use crate::HOT_N;

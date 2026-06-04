@@ -14,12 +14,17 @@ pub fn gerber_commands_to_source(commands: &Vec<Command>) -> String {
         .serialize(&mut buf)
         .expect("Could not generate Gerber code");
     let bytes = buf.into_inner().unwrap();
-    let gerber_source = String::from_utf8(bytes).unwrap();
-    gerber_source
+
+    String::from_utf8(bytes).unwrap()
 }
 
 pub mod geometry {
     use std::f64::consts::PI;
+
+    /// A 2D point in (x, y) form.
+    type Point = (f64, f64);
+    /// An edge connecting two points.
+    type Edge = (Point, Point);
 
     /// generate points alternating between outer and inner radius
     pub fn calculate_alternating_points(
@@ -35,7 +40,11 @@ pub mod geometry {
         let angle_step = (2.0 * PI) / sides as f64; // 36 degrees in radians
 
         for i in 0..sides {
-            let radius = if i % 2 == 0 { outer_radius } else { inner_radius };
+            let radius = if i % 2 == 0 {
+                outer_radius
+            } else {
+                inner_radius
+            };
             let angle = angle_step * i as f64 - PI / 2.0;
 
             let x = center_x + radius * angle.cos();
@@ -46,7 +55,7 @@ pub mod geometry {
         points
     }
 
-    pub fn extract_edges_and_midpoints(points: &[(f64, f64)]) -> (Vec<((f64, f64), (f64, f64))>, Vec<(f64, f64)>) {
+    pub fn extract_edges_and_midpoints(points: &[Point]) -> (Vec<Edge>, Vec<Point>) {
         let len = points.len();
         assert!(len >= 3, "Need at least 3 points to form a closed shape");
 
@@ -64,26 +73,13 @@ pub mod geometry {
         (edges, midpoints)
     }
 
-    pub fn compute_center_based_rotations(midpoints: &[(f64, f64)], shape_center: (f64, f64)) -> Vec<f64> {
-        midpoints
-            .iter()
-            .map(|&(mx, my)| {
-                let dx = mx - shape_center.0;
-                let dy = my - shape_center.1;
-                -dy.atan2(dx).to_degrees()
-            })
-            .collect()
-    }
-
-    pub fn compute_edge_rotations(edges: &[((f64, f64), (f64, f64))]) -> Vec<f64> {
+    pub fn compute_edge_rotations(edges: &[Edge]) -> Vec<f64> {
         edges
             .iter()
             .map(|&(a, b)| {
                 let dx = b.0 - a.0;
                 let dy = b.1 - a.1;
-                dy.atan2(dx)
-                    .to_degrees()
-                    .rem_euclid(360.0)
+                dy.atan2(dx).to_degrees().rem_euclid(360.0)
             })
             .collect()
     }
@@ -113,7 +109,8 @@ pub mod geometry {
 
             let expected_points = Vec::from(STAR5_POINTS);
             // when
-            let points = calculate_alternating_points(outer_diameter, inner_diameter, 0.0, 0.0, 5 * 2);
+            let points =
+                calculate_alternating_points(outer_diameter, inner_diameter, 0.0, 0.0, 5 * 2);
 
             // then
             assert_eq!(points, expected_points);
@@ -143,8 +140,14 @@ pub mod geometry {
                     (0.47552825814757677, 0.1545084971874737),
                     (0.5877852522924731, 0.8090169943749475),
                 ),
-                ((0.5877852522924731, 0.8090169943749475), (3.061616997868383e-17, 0.5)),
-                ((3.061616997868383e-17, 0.5), (-0.587785252292473, 0.8090169943749475)),
+                (
+                    (0.5877852522924731, 0.8090169943749475),
+                    (3.061616997868383e-17, 0.5),
+                ),
+                (
+                    (3.061616997868383e-17, 0.5),
+                    (-0.587785252292473, 0.8090169943749475),
+                ),
                 (
                     (-0.587785252292473, 0.8090169943749475),
                     (-0.47552825814757677, 0.15450849718747375),
@@ -187,16 +190,22 @@ pub mod geometry {
 
 mod macros {
     use gerber_types::{
-        ApertureMacro, CenterLinePrimitive, CirclePrimitive, Command, ExtendedCode, MacroBoolean, MacroContent,
-        MacroDecimal,
+        ApertureMacro, CenterLinePrimitive, CirclePrimitive, Command, ExtendedCode, MacroBoolean,
+        MacroContent, MacroDecimal,
     };
     use log::trace;
 
-    use crate::testing::geometry::{calculate_alternating_points, compute_edge_rotations, extract_edges_and_midpoints};
+    use crate::viewer::testing::geometry::{
+        calculate_alternating_points, compute_edge_rotations, extract_edges_and_midpoints,
+    };
 
     /// used to generate code for demo gerber files
     #[allow(dead_code)]
-    fn generate_star_outline_macro(outer_diameter: f64, inner_diameter: f64, name: String) -> Vec<Command> {
+    fn generate_star_outline_macro(
+        outer_diameter: f64,
+        inner_diameter: f64,
+        name: String,
+    ) -> Vec<Command> {
         generate_alternating_shape_outline_macro(outer_diameter, inner_diameter, 10, false, name)
     }
 
@@ -214,7 +223,11 @@ mod macros {
 
     /// used to generate code for demo gerber files
     #[allow(dead_code)]
-    fn generate_diamond_outline_macro(outer_diameter: f64, inner_diameter: f64, name: String) -> Vec<Command> {
+    fn generate_diamond_outline_macro(
+        outer_diameter: f64,
+        inner_diameter: f64,
+        name: String,
+    ) -> Vec<Command> {
         generate_alternating_shape_outline_macro(outer_diameter, inner_diameter, 4, false, name)
     }
 
@@ -250,13 +263,22 @@ mod macros {
         let center_y = 0.0;
 
         trace!("sides: {}", sides);
-        trace!("outer_diameter: {}, inner_diameter: {}", outer_diameter, inner_diameter);
+        trace!(
+            "outer_diameter: {}, inner_diameter: {}",
+            outer_diameter,
+            inner_diameter
+        );
         trace!("center_x: {}, center_y: {}", center_x, center_y);
-        trace!("outer_diameter: {}, inner_diameter: {}", outer_diameter, inner_diameter);
+        trace!(
+            "outer_diameter: {}, inner_diameter: {}",
+            outer_diameter,
+            inner_diameter
+        );
         trace!("center_x: {}, center_y: {}", center_x, center_y);
 
         content.push(MacroContent::Comment("end-points".to_string()));
-        let points = calculate_alternating_points(outer_diameter, inner_diameter, center_x, center_y, sides);
+        let points =
+            calculate_alternating_points(outer_diameter, inner_diameter, center_x, center_y, sides);
         trace!("points: {:?}", points);
 
         let (edges, midpoints) = extract_edges_and_midpoints(&points);
@@ -334,21 +356,20 @@ mod macros {
             content.push(circle_item);
         }
 
-        vec![Command::ExtendedCode(ExtendedCode::ApertureMacro(ApertureMacro {
-            name,
-            content,
-        }))]
+        vec![Command::ExtendedCode(ExtendedCode::ApertureMacro(
+            ApertureMacro { name, content },
+        ))]
     }
 
     #[cfg(test)]
     mod tests {
         use gerber_types::{
-            ApertureMacro, CenterLinePrimitive, CirclePrimitive, Command, ExtendedCode, MacroBoolean, MacroContent,
-            MacroDecimal,
+            ApertureMacro, CenterLinePrimitive, CirclePrimitive, Command, ExtendedCode,
+            MacroBoolean, MacroContent, MacroDecimal,
         };
 
-        use crate::testing::dump_gerber_source;
-        use crate::testing::geometry::{
+        use crate::viewer::testing::dump_gerber_source;
+        use crate::viewer::testing::geometry::{
             calculate_alternating_points, compute_edge_rotations, extract_edges_and_midpoints,
         };
 
@@ -361,7 +382,10 @@ mod macros {
             let center_x = 0.0;
             let center_y = 0.0;
 
-            println!("outer_diameter: {}, inner_diameter: {}", outer_diameter, inner_diameter);
+            println!(
+                "outer_diameter: {}, inner_diameter: {}",
+                outer_diameter, inner_diameter
+            );
             println!("center_x: {}, center_y: {}", center_x, center_y);
 
             let mut content = vec![
@@ -374,7 +398,13 @@ mod macros {
             ];
 
             content.push(MacroContent::Comment("end-points".to_string()));
-            let points = calculate_alternating_points(outer_diameter, inner_diameter, center_x, center_y, 10);
+            let points = calculate_alternating_points(
+                outer_diameter,
+                inner_diameter,
+                center_x,
+                center_y,
+                10,
+            );
             println!("points: {:?}", points);
 
             let (edges, midpoints) = extract_edges_and_midpoints(&points);
@@ -452,10 +482,12 @@ mod macros {
                 content.push(circle_item);
             }
 
-            let expected_commands = vec![Command::ExtendedCode(ExtendedCode::ApertureMacro(ApertureMacro {
-                name: "STAR5OUTLINEMP".to_string(),
-                content,
-            }))];
+            let expected_commands = vec![Command::ExtendedCode(ExtendedCode::ApertureMacro(
+                ApertureMacro {
+                    name: "STAR5OUTLINEMP".to_string(),
+                    content,
+                },
+            ))];
 
             // when
             let commands = super::generate_star_outline_macro_with_midpoints(
