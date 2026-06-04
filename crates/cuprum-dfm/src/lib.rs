@@ -3,6 +3,7 @@
 //! lives here. Shared polygon-building stays in `cuprum_gerber::geometry`.
 
 mod conductor;
+pub mod gate;
 mod metrics;
 mod sweep;
 
@@ -13,6 +14,7 @@ mod sweep;
 /// per-family caps so all families behave consistently.
 pub(crate) const HOT_N: usize = 500;
 
+pub use gate::{gate, GateFailure, GateProfile, GateReport, GateSeverity};
 pub use metrics::{board_metrics, BoardMetrics, Hotspot, MetricLayerInput};
 pub use sweep::{
     clearance_hotspots, clearance_width_hotspots, min_clearance_and_width, min_island_clearance,
