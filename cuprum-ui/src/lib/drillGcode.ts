@@ -82,6 +82,7 @@ export function emitDrillGcode(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillG
 
   let curX = 0;
   let curY = 0;
+  let firstGroup = true;
 
   for (const g of groups) {
     const tool = g.toolId ? toolById.get(g.toolId) : undefined;
@@ -93,7 +94,10 @@ export function emitDrillGcode(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillG
 
     // Tool change: stop spindle, retract, pause for the operator, then spin up.
     lines.push("M5");
-    lines.push(`G0 Z${fmt(safeZ)}`);
+    // The preamble already retracted to safe Z (and every hole ends at safe Z),
+    // so the first group is already there; retract defensively before later ones.
+    if (!firstGroup) lines.push(`G0 Z${fmt(safeZ)}`);
+    firstGroup = false;
     lines.push(`(insert drill D${fmt(tool.diameterMm)} — ${tool.name})`);
     lines.push("M0");
     if (profile.spindleControllable) {
@@ -113,6 +117,9 @@ export function emitDrillGcode(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillG
       if (peck > 0 && peck < depth) {
         // Manual peck: plunge in `peck` increments, retracting to safe Z to clear
         // chips between bites. (GRBL has no G83 canned cycle.)
+        // TODO(peck): full-retract style — each bite re-plunges from safeZ through the
+        // already-cut upper hole at feed rate. Safe but slow for many small increments.
+        // Future: rapid down to near the previous depth, then G1 only through the new bite.
         let z = 0;
         while (z < depth - 1e-9) {
           z = Math.min(z + peck, depth);

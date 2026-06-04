@@ -102,4 +102,16 @@ describe("emitDrillGcode", () => {
     expect(gcode).toContain("G1 Z-1.600 F60");
     expect(gcode).toContain("G1 Z-1.900 F60");
   });
+
+  it("never rapids laterally while at depth", () => {
+    const p = plan([{ diameterMm: 0.8, class: "pth", toolId: "t1", holes: [{ xMm: 0, yMm: 0 }, { xMm: 5, yMm: 5 }] }]);
+    const { gcode } = emitDrillGcode(p, { panelHeightMm: 20, profile: profile(), tools: [tool("t1", 0.8)], substrateThicknessMm: 1.6 });
+    const ls = gcode.split("\n").map((l) => l.trim()).filter(Boolean);
+    ls.forEach((l, i) => {
+      if (/^G0 [XY]/.test(l)) {
+        const prevZ = ls.slice(0, i).reverse().find((x) => /^G[01] Z/.test(x)) ?? "";
+        expect(prevZ).toMatch(/^G0 Z/); // last Z move before a lateral rapid was a retract
+      }
+    });
+  });
 });
