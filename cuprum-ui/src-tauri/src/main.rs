@@ -12,6 +12,15 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, WindowEvent};
 #[cfg(target_os = "macos")]
 use tauri::RunEvent;
 
+/// Localised labels for the native application menu, supplied by the frontend.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MenuLabels {
+    edit: String,
+    window: String,
+    check_updates: String,
+}
+
 use commands::project::working_base;
 use commands::windows::{dispatch_open, project_path_from_args, PendingOpen};
 // `is_project_file` is only used in the macOS-only `RunEvent::Opened` arm below;
@@ -28,22 +37,27 @@ pub(crate) fn traces_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join("cuprum-traces"))
 }
 
-/// Minimal native menu: an app submenu carrying "Check for Updates…" alongside the
-/// standard items, plus Edit/Window so system shortcuts (copy/paste, undo) survive.
-/// Labels follow the system locale (ru/en, matching the UI's default-language logic);
-/// predefined items are localized by the OS. Seed of the wider custom-menu work.
-fn build_app_menu<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let ru = sys_locale::get_locale().is_some_and(|l| l.to_lowercase().starts_with("ru"));
-    let (edit_t, window_t, check_t) = if ru {
-        ("Правка", "Окно", "Проверить обновления…")
-    } else {
-        ("Edit", "Window", "Check for Updates…")
-    };
+/// English fallback labels used at startup before the frontend pushes i18n strings.
+/// Must match the `fallbackLng: "en"` value in the i18next config.
+fn default_menu_labels() -> MenuLabels {
+    MenuLabels {
+        edit: "Edit".into(),
+        window: "Window".into(),
+        check_updates: "Check for Updates\u{2026}".into(),
+    }
+}
 
+/// Build the application menu from the provided localised labels.
+/// The structure (app submenu + edit + window) never changes; only the three
+/// custom label strings vary with the UI language.
+fn build_app_menu<R: Runtime>(
+    handle: &AppHandle<R>,
+    labels: &MenuLabels,
+) -> tauri::Result<Menu<R>> {
     let app_b = SubmenuBuilder::new(handle, "Cuprum")
         .about(Some(AboutMetadata::default()))
         .separator()
-        .text("check-updates", check_t)
+        .text("check-updates", &labels.check_updates)
         .separator();
     // Services/Hide/Show All are macOS-only predefined items (cfg'd shadowing keeps
     // `app_b` un-`mut` so non-macOS builds don't trip the unused_mut lint).
@@ -57,7 +71,7 @@ fn build_app_menu<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .separator();
     let app_menu = app_b.quit().build()?;
 
-    let edit_menu = SubmenuBuilder::new(handle, edit_t)
+    let edit_menu = SubmenuBuilder::new(handle, &labels.edit)
         .undo()
         .redo()
         .separator()
@@ -67,7 +81,7 @@ fn build_app_menu<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .select_all()
         .build()?;
 
-    let window_menu = SubmenuBuilder::new(handle, window_t)
+    let window_menu = SubmenuBuilder::new(handle, &labels.window)
         .minimize()
         .maximize()
         .separator()
@@ -79,10 +93,19 @@ fn build_app_menu<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .build()
 }
 
+/// Replace the application menu with newly localised labels sent from the frontend.
+/// Called on mount and whenever the UI language changes.
+#[tauri::command]
+fn set_app_menu(app: AppHandle, labels: MenuLabels) -> Result<(), String> {
+    let menu = build_app_menu(&app, &labels).map_err(|e| e.to_string())?;
+    app.set_menu(menu).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .manage(PendingOpen::default())
-        .menu(build_app_menu)
+        .menu(|handle| build_app_menu(handle, &default_menu_labels()))
         .on_menu_event(|app, event| {
             // Manual "Check for Updates…" → the frontend runs a loud check (surfaces
             // "up to date"/errors, unlike the silent startup check).
@@ -159,7 +182,8 @@ fn main() {
             commands::windows::display_px_per_mm,
             commands::windows::take_pending_open,
             commands::windows::open_add_design_window,
-            commands::windows::open_inspector_window
+            commands::windows::open_inspector_window,
+            set_app_menu
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");
