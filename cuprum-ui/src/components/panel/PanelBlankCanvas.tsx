@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Stage, Layer, Rect, Group, Text } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Maximize, Plus, Minus } from "lucide-react";
+import { Maximize, Plus, Minus, LocateFixed } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
@@ -87,6 +87,9 @@ export function PanelBlankCanvas({
   // px) drives the hover crosshair/readout; null when the pointer is off-canvas.
   const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
   const [hoverPx, setHoverPx] = useState<{ x: number; y: number } | null>(null);
+  // The hover crosshair + readout is opt-in (off by default — it's busy and most
+  // placement is done by eye/snap).
+  const [showCrosshair, setShowCrosshair] = useState(false);
   // Coalesce hover updates to one per animation frame: a bare mousemove handler
   // would re-render the whole instance tree on every pixel of movement. The latest
   // pointer lives in a ref; the frame flushes whatever is freshest.
@@ -508,9 +511,12 @@ export function PanelBlankCanvas({
   };
 
   const onStageMouseMove = () => {
-    // Track the cursor (CSS px) for the rulers' crosshair/readout.
-    const pt = stageRef.current?.getPointerPosition() ?? null;
-    queueHover(pt ? { x: pt.x, y: pt.y } : null);
+    // Track the cursor (CSS px) for the rulers' crosshair/readout — only while the
+    // crosshair is on, so an idle hover doesn't churn state when it's off.
+    if (showCrosshair) {
+      const pt = stageRef.current?.getPointerPosition() ?? null;
+      queueHover(pt ? { x: pt.x, y: pt.y } : null);
+    }
     // Live marquee (select tool) — unchanged.
     if (!marqueeStart.current) return;
     const p = pointerMm();
@@ -697,7 +703,7 @@ export function PanelBlankCanvas({
         extentMm={{ x: 0, y: 0, w: W, h: H }}
         workAreaMm={{ w: maxPanelW, h: maxPanelH }}
         workAreaLabel={t("panel.canvas.workArea")}
-        hover={hoverPx}
+        hover={showCrosshair ? hoverPx : null}
       />
 
       <PanelToolPalette tool={tool} onToolChange={setTool} onDuplicate={duplicateSelected} />
@@ -719,6 +725,14 @@ export function PanelBlankCanvas({
       </div>
 
       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground [&_button]:cursor-pointer">
+        <button
+          className={`rounded p-1 hover:bg-muted/60 ${showCrosshair ? "bg-primary/20 text-primary" : ""}`}
+          aria-label={t("common:viewer.crosshair")}
+          title={t("common:viewer.crosshair")}
+          onClick={() => setShowCrosshair((v) => !v)}
+        >
+          <LocateFixed className="size-4" />
+        </button>
         <button className="rounded p-1 hover:bg-muted/60" aria-label={t("common:viewer.zoomOut")} title={t("common:viewer.zoomOut")} onClick={() => zoomButton(1 / 1.2)}>
           <Minus className="size-4" />
         </button>
