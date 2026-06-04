@@ -39,7 +39,9 @@ try {
   // Non-Tauri (plain browser) context — default to the main app.
 }
 
-const INSPECTOR_PREFIX = "inspector:";
+// Hyphen, not colon: a ':' in a window label loads a blank page in WebView2 on
+// Windows. Must stay in sync with windows.rs and capabilities/default.json.
+const INSPECTOR_PREFIX = "inspector-";
 let windowRoot: React.ReactNode;
 if (label === "add-design") {
   windowRoot = <AddDesignWindow />;

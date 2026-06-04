@@ -146,14 +146,18 @@ pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Open (or focus) a per-design inspector window. Label `inspector:<design_id>`,
+/// Open (or focus) a per-design inspector window. Label `inspector-<design_id>`,
 /// so several designs can be inspected at once; reopening the same design focuses
 /// the existing window. Same bundle as the main window; the SPA branches on the
 /// label. Title is set (localised) by the JS side.
 #[tauri::command]
 pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result<(), String> {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
-    let label = format!("inspector:{design_id}");
+    // Separator is a hyphen, not a colon: a ':' in a window label is silently
+    // rejected by WebView2 on Windows and the webview loads a blank page (the
+    // label is otherwise a valid Tauri label on macOS). See the matching prefix
+    // in main.tsx / main.rs and the capability glob in capabilities/default.json.
+    let label = format!("inspector-{design_id}");
     if let Some(w) = app.get_webview_window(&label) {
         return w.set_focus().map_err(|e| e.to_string());
     }
