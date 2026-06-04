@@ -130,6 +130,8 @@
     "workArea": "{{count}} board(s) are outside the machine work area",
     "designBlock": "{{count}} board(s) cannot be produced",
     "designWarn": "{{count}} board(s) have production warnings",
+    "keepOut": "{{count}} board(s) overlap a keep-out zone",
+    "keepOutTooling": "{{count}} hole(s) in a machine dead zone",
     "sectionTitle": "Layout check",
     "ok": "Layout is valid",
     "clickToHighlight": "Click to highlight on canvas"
