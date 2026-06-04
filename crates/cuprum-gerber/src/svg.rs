@@ -417,27 +417,27 @@ mod tests {
     /// the `%LPC*%` (load polarity clear / `ExtendedCode::LoadPolarity(Polarity::Clear)`)
     /// command — the match arm for `LoadPolarity` is absent, so it falls through to the
     /// catch-all `_ => {}` and every flash is emitted as `Exposure::Add`.  Until the
-    /// vendor is patched, the CutOut branch in `render_layer_svg` cannot be exercised
+    /// parser gains that arm, the CutOut branch in `render_layer_svg` cannot be exercised
     /// through gerber input.  This test documents that known limitation and verifies the
     /// safe-id sanitization at the same time: the id `"imp/1.gbr"` must have its
     /// special characters replaced, so neither `"/"` nor `"."` may appear inside the
     /// `cuprum-mask-…` attribute value.
     #[test]
-    fn cutout_vendor_limitation_and_id_sanitization() {
+    fn cutout_parser_limitation_and_id_sanitization() {
         // Two apertures: D10 flashed dark (Add), D11 flashed clear (LPC) — but the
-        // vendor ignores LPC so both arrive as Add and no mask is emitted.
+        // parser ignores LPC so both arrive as Add and no mask is emitted.
         const ADD_AND_CLEAR: &[u8] =
             b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\n%LPD*%\nD10*\nX0Y0D03*\n%LPC*%\n%ADD11C,1.0*%\nD11*\nX0Y0D03*\nM02*\n";
 
         let g = render_layer_svg(ADD_AND_CLEAR, "imp/1.gbr").unwrap();
 
-        // The vendor does not produce CutOut primitives from %LPC*%, so no mask is
-        // generated.  If this assertion ever starts failing it means the vendor was
+        // The parser does not produce CutOut primitives from %LPC*%, so no mask is
+        // generated.  If this assertion ever starts failing it means the parser was
         // updated to support clear polarity — great!  At that point remove this test
         // and enable the full cutout_uses_mask test below.
         assert!(
             !g.svg_body.contains("cuprum-mask-"),
-            "vendor now supports CutOut — replace this test with cutout_uses_mask: {}",
+            "parser now supports CutOut — replace this test with cutout_uses_mask: {}",
             g.svg_body
         );
 
