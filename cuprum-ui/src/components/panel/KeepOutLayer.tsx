@@ -11,6 +11,8 @@ import {
 } from "@/components/editor/canvasStyle";
 import type { KeepOutKind, KeepOutZone } from "@/lib/api";
 
+export type ZoneCorner = "tl" | "tr" | "bl" | "br";
+
 /** Resolve fill/stroke colours for a keep-out kind. */
 function kindColors(kind: KeepOutKind): { fill: string; stroke: string } {
   switch (kind) {
@@ -35,6 +37,8 @@ export function KeepOutLayer({
   onZoneMouseDown,
   onZoneDragMove,
   onZoneDragEnd,
+  resizePreview,
+  onHandleMouseDown,
 }: {
   zones: KeepOutZone[];
   selected: Set<string>;
@@ -45,6 +49,10 @@ export function KeepOutLayer({
   onZoneMouseDown?: (id: string, e: KonvaEventObject<MouseEvent>) => void;
   onZoneDragMove?: (id: string, e: KonvaEventObject<DragEvent>) => void;
   onZoneDragEnd?: (id: string, e: KonvaEventObject<DragEvent>) => void;
+  /** Live resize preview for ONE zone (mm box). When set for a zone id, that zone
+   *  renders at the preview rect instead of its committed pose. */
+  resizePreview?: { id: string; x_mm: number; y_mm: number; width_mm: number; height_mm: number } | null;
+  onHandleMouseDown?: (id: string, corner: ZoneCorner, e: KonvaEventObject<MouseEvent>) => void;
 }) {
   // Screen-size scale factor: 1 / pxPerMm converts screen px to mm.
   const k = pxPerMm > 0 ? 1 / pxPerMm : 0;
@@ -52,40 +60,53 @@ export function KeepOutLayer({
   const selOutset = 2 * k;
   // Hatch line spacing (mm) — fixed density scaled by screen px.
   const hatchSpacing = Math.max(3 * k, 0.5);
-  // Font size: at least 2 mm, at most 8% of the zone minor dimension.
-  const labelSize = (z: KeepOutZone) => Math.max(Math.min(z.width_mm, z.height_mm) * 0.08, 2);
 
   return (
     <>
       {zones.map((zone) => {
         const isSelected = selected.has(zone.id);
-        const shift = isSelected && dragDelta ? dragDelta : { dx: 0, dy: 0 };
-        const x = zone.x_mm + shift.dx;
-        const y = zone.y_mm + shift.dy;
+
+        // Determine displayed geometry: resize preview overrides committed pose.
+        const isResizing = resizePreview?.id === zone.id;
+        const displayX = isResizing ? resizePreview!.x_mm : zone.x_mm + (isSelected && dragDelta ? dragDelta.dx : 0);
+        const displayY = isResizing ? resizePreview!.y_mm : zone.y_mm + (isSelected && dragDelta ? dragDelta.dy : 0);
+        const displayW = isResizing ? resizePreview!.width_mm : zone.width_mm;
+        const displayH = isResizing ? resizePreview!.height_mm : zone.height_mm;
+
         const { fill, stroke } = kindColors(zone.kind);
 
-        // Build diagonal hatch lines clipped to the zone rect.
+        // Build diagonal hatch lines clipped to the displayed rect.
         const hatchLines: number[][] = [];
-        const steps = Math.ceil((zone.width_mm + zone.height_mm) / hatchSpacing) + 1;
+        const steps = Math.ceil((displayW + displayH) / hatchSpacing) + 1;
         for (let i = 0; i < steps; i++) {
           const offset = i * hatchSpacing;
-          // Line goes from (offset, 0) to (0, offset) reflected across the rect.
-          const x1 = Math.min(offset, zone.width_mm);
-          const y1 = Math.max(0, offset - zone.width_mm);
-          const x2 = Math.max(0, offset - zone.height_mm);
-          const y2 = Math.min(offset, zone.height_mm);
+          const x1 = Math.min(offset, displayW);
+          const y1 = Math.max(0, offset - displayW);
+          const x2 = Math.max(0, offset - displayH);
+          const y2 = Math.min(offset, displayH);
           if (Math.abs(x1 - x2) > 1e-6 || Math.abs(y1 - y2) > 1e-6) {
             hatchLines.push([x1, y1, x2, y2]);
           }
         }
 
+        // Corner handle side (constant screen size).
+        const hs = 7 * k;
+
+        // Corner positions in the group's local coords (relative to displayed origin).
+        const corners: { corner: ZoneCorner; cx: number; cy: number; cursor: string }[] = [
+          { corner: "tl", cx: 0,        cy: 0,        cursor: "nwse-resize" },
+          { corner: "tr", cx: displayW, cy: 0,        cursor: "nesw-resize" },
+          { corner: "bl", cx: 0,        cy: displayH, cursor: "nesw-resize" },
+          { corner: "br", cx: displayW, cy: displayH, cursor: "nwse-resize" },
+        ];
+
         return (
           <Group
             key={zone.id}
-            x={x}
-            y={y}
+            x={displayX}
+            y={displayY}
             listening={interactive}
-            draggable={interactive}
+            draggable={interactive && !isResizing}
             onMouseDown={
               interactive && onZoneMouseDown ? (e) => onZoneMouseDown(zone.id, e) : undefined
             }
@@ -104,8 +125,8 @@ export function KeepOutLayer({
             {/* Invisible hit target covers the whole rect for click/drag. */}
             {interactive && (
               <Rect
-                width={zone.width_mm}
-                height={zone.height_mm}
+                width={displayW}
+                height={displayH}
                 fill="transparent"
                 listening
               />
@@ -116,8 +137,8 @@ export function KeepOutLayer({
               <Rect
                 x={-selOutset}
                 y={-selOutset}
-                width={zone.width_mm + 2 * selOutset}
-                height={zone.height_mm + 2 * selOutset}
+                width={displayW + 2 * selOutset}
+                height={displayH + 2 * selOutset}
                 stroke={KEEPOUT_SELECTED_STROKE}
                 strokeWidth={1.5}
                 strokeScaleEnabled={false}
@@ -127,8 +148,8 @@ export function KeepOutLayer({
 
             {/* Zone background fill. */}
             <Rect
-              width={zone.width_mm}
-              height={zone.height_mm}
+              width={displayW}
+              height={displayH}
               fill={fill}
               stroke={stroke}
               strokeWidth={1}
@@ -141,8 +162,8 @@ export function KeepOutLayer({
             <Group
               clipX={0}
               clipY={0}
-              clipWidth={zone.width_mm}
-              clipHeight={zone.height_mm}
+              clipWidth={displayW}
+              clipHeight={displayH}
               listening={false}
             >
               {hatchLines.map((pts, i) => (
@@ -159,21 +180,51 @@ export function KeepOutLayer({
             </Group>
 
             {/* Kind label — centred, visible when the zone is large enough. */}
-            {labelSize(zone) >= 1.5 && (
+            {Math.max(Math.min(displayW, displayH) * 0.08, 2) >= 1.5 && (
               <Text
                 x={0}
                 y={0}
-                width={zone.width_mm}
-                height={zone.height_mm}
+                width={displayW}
+                height={displayH}
                 align="center"
                 verticalAlign="middle"
                 text={zone.kind}
-                fontSize={labelSize(zone)}
+                fontSize={Math.max(Math.min(displayW, displayH) * 0.08, 2)}
                 fill={stroke}
                 opacity={0.8}
                 listening={false}
               />
             )}
+
+            {/* Corner resize handles — rendered on top, only when selected. */}
+            {interactive && isSelected && corners.map(({ corner, cx, cy, cursor }) => (
+              <Rect
+                key={corner}
+                x={cx - hs / 2}
+                y={cy - hs / 2}
+                width={hs}
+                height={hs}
+                fill={KEEPOUT_SELECTED_STROKE}
+                strokeScaleEnabled={false}
+                listening
+                onMouseDown={(e) => {
+                  e.cancelBubble = true;
+                  onHandleMouseDown?.(zone.id, corner, e);
+                }}
+                onTap={(e) => {
+                  e.cancelBubble = true;
+                  onHandleMouseDown?.(zone.id, corner, e as unknown as KonvaEventObject<MouseEvent>);
+                }}
+                onMouseEnter={(e) => {
+                  const stage = e.target.getStage();
+                  if (stage) stage.container().style.cursor = cursor;
+                }}
+                onMouseLeave={(e) => {
+                  const stage = e.target.getStage();
+                  if (stage) stage.container().style.cursor = "default";
+                }}
+              />
+            ))}
           </Group>
         );
       })}

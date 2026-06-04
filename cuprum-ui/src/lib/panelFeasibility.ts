@@ -1,7 +1,7 @@
 import type { Severity, Verdict, I18nText } from "@/lib/feasibility";
 import type { PanelDoc, BoardInstance } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
-import { instanceBounds, keepOutBox, toolingHoleBounds, zoneForbidsTooling, type Box } from "@/lib/panelPlacement";
+import { boxesOverlap, instanceBounds, keepOutBox, toolingHoleBounds, zoneForbidsTooling, type Box } from "@/lib/panelPlacement";
 
 export const MIN_PANEL_GAP_MM = 1;
 
@@ -32,16 +32,6 @@ type Sized = { inst: BoardInstance; box: Box };
 /** True if a rotated-AABB box extends outside the panel rectangle [0,W]×[0,H]. */
 function isOffPanelBox(box: Box, panelW: number, panelH: number, tol = 1e-3): boolean {
   return box.minX < -tol || box.minY < -tol || box.maxX > panelW + tol || box.maxY > panelH + tol;
-}
-
-/** Strict AABB overlap — touching edges do not count. */
-function boxesOverlapStrict(a: Box, b: Box, tol = 1e-6): boolean {
-  return (
-    a.minX < b.maxX - tol &&
-    a.maxX > b.minX + tol &&
-    a.minY < b.maxY - tol &&
-    a.maxY > b.minY + tol
-  );
 }
 
 /** Gap between two non-overlapping AABBs (≤0 means they touch or overlap). */
@@ -119,7 +109,7 @@ export function evaluatePanel(opts: {
     for (let j = i + 1; j < sized.length; j++) {
       const a = sized[i].box;
       const b = sized[j].box;
-      if (boxesOverlapStrict(a, b)) {
+      if (boxesOverlap(a, b)) {
         overlapIds.add(sized[i].inst.id);
         overlapIds.add(sized[j].inst.id);
       } else if (gapBetween(a, b) < minGap) {
@@ -212,7 +202,7 @@ export function evaluatePanel(opts: {
     const zoneBoxes = zones.map((z) => ({ z, box: keepOutBox(z) }));
     const koIds = new Set<string>();
     for (const s of sized) {
-      if (zoneBoxes.some(({ box: zb }) => boxesOverlapStrict(s.box, zb))) {
+      if (zoneBoxes.some(({ box: zb }) => boxesOverlap(s.box, zb))) {
         koIds.add(s.inst.id);
       }
     }
@@ -232,7 +222,7 @@ export function evaluatePanel(opts: {
       const holeIds: string[] = [];
       for (const h of panel.tooling_holes ?? []) {
         const hb = toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm });
-        if (deadBoxes.some((db) => boxesOverlapStrict(hb, db))) holeIds.push(h.id);
+        if (deadBoxes.some((db) => boxesOverlap(hb, db))) holeIds.push(h.id);
       }
       if (holeIds.length) {
         out.push({

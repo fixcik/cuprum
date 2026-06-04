@@ -20,6 +20,7 @@ import {
   zoneForbidsBoard,
   zoneForbidsTooling,
   keepOutBox,
+  clampZoneRect,
   type AlignEdge,
   type GuideLine,
 } from "@/lib/panelPlacement";
@@ -631,5 +632,21 @@ describe("keepOutBox", () => {
       maxX: 100,
       maxY: 50,
     });
+  });
+});
+
+describe("clampZoneRect", () => {
+  it("normalises negative size and clamps both edges into the panel", () => {
+    const r = clampZoneRect({ x_mm: 90, y_mm: 90, width_mm: 30, height_mm: 30 }, 100, 100, 1);
+    expect(r).toEqual({ x_mm: 90, y_mm: 90, width_mm: 10, height_mm: 10 });
+  });
+  it("normalises a negative-size rect (anchor on the far corner)", () => {
+    const r = clampZoneRect({ x_mm: 50, y_mm: 50, width_mm: -20, height_mm: -10 }, 100, 100, 1);
+    expect(r).toEqual({ x_mm: 30, y_mm: 40, width_mm: 20, height_mm: 10 });
+  });
+  it("enforces the minimum size", () => {
+    const r = clampZoneRect({ x_mm: 10, y_mm: 10, width_mm: 0.2, height_mm: 0.2 }, 100, 100, 1);
+    expect(r.width_mm).toBeGreaterThanOrEqual(1);
+    expect(r.height_mm).toBeGreaterThanOrEqual(1);
   });
 });
