@@ -84,6 +84,17 @@ describe("projectHoleToPanel", () => {
     // local (0,0) on Bottom → mirrored to x = W → panel x = x_mm + W.
     expect(projectHoleToPanel({ xMm: 0, yMm: 0 }, i, W, H)).toEqual({ xMm: 40, yMm: 60 });
   });
+
+  it.each([90, 180, 270])("Bottom rotation %d: projected corners' bbox == instanceBounds", (deg) => {
+    const i = inst({ rotation_deg: deg, layer_ref: "Bottom" });
+    const pts = corners.map((c) => projectHoleToPanel(c, i, W, H));
+    const xs = pts.map((p) => p.xMm), ys = pts.map((p) => p.yMm);
+    const b = instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: W, boardH: H, rotationDeg: deg });
+    expect(close(Math.min(...xs), b.minX)).toBe(true);
+    expect(close(Math.max(...xs), b.maxX)).toBe(true);
+    expect(close(Math.min(...ys), b.minY)).toBe(true);
+    expect(close(Math.max(...ys), b.maxY)).toBe(true);
+  });
 });
 
 describe("buildPanelDrillPlan", () => {
