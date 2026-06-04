@@ -58,7 +58,9 @@
     "baud": "Baud rate",
     "dialect": "G-code dialect",
     "prepend": "Prepend G-code",
-    "append": "Append G-code"
+    "append": "Append G-code",
+    "unitRpm": "RPM",
+    "unitMmMin": "mm/min"
   },
   "tools": {
     "add": "Add tool",

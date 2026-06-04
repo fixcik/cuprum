@@ -30,6 +30,7 @@ export function CncProfileSection() {
         label={t("cnc.spindleMaxRpm")}
         value={cnc.spindleMaxRpm}
         step="100"
+        suffix={t("cnc.unitRpm")}
         onChange={(spindleMaxRpm) => setCnc({ spindleMaxRpm })}
       />
       <BoolField

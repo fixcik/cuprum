@@ -58,7 +58,9 @@
     "baud": "Скорость порта",
     "dialect": "Диалект G-code",
     "prepend": "G-code в начало",
-    "append": "G-code в конец"
+    "append": "G-code в конец",
+    "unitRpm": "об/мин",
+    "unitMmMin": "мм/мин"
   },
   "tools": {
     "add": "Добавить инструмент",

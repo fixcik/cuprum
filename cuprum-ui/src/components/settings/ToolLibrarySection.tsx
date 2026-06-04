@@ -57,18 +57,21 @@ function ToolRow({ tool }: { tool: Tool }) {
           label={t("tools.rpm")}
           value={tool.recommendedRpm}
           step="100"
+          suffix={t("cnc.unitRpm")}
           onChange={(recommendedRpm) => update(tool.id, { recommendedRpm })}
         />
         <NumberField
           label={t("tools.feed")}
           value={tool.recommendedFeedMmMin}
           step="10"
+          suffix={t("cnc.unitMmMin")}
           onChange={(recommendedFeedMmMin) => update(tool.id, { recommendedFeedMmMin })}
         />
         <NumberField
           label={t("tools.plunge")}
           value={tool.recommendedPlungeMmMin}
           step="10"
+          suffix={t("cnc.unitMmMin")}
           onChange={(recommendedPlungeMmMin) => update(tool.id, { recommendedPlungeMmMin })}
         />
         {tool.kind === "vbit" && (
