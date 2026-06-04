@@ -4,7 +4,8 @@
   "resetTitle": "Reset to Saturn 4 Ultra 16K",
   "tab": {
     "general": "General",
-    "capabilities": "Capabilities"
+    "capabilities": "Capabilities",
+    "cnc": "CNC"
   },
   "category": {
     "panel": "Panel size",
@@ -30,7 +31,6 @@
     "minSpace": { "label": "Min clearance", "help": "Minimum gap between different nets. Less and adjacent traces merge (short)." },
     "ignoreBelow": { "label": "Ignore below", "help": "Copper/clearance/mask defects thinner than this are treated as compute artefacts (degenerate slivers) and hidden. Default 0.05 mm (50 µm)." },
     "minDrill": { "label": "Min hole size", "help": "The smallest hole you're willing to make. Separate from the bit set — your lower bound on hole diameter." },
-    "drillBitSet": { "label": "Bit set", "hint": "space-separated", "help": "Available drill diameters. Board diameters outside the set (within tolerance) → warning." },
     "drillBitTolerance": { "label": "Bit snap tolerance", "help": "How far a hole diameter may differ from a bit to count as matched." },
     "minAnnular": { "label": "Min annular ring", "help": "Minimum copper ring around a hole. Narrow and the drill wanders into the pad edge or breaks out." },
     "viaPlating": { "label": "Via plating available", "help": "Whether holes can be plated. If not, vias are made by hand and their count matters." },
@@ -40,5 +40,42 @@
     "minMaskDam": { "label": "Min mask dam", "help": "Minimum soldermask dam between adjacent openings. Thinner won't print." },
     "minSilkLine": { "label": "Min silk line", "help": "Minimum silkscreen line/text width. Thinner disappears in print." },
     "maxOvershoot": { "label": "Max overshoot", "help": "How far layer features may stick out past the board outline. More and something hangs off the edge." }
+  },
+  "cnc": {
+    "machine": "CNC machine",
+    "tools": "Tools",
+    "envX": "Envelope X",
+    "envY": "Envelope Y",
+    "envZ": "Envelope Z",
+    "spindleMaxRpm": "Spindle max RPM",
+    "spindleControllable": "Spindle speed controllable",
+    "spindleHasPwm": "Spindle PWM",
+    "safeZ": "Safe Z",
+    "runout": "Runout",
+    "backlashX": "Backlash X",
+    "backlashY": "Backlash Y",
+    "backlashZ": "Backlash Z",
+    "baud": "Baud rate",
+    "dialect": "G-code dialect",
+    "prepend": "Prepend G-code",
+    "append": "Append G-code"
+  },
+  "tools": {
+    "add": "Add tool",
+    "remove": "Remove",
+    "diameter": "Diameter",
+    "rpm": "RPM",
+    "feed": "Feed",
+    "plunge": "Plunge",
+    "angle": "V-bit angle",
+    "kind": {
+      "drill": "Drill",
+      "endmill": "End mill",
+      "vbit": "V-bit"
+    },
+    "material": {
+      "carbide": "Carbide",
+      "hss": "HSS"
+    }
   }
 }

@@ -3,145 +3,17 @@ import { RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { Button } from "@/components/ui/Button";
-import { TextInput } from "@/components/ui/TextInput";
-import { Switch } from "@/components/ui/Switch";
-import { HelpTip } from "@/components/ui/HelpTip";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Diagrams } from "@/components/settings/diagrams";
+import { NumberField, BoolField } from "@/components/settings/fields";
+import { CncProfileSection } from "@/components/settings/CncProfileSection";
+import { ToolLibrarySection } from "@/components/settings/ToolLibrarySection";
 import { useSettings } from "@/settingsStore";
 import { type Language, type Units } from "@/settingsStore";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
-import { useUnitFormat, type Dim } from "@/i18n/useUnitFormat";
 
-/** Label cell: text + optional inline hint + an optional "?" help tooltip. */
-function FieldLabel({ label, hint, help, helpImage }: { label: string; hint?: string; help?: string; helpImage?: React.ReactNode }) {
-  return (
-    <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-foreground">
-      {label}
-      {hint && <span className="text-[10px] text-muted-foreground">{hint}</span>}
-      {help && <HelpTip text={help} image={helpImage} />}
-    </span>
-  );
-}
-
-/** A labelled numeric field that commits any valid number live. Supports unit conversion via dim. */
-function NumberField({
-  label,
-  value,
-  onChange,
-  step = "0.01",
-  dim,
-  suffix,
-  hint,
-  help,
-  helpImage,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  step?: string;
-  dim?: Dim;
-  suffix?: string;
-  hint?: string;
-  help?: string;
-  helpImage?: React.ReactNode;
-}) {
-  const { units, toDisplay, fromDisplay, unitLabel } = useUnitFormat();
-  const shown = dim ? toDisplay(value, dim) : value;
-  const [text, setText] = React.useState(String(shown));
-  React.useEffect(() => setText(String(dim ? toDisplay(value, dim) : value)), [value, dim, toDisplay]);
-  // In imperial, mm-tuned steps are too coarse/fine; pick a sensible per-unit step.
-  const effStep = !dim || units !== "imperial" ? step : dim === "coarse" ? "0.001" : "0.1";
-  const suffixText = dim ? unitLabel(dim) : (suffix ?? "");
-  return (
-    <label className="flex items-center justify-between gap-4 py-2">
-      <FieldLabel label={label} hint={hint} help={help} helpImage={helpImage} />
-      <div className="flex shrink-0 items-center gap-1.5">
-        <TextInput
-          type="number"
-          step={effStep}
-          inputMode="decimal"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            const v = parseFloat(e.target.value);
-            if (!Number.isNaN(v)) onChange(dim ? fromDisplay(v, dim) : v);
-          }}
-          className="w-24 text-right tabular-nums"
-        />
-        <span className="w-7 text-[11px] text-muted-foreground">{suffixText}</span>
-      </div>
-    </label>
-  );
-}
-
-function BoolField({
-  label,
-  value,
-  onChange,
-  help,
-  helpImage,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-  help?: string;
-  helpImage?: React.ReactNode;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-4 py-2">
-      <FieldLabel label={label} help={help} helpImage={helpImage} />
-      <Switch checked={value} onCheckedChange={onChange} />
-    </label>
-  );
-}
-
-/** Edits a numeric array as a comma/space-separated list (the drill bit set). Always dim="fine". */
-function ArrayField({
-  label,
-  value,
-  onChange,
-  hint,
-  help,
-}: {
-  label: string;
-  value: number[];
-  onChange: (v: number[]) => void;
-  hint?: string;
-  help?: string;
-}) {
-  const { toDisplay, fromDisplay, unitLabel } = useUnitFormat();
-  const fmt = (arr: number[]) => arr.map((mm) => +toDisplay(mm, "fine").toFixed(3)).join(" ");
-  const [text, setText] = React.useState(fmt(value));
-  // Resync on value AND unit change: toDisplay's identity changes with the units
-  // setting, so depending on it re-renders the field in the active unit.
-  React.useEffect(() => setText(fmt(value)), [value, toDisplay]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <label className="flex items-center justify-between gap-4 py-2">
-      <FieldLabel label={label} hint={hint ? `${hint}, ${unitLabel("fine")}` : unitLabel("fine")} help={help} />
-      <TextInput
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          // Split on whitespace/semicolons only — never the comma, which is the
-          // decimal separator in many locales (e.g. "0,25 0,35"). A comma inside
-          // a token is normalized to a dot before parsing.
-          const arr = e.target.value
-            .split(/[\s;]+/)
-            .map((s) => parseFloat(s.replace(",", ".")))
-            .filter((x) => !Number.isNaN(x) && x > 0)
-            .map((v) => fromDisplay(v, "fine"))
-            .sort((a, b) => a - b);
-          if (arr.length) onChange(arr);
-        }}
-        className="w-48 text-right text-[11px] tabular-nums"
-      />
-    </label>
-  );
-}
-
-type Tab = "general" | "capabilities";
-const TABS: Tab[] = ["general", "capabilities"];
+type Tab = "general" | "capabilities" | "cnc";
+const TABS: Tab[] = ["general", "capabilities", "cnc"];
 type CapCategoryId = "panel" | "copper" | "drill" | "maskSilk";
 const CAP_CATEGORIES: CapCategoryId[] = ["panel", "copper", "drill", "maskSilk"];
 
@@ -336,13 +208,6 @@ export function SettingsPage() {
                   help={t("field.minDrill.help")}
                   helpImage={Diagrams.drill}
                 />
-                <ArrayField
-                  label={t("field.drillBitSet.label")}
-                  value={profile.drillBitSetMm}
-                  onChange={set("drillBitSetMm")}
-                  hint={t("field.drillBitSet.hint")}
-                  help={t("field.drillBitSet.help")}
-                />
                 <NumberField
                   label={t("field.drillBitTolerance.label")}
                   value={profile.drillBitToleranceMm}
@@ -423,6 +288,17 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+      )}
+
+      {tab === "cnc" && (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="mx-auto max-w-xl p-6">
+            <h3 className="mb-3 text-[13px] font-semibold text-foreground">{t("cnc.machine")}</h3>
+            <CncProfileSection />
+            <h3 className="mb-3 mt-8 text-[13px] font-semibold text-foreground">{t("cnc.tools")}</h3>
+            <ToolLibrarySection />
+          </div>
+        </div>
       )}
     </div>
   );
