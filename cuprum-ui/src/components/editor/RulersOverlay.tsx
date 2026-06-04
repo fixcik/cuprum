@@ -309,36 +309,41 @@ export function RulersOverlay({
       <line x1={rulerLeft} y1={0} x2={rulerLeft} y2={size.h} stroke="hsl(var(--border))" strokeWidth={1} />
       <line x1={0} y1={rulerTop} x2={size.w} y2={rulerTop} stroke="hsl(var(--border))" strokeWidth={1} />
 
-      {/* Always-on axis value readout on the rulers — read the coordinate under the
-          cursor without enabling the crosshair. Anchor-relative, so it matches the
+      {/* Always-on axis readout: a light caret that runs along each ruler at the
+          cursor, with the coordinate as plain haloed text (no heavy chip) — read the
+          axis value without enabling the crosshair. Anchor-relative → matches the
           tick labels. */}
       {axisCursor && axisCursor.x > rulerLeft && axisCursor.y > rulerTop && (() => {
         const cxp = axisCursor.x;
         const cyp = axisCursor.y;
         const xText = fmt(mmFromX(cxp) - anchorMm.x);
         const yText = fmt(mmFromY(cyp) - anchorMm.y);
-        const xw = xText.length * 6 + 12;
-        const yw = yText.length * 6 + 12;
-        const h = 16;
-        const xLeft = Math.max(rulerLeft + 1, Math.min(size.w - xw - 1, cxp - xw / 2));
-        const yTop = Math.max(rulerTop + 1, Math.min(size.h - h - 1, cyp - h / 2));
+        // Plain text with a dark halo (paint-order stroke) stays legible over any
+        // content without a boxed background.
+        const halo = {
+          paintOrder: "stroke",
+          stroke: "rgba(0,0,0,0.6)",
+          strokeWidth: 3,
+          strokeLinejoin: "round",
+          fontSize: "10px",
+          fontVariantNumeric: "tabular-nums",
+          fill: READOUT_FG,
+        } as const;
+        const xLabelX = Math.max(rulerLeft + 12, Math.min(size.w - 12, cxp));
+        const yLabelY = Math.max(rulerTop + 9, Math.min(size.h - 4, cyp + 3));
         return (
-          <>
-            <line x1={cxp} y1={rulerTop} x2={cxp} y2={rulerTop + 3} stroke={accent} strokeWidth={1} />
-            <g transform={`translate(${xLeft} ${rulerTop + 3})`}>
-              <rect width={xw} height={h} rx={4} style={{ fill: READOUT_BG, stroke: accent }} />
-              <text x={xw / 2} y={11} textAnchor="middle" style={{ fill: READOUT_FG, fontSize: "10px", fontVariantNumeric: "tabular-nums" }}>
-                {xText}
-              </text>
-            </g>
-            <line x1={rulerLeft} y1={cyp} x2={rulerLeft + 3} y2={cyp} stroke={accent} strokeWidth={1} />
-            <g transform={`translate(${rulerLeft + 3} ${yTop})`}>
-              <rect width={yw} height={h} rx={4} style={{ fill: READOUT_BG, stroke: accent }} />
-              <text x={yw / 2} y={11} textAnchor="middle" style={{ fill: READOUT_FG, fontSize: "10px", fontVariantNumeric: "tabular-nums" }}>
-                {yText}
-              </text>
-            </g>
-          </>
+          <g fill={accent}>
+            {/* Top ruler caret + value */}
+            <path d={`M ${cxp} ${rulerTop} L ${cxp - 4} ${rulerTop - 6} L ${cxp + 4} ${rulerTop - 6} Z`} />
+            <text x={xLabelX} y={rulerTop + 12} textAnchor="middle" style={halo}>
+              {xText}
+            </text>
+            {/* Left ruler caret + value */}
+            <path d={`M ${rulerLeft} ${cyp} L ${rulerLeft - 6} ${cyp - 4} L ${rulerLeft - 6} ${cyp + 4} Z`} />
+            <text x={rulerLeft + 5} y={yLabelY} textAnchor="start" style={halo}>
+              {yText}
+            </text>
+          </g>
         );
       })()}
 
