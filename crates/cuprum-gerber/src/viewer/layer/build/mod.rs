@@ -4,8 +4,7 @@ use std::ops::Range;
 use gerber_types::ApertureBlock;
 use gerber_types::{
     Aperture, ApertureDefinition, ApertureMacro, Command, Coordinates, DCode, ExtendedCode,
-    FunctionCode, GCode, ImageRotation, InterpolationMode, MacroDecimal, Operation, QuadrantMode,
-    StepAndRepeat,
+    FunctionCode, GCode, InterpolationMode, MacroDecimal, Operation, QuadrantMode, StepAndRepeat,
 };
 use log::{debug, error, info, trace, warn};
 use nalgebra::{Point2, Vector2};
@@ -20,7 +19,7 @@ use super::primitive::{
 };
 use super::GerberLayer;
 use crate::viewer::expressions::{evaluate_expression, MacroContext};
-use crate::viewer::geometry::{BoundingBox, GerberImageTransform};
+use crate::viewer::geometry::BoundingBox;
 use crate::viewer::spacial::ToVector;
 use crate::viewer::types::Exposure;
 
@@ -31,43 +30,6 @@ mod region;
 mod tests;
 
 impl GerberLayer {
-    pub(super) fn build_image_transform(commands: &[Command]) -> GerberImageTransform {
-        let mut transform = GerberImageTransform::default();
-
-        for cmd in commands.iter() {
-            match cmd {
-                Command::ExtendedCode(ExtendedCode::AxisSelect(axis_select)) => {
-                    transform.axis_select = *axis_select;
-                }
-                Command::ExtendedCode(ExtendedCode::ScaleImage(image_scaling)) => {
-                    transform.scale[0] = image_scaling.a;
-                    transform.scale[1] = image_scaling.b;
-                }
-                Command::ExtendedCode(ExtendedCode::OffsetImage(image_offset)) => {
-                    transform.offset[0] = image_offset.a;
-                    transform.offset[1] = image_offset.b;
-                }
-                Command::ExtendedCode(ExtendedCode::RotateImage(image_rotation)) => {
-                    let degrees: f64 = match image_rotation {
-                        ImageRotation::None => 0.0,
-                        ImageRotation::CCW_90 => 90.0,
-                        ImageRotation::CCW_180 => 180.0,
-                        ImageRotation::CCW_270 => 270.0,
-                    };
-
-                    transform.rotation = degrees.to_radians();
-                }
-                Command::ExtendedCode(ExtendedCode::MirrorImage(image_mirroring)) => {
-                    transform.mirroring = *image_mirroring;
-                }
-
-                _ => {}
-            }
-        }
-
-        transform
-    }
-
     fn update_position(
         current_pos: &mut Point2<f64>,
         coords: &Option<Coordinates>,
