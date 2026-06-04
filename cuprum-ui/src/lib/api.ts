@@ -478,4 +478,14 @@ export const api = {
   emitInspectorArtifactsFresh: (fresh: boolean) => emit("inspector:artifacts-fresh", { fresh }),
   onInspectorArtifactsFresh: (cb: (p: { fresh: boolean }) => void): Promise<UnlistenFn> =>
     listen<{ fresh: boolean }>("inspector:artifacts-fresh", (e) => cb(e.payload)),
+
+  /** Apply localised native-menu labels (called on mount and on language change). */
+  setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),
 };
+
+/** Labels passed to the native menu; keys match the Rust `MenuLabels` struct. */
+export interface MenuLabels {
+  edit: string;
+  window: string;
+  checkUpdates: string;
+}

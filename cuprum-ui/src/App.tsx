@@ -11,6 +11,7 @@ import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import i18n from "@/i18n";
 
 export default function App() {
   const view = useShell((s) => s.view);
@@ -35,6 +36,22 @@ export default function App() {
     const un = api.onMenuCheckUpdates(() => void useUpdater.getState().checkForUpdates(true));
     return () => {
       void un.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  // Keep the native menu labels in sync with the active UI language. Runs on
+  // mount (initial push) and whenever i18n.changeLanguage fires.
+  useEffect(() => {
+    const sync = () =>
+      void api.setAppMenu({
+        edit: i18n.t("menu:edit"),
+        window: i18n.t("menu:window"),
+        checkUpdates: i18n.t("menu:checkUpdates"),
+      });
+    sync();
+    i18n.on("languageChanged", sync);
+    return () => {
+      i18n.off("languageChanged", sync);
     };
   }, []);
 
