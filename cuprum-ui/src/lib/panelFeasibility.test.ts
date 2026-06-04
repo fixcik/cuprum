@@ -6,7 +6,7 @@ import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
 const prof = { maxPanelWidthMm: 200, maxPanelHeightMm: 100 } as CapabilityProfile;
 const inst = (id: string, design_id: string, x: number, y: number, rot = 0) =>
-  ({ id, design_id, x_mm: x, y_mm: y, rotation_deg: rot, layer_ref: "Top" as const });
+  ({ id, design_id, x_mm: x, y_mm: y, rotation_deg: rot });
 const panel = (w: number, h: number, instances: ReturnType<typeof inst>[], tooling_holes: ToolingHole[] = [], keep_out_zones: KeepOutZone[] = []): PanelDoc =>
   ({ width_mm: w, height_mm: h, instances, tooling_holes, keep_out_zones } as unknown as PanelDoc);
 const zone = (id: string, x: number, y: number, w: number, h: number, kind: KeepOutZone["kind"] = "fixture"): KeepOutZone =>
