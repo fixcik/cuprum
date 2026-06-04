@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 /** Collapsed DFM verdict for a project. A property of the *panel* (not the
  *  designs inside) — computed elsewhere later; for now callers pass "ok". */
@@ -31,6 +32,11 @@ export function ProjectThumb({
   variant?: "grid" | "list";
   className?: string;
 }) {
+  const { t } = useTranslation("home");
+  // Screen-reader label for the verdict dot — only meaningful when an actual
+  // verdict is known (not "none"). The dot is decorative when verdict = "none".
+  const dotLabel =
+    verdict !== "none" ? t(`verdictDot.${verdict}`) : undefined;
   return (
     <div className={cn("pcb-grid relative w-full overflow-hidden", className)}>
       <div className="absolute inset-0 flex items-center justify-center">
@@ -45,14 +51,14 @@ export function ProjectThumb({
           </span>
         </div>
       </div>
-      {/* Decorative for now: the verdict is fixed to "ok" until the real panel
-          verdict is wired in, so it carries no screen-reader label yet. */}
       <span
         className={cn(
           "absolute right-2 top-2 size-2.5 rounded-full ring-2 ring-pcb-preview",
           DOT[verdict],
         )}
-        aria-hidden
+        aria-label={dotLabel}
+        aria-hidden={dotLabel === undefined ? true : undefined}
+        role={dotLabel !== undefined ? "img" : undefined}
       />
     </div>
   );

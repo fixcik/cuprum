@@ -7,6 +7,8 @@ import { type RecentProject } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
+import { useSettings } from "@/settingsStore";
+import { profileHash } from "@/lib/profileHash";
 
 type RecentTileLayout = "grid" | "list";
 
@@ -21,18 +23,26 @@ export function RecentTile({
   const { fmtLen } = useUnitFormat();
   const openByPath = useShell((s) => s.openProjectByPath);
   const removeRecent = useShell((s) => s.removeRecent);
+  const currentProfile = useSettings((s) => s.profile);
   const [editing, setEditing] = useState(false);
   const when = formatRelativeTime(project.last_opened_at, i18n.language);
 
   // Context line: "N designs · W × H". Dimensions only once the panel blank is
-  // configured (until then width/height are null). Verdict is a panel property,
-  // computed elsewhere later — fixed to "ok" (green) for now.
+  // configured (until then width/height are null).
   const designs = t("designsCount", { count: project.design_count });
   const dims =
     project.width_mm != null && project.height_mm != null
       ? `${fmtLen(project.width_mm)} × ${fmtLen(project.height_mm)}`
       : null;
   const meta = dims ? `${designs} · ${dims}` : designs;
+
+  // Show the cached panel verdict only when it was computed with the current
+  // capability profile. If the profile has changed since the verdict was stored,
+  // show neutral ("none") — we don't want to display a stale verdict.
+  const currentHash = profileHash(currentProfile);
+  const verdictFresh =
+    project.profile_hash != null && project.profile_hash === currentHash;
+  const thumbVerdict = verdictFresh ? (project.panel_verdict ?? "none") : "none";
 
   if (!project.exists) {
     if (layout === "list") {
@@ -119,6 +129,7 @@ export function RecentTile({
         >
           <ProjectThumb
             name={project.name}
+            verdict={thumbVerdict}
             variant="list"
             className="aspect-[4/3] w-16 shrink-0 rounded-md"
           />
@@ -142,7 +153,7 @@ export function RecentTile({
         className="flex w-full flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:border-primary/50"
         title={project.path}
       >
-        <ProjectThumb name={project.name} className="aspect-[4/3]" />
+        <ProjectThumb name={project.name} verdict={thumbVerdict} className="aspect-[4/3]" />
         <div className="flex flex-col gap-0.5 p-3">
           <div className="truncate text-[13px] font-semibold text-foreground">{project.name}</div>
           <div className="truncate text-[11px] tabular-nums text-muted-foreground">{meta}</div>

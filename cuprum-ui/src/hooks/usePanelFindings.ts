@@ -18,6 +18,10 @@ export interface PanelFindingsResult {
   verdict: Verdict;
   /** Worst severity per instance id — for canvas highlight and inspector display. */
   byInstance: Map<string, Severity>;
+  /** True when all placed instances have resolved sizes AND metrics, so the verdict
+   *  is complete and safe to persist to the catalog. False during initial load or
+   *  when designs are still being fetched. */
+  ready: boolean;
 }
 
 /** Fetches board metrics (disk-cached) for every placed design, derives per-design
@@ -115,5 +119,15 @@ export function usePanelFindings(): PanelFindingsResult {
     return map;
   }, [findings]);
 
-  return { findings, verdict, byInstance };
+  // Verdict is ready when all placed designs have both sizes and metrics resolved.
+  const ready = useMemo((): boolean => {
+    const placedIds = new Set(instances.map((i) => i.design_id));
+    if (placedIds.size === 0) return false; // nothing placed — nothing to report
+    for (const id of placedIds) {
+      if (!(id in sizes) || !(id in metricsMap)) return false;
+    }
+    return true;
+  }, [instances, sizes, metricsMap]);
+
+  return { findings, verdict, byInstance, ready };
 }
