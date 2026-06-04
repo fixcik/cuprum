@@ -990,9 +990,14 @@ export const useShell = create<ShellStore>((set, get) => ({
     if (!prev) return;
     const designs = prev.designs.filter((d) => d.id !== designId);
     if (designs.length === prev.designs.length) return; // unknown id — nothing to do
-    // Drop only the manifest reference; the gerber bytes stay in the working dir
-    // (and the repacked .cuprum), so undo and restore points remain valid.
-    const manifest: Manifest = { ...prev, designs };
+    // Drop the manifest reference AND cascade-remove any placements of this design
+    // from the panel, so a delete never leaves dangling BoardInstances behind (one
+    // undo step). The gerber bytes stay in the working dir (and the repacked
+    // .cuprum), so undo and restore points remain valid.
+    const panel = prev.panel
+      ? { ...prev.panel, instances: prev.panel.instances.filter((i) => i.design_id !== designId) }
+      : prev.panel;
+    const manifest: Manifest = { ...prev, designs, panel };
     try {
       get()._recordUndo(prev);
       set({ currentManifest: manifest, error: null });
