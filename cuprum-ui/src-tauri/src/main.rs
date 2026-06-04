@@ -115,12 +115,15 @@ fn main() {
             }
         })
         .on_window_event(|window, event| {
-            // When the main window closes (app quit), tear down any inspector
+            // When the main window closes (app quit), tear down any child
             // windows so they don't linger as orphans keeping the app alive.
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { .. } = event {
                     for (label, w) in window.app_handle().webview_windows() {
-                        if label.starts_with("inspector-") {
+                        if label.starts_with("inspector-")
+                            || label == "drill"
+                            || label == "add-design"
+                        {
                             let _ = w.close();
                         }
                     }
