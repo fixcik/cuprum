@@ -22,6 +22,9 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   );
 }
 
+/** Overall panel feasibility verdict. Matches `Verdict` in `feasibility.ts`. */
+export type Verdict = "ok" | "warn" | "block";
+
 // Physical exposure screen, from cuprum-core (14×19 µm pitch → 211.68 × 118.37 mm).
 export const SCREEN_W_MM = 211.68;
 export const SCREEN_H_MM = 118.37;
@@ -69,6 +72,10 @@ export interface RecentProject {
   /** Panel blank size in mm; null until the panel is configured. */
   width_mm: number | null;
   height_mm: number | null;
+  /** Cached panel verdict ("ok"/"warn"/"block"); null until first computed. */
+  panel_verdict: Verdict | null;
+  /** Hash of the capability profile used to compute panel_verdict; null until set. */
+  profile_hash: string | null;
 }
 
 export type LayerType =
@@ -351,6 +358,11 @@ export const api = {
   readRestorePoint: (workingDir: string, id: string) =>
     invoke<Manifest>("read_restore_point", { workingDir, id }),
   removeRecent: (path: string) => invoke<void>("remove_recent", { path }),
+  /** Store the panel verdict + profile hash for a project in the recents catalog.
+   *  Does NOT touch last_opened_at or stat columns. Silently no-ops when the path
+   *  isn't in the catalog. */
+  setRecentVerdict: (path: string, verdict: Verdict, profileHash: string) =>
+    invoke<void>("set_recent_verdict", { path, verdict, profileHash }),
   updateProjectMetadata: (path: string, name: string, description: string) =>
     invoke<Manifest>("update_project_metadata", { path, name, description }),
   /** Read a project's manifest straight from its `.cuprum` file (no working dir) —

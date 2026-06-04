@@ -9,6 +9,7 @@ import { BUILTIN_PANEL_PRESETS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset }
 import { clampDeltaToPanel, boxesForInstances } from "@/lib/panelPlacement";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
+import { useReportPanelVerdict } from "@/hooks/useReportPanelVerdict";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
 import { useSettings } from "@/settingsStore";
@@ -44,7 +45,9 @@ export function PanelEditor() {
   // Used for the keyboard clamp (nudge + duplicate).
   const sizes = usePlacedBoardSizes();
   // Panel-level findings — single source for the off-panel count shown in the inspector.
-  const { findings: panelFindings } = usePanelFindings();
+  const { findings: panelFindings, verdict, ready } = usePanelFindings();
+  // Persist the panel verdict to the recents catalog (debounced, only when ready).
+  useReportPanelVerdict(verdict, ready, profile);
 
   // Snapshot of the last-persisted params, so the autosave effect skips writing
   // the just-prefilled values (and skips no-op rewrites). Seed with the initial

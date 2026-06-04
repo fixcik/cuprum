@@ -141,6 +141,19 @@ pub fn remove_recent(db_path: &Path, path: &str) -> Result<()> {
     catalog::remove(&conn, path)
 }
 
+/// Store the panel verdict and the capability-profile hash it was computed
+/// against, WITHOUT bumping `last_opened_at` or touching stat columns.
+/// No-op if the path isn't in the catalog yet.
+pub fn set_recent_verdict(
+    db_path: &Path,
+    path: &str,
+    verdict: &str,
+    profile_hash: &str,
+) -> Result<()> {
+    let conn = catalog::open(db_path)?;
+    catalog::set_verdict(&conn, path, verdict, profile_hash)
+}
+
 /// Cached Home-card stats derived from a manifest: design count + panel size
 /// (mm). Panel size is `None` until the blank is configured.
 fn manifest_stats(m: &Manifest) -> (i64, Option<f64>, Option<f64>) {
