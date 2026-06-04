@@ -136,6 +136,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress
                     progress !== undefined &&
                     progress.currentHoleIndex !== null &&
                     currentGIdx === progress.currentHoleIndex;
+                  const showCurrent = isCurrent && !isDrilled;
 
                   const holeFill = isDrilled
                     ? "rgba(34,197,94,0.5)"   // green, reduced opacity
@@ -157,7 +158,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress
                         />
                       )}
                       {/* Highlight ring for the currently-drilling hole. */}
-                      {isCurrent && (
+                      {showCurrent && (
                         <Circle
                           x={h.xMm}
                           y={h.yMm}

@@ -53,8 +53,8 @@ export function drillRunReducer(
         ...s,
         holesCompleted: e.holesCompleted,
         currentHoleIndex: e.holeIndex,
-        phase: "running",
-        toolChange: null,
+        phase: s.phase === "awaitingToolChange" ? "running" : s.phase,
+        toolChange: s.phase === "awaitingToolChange" ? null : s.toolChange,
       };
 
     case "toolchange":

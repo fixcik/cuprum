@@ -67,6 +67,47 @@ describe("drillRunReducer", () => {
     expect(next.holesTotal).toBe(10);
   });
 
+  // 3b. progress while paused → phase stays paused, counters updated
+  it("progress from paused: keeps phase=paused, updates holesCompleted and currentHoleIndex", () => {
+    const paused: DrillRunState = {
+      ...initialDrillRunState,
+      phase: "paused",
+      holesTotal: 10,
+      holesCompleted: 3,
+      currentHoleIndex: 5,
+      toolChange: null,
+    };
+    const next = drillRunReducer(paused, {
+      type: "progress",
+      holesCompleted: 4,
+      holeIndex: 6,
+    });
+    expect(next.phase).toBe("paused");
+    expect(next.holesCompleted).toBe(4);
+    expect(next.currentHoleIndex).toBe(6);
+    expect(next.holesTotal).toBe(10);
+  });
+
+  // 3c. progress while running → phase stays running
+  it("progress from running: keeps phase=running, updates counters", () => {
+    const running: DrillRunState = {
+      ...initialDrillRunState,
+      phase: "running",
+      holesTotal: 10,
+      holesCompleted: 2,
+      currentHoleIndex: 3,
+      toolChange: null,
+    };
+    const next = drillRunReducer(running, {
+      type: "progress",
+      holesCompleted: 3,
+      holeIndex: 4,
+    });
+    expect(next.phase).toBe("running");
+    expect(next.holesCompleted).toBe(3);
+    expect(next.currentHoleIndex).toBe(4);
+  });
+
   // 4. error → phase error + message preserved
   it("error: sets phase=error and stores message", () => {
     const running: DrillRunState = {

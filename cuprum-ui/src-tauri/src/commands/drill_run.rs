@@ -88,25 +88,6 @@ pub fn drill_run_start(
     job: State<DrillJob>,
     steps: Vec<DrillStepDto>,
 ) -> Result<(), String> {
-    // If a previous job handle is present, check whether it has already finished.
-    // If so, take and drop it to free the slot; otherwise reject.
-    {
-        let mut slot = job.0.lock().unwrap();
-        if let Some(h) = slot.as_ref() {
-            if h.ctrl.finished.load(Relaxed) {
-                // Previous run is done — take it so we can join the thread.
-                let finished = slot.take().unwrap();
-                drop(slot); // release lock before join
-                if let Some(handle) = finished.handle {
-                    // Finished thread → returns immediately.
-                    let _ = handle.join();
-                }
-            } else {
-                return Err("already running".into());
-            }
-        }
-    }
-
     if !machine.is_connected() {
         return Err("not connected".into());
     }
@@ -124,6 +105,24 @@ pub fn drill_run_start(
     let holes_total = steps.iter().filter(|s| s.kind == "hole").count() as u32;
     let app_thread = app.clone();
 
+    // Hold the slot lock across the entire check-reclaim-insert sequence so
+    // no concurrent start can observe a None slot mid-reinit.
+    // The runner thread never locks the DrillJob slot (it uses ack_slot + ctrl
+    // only), so there is no deadlock risk here.
+    let mut slot = job.0.lock().unwrap();
+    if let Some(h) = slot.as_ref() {
+        if h.ctrl.finished.load(Relaxed) {
+            // Previous run is done — join the thread (returns immediately for a
+            // finished thread; safe while holding the slot lock).
+            let finished = slot.take().unwrap();
+            if let Some(handle) = finished.handle {
+                let _ = handle.join();
+            }
+        } else {
+            return Err("already running".into());
+        }
+    }
+
     let handle = std::thread::spawn(move || {
         run_job(
             app_thread,
@@ -136,31 +135,53 @@ pub fn drill_run_start(
         );
     });
 
-    *job.0.lock().unwrap() = Some(JobHandle {
+    *slot = Some(JobHandle {
         ctrl,
         handle: Some(handle),
     });
+    drop(slot);
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn drill_run_pause(machine: State<MachineState>, job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_pause(
+    app: AppHandle,
+    machine: State<MachineState>,
+    job: State<DrillJob>,
+) -> Result<(), String> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         h.ctrl.paused.store(true, Relaxed);
         drop(slot);
         send_rt(&machine, grbl::FEED_HOLD);
+        let _ = app.emit(
+            "drill-run://state",
+            StatePayload {
+                phase: "paused".into(),
+            },
+        );
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn drill_run_resume(machine: State<MachineState>, job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_resume(
+    app: AppHandle,
+    machine: State<MachineState>,
+    job: State<DrillJob>,
+) -> Result<(), String> {
     send_rt(&machine, grbl::CYCLE_START);
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         h.ctrl.paused.store(false, Relaxed);
+        drop(slot);
+        let _ = app.emit(
+            "drill-run://state",
+            StatePayload {
+                phase: "running".into(),
+            },
+        );
     }
     Ok(())
 }
@@ -225,6 +246,7 @@ fn run_job(
 
         // Tool-change gate.
         if step.pause_for_tool_change {
+            ctrl.confirm_tool_change.store(false, Relaxed);
             let _ = app.emit(
                 "drill-run://toolchange",
                 ToolChangePayload {
@@ -233,7 +255,6 @@ fn run_job(
                 },
             );
             emit_state("awaitingToolChange");
-            ctrl.confirm_tool_change.store(false, Relaxed);
             while !ctrl.confirm_tool_change.load(Relaxed) && !ctrl.abort.load(Relaxed) {
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -252,8 +273,14 @@ fn run_job(
                 aborted_msg = Some(format!("write failed: {e}"));
                 break 'outer;
             }
+            // Wait for ok, but stay responsive to abort (soft-reset sends a banner,
+            // not an ok, so a single 30s wait would block on stop).
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
             loop {
-                match rx.recv_timeout(Duration::from_secs(30)) {
+                if ctrl.abort.load(Relaxed) {
+                    break 'outer;
+                }
+                match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(grbl::Line::Ok) => break,
                     Ok(grbl::Line::Error(n)) => {
                         aborted_msg = Some(format!("error:{n}"));
@@ -263,13 +290,14 @@ fn run_job(
                         aborted_msg = Some(format!("ALARM:{n}"));
                         break 'outer;
                     }
-                    // Any other parsed line forwarded here (shouldn't happen since
-                    // the reader only forwards Ok/Error/Alarm) — treat as noise
-                    // and keep waiting for the real ack.
-                    Ok(_) => continue,
+                    // Stray non-ok line: keep waiting for the real ack.
+                    Ok(_) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        aborted_msg = Some("timeout waiting for ok".into());
-                        break 'outer;
+                        if std::time::Instant::now() >= deadline {
+                            aborted_msg = Some("timeout waiting for ok".into());
+                            break 'outer;
+                        }
+                        // else keep polling (abort re-checked at loop top)
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         aborted_msg = Some("connection lost".into());
