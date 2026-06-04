@@ -8,17 +8,6 @@ mod build;
 mod primitive;
 
 pub use primitive::GerberPrimitive;
-// These names were `pub` in the pre-split `layer.rs`; re-export them so in-crate
-// paths (`viewer::layer::*`) and the parsing-core primitive surface stay intact.
-// Not all are referenced in every build config, so silence unused-import noise.
-#[allow(unused_imports)]
-pub use {
-    bbox::WithBoundingBox,
-    primitive::{
-        ArcGerberPrimitive, CircleGerberPrimitive, GerberPolygon, LineGerberPrimitive,
-        PolygonGeometry, PolygonGerberPrimitive, RectangleGerberPrimitive,
-    },
-};
 
 /// FUTURE if the rendering is always real-time, then caching the points at the time the primitives are created would have
 ///        a performance benefit. e.g. `GerberArcPrimitive::generate_points` and similar methods.

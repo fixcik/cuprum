@@ -192,7 +192,7 @@ mod circle_aperture_tests {
     };
     use nalgebra::Point2;
 
-    use crate::viewer::layer::ArcGerberPrimitive;
+    use super::ArcGerberPrimitive;
     use crate::viewer::layer::{GerberLayer, GerberPrimitive};
     use crate::viewer::testing::dump_gerber_source;
     use crate::viewer::types::Exposure;

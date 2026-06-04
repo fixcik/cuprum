@@ -117,9 +117,10 @@ mod bounding_box_arc_tests {
     use nalgebra::Point2;
     use rstest::rstest;
 
+    use super::super::primitive::ArcGerberPrimitive;
     use super::WithBoundingBox;
     use crate::viewer::geometry::BoundingBox;
-    use crate::viewer::layer::{ArcGerberPrimitive, GerberLayer, GerberPrimitive};
+    use crate::viewer::layer::{GerberLayer, GerberPrimitive};
     use crate::viewer::types::Exposure;
 
     // Helper function to create a test arc

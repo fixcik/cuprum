@@ -8,7 +8,8 @@ mod circular_plotting_tests {
         InterpolationMode, Operation, Unit, ZeroOmission,
     };
 
-    use crate::viewer::layer::{ArcGerberPrimitive, GerberLayer, GerberPrimitive};
+    use crate::viewer::layer::primitive::ArcGerberPrimitive;
+    use crate::viewer::layer::{GerberLayer, GerberPrimitive};
     use crate::viewer::testing::dump_gerber_source;
     use crate::viewer::types::Exposure;
 
