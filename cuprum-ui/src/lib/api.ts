@@ -37,6 +37,13 @@ export interface MachineStatus {
   spindle: number;
 }
 
+/** Payload of the global `machine://status` event (machine.rs `MachinePos`). */
+export interface MachineStatusEvent {
+  state: MachineStateName;
+  mpos: [number, number, number];
+  wpos: [number, number, number];
+}
+
 export interface ConsoleLine {
   dir: "rx" | "tx";
   text: string;
@@ -586,6 +593,8 @@ export const api = {
     onDisconnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://disconnected", () => cb()),
     onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>
       listen<string>("machine://error", (e) => cb(e.payload)),
+    onStatus: (cb: (s: MachineStatusEvent) => void): Promise<UnlistenFn> =>
+      listen<MachineStatusEvent>("machine://status", (e) => cb(e.payload)),
   },
 
   drillRun: {
