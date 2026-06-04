@@ -4,6 +4,7 @@
 //! the older Protel/RS-274X extension convention (`.gtl`, `.gbl`, …). Anything
 //! unrecognised falls back to [`LayerType::Other`] so the user can map it by hand.
 
+use cuprum_core::mesh::{Role, Side};
 use serde::{Deserialize, Serialize};
 
 /// What a gerber/drill file represents. `Ord` so it can key a `BTreeMap`;
@@ -84,6 +85,25 @@ pub fn classify(filename: &str) -> LayerType {
     }
 }
 
+/// Map a layer type to its 3D/metrics role and board side. Single source of truth
+/// shared by the desktop commands and the CLI (was duplicated in the Tauri layer).
+pub fn role_side(t: LayerType) -> (Role, Side) {
+    use LayerType as LT;
+    match t {
+        LT::TopCopper | LT::InnerCopper => (Role::Copper, Side::Top),
+        LT::BottomCopper => (Role::Copper, Side::Bottom),
+        LT::TopMask => (Role::Mask, Side::Top),
+        LT::BottomMask => (Role::Mask, Side::Bottom),
+        LT::TopSilk => (Role::Silk, Side::Top),
+        LT::BottomSilk => (Role::Silk, Side::Bottom),
+        LT::TopPaste => (Role::Paste, Side::Top),
+        LT::BottomPaste => (Role::Paste, Side::Bottom),
+        LT::EdgeCuts => (Role::Edge, Side::Both),
+        LT::Drill => (Role::Drill, Side::Both),
+        LT::Other => (Role::Other, Side::Top),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,5 +135,16 @@ mod tests {
     fn unknown_is_other() {
         assert_eq!(classify("notes.txt"), LayerType::Other);
         assert_eq!(classify("logo.gbr"), LayerType::Other);
+    }
+
+    #[test]
+    fn role_side_maps_known_layers() {
+        use cuprum_core::mesh::{Role, Side};
+        assert_eq!(role_side(LayerType::TopCopper), (Role::Copper, Side::Top));
+        assert_eq!(role_side(LayerType::InnerCopper), (Role::Copper, Side::Top));
+        assert_eq!(role_side(LayerType::BottomMask), (Role::Mask, Side::Bottom));
+        assert_eq!(role_side(LayerType::EdgeCuts), (Role::Edge, Side::Both));
+        assert_eq!(role_side(LayerType::Drill), (Role::Drill, Side::Both));
+        assert_eq!(role_side(LayerType::Other), (Role::Other, Side::Top));
     }
 }

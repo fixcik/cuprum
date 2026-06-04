@@ -843,24 +843,6 @@ fn render_svg_dto(working_dir: &str, bytes: &[u8]) -> Result<(LayerGeometryDto, 
 // just uploads typed-array views — no booleans, triangulation, SVG parsing, or
 // per-hole meshes on the main thread, and no multi-megabyte `JSON.parse`.
 
-/// Map a project `LayerType` to the core mesh role + side.
-fn role_side(t: &cuprum_project::LayerType) -> (cuprum_core::mesh::Role, cuprum_core::mesh::Side) {
-    use cuprum_core::mesh::{Role, Side};
-    use cuprum_project::LayerType as LT;
-    match t {
-        LT::TopCopper | LT::InnerCopper => (Role::Copper, Side::Top),
-        LT::BottomCopper => (Role::Copper, Side::Bottom),
-        LT::TopMask => (Role::Mask, Side::Top),
-        LT::BottomMask => (Role::Mask, Side::Bottom),
-        LT::TopSilk => (Role::Silk, Side::Top),
-        LT::BottomSilk => (Role::Silk, Side::Bottom),
-        LT::TopPaste => (Role::Paste, Side::Top),
-        LT::BottomPaste => (Role::Paste, Side::Bottom),
-        LT::EdgeCuts => (Role::Edge, Side::Both),
-        LT::Drill => (Role::Drill, Side::Both),
-        LT::Other => (Role::Other, Side::Top),
-    }
-}
 
 /// Byte layout for one mesh buffer inside the blob's data section. Offsets are
 /// BYTE offsets into the data section; lengths are ELEMENT counts. Normals share
@@ -1013,7 +995,7 @@ async fn project_board_mesh(
                 .iter()
                 .filter(|(rel, _, _)| !excluded.contains(rel))
                 .map(|(rel, t, bytes)| {
-                    let (role, side) = role_side(t);
+                    let (role, side) = cuprum_project::layer::role_side(*t);
                     cuprum_core::mesh::LayerInput {
                         key: rel.clone(),
                         role,
@@ -1083,7 +1065,7 @@ async fn project_board_metrics(
             loaded
                 .iter()
                 .map(|(rel, t, bytes)| {
-                    let (role, side) = role_side(t);
+                    let (role, side) = cuprum_project::layer::role_side(*t);
                     cuprum_core::dfm::MetricLayerInput {
                         role,
                         side,
