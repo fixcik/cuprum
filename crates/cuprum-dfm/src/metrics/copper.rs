@@ -7,10 +7,10 @@ use std::sync::Arc;
 use gerber_viewer::{Exposure, GerberLayer, GerberPrimitive};
 use rayon::prelude::*;
 
-use crate::dfm::sweep;
-use crate::dfm::HOT_N;
-use crate::geometry::{self, Poly};
-use crate::mesh::{Role, Side};
+use crate::sweep;
+use crate::HOT_N;
+use cuprum_gerber::geometry::{self, Poly};
+use cuprum_mesh::{Role, Side};
 
 use super::aggregate::{hotspot_cmp, to_hotspot, top_n};
 use super::types::{CopperLayerMetric, Hotspot, MetricLayerInput};
@@ -99,7 +99,7 @@ pub(super) fn copper_clearance_width_hotspots(
     // Propagate the current tracing dispatcher + span onto the rayon workers so the
     // per-layer spans (and their `grid_build`/`sweep`/`width_filter` children) are
     // captured in the operation's trace instead of vanishing on worker threads.
-    let dh = crate::trace::capture_dispatch();
+    let dh = cuprum_trace::capture_dispatch();
 
     // Clearance and width are independent (full-copper polys vs region polys,
     // separate outputs), so run the two parallel collections concurrently via

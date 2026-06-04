@@ -1,7 +1,7 @@
 //! Persistence filter for copper-width necks: distinguishes real corridors
 //! (thin traces / slivers) from point-like seams at trace bends and pad junctions.
 
-use crate::geometry::{point_in_ring, Poly};
+use cuprum_gerber::geometry::{point_in_ring, Poly};
 
 /// Persistence filter for copper-width necks. A real thin neck / sliver is a
 /// CORRIDOR: the narrow width ≈`d` extends along the channel for a length

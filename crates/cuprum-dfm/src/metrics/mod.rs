@@ -7,12 +7,12 @@
 //! so editing thresholds re-evaluates instantly without recomputing geometry.
 //!
 //! Phase 1 deliberately computes only the CHEAP metrics (a single pass over the
-//! already-parsed primitives, or [`crate::drill::parse_drill`]). The expensive
+//! already-parsed primitives, or [`cuprum_gerber::drill::parse_drill`]). The expensive
 //! geometric checks — minimum copper-to-copper clearance, annular ring, copper
 //! coverage, routed-slot detection — are Phase 2/3 and intentionally absent here.
 //!
 //! The core stays free of `cuprum-project`: callers describe each layer with the
-//! geometry-level [`crate::mesh::Role`]/[`crate::mesh::Side`] plus two booleans
+//! geometry-level [`cuprum_mesh::Role`]/[`cuprum_mesh::Side`] plus two booleans
 //! (`inner` copper, `plated` drill) and map their own `LayerType` onto those.
 
 mod aggregate;
@@ -24,7 +24,7 @@ mod types;
 
 pub use types::{BoardMetrics, Hotspot, MetricLayerInput};
 
-use crate::mesh::Side;
+use cuprum_mesh::Side;
 
 /// The 2D face a layer's issues belong to. Inner copper maps to "top" (its
 /// stacking side); it isn't shown separately in the 2D preview.
@@ -53,8 +53,8 @@ pub fn board_metrics(layers: &[MetricLayerInput]) -> BoardMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::{self, Poly};
-    use crate::mesh::{Role, Side};
+    use cuprum_gerber::geometry::{self, Poly};
+    use cuprum_mesh::{Role, Side};
 
     // 10×10 mm rectangular Edge_Cuts outline (4 stroked sides).
     const EDGE_SQUARE: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.1*%\nD10*\nX0Y0D02*\nX0100000Y0D01*\nX0100000Y0100000D01*\nX0Y0100000D01*\nX0Y0D01*\nM02*\n";
@@ -78,9 +78,9 @@ mod tests {
     }
 
     // Real multi-primitive gerbers → non-trivial clearance/width hotspots.
-    const CU_LAYER_A: &[u8] = include_bytes!("../../../../../testdata/gerber/two_square_boxes.gbr");
+    const CU_LAYER_A: &[u8] = include_bytes!("../../../../testdata/gerber/two_square_boxes.gbr");
     const CU_LAYER_B: &[u8] =
-        include_bytes!("../../../../../testdata/gerber/polarities_and_apertures.gbr");
+        include_bytes!("../../../../testdata/gerber/polarities_and_apertures.gbr");
 
     // Bit-identical guard for the parallelized hotspot loops (Phase 1): the
     // production helper must match an in-process SEQUENTIAL recomputation exactly
@@ -117,9 +117,9 @@ mod tests {
         // Sequential reference, recomputed here in the same process.
         let mut ref_clear: Vec<Hotspot> = Vec::new();
         for (side, polys) in &copper_layers {
-            let (c, _) = crate::dfm::sweep::clearance_width_hotspots(polys);
+            let (c, _) = crate::sweep::clearance_width_hotspots(polys);
             ref_clear.extend(
-                aggregate::top_n(c, crate::dfm::HOT_N)
+                aggregate::top_n(c, crate::HOT_N)
                     .into_iter()
                     .map(|h| aggregate::to_hotspot(h, side)),
             );
@@ -133,9 +133,9 @@ mod tests {
                 continue;
             }
             let side = layer_side(l);
-            let (_, w) = crate::dfm::sweep::clearance_width_hotspots(&region);
+            let (_, w) = crate::sweep::clearance_width_hotspots(&region);
             ref_width.extend(
-                aggregate::top_n(w, crate::dfm::HOT_N)
+                aggregate::top_n(w, crate::HOT_N)
                     .into_iter()
                     .map(|h| aggregate::to_hotspot(h, side)),
             );

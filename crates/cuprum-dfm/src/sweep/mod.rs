@@ -1,5 +1,5 @@
 //! DFM sweep: the clearance/width hotspot scan over copper polygons and the
-//! geometric helpers it needs. Pure measurement — depends on `crate::geometry`
+//! geometric helpers it needs. Pure measurement — depends on `cuprum_gerber::geometry`
 //! for polygon types and shared primitives, never the reverse.
 
 mod edges;
@@ -10,7 +10,7 @@ mod segments;
 pub use scan::Hot;
 use scan::{hotspots, Want};
 
-use crate::geometry::Poly;
+use cuprum_gerber::geometry::Poly;
 
 /// (min clearance, min copper width) — the worst values, for the metrics tab.
 pub fn min_clearance_and_width(polys: &[Poly]) -> (Option<f64>, Option<f64>) {
@@ -44,7 +44,7 @@ pub fn min_island_clearance(polys: &[Poly]) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::{layer_polygons, region_polygons};
+    use cuprum_gerber::geometry::{layer_polygons, region_polygons};
 
     // Shared Gerber fixture: a 1 mm pad flash (D10/D03) plus a 0.1 mm trace draw
     // (D11/D01). Used by region_polygons_excludes_trace_strokes and the from-layer
@@ -58,7 +58,7 @@ mod tests {
     /// rectangle still reports a copper-width hotspot ≈ 0.1 mm.
     #[test]
     fn simplify_keeps_a_real_thin_neck() {
-        use crate::geometry::fill_polygons;
+        use cuprum_gerber::geometry::fill_polygons;
         let rect = vec![[0.0, 0.0], [5.0, 0.0], [5.0, 0.1], [0.0, 0.1]];
         let polys = fill_polygons(&[rect], &[]);
         let (_c, w) = clearance_width_hotspots(&polys);
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn min_clearance_between_two_islands() {
-        use crate::geometry::fill_polygons;
+        use cuprum_gerber::geometry::fill_polygons;
         // Two unit squares with a 0.2 mm gap in x → two disjoint polys.
         let a = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let b = vec![[1.2, 0.0], [2.2, 0.0], [2.2, 1.0], [1.2, 1.0]];
@@ -86,7 +86,7 @@ mod tests {
     /// so it must NOT be reported as 0.1 mm copper width. (Interiorness filter.)
     #[test]
     fn bay_notch_is_not_reported_as_thin_copper() {
-        use crate::geometry::fill_polygons;
+        use cuprum_gerber::geometry::fill_polygons;
         // 2×2 block with a 0.1 mm-wide slot cut from the top down to y=0.5.
         let notched = vec![
             [0.0, 0.0],
@@ -117,7 +117,7 @@ mod tests {
     /// flagged. (Anti-parallel-faces filter.)
     #[test]
     fn acute_wedge_corner_is_not_reported_as_thin_copper() {
-        use crate::geometry::fill_polygons;
+        use cuprum_gerber::geometry::fill_polygons;
         // A thin 30° triangular spike off a body — faces near the tip are at an
         // acute angle, so the tiny cross-distance there is a wedge, not a neck.
         let spike = vec![[0.0, 0.0], [5.0, 0.2], [5.0, -0.2]];
@@ -147,7 +147,7 @@ mod tests {
     /// the union places a vertex on the trace's bottom edge at the seam.)
     #[test]
     fn trace_bend_is_not_reported_as_thin_copper() {
-        use crate::geometry::copper_polygons;
+        use cuprum_gerber::geometry::copper_polygons;
         const BEND: &[u8] = b"%FSLAX46Y46*%\n%MOMM*%\n\
             %AMRoundRect*\n4,1,4,$2,$3,$4,$5,$6,$7,$8,$9,$2,$3,0*\n\
             1,1,$1+$1,$2,$3*\n1,1,$1+$1,$4,$5*\n1,1,$1+$1,$6,$7*\n1,1,$1+$1,$8,$9*\n\
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn min_copper_width_of_a_thin_trace() {
-        use crate::geometry::fill_polygons;
+        use cuprum_gerber::geometry::fill_polygons;
         // A 0.1 mm wide, 5 mm long bar: the two long edges are 0.1 mm apart.
         let bar = vec![[0.0, 0.0], [5.0, 0.0], [5.0, 0.1], [0.0, 0.1]];
         let polys = fill_polygons(&[bar], &[]);
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn clearance_hotspot_lands_in_the_gap() {
-        use crate::geometry::fill_polygons;
+        use cuprum_gerber::geometry::fill_polygons;
         let a = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let b = vec![[1.2, 0.0], [2.2, 0.0], [2.2, 1.0], [1.2, 1.0]];
         let polys = fill_polygons(&[a, b], &[]);

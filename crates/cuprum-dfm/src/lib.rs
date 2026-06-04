@@ -1,6 +1,6 @@
 //! Design-for-Manufacturing (DFM): measure board facts and locate problem
 //! spots, then turn them into a manufacturability verdict. All DFM-only code
-//! lives here. Shared polygon-building stays in `crate::geometry`.
+//! lives here. Shared polygon-building stays in `cuprum_gerber::geometry`.
 
 mod conductor;
 mod metrics;
@@ -22,9 +22,10 @@ pub use sweep::{
 // ---- Board-metrics cache wrappers ----
 //
 // Cached entry points around `board_metrics`, sharing the single-flight engine in
-// `crate::cache`. Live here (next to `BoardMetrics`) so the cache module doesn't
-// reach into dfm to define them — it only re-exports these under `cache::` for the
-// historical call paths (project/UI). Metrics JSON blobs are larger than SVG —
+// `cuprum_cache`. Live here (next to `BoardMetrics`) so the cache module doesn't
+// reach into dfm to define them — `cuprum_core::cache` only re-exports these under
+// `cache::` for the historical call paths (project/UI). Metrics JSON blobs are
+// larger than SVG —
 // silk/trace hotspots can be many — so a tighter in-memory cap.
 
 use std::collections::HashMap;
@@ -79,8 +80,8 @@ pub fn board_metrics_cached(
 pub fn metrics_artifact_key<'a>(
     layers: impl IntoIterator<Item = (&'a str, &'a str, &'a [u8])>,
 ) -> String {
-    let mut h = crate::diskcache::Hasher::new();
-    h.add(crate::artifact::METRICS_VERSION);
+    let mut h = cuprum_diskcache::diskcache::Hasher::new();
+    h.add(cuprum_diskcache::artifact::METRICS_VERSION);
     for (rel, type_debug, bytes) in layers {
         h.add(type_debug.as_bytes());
         h.add(rel.to_lowercase().as_bytes());

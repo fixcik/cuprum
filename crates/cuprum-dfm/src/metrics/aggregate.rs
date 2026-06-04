@@ -1,7 +1,7 @@
 //! Post-processing helpers for `sweep::Hot` collections: sorting, deduplication,
 //! spatial clustering, and conversion to [`Hotspot`].
 
-use crate::dfm::sweep;
+use crate::sweep;
 
 use super::types::Hotspot;
 

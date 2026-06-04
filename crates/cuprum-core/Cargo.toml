@@ -7,19 +7,15 @@ description = "Core library for Cuprum: drive an Elegoo Saturn 4 Ultra 16K as a 
 
 [dependencies]
 anyhow.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-lru.workspace = true
-gerber_viewer.workspace = true
 resvg.workspace = true
 usvg.workspace = true
 rayon.workspace = true
 cuprum-trace.workspace = true
 cuprum-diskcache.workspace = true
-cuprum-cache.workspace = true
 cuprum-goo.workspace = true
 cuprum-gerber.workspace = true
 cuprum-mesh.workspace = true
+cuprum-dfm.workspace = true
 cuprum-sdcp.workspace = true
 tracing.workspace = true
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use gerber_viewer::GerberLayer;
 use rayon::prelude::*;
 
-use crate::mesh::Role;
+use cuprum_mesh::Role;
 
 use super::types::MetricLayerInput;
 
@@ -16,18 +16,18 @@ use super::types::MetricLayerInput;
 /// the single largest layer, not the serial sum.
 #[tracing::instrument(skip_all)]
 pub(super) fn parse_all(layers: &[MetricLayerInput]) -> Vec<Option<Arc<GerberLayer>>> {
-    let dh = crate::trace::capture_dispatch();
+    let dh = cuprum_trace::capture_dispatch();
     layers
         .par_iter()
-        .map(|l| dh.run(|| crate::gerber::parse_layer_cached(l.bytes).ok()))
+        .map(|l| dh.run(|| cuprum_gerber::gerber::parse_layer_cached(l.bytes).ok()))
         .collect()
 }
 
 /// Excellon data parsed once per drill layer (holes + slots), indexed parallel to
 /// `layers` (`None` for non-drill layers).
 pub(super) struct DrillData {
-    pub(super) holes: Vec<crate::drill::Hole>,
-    pub(super) slots: Vec<crate::drill::Slot>,
+    pub(super) holes: Vec<cuprum_gerber::drill::Hole>,
+    pub(super) slots: Vec<cuprum_gerber::drill::Slot>,
 }
 
 pub(super) fn parse_all_drills(layers: &[MetricLayerInput]) -> Vec<Option<DrillData>> {
@@ -35,8 +35,8 @@ pub(super) fn parse_all_drills(layers: &[MetricLayerInput]) -> Vec<Option<DrillD
         .iter()
         .map(|l| {
             (l.role == Role::Drill).then(|| DrillData {
-                holes: crate::drill::parse_drill(l.bytes).unwrap_or_default(),
-                slots: crate::drill::parse_slots(l.bytes),
+                holes: cuprum_gerber::drill::parse_drill(l.bytes).unwrap_or_default(),
+                slots: cuprum_gerber::drill::parse_slots(l.bytes),
             })
         })
         .collect()

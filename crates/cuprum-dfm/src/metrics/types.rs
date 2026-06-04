@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 /// an inner copper layer (`role == Copper`), whether its drills are plated
 /// (`role == Drill`), and the raw gerber/Excellon bytes.
 pub struct MetricLayerInput<'a> {
-    pub role: crate::mesh::Role,
-    pub side: crate::mesh::Side,
+    pub role: cuprum_mesh::Role,
+    pub side: cuprum_mesh::Side,
     /// Inner copper layer — disambiguates from top/bottom (Role/Side alone can't,
     /// since inner copper is mapped onto the top side for stacking).
     pub inner: bool,

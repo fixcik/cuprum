@@ -1,7 +1,7 @@
 //! Segment-to-segment distance geometry: orientation test, crossing, and the
 //! two-closest-points query used by the edge sweep.
 
-use crate::geometry::point_seg_closest;
+use cuprum_gerber::geometry::point_seg_closest;
 
 fn orient(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])

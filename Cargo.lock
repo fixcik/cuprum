@@ -483,21 +483,34 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "criterion",
- "cuprum-cache",
+ "cuprum-dfm",
  "cuprum-diskcache",
  "cuprum-gerber",
  "cuprum-goo",
  "cuprum-mesh",
  "cuprum-sdcp",
  "cuprum-trace",
+ "rayon",
+ "resvg",
+ "tracing",
+ "usvg",
+]
+
+[[package]]
+name = "cuprum-dfm"
+version = "0.3.0"
+dependencies = [
+ "cuprum-cache",
+ "cuprum-diskcache",
+ "cuprum-gerber",
+ "cuprum-mesh",
+ "cuprum-trace",
  "gerber_viewer",
  "lru",
  "rayon",
- "resvg",
  "serde",
  "serde_json",
  "tracing",
- "usvg",
 ]
 
 [[package]]
