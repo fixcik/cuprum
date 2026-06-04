@@ -19,6 +19,8 @@ import {
   INSTANCE_FILL,
   INSTANCE_STROKE,
   INSTANCE_LABEL,
+  INSTANCE_OFF_STROKE,
+  INSTANCE_OFF_FILL,
   RULER_TOP,
   RULER_LEFT,
 } from "@/components/editor/canvasStyle";
@@ -26,7 +28,7 @@ import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
+import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
 import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
@@ -814,6 +816,18 @@ export function PanelBlankCanvas({
               // Live rotation preview: spin selected instances by the snapped delta
               // (each about its own centre) until the knob is released and committed.
               const rotation = inst.rotation_deg + (isSelected && rotPreview != null ? rotPreview : 0);
+              // Poking past the panel edge → red outline + faint red fill (matches the
+              // editor's off-panel warning). Computed on the rendered pose (incl. live
+              // drag/rotate preview) so the highlight tracks where the board is drawn.
+              const off = isOffPanel({
+                xMm: inst.x_mm + shift.dx,
+                yMm: inst.y_mm + shift.dy,
+                boardW: sz.w,
+                boardH: sz.h,
+                rotationDeg: rotation,
+                panelW: W,
+                panelH: H,
+              });
               return (
                 <Group
                   key={inst.id}
@@ -835,9 +849,9 @@ export function PanelBlankCanvas({
                   <Rect
                     width={sz.w}
                     height={sz.h}
-                    fill={INSTANCE_FILL}
-                    stroke={INSTANCE_STROKE}
-                    strokeWidth={1}
+                    fill={off ? INSTANCE_OFF_FILL : INSTANCE_FILL}
+                    stroke={off ? INSTANCE_OFF_STROKE : INSTANCE_STROKE}
+                    strokeWidth={off ? 1.5 : 1}
                     strokeScaleEnabled={false}
                     cornerRadius={0.3}
                   />
