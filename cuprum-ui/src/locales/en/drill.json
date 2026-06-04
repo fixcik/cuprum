@@ -23,5 +23,17 @@
   "empty": {
     "noProject": "No project open",
     "noHoles": "No drill holes found"
+  },
+  "run": {
+    "start": "Start",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "progress": "{{done}}/{{total}} holes",
+    "toolChangeTitle": "Tool change",
+    "toolChangePrompt": "Insert drill Ø{{diameter}} ({{name}}), then continue",
+    "continue": "Continue",
+    "notConnected": "Connect the machine on the Machine page",
+    "errorHint": "Run error. Recover on the Machine page (unlock/reset)."
   }
 }
