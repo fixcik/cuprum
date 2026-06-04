@@ -43,12 +43,15 @@ export interface DrillMapCanvasProps {
   heightMm: number;
   plan: PanelDrillPlan;
   route: DrillRoute;
+  /** Optional live-run progress for highlight overlay. When absent the canvas
+   *  renders exactly as it did before (no visual change). */
+  progress?: { holesCompleted: number; currentHoleIndex: number | null };
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
  *  path, and tool-change markers at each group's first hole.
  *  Coordinates are in panel-space mm (0,0 = top-left of blank). */
-export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
 
@@ -114,41 +117,73 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route }: DrillM
             )}
 
             {/* Holes per group with distinct colour; first hole of each group gets a
-                tool-change ring marker. */}
-            {route.groups.map((g: RouteGroup, gi: number) => {
-              const color = groupColor(gi);
-              return g.orderedHoles.map((h, hi) => {
-                const r = g.diameterMm / 2;
-                const isToolChange = hi === 0;
-                return (
-                  <Group key={`${gi}-${hi}`} listening={false}>
-                    {/* Tool-change ring around the first hole in each group. */}
-                    {isToolChange && (
+                tool-change ring marker. A running global index gIdx tracks position
+                across groups (same flattening order as route.pathPoints) to apply
+                progress highlights when the `progress` prop is present. */}
+            {(() => {
+              let gIdx = 0;
+              return route.groups.map((g: RouteGroup, gi: number) => {
+                const color = groupColor(gi);
+                return g.orderedHoles.map((h, hi) => {
+                  const currentGIdx = gIdx++;
+                  const r = g.diameterMm / 2;
+                  const isToolChange = hi === 0;
+
+                  // Determine per-hole highlight state (only when progress is provided).
+                  const isDrilled =
+                    progress !== undefined && currentGIdx < progress.holesCompleted;
+                  const isCurrent =
+                    progress !== undefined &&
+                    progress.currentHoleIndex !== null &&
+                    currentGIdx === progress.currentHoleIndex;
+                  const showCurrent = isCurrent && !isDrilled;
+
+                  const holeFill = isDrilled
+                    ? "rgba(34,197,94,0.5)"   // green, reduced opacity
+                    : "rgba(0,0,0,0.6)";       // default
+
+                  return (
+                    <Group key={`${gi}-${hi}`} listening={false}>
+                      {/* Tool-change ring around the first hole in each group. */}
+                      {isToolChange && (
+                        <Circle
+                          x={h.xMm}
+                          y={h.yMm}
+                          radius={r + TOOL_CHANGE_RING_OFFSET_MM}
+                          stroke={color}
+                          strokeWidth={TOOL_CHANGE_RING_PX}
+                          strokeScaleEnabled={false}
+                          fill={undefined}
+                          opacity={0.6}
+                        />
+                      )}
+                      {/* Highlight ring for the currently-drilling hole. */}
+                      {showCurrent && (
+                        <Circle
+                          x={h.xMm}
+                          y={h.yMm}
+                          radius={r + 0.6}
+                          stroke="#22c55e"
+                          strokeWidth={2}
+                          strokeScaleEnabled={false}
+                          fill={undefined}
+                        />
+                      )}
+                      {/* Hole circle */}
                       <Circle
                         x={h.xMm}
                         y={h.yMm}
-                        radius={r + TOOL_CHANGE_RING_OFFSET_MM}
+                        radius={Math.max(r, 0.1)}
                         stroke={color}
-                        strokeWidth={TOOL_CHANGE_RING_PX}
+                        strokeWidth={HOLE_STROKE_PX}
                         strokeScaleEnabled={false}
-                        fill={undefined}
-                        opacity={0.6}
+                        fill={holeFill}
                       />
-                    )}
-                    {/* Hole circle */}
-                    <Circle
-                      x={h.xMm}
-                      y={h.yMm}
-                      radius={Math.max(r, 0.1)}
-                      stroke={color}
-                      strokeWidth={HOLE_STROKE_PX}
-                      strokeScaleEnabled={false}
-                      fill="rgba(0,0,0,0.6)"
-                    />
-                  </Group>
-                );
+                    </Group>
+                  );
+                });
               });
-            })}
+            })()}
           </Group>
         </Layer>
       </Stage>

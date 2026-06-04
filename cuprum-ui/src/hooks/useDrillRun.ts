@@ -1,0 +1,82 @@
+import { useCallback, useEffect, useReducer, useState } from "react";
+import { api } from "@/lib/api";
+import type { DrillStep } from "@/lib/drillGcode";
+import {
+  drillRunReducer,
+  initialDrillRunState,
+  type DrillRunState,
+  type DrillRunPhase,
+} from "@/lib/drillRunState";
+
+export interface UseDrillRun {
+  state: DrillRunState;
+  connected: boolean;
+  start: (steps: DrillStep[]) => Promise<void>;
+  pause: () => void;
+  resume: () => void;
+  stop: () => void;
+  confirmToolChange: () => void;
+}
+
+export function useDrillRun(): UseDrillRun {
+  const [state, dispatch] = useReducer(drillRunReducer, initialDrillRunState);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    api.drillRun.isConnected().then(setConnected).catch(() => {});
+
+    const subState = api.drillRun.onState((phase) =>
+      dispatch({ type: "state", phase: phase as DrillRunPhase }),
+    );
+    const subProgress = api.drillRun.onProgress((p) =>
+      dispatch({ type: "progress", holesCompleted: p.holesCompleted, holeIndex: p.holeIndex }),
+    );
+    const subToolChange = api.drillRun.onToolChange((p) =>
+      dispatch({ type: "toolchange", toolName: p.toolName, diameterMm: p.diameterMm }),
+    );
+    const subError = api.drillRun.onError((message) =>
+      dispatch({ type: "error", message }),
+    );
+    const subDone = api.drillRun.onDone(() => dispatch({ type: "done" }));
+
+    const subConnected = api.machine.onConnected(() => setConnected(true));
+    const subDisconnected = api.machine.onDisconnected(() => setConnected(false));
+
+    return () => {
+      void subState.then((un) => un());
+      void subProgress.then((un) => un());
+      void subToolChange.then((un) => un());
+      void subError.then((un) => un());
+      void subDone.then((un) => un());
+      void subConnected.then((un) => un());
+      void subDisconnected.then((un) => un());
+    };
+  }, []);
+
+  const start = useCallback(async (steps: DrillStep[]) => {
+    dispatch({ type: "reset" });
+    dispatch({
+      type: "start",
+      holesTotal: steps.filter((s) => s.kind === "hole").length,
+    });
+    await api.drillRun.start(steps);
+  }, []);
+
+  const pause = useCallback(() => {
+    void api.drillRun.pause();
+  }, []);
+
+  const resume = useCallback(() => {
+    void api.drillRun.resume();
+  }, []);
+
+  const stop = useCallback(() => {
+    void api.drillRun.stop();
+  }, []);
+
+  const confirmToolChange = useCallback(() => {
+    void api.drillRun.confirmToolChange();
+  }, []);
+
+  return { state, connected, start, pause, resume, stop, confirmToolChange };
+}

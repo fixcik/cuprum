@@ -2,6 +2,7 @@ import { invoke as rawInvoke, Channel } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { type NestSettings } from "@/lib/nest";
+import type { DrillStep } from "@/lib/drillGcode";
 
 /** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
  *  appear in the browser Network tab — in dev builds we log every command (args,
@@ -374,6 +375,18 @@ export interface Poly {
   holes: [number, number][][];
 }
 
+export interface DrillRunProgress {
+  holesCompleted: number;
+  holesTotal: number;
+  holeIndex: number;
+  stepIndex: number;
+}
+
+export interface DrillRunToolChange {
+  toolName: string;
+  diameterMm: number;
+}
+
 export const api = {
   discover: () => invoke<PrinterInfo>("discover"),
   renderPreview: async (path: string, maxPx = 2600) => {
@@ -573,6 +586,24 @@ export const api = {
     onDisconnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://disconnected", () => cb()),
     onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>
       listen<string>("machine://error", (e) => cb(e.payload)),
+  },
+
+  drillRun: {
+    start: (steps: DrillStep[]) => invoke<void>("drill_run_start", { steps }),
+    pause: () => invoke<void>("drill_run_pause"),
+    resume: () => invoke<void>("drill_run_resume"),
+    stop: () => invoke<void>("drill_run_stop"),
+    confirmToolChange: () => invoke<void>("drill_run_confirm_tool_change"),
+    isConnected: () => invoke<boolean>("machine_is_connected"),
+    onState: (cb: (phase: string) => void): Promise<UnlistenFn> =>
+      listen<{ phase: string }>("drill-run://state", (e) => cb(e.payload.phase)),
+    onProgress: (cb: (p: DrillRunProgress) => void): Promise<UnlistenFn> =>
+      listen<DrillRunProgress>("drill-run://progress", (e) => cb(e.payload)),
+    onToolChange: (cb: (p: DrillRunToolChange) => void): Promise<UnlistenFn> =>
+      listen<DrillRunToolChange>("drill-run://toolchange", (e) => cb(e.payload)),
+    onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>
+      listen<{ message: string }>("drill-run://error", (e) => cb(e.payload.message)),
+    onDone: (cb: () => void): Promise<UnlistenFn> => listen("drill-run://done", () => cb()),
   },
 };
 
