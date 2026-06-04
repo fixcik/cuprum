@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   packLayout,
+  packLayoutAvoiding,
   instanceBounds,
   isOffPanel,
   clampDeltaToPanel,
@@ -314,5 +315,58 @@ describe("computeSmartGuides", () => {
     // candidates for moving.left=12: near.left=10 (Δ-2); moving.right=32: near.right=30 (Δ-2);
     // moving.centre=22: near.centre=20 (Δ-2). All −2 ⇒ dx=−2.
     expect(r.dx).toBeCloseTo(-2);
+  });
+});
+
+describe("packLayoutAvoiding", () => {
+  const n = (o = {}) => ({ ...DEFAULT_NEST, ...o });
+
+  it("matches packLayout when there are no obstacles", () => {
+    const a = packLayout(40, 30, 100, 100, n({ enabled: true, fillMode: "copies", copies: 3, corner: "tl" }));
+    const b = packLayoutAvoiding(40, 30, 100, 100, n({ enabled: true, fillMode: "copies", copies: 3, corner: "tl" }), [], 0);
+    expect(b.placements).toEqual(a.placements);
+    expect([b.n, b.requested, b.max]).toEqual([a.n, a.requested, a.max]);
+  });
+
+  it("skips a cell occupied by an existing instance", () => {
+    // tl grid of 40×30 on 100×100: cells at (0,0),(42? no gap) ... use no-gap nesting.
+    // With gap=0,margin=0: cols=floor(100/40)=2, rows=floor(100/30)=3 → cell at (0,0),(40,0),(0,30)...
+    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, fillMode: "copies", copies: 2, corner: "tl" });
+    // Obstacle covering the first cell [0,40]×[0,30].
+    const obst = [{ minX: 0, minY: 0, maxX: 40, maxY: 30 }];
+    const r = packLayoutAvoiding(40, 30, 100, 100, nest, obst, 0);
+    expect(r.n).toBe(2);
+    // First free cells skip (0,0): expect (40,0) then (0,30) [row-major].
+    expect(r.placements).toEqual([{ x: 40, y: 0 }, { x: 0, y: 30 }]);
+  });
+
+  it("keeps the clearance gap from an existing instance", () => {
+    // Single snug copy (nesting off) 40×30 on 100×100, tl corner → would sit at (0,0).
+    // Obstacle at the bottom-right far away; clearance shouldn't matter → still (0,0).
+    const nest = n({ enabled: false, corner: "tl" });
+    const r = packLayoutAvoiding(40, 30, 100, 100, nest, [{ minX: 60, minY: 60, maxX: 90, maxY: 90 }], 5);
+    expect(r.placements).toEqual([{ x: 0, y: 0 }]);
+  });
+
+  it("treats a cell within the clearance of an obstacle as occupied", () => {
+    // nesting off, tl → candidate (0,0) box [0,40]×[0,30]. Obstacle [41,0]-[80,30] is 1mm away;
+    // with clearance 5 the inflated obstacle becomes [36,-5]-[85,35] in all directions.
+    // Cells (0,0)=[0,40]×[0,30] and (40,0)=[40,80]×[0,30] and (0,30)=[0,40]×[30,60]
+    // and (40,30)=[40,80]×[30,60] all overlap the inflated obstacle.
+    // First free cell (row-major) is (0,60).
+    const nest = n({ enabled: false, marginMm: 0, gapMm: 0, corner: "tl" });
+    const r = packLayoutAvoiding(40, 30, 100, 100, nest, [{ minX: 41, minY: 0, maxX: 80, maxY: 30 }], 5);
+    // (0,0) excluded (within 5mm of obstacle); first truly free row-major cell is (0,60).
+    expect(r.placements).toEqual([{ x: 0, y: 60 }]);
+  });
+
+  it("flags overflow via requested when free cells run out", () => {
+    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, fillMode: "copies", copies: 6, corner: "tl" });
+    // Occupy the entire left column-ish: block first row fully (3 cells across? cols=2,rows=3 → 6 cells).
+    // Obstacle covering left half [0,40]×[0,100] removes column 0 (3 cells) → 3 free remain.
+    const r = packLayoutAvoiding(40, 30, 100, 100, nest, [{ minX: 0, minY: 0, maxX: 40, maxY: 100 }], 0);
+    expect(r.max).toBe(6);
+    expect(r.requested).toBe(6);
+    expect(r.n).toBe(3);
   });
 });

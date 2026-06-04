@@ -50,7 +50,8 @@
   "panel": {
     "canvas": {
       "copper": "Cu",
-      "noCopper": "no copper"
+      "noCopper": "no copper",
+      "workArea": "work area"
     },
     "add": {
       "window": {
@@ -68,6 +69,7 @@
       "fit": {
         "one": "One copy — tucked into the corner",
         "tooBig": "Design is larger than the panel work area",
+        "noSpace": "No free space on the panel",
         "grid": "Grid {{cols}}×{{rows}} · placing {{n}}",
         "overflow": "Fits {{fit}} of {{requested}} — {{missing}} don't fit"
       },

@@ -176,6 +176,10 @@ export interface AddDesignSnapshot {
   /** When set, the add-design window selects this design on receipt (one-shot,
    *  carried only by the ready-driven snapshot). */
   preselectDesignId?: string | null;
+  /** Instances already on the panel (so the preview can avoid them). */
+  instances: BoardInstance[];
+  /** Board extent (mm) per placed design_id, for drawing/avoiding existing instances. */
+  placedSizes: Record<string, { w: number; h: number }>;
 }
 /** Result of an add-to-panel intent, sent back to the add-design window. */
 export interface AddDesignResult {

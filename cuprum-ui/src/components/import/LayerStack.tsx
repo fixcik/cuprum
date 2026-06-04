@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Crosshair, Loader2, Maximize, Minus, Plus, Ruler } from "lucide-react";
+import { Crosshair, Loader2, LocateFixed, Maximize, Minus, Plus, Ruler } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { BBox, Hole, LayerType } from "@/lib/api";
 import { LAYER_Z } from "@/lib/layerColors";
 import { outlineLoops, outlinePathD } from "@/lib/boardOutline";
 import { DrcMarkers, type DrcMarkerInput, type ProjectedMarker } from "@/components/preview/DrcMarkers";
+import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
+import { gridSteps, ticksFor } from "@/lib/canvasTicks";
 import { useShell } from "@/shellStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -53,16 +55,8 @@ const M_FEATURE_R = 15; // dashed lock ring shown when snapped to a feature
 const MEASURE_LABEL_BG = "hsl(222 16% 9% / 0.92)";
 const MEASURE_LABEL_FG = "rgba(255,255,255,0.95)";
 const MEASURE_LABEL_SUB = "rgba(255,255,255,0.6)";
-// "1-5" nice-number ladder (mm). The grid step is the finest rung still ≥8px on
-// screen, so zooming in reveals 10→5→1→0.5→0.1mm; labels use a coarser rung that
-// leaves room for the text.
-const STEP_LADDER = [0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 500, 1000, 5000];
-
-/** Format a mm value compactly: 0.5, 12.5, 50 (no trailing zeros). */
-function fmtMm(v: number): string {
-  if (Math.abs(v) < 1e-9) return "0";
-  return parseFloat(v.toFixed(3)).toString();
-}
+// Tick/grid step math (ladder, nice-step selection) lives in `lib/canvasTicks`,
+// shared with the panel canvas so a ruler label and a grid line always coincide.
 
 /** Union of ALL layer bboxes — ignores visibility, so toggling never moves the camera. */
 function fullBBox(layers: StackLayer[]): BBox | null {
@@ -97,14 +91,6 @@ function halveStrokeWidth(svg: string): string {
   return svg
     .replace(/stroke-width="([\d.]+)"/g, (_, w) => `stroke-width="${parseFloat(w) / 2}"`)
     .replace(/\br="([\d.]+)"/g, (_, r) => `r="${parseFloat(r) / 2}"`);
-}
-
-/** Grid/ruler tick: distance in mm from the board's origin corner, plus whether
- *  it's a major (every 5th) line. */
-interface Tick {
-  mm: number; // coordinate in the content's mm space
-  label: number; // mm from the board corner (0 at the edge)
-  major: boolean;
 }
 
 /**
@@ -192,6 +178,31 @@ export function LayerStack({
   const [mA, setMA] = useState<MPoint | null>(null);
   const [mB, setMB] = useState<MPoint | null>(null);
   const [hover, setHover] = useState<{ g: [number, number]; feature: boolean } | null>(null);
+  // Opt-in hover crosshair + coordinate readout (off by default — the preview
+  // already has the click-to-measure tool, so an always-on crosshair is busy).
+  const [showCrosshair, setShowCrosshair] = useState(false);
+  // Cursor in screen px for that crosshair; coalesced to one update per frame so a
+  // bare mousemove doesn't re-render the whole layer stack.
+  const [cursorPx, setCursorPx] = useState<{ x: number; y: number } | null>(null);
+  const cursorRaf = useRef<number | null>(null);
+  const pendingCursor = useRef<{ x: number; y: number } | null>(null);
+  const queueCursor = useCallback((p: { x: number; y: number } | null) => {
+    pendingCursor.current = p;
+    if (p === null) {
+      if (cursorRaf.current != null) {
+        cancelAnimationFrame(cursorRaf.current);
+        cursorRaf.current = null;
+      }
+      setCursorPx(null);
+      return;
+    }
+    if (cursorRaf.current != null) return;
+    cursorRaf.current = requestAnimationFrame(() => {
+      cursorRaf.current = null;
+      setCursorPx(pendingCursor.current);
+    });
+  }, []);
+  useEffect(() => () => { if (cursorRaf.current != null) cancelAnimationFrame(cursorRaf.current); }, []);
 
   // Space reserved for the edge rulers; zero in chrome-less thumbnail mode so the
   // board centres in the whole pane.
@@ -377,9 +388,7 @@ export function LayerStack({
   // you zoom in). Labels use a coarser rung with room for the digits, so they
   // appear/multiply as space allows. The label rung is an integer multiple of
   // the grid rung, so labelled lines always coincide with grid lines.
-  const pickStep = (minPx: number) =>
-    STEP_LADDER.find((st) => st * view.s >= minPx) ?? STEP_LADDER[STEP_LADDER.length - 1];
-  const minorStep = pickStep(8);
+  const { minor: minorStep, labelEvery } = gridSteps(view.s);
 
   const SNAP_PX = 10;
   // Visible feature snap points (gerber mm).
@@ -433,10 +442,15 @@ export function LayerStack({
     drag.current = { x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty };
   };
   const onMove = (e: React.MouseEvent) => {
+    const rect = svgRef.current?.getBoundingClientRect();
     if (tool === "measure") {
-      const rect = svgRef.current!.getBoundingClientRect();
-      setHover(snapCursor(e.clientX - rect.left, e.clientY - rect.top));
+      if (rect) setHover(snapCursor(e.clientX - rect.left, e.clientY - rect.top));
       return;
+    }
+    // Track the cursor only when the crosshair is on, so an idle hover doesn't
+    // churn state through the whole layer stack when it's off.
+    if (chrome && showCrosshair && rect) {
+      queueCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     }
     const d = drag.current;
     if (!d) return;
@@ -444,18 +458,6 @@ export function LayerStack({
   };
   const onUp = () => { drag.current = null; };
 
-  const labelStep = pickStep(44);
-  const labelEvery = Math.max(1, Math.round(labelStep / minorStep));
-  const ticksFor = (origin: number, lo: number, hi: number): Tick[] => {
-    const out: Tick[] = [];
-    const kStart = Math.ceil((lo - origin) / minorStep);
-    const kEnd = Math.floor((hi - origin) / minorStep);
-    if (kEnd - kStart > 2000) return out; // safety: never flood the DOM
-    for (let k = kStart; k <= kEnd; k++) {
-      out.push({ mm: origin + k * minorStep, label: k * minorStep, major: k % labelEvery === 0 });
-    }
-    return out;
-  };
   // Visible content-space bounds (mm).
   const dx0 = (0 - view.tx) / view.s;
   const dx1 = (size.w - view.tx) / view.s;
@@ -463,10 +465,17 @@ export function LayerStack({
   const dy1 = (size.h - view.ty) / view.s;
   // Anchor ruler "0" at the board edge (Edge_Cuts centerline), not the overall
   // content corner — labels read mm from the real board edge.
-  const vTicks = ready ? ticksFor(edgeBox.minX, dx0, dx1) : [];
-  const hTicks = ready ? ticksFor(edgeBox.minY, dy0, dy1) : [];
-  const sx = (mm: number) => view.tx + view.s * mm;
-  const sy = (mm: number) => view.ty + view.s * mm;
+  const vTicks = ready ? ticksFor(edgeBox.minX, dx0, dx1, minorStep, labelEvery) : [];
+  const hTicks = ready ? ticksFor(edgeBox.minY, dy0, dy1, minorStep, labelEvery) : [];
+
+  // Map this canvas's view transform into the shared overlay's descriptor. The
+  // rulers/grid use the plain (non-mirrored, non-Y-flipped) `tx + s·mm` mapping,
+  // anchored at the board edge — the `mid/midx` pivot already lands the anchored
+  // ticks on the board's visual extent on both sides. So a single increasing axis
+  // matches the existing grid exactly.
+  const rulerViewport: Viewport | null = ready
+    ? { pxPerMm: view.s, originX: view.tx, originY: view.ty }
+    : null;
 
   // Project DRC markers (board mm) to screen px using the live view transform.
   const projectedMarkers: ProjectedMarker[] = markers.map((m) => {
@@ -484,7 +493,7 @@ export function LayerStack({
         onMouseDown={onDown}
         onMouseMove={onMove}
         onMouseUp={onUp}
-        onMouseLeave={onUp}
+        onMouseLeave={() => { onUp(); queueCursor(null); }}
         onContextMenu={(e) => { if (tool === "measure") { e.preventDefault(); setMA(null); setMB(null); } }}
       >
         <g transform={`translate(${view.tx} ${view.ty}) scale(${view.s})`}>
@@ -676,76 +685,25 @@ export function LayerStack({
           );
         })()}
 
-        {/* Edge rulers — screen space, drawn LAST so they sit on top of every
-            layer and the measure overlay; their opaque fill clips content out of
-            the ruler band so nothing ever bleeds onto them. */}
-        {chrome && (
-        <g style={{ pointerEvents: "none" }}>
-          <rect x={0} y={0} width={size.w} height={RULER} style={{ fill: "hsl(var(--card))" }} />
-          <rect x={0} y={0} width={RULER} height={size.h} style={{ fill: "hsl(var(--card))" }} />
-          <rect x={0} y={0} width={RULER} height={RULER} style={{ fill: "hsl(var(--card))" }} />
-          {/* top ruler */}
-          {vTicks.map((t) => {
-            const x = sx(t.mm);
-            if (x < RULER || x > size.w) return null;
-            return (
-              <g key={`tv${t.mm}`}>
-                <line
-                  x1={x}
-                  y1={t.major ? RULER - 9 : RULER - 5}
-                  x2={x}
-                  y2={RULER}
-                  style={{ stroke: `hsl(var(--muted-foreground) / ${t.major ? 0.7 : 0.4})` }}
-                  strokeWidth={1}
-                />
-                {t.major && (
-                  <text
-                    x={x + 3}
-                    y={9}
-                    style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
-                  >
-                    {fmtMm(t.label)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-          {/* left ruler */}
-          {hTicks.map((t) => {
-            const y = sy(t.mm);
-            if (y < RULER || y > size.h) return null;
-            return (
-              <g key={`th${t.mm}`}>
-                <line
-                  x1={t.major ? RULER - 9 : RULER - 5}
-                  y1={y}
-                  x2={RULER}
-                  y2={y}
-                  style={{ stroke: `hsl(var(--muted-foreground) / ${t.major ? 0.7 : 0.4})` }}
-                  strokeWidth={1}
-                />
-                {t.major && (
-                  <text
-                    x={9}
-                    y={y + 3}
-                    transform={`rotate(-90 9 ${y + 3})`}
-                    textAnchor="start"
-                    style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
-                  >
-                    {fmtMm(t.label)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-          {/* ruler edges */}
-          <line x1={RULER} y1={0} x2={RULER} y2={size.h} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
-          <line x1={0} y1={RULER} x2={size.w} y2={RULER} style={{ stroke: "hsl(var(--border))" }} strokeWidth={1} />
-        </g>
-        )}
       </svg>
 
       <DrcMarkers markers={projectedMarkers} width={size.w} height={size.h} pad={rPad} />
+
+      {/* Edge rulers + grid alignment + optional hover crosshair — shared
+          screen-space overlay (same component as the panel canvas). Sits above the
+          board/markers; the hover crosshair is hidden while measuring. */}
+      {chrome && rulerViewport && (
+        <RulersOverlay
+          viewport={rulerViewport}
+          size={size}
+          fmt={fmtLen}
+          anchorMm={{ x: edgeBox.minX, y: edgeBox.minY }}
+          extentMm={{ x: edgeBox.minX, y: edgeBox.minY, w: boardW, h: boardH }}
+          hover={showCrosshair && tool !== "measure" ? cursorPx : null}
+          rulerTop={RULER}
+          rulerLeft={RULER}
+        />
+      )}
 
       {chrome && (
         <div
@@ -764,6 +722,13 @@ export function LayerStack({
           onClick={() => { setTool((t) => (t === "measure" ? "pan" : "measure")); setMA(null); setMB(null); setHover(null); }}
         >
           <Ruler className="size-4" />
+        </button>
+        <button
+          className={`cursor-pointer rounded p-1 hover:bg-muted/60 ${showCrosshair ? "bg-primary/20 text-primary" : ""}`}
+          title={t("viewer.crosshair")}
+          onClick={() => setShowCrosshair((v) => !v)}
+        >
+          <LocateFixed className="size-4" />
         </button>
         <button
           className="cursor-pointer rounded p-1 hover:bg-muted/60"

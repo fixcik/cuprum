@@ -5,7 +5,7 @@
 //! reload, native mask on every Expose). Entries auto-invalidate on mtime change.
 //!
 //! The generic single-flight engine (in-memory LRU + disk tier + per-key
-//! single-flight) now lives in the [`cuprum_cache`] leaf crate; the typed wrappers
+//! single-flight) now lives in the `cuprum-cache` leaf crate; the typed wrappers
 //! that use it live in their own domains (SVG renders in [`crate::svg`], board
 //! metrics in [`crate::dfm`], gerber parse in [`crate::gerber`]). Those wrappers are
 //! re-exported below under the historical `cache::` paths for existing callers.

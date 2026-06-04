@@ -39,6 +39,7 @@
     "realSize": "Real size (100%)",
     "zoomIn": "Zoom in",
     "center": "Center view",
-    "fitAll": "Fit all"
+    "fitAll": "Fit all",
+    "crosshair": "Coordinate crosshair"
   }
 }

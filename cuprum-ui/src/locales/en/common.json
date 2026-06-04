@@ -23,6 +23,7 @@
     "zoomOut": "Zoom out",
     "zoomIn": "Zoom in",
     "fitAll": "Fit",
-    "realSize": "Real size"
+    "realSize": "Real size",
+    "crosshair": "Coordinate crosshair"
   }
 }

@@ -15,3 +15,8 @@ export const MAX_SCALE = 14;
 export const COPPER_STROKE = "#b87333";
 export const COPPER_FILL = "rgba(184,115,51,0.06)";
 export const NO_COPPER_STROKE = "#5a6472";
+
+// Edge-ruler band thickness (px). Left is wider to fit the rotated vertical
+// labels. Shared by the canvas (fit/centre math) and the RulersOverlay.
+export const RULER_TOP = 24;
+export const RULER_LEFT = 30;

@@ -1,0 +1,19 @@
+[package]
+name = "cuprum-dfm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Design-for-Manufacturing metrics, hotspot sweep and manufacturability verdict for Cuprum"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+lru.workspace = true
+rayon.workspace = true
+gerber_viewer.workspace = true
+tracing.workspace = true
+cuprum-cache.workspace = true
+cuprum-gerber.workspace = true
+cuprum-mesh.workspace = true
+cuprum-diskcache.workspace = true
+cuprum-trace.workspace = true

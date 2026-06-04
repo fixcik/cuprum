@@ -1,6 +1,6 @@
 //! Boundary-edge collection and adjacency helpers for the nearest-edge sweep.
 
-use crate::geometry::{point_seg_closest, Poly};
+use cuprum_gerber::geometry::{point_seg_closest, Poly};
 
 /// Max deviation (mm) at which a vertex is treated as polygon noise and dropped
 /// before the clearance/width sweep. Well under the artefact floor (50 µm), so

@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use gerber_viewer::GerberLayer;
 
-use crate::dfm::sweep;
-use crate::dfm::HOT_N;
-use crate::geometry::{self, Poly};
-use crate::mesh::{Role, Side};
+use crate::sweep;
+use crate::HOT_N;
+use cuprum_gerber::geometry::{self, Poly};
+use cuprum_mesh::{Role, Side};
 
 use super::aggregate::{cell_dedup_top, hotspot_cmp, to_hotspot};
 use super::copper::{
@@ -53,7 +53,7 @@ pub(super) fn board_dims(layers: &[MetricLayerInput]) -> BoardDims {
             has_edge_layer: false,
         };
     };
-    let (loops, perimeter_closed) = crate::mesh::outline_info(edge.bytes);
+    let (loops, perimeter_closed) = cuprum_mesh::outline_info(edge.bytes);
     let Some(perimeter) = loops.first() else {
         return BoardDims {
             width_mm: 0.0,
@@ -131,7 +131,7 @@ pub(super) fn compute_zone3(
 
     // Conductor model: connected routed-stroke runs per copper layer. Neck = the
     // thin-trace value; count + total length feed the metrics tab.
-    let mut runs: Vec<(crate::dfm::conductor::Conductor, &'static str)> = Vec::new();
+    let mut runs: Vec<(crate::conductor::Conductor, &'static str)> = Vec::new();
     {
         let _cm = tracing::info_span!("conductor_model").entered();
         for (i, l) in layers
@@ -143,7 +143,7 @@ pub(super) fn compute_zone3(
                 continue;
             };
             let side = layer_side_fn(l);
-            for c in crate::dfm::conductor::conductors(lay) {
+            for c in crate::conductor::conductors(lay) {
                 runs.push((c, side));
             }
         }
@@ -291,7 +291,7 @@ pub(super) fn compute_zone3(
     let layer_overshoot = overshoot_hots.first().map(|h| h.v);
 
     // Routed slots from drill layers.
-    let slots: Vec<crate::drill::Slot> = layers
+    let slots: Vec<cuprum_gerber::drill::Slot> = layers
         .iter()
         .enumerate()
         .filter(|(_, l)| l.role == Role::Drill)
@@ -336,7 +336,7 @@ pub(super) fn geo_metrics(
     // Board area + outline bbox from Edge_Cuts (perimeter minus inner cutouts).
     let (board_area, board_bbox) = match layers.iter().find(|l| l.role == Role::Edge) {
         Some(e) => {
-            let (loops, _) = crate::mesh::outline_info(e.bytes);
+            let (loops, _) = cuprum_mesh::outline_info(e.bytes);
             match loops.first() {
                 Some(perimeter) => {
                     let area = ring_area_abs(perimeter)
@@ -394,7 +394,7 @@ pub(super) fn geo_metrics(
     // `copper_hotspots_match_sequential_reference`). Propagate the tracing
     // dispatcher + span onto the worker threads so each branch's spans land in the
     // operation's trace instead of vanishing.
-    let dh = crate::trace::capture_dispatch();
+    let dh = cuprum_trace::capture_dispatch();
     let ((clear_hots, width_hots), zone3) = rayon::join(
         || dh.run(|| copper_clearance_width_hotspots(&copper_layers, layers, parsed)),
         || dh.run(|| compute_zone3(layers, &copper_layers, board_bbox, parsed, drills)),

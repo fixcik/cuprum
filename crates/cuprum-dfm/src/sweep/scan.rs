@@ -8,8 +8,8 @@ use super::neck::neck_persists;
 use super::segments::seg_seg_closest;
 /// Shared project-wide cap on reported hotspots per metric (worst-first); excess
 /// is dropped after the ~1 mm-cell dedup.
-use crate::dfm::HOT_N;
-use crate::geometry::{point_in_ring, poly_containing, Poly};
+use crate::HOT_N;
+use cuprum_gerber::geometry::{point_in_ring, poly_containing, Poly};
 
 /// Grid resolution for the nearest-edge sweep: cell ≈ board_diag / this.
 const DIST_CELLS: f64 = 220.0;
@@ -281,7 +281,7 @@ pub(super) fn hotspots_chunked(
         .collect();
     let _sw = tracing::info_span!("sweep", edges = n, chunks = ranges.len()).entered();
     let parts: Vec<(Vec<Hot>, Vec<Hot>)> = {
-        let dh = crate::trace::capture_dispatch();
+        let dh = cuprum_trace::capture_dispatch();
         ranges
             .into_par_iter()
             .map_init(
@@ -320,7 +320,7 @@ pub(super) fn hotspots_chunked(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::layer_polygons;
+    use cuprum_gerber::geometry::layer_polygons;
 
     // Bit-identical guard for the Want-split: computing only one side must yield
     // EXACTLY the side that the combined `Both` path produces. In-process float
@@ -328,9 +328,8 @@ mod tests {
     // clearance AND width sets are both non-trivial.
     #[test]
     fn split_matches_both() {
-        const A: &[u8] = include_bytes!("../../../../../testdata/gerber/two_square_boxes.gbr");
-        const B: &[u8] =
-            include_bytes!("../../../../../testdata/gerber/polarities_and_apertures.gbr");
+        const A: &[u8] = include_bytes!("../../../../testdata/gerber/two_square_boxes.gbr");
+        const B: &[u8] = include_bytes!("../../../../testdata/gerber/polarities_and_apertures.gbr");
         for bytes in [A, B] {
             let polys = layer_polygons(bytes, &[]).unwrap();
             let (both_c, both_w) = hotspots(&polys, Want::Both);
@@ -342,12 +341,12 @@ mod tests {
             assert!(empty_c.is_empty(), "Width mode yields no clearance");
             // The public wrappers must match the core.
             assert_eq!(
-                crate::dfm::clearance_hotspots(&polys),
+                crate::clearance_hotspots(&polys),
                 both_c,
                 "clearance_hotspots == Both.0"
             );
             assert_eq!(
-                crate::dfm::width_hotspots(&polys),
+                crate::width_hotspots(&polys),
                 both_w,
                 "width_hotspots == Both.1"
             );
@@ -359,9 +358,8 @@ mod tests {
     // real candidates, so the merge order is actually exercised. In-process → arch-safe.
     #[test]
     fn chunked_sweep_matches_serial() {
-        const A: &[u8] = include_bytes!("../../../../../testdata/gerber/two_square_boxes.gbr");
-        const B: &[u8] =
-            include_bytes!("../../../../../testdata/gerber/polarities_and_apertures.gbr");
+        const A: &[u8] = include_bytes!("../../../../testdata/gerber/two_square_boxes.gbr");
+        const B: &[u8] = include_bytes!("../../../../testdata/gerber/polarities_and_apertures.gbr");
         for bytes in [A, B] {
             let polys = layer_polygons(bytes, &[]).unwrap();
             for want in [Want::Clearance, Want::Width, Want::Both] {
@@ -386,9 +384,8 @@ mod tests {
     // bit-identical to a serial pass.
     #[test]
     fn visited_reuse_single_worker_matches_serial() {
-        const A: &[u8] = include_bytes!("../../../../../testdata/gerber/two_square_boxes.gbr");
-        const B: &[u8] =
-            include_bytes!("../../../../../testdata/gerber/polarities_and_apertures.gbr");
+        const A: &[u8] = include_bytes!("../../../../testdata/gerber/two_square_boxes.gbr");
+        const B: &[u8] = include_bytes!("../../../../testdata/gerber/polarities_and_apertures.gbr");
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(1)
             .build()
