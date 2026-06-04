@@ -163,7 +163,19 @@
     "sectionStackup": "Параметры заготовки",
     "sides": "Стороны",
     "sidesSingle": "Одна",
-    "sidesDouble": "Две"
+    "sidesDouble": "Две",
+    "inspectorTitle": "Параметры панели",
+    "inspectorCollapse": "Свернуть",
+    "inspectorExpand": "Развернуть",
+    "blankSummaryLabel": "Заготовка",
+    "workZone": "зона {{w}} × {{h}}",
+    "overWorkArea": "Больше рабочей зоны станка ({{w}} × {{h}})",
+    "rotate90": "Повернуть 90°",
+    "stackupSingle": "односторонняя",
+    "stackupDouble": "двухсторонняя",
+    "stackupTotal": "≈ {{mm}} мм общая",
+    "stackupCopper": "Медь {{mic}} мкм",
+    "stackupFr4": "FR4 {{mm}} мм"
   },
   "aria": {
     "settings": "Настройки проекта",

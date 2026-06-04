@@ -73,3 +73,12 @@ describe("settingsStore nest", () => {
     expect(n.marginMm).toBe(DEFAULT_NEST.marginMm);
   });
 });
+
+describe("panelInspector", () => {
+  it("patches inspector UI state in place", () => {
+    useSettings.getState().setPanelInspector({ width: 400 });
+    expect(useSettings.getState().panelInspector.width).toBe(400);
+    useSettings.getState().setPanelInspector({ collapsed: true });
+    expect(useSettings.getState().panelInspector).toMatchObject({ width: 400, collapsed: true });
+  });
+});

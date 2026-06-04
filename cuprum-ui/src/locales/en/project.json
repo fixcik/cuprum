@@ -163,7 +163,19 @@
     "sectionStackup": "Stackup",
     "sides": "Sides",
     "sidesSingle": "One",
-    "sidesDouble": "Two"
+    "sidesDouble": "Two",
+    "inspectorTitle": "Panel parameters",
+    "inspectorCollapse": "Collapse",
+    "inspectorExpand": "Expand",
+    "blankSummaryLabel": "Blank",
+    "workZone": "area {{w}} × {{h}}",
+    "overWorkArea": "Larger than the machine work area ({{w}} × {{h}})",
+    "rotate90": "Rotate 90°",
+    "stackupSingle": "single-sided",
+    "stackupDouble": "double-sided",
+    "stackupTotal": "≈ {{mm}} mm total",
+    "stackupCopper": "Copper {{mic}} µm",
+    "stackupFr4": "FR4 {{mm}} mm"
   },
   "aria": {
     "settings": "Project settings",

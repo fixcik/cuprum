@@ -2,22 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
-import { Select } from "@/components/ui/Select";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Modal } from "@/components/ui/Modal";
-import { Ruler, Layers } from "lucide-react";
-import { SettingsSection } from "@/components/ui/settings/SettingsSection";
-import { SettingRow } from "@/components/ui/settings/SettingRow";
-import { UnitField } from "@/components/ui/settings/UnitField";
 import { PanelBlankCanvas } from "@/components/panel/PanelBlankCanvas";
-import { BUILTIN_PANEL_PRESETS, COPPER_WEIGHTS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
+import { PanelInspector } from "@/components/project/PanelInspector";
+import { BUILTIN_PANEL_PRESETS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
 import { isOffPanel, clampDeltaToPanel, boxesForInstances } from "@/lib/panelPlacement";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import type { BoardInstance } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
 import { useSettings } from "@/settingsStore";
-import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 // Stable empty fallbacks: returning a fresh `[]` from a zustand selector on every
 // render triggers an infinite re-render loop, so share one frozen array instead.
@@ -29,7 +23,6 @@ const EMPTY_INSTANCES: BoardInstance[] = [];
  *  first edit. */
 export function PanelEditor() {
   const { t } = useTranslation("project");
-  const { fmtLen } = useUnitFormat();
   const currentPath = useShell((s) => s.currentPath);
   const savePanelConfig = useShell((s) => s.savePanelConfig);
   const docNonce = useShell((s) => s.docNonce);
@@ -220,6 +213,11 @@ export function PanelEditor() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const rotate = () => {
+    setWidth(height);
+    setHeight(width);
+  };
+
   const presets: PanelPreset[] = [...BUILTIN_PANEL_PRESETS, ...userPresets];
 
   const applyPreset = (id: string) => {
@@ -248,79 +246,39 @@ export function PanelEditor() {
 
   return (
     <div className="flex h-full min-h-0">
-      <div className="w-80 shrink-0 overflow-auto border-r border-border p-4">
-        <div className="mb-4">
-          <label className="mb-1 block text-[11px] text-muted-foreground">{t("setup.preset")}</label>
-          <div className="flex gap-2">
-            <Select defaultValue="" onChange={(e) => applyPreset(e.target.value)} className="min-w-0 flex-1">
-              <option value="" disabled>
-                {t("setup.loadPreset")}
-              </option>
-              {presets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-            <Button variant="ghost" size="sm" onClick={() => setPresetOpen(true)}>
-              {t("setup.savePreset")}
-            </Button>
-          </div>
-        </div>
-
-        <SettingsSection icon={Ruler} title={t("setup.sectionBlank")}>
-          <SettingRow label={t("setup.width")}>
-            <UnitField value={width} onChange={setWidth} dim="coarse" step="1" invalid={widthTooBig} />
-          </SettingRow>
-          <SettingRow label={t("setup.height")}>
-            <UnitField value={height} onChange={setHeight} dim="coarse" step="1" invalid={heightTooBig} />
-          </SettingRow>
-          <p className={`px-1 text-[11px] ${widthTooBig || heightTooBig ? "text-destructive" : "text-muted-foreground"}`}>
-            {t("setup.maxFromSettings", { w: fmtLen(maxW), h: fmtLen(maxH) })}
-          </p>
-          {offPanelCount > 0 && (
-            <p className="px-1 text-[11px] text-warning">
-              {t("setup.offPanelWarning", { count: offPanelCount })}
-            </p>
-          )}
-        </SettingsSection>
-
-        <SettingsSection icon={Layers} title={t("setup.sectionStackup")}>
-          <SettingRow label={t("setup.copperWeight")}>
-            <Select
-              value={String(copperWeight)}
-              onChange={(e) => setCopperWeight(parseFloat(e.target.value))}
-              className="w-28"
-            >
-              {COPPER_WEIGHTS.map((w) => (
-                <option key={w} value={w}>
-                  {w} oz
-                </option>
-              ))}
-            </Select>
-          </SettingRow>
-          <SettingRow label={t("setup.substrate")}>
-            <UnitField value={substrate} onChange={setSubstrate} dim="fine" step="0.1" />
-          </SettingRow>
-          <SettingRow label={t("setup.sides")}>
-            <SegmentedControl<"single" | "double">
-              value={doubleSided ? "double" : "single"}
-              onChange={(v) => setDoubleSided(v === "double")}
-              options={[
-                { value: "single", label: t("setup.sidesSingle") },
-                { value: "double", label: t("setup.sidesDouble") },
-              ]}
-            />
-          </SettingRow>
-        </SettingsSection>
-
-        {saveError && <div className="mt-3 text-[11px] text-destructive">{saveError}</div>}
-      </div>
-
-      <div className="min-w-0 flex-1">
+      {/* Canvas is the hero now */}
+      <div className="relative min-w-0 flex-1">
         <PanelBlankCanvas widthMm={width || 1} heightMm={height || 1} doubleSided={doubleSided} side={side} onSideChange={setSide} />
+        {saveError && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-destructive/90 px-3 py-1.5 text-[11px] text-destructive-foreground shadow-md">
+            {saveError}
+          </div>
+        )}
       </div>
 
+      <PanelInspector
+        width={width}
+        height={height}
+        copperWeight={copperWeight}
+        substrate={substrate}
+        doubleSided={doubleSided}
+        setWidth={setWidth}
+        setHeight={setHeight}
+        setCopperWeight={setCopperWeight}
+        setSubstrate={setSubstrate}
+        setDoubleSided={setDoubleSided}
+        widthTooBig={widthTooBig}
+        heightTooBig={heightTooBig}
+        maxW={maxW}
+        maxH={maxH}
+        offPanelCount={offPanelCount}
+        presets={presets}
+        onApplyPreset={applyPreset}
+        onSavePreset={() => setPresetOpen(true)}
+        onRotate={rotate}
+      />
+
+      {/* Preset save modal — unchanged */}
       <Modal
         open={presetOpen}
         onClose={() => setPresetOpen(false)}
