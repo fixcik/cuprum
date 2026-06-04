@@ -73,3 +73,58 @@ fn svg_writes_an_svg() {
     let s = std::fs::read_to_string(&out).unwrap();
     assert!(s.contains("<svg"), "is an SVG document");
 }
+
+#[test]
+fn mesh_glb_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("b.glb");
+    Command::cargo_bin("cuprum")
+        .unwrap()
+        .args([
+            "3d",
+            gerber_fixture().to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_eq!(&std::fs::read(&out).unwrap()[0..4], b"glTF");
+}
+
+#[test]
+fn mesh_stl_format_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("b.stl");
+    Command::cargo_bin("cuprum")
+        .unwrap()
+        .args([
+            "3d",
+            gerber_fixture().to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--format",
+            "stl",
+        ])
+        .assert()
+        .success();
+    assert!(std::fs::read(&out).unwrap().len() > 84);
+}
+
+#[test]
+fn mesh_obj_writes_obj_and_mtl() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("b.obj");
+    Command::cargo_bin("cuprum")
+        .unwrap()
+        .args([
+            "3d",
+            gerber_fixture().to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--format",
+            "obj",
+        ])
+        .assert()
+        .success();
+    assert!(out.exists() && out.with_extension("mtl").exists());
+}
