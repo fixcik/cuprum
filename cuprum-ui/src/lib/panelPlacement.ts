@@ -1,5 +1,5 @@
 import type { NestSettings } from "@/lib/nest";
-import type { BoardInstance, KeepOutKind, KeepOutZone, ToolingHole } from "@/lib/api";
+import type { BoardInstance, KeepOutKind, KeepOutZone, ToolingHole, ToolingHoleRole } from "@/lib/api";
 
 /** Axis-aligned bounding box (mm). */
 export type Box = { minX: number; minY: number; maxX: number; maxY: number };
@@ -533,7 +533,9 @@ export function registrationSetPositions(
 
 /** Unified placement-obstacle source: board instances + tooling holes + keep-out zones (raw AABBs).
  *  `packLayoutAvoiding` inflates every obstacle by its `clearance` arg uniformly,
- *  so the fixturing gap around a pin equals the board gap. */
+ *  so the fixturing gap around a pin equals the board gap.
+ *  When `opts.clampRadiusMm > 0`, derived clamp zones around registration/flip holes
+ *  are also added as obstacles so new boards are packed outside the clamp footprint. */
 export function panelObstacles(
   panel: {
     instances: BoardInstance[];
@@ -541,6 +543,7 @@ export function panelObstacles(
     keep_out_zones?: KeepOutZone[];
   },
   sizes: Record<string, { w: number; h: number }>,
+  opts?: { clampRadiusMm?: number },
 ): Box[] {
   const boards = boxesForInstances(panel.instances, sizes);
   const holes = panel.tooling_holes.map((h) =>
@@ -550,7 +553,8 @@ export function panelObstacles(
   // obstacles for the board packer. The tooling-only "dead" rule is a DFM concern,
   // not a packer one (there is no tooling auto-nester).
   const zones = (panel.keep_out_zones ?? []).map(keepOutBox);
-  return [...boards, ...holes, ...zones];
+  const clamps = clampZonesForHoles(panel.tooling_holes, opts?.clampRadiusMm ?? 0).map((c) => c.box);
+  return [...boards, ...holes, ...zones, ...clamps];
 }
 
 // --- Keep-out zone helpers ---
@@ -568,6 +572,30 @@ export const keepOutBox = (z: Pick<KeepOutZone, "x_mm" | "y_mm" | "width_mm" | "
   maxX: z.x_mm + z.width_mm,
   maxY: z.y_mm + z.height_mm,
 });
+
+/** Roles that carry a physical clamp/fixture field around the bore. */
+const CLAMPED_ROLES: ToolingHoleRole[] = ["registration", "flip"];
+
+/** Derived clamp keep-out boxes around tooling holes — NOT stored, computed from
+ *  holes + the machine profile so they follow/remove with the hole. Empty when
+ *  clampRadiusMm <= 0. Each box is an axis-aligned square centred on the hole,
+ *  side = diameter + 2·radius. Carries the source hole id (render / DFM attribution). */
+export function clampZonesForHoles(
+  holes: ToolingHole[],
+  clampRadiusMm: number,
+): { holeId: string; box: Box }[] {
+  if (!(clampRadiusMm > 0)) return [];
+  const out: { holeId: string; box: Box }[] = [];
+  for (const h of holes) {
+    if (!CLAMPED_ROLES.includes(h.role)) continue;
+    const half = h.diameter_mm / 2 + clampRadiusMm;
+    out.push({
+      holeId: h.id,
+      box: { minX: h.x_mm - half, minY: h.y_mm - half, maxX: h.x_mm + half, maxY: h.y_mm + half },
+    });
+  }
+  return out;
+}
 
 /** Evenly space ≥3 instances' AABB centres along an axis; the extreme two stay put. */
 export function distributeInstances(items: AlignItem[], axis: "h" | "v"): Pose[] {

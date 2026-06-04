@@ -153,6 +153,13 @@ export function SettingsPage() {
                   onChange={set("allowRotateToFit")}
                   help={t("field.allowRotate.help")}
                 />
+                <NumberField
+                  label={t("field.toolingClampRadius.label")}
+                  value={profile.toolingClampRadiusMm}
+                  onChange={set("toolingClampRadiusMm")}
+                  dim="fine"
+                  help={t("field.toolingClampRadius.help")}
+                />
               </>
             )}
 

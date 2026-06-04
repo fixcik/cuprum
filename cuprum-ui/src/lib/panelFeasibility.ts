@@ -1,7 +1,7 @@
 import type { Severity, Verdict, I18nText } from "@/lib/feasibility";
 import type { PanelDoc, BoardInstance } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
-import { boxesOverlap, instanceBounds, keepOutBox, toolingHoleBounds, zoneForbidsTooling, type Box } from "@/lib/panelPlacement";
+import { boxesOverlap, instanceBounds, keepOutBox, toolingHoleBounds, zoneForbidsTooling, clampZonesForHoles, type Box } from "@/lib/panelPlacement";
 
 export const MIN_PANEL_GAP_MM = 1;
 
@@ -13,7 +13,8 @@ export type PanelFindingCategory =
   | "design"
   | "empty"
   | "keep-out"
-  | "keep-out-tooling";
+  | "keep-out-tooling"
+  | "clamp";
 
 export interface PanelFinding {
   id: string;
@@ -234,6 +235,25 @@ export function evaluatePanel(opts: {
           toolingHoleIds: holeIds,
         });
       }
+    }
+  }
+
+  // 9) Clamp zones (block): a board AABB overlaps a derived clamp zone around a
+  //    registration/flip tooling hole (profile-driven; empty when radius 0).
+  const clampBoxes = clampZonesForHoles(panel.tooling_holes ?? [], profile.toolingClampRadiusMm);
+  if (clampBoxes.length) {
+    const ids = new Set<string>();
+    for (const s of sized) {
+      if (clampBoxes.some((c) => boxesOverlap(s.box, c.box))) ids.add(s.inst.id);
+    }
+    if (ids.size) {
+      out.push({
+        id: "clamp",
+        category: "clamp",
+        severity: "block",
+        title: { key: "feasibility:panel.clamp", params: { count: ids.size } },
+        instanceIds: [...ids],
+      });
     }
   }
 

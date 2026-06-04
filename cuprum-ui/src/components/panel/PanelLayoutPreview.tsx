@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { packLayoutAvoiding, toolingHoleBounds, keepOutBox, type Box } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, toolingHoleBounds, keepOutBox, clampZonesForHoles, type Box } from "@/lib/panelPlacement";
 import type { NestSettings } from "@/lib/nest";
 import type { KeepOutZone, ToolingHole } from "@/lib/api";
 
@@ -18,6 +18,7 @@ export function PanelLayoutPreview({
   clearanceMm,
   toolingHoles,
   keepOutZones,
+  clampRadiusMm,
 }: {
   boardWmm: number;
   boardHmm: number;
@@ -28,17 +29,19 @@ export function PanelLayoutPreview({
   clearanceMm?: number;
   toolingHoles?: ToolingHole[];
   keepOutZones?: KeepOutZone[];
+  clampRadiusMm?: number;
 }) {
-  // Board boxes + tooling-hole bounds + keep-out zones form one obstacle list for the
-  // packer; holes render separately as circles (above), so they aren't passed in as
-  // squares. Zones are packer-only here (drawing them is out of scope).
+  // Board boxes + tooling-hole bounds + keep-out zones + clamp zones form one obstacle
+  // list for the packer; holes render separately as circles (above), so they aren't
+  // passed in as squares. Zones are packer-only here (drawing them is out of scope).
   const packObstacles = useMemo(
     () => [
       ...(obstacles ?? []),
       ...(toolingHoles ?? []).map((h) => toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm })),
       ...(keepOutZones ?? []).map(keepOutBox),
+      ...clampZonesForHoles(toolingHoles ?? [], clampRadiusMm ?? 0).map((c) => c.box),
     ],
-    [obstacles, toolingHoles, keepOutZones],
+    [obstacles, toolingHoles, keepOutZones, clampRadiusMm],
   );
   const pack = useMemo(
     () => packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, packObstacles, clearanceMm ?? 0),

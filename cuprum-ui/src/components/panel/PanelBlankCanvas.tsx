@@ -44,6 +44,7 @@ import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog"
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
 import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
 import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
+import { ClampZoneLayer } from "@/components/panel/ClampZoneLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import { api, type BoardInstance, type KeepOutZone, type ProjectDesign, type ToolingHole } from "@/lib/api";
 import { useKeepOutSelection } from "@/keepOutSelectionStore";
@@ -92,6 +93,7 @@ export function PanelBlankCanvas({
   // Machine bed limit (mm) → dashed work-area rectangle on the canvas.
   const maxPanelW = useSettings((s) => s.profile.maxPanelWidthMm);
   const maxPanelH = useSettings((s) => s.profile.maxPanelHeightMm);
+  const clampRadiusMm = useSettings((s) => s.profile.toolingClampRadiusMm);
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
   const holes = useShell((s) => s.currentManifest?.panel?.tooling_holes ?? EMPTY_HOLES);
@@ -1070,6 +1072,8 @@ export function PanelBlankCanvas({
               resizePreview={keepOutResize}
               onHandleMouseDown={(id, corner) => onZoneHandleDown(id, corner)}
             />
+            {/* Derived clamp keep-out zones (dashed ochre squares around tooling holes). */}
+            <ClampZoneLayer holes={holes} clampRadiusMm={clampRadiusMm} />
             {instances.map((inst) => {
               const sz = sizes[inst.design_id];
               const instSide = inst.layer_ref === "Bottom" ? "bottom" : "top";

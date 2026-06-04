@@ -54,3 +54,10 @@ export const KEEPOUT_DEAD_STROKE = "rgba(140,100,200,0.7)";
 export const KEEPOUT_RESERVED_FILL = "rgba(60,170,160,0.13)";
 export const KEEPOUT_RESERVED_STROKE = "rgba(60,170,160,0.7)";
 export const KEEPOUT_SELECTED_STROKE = COPPER_STROKE;
+
+// Derived clamp keep-out zone palette — muted ochre, distinct from the manual
+// keep-out zones (type-tinted, hatched), from off-panel red, and from the
+// slate-blue fixture tone. Applied as a dashed square around each tooling hole
+// when the clamp radius is non-zero (ClampZoneLayer).
+export const CLAMP_FILL = "rgba(180,150,90,0.10)";
+export const CLAMP_STROKE = "rgba(180,150,90,0.75)";

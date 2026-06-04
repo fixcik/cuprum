@@ -9,6 +9,9 @@ export interface CapabilityProfile {
   maxPanelHeightMm: number;
   /** Allow trying the board rotated 90° before declaring it too big. */
   allowRotateToFit: boolean;
+  /** Forbidden clamp/fixture field (mm) around a registration/flip tooling hole —
+   *  no board may sit there. 0 disables derived clamp zones. */
+  toolingClampRadiusMm: number;
   // Copper
   maxCopperLayers: number;
   allowInnerLayers: boolean;
@@ -37,6 +40,7 @@ export const DEFAULT_PROFILE: CapabilityProfile = {
   maxPanelWidthMm: 200,
   maxPanelHeightMm: 100,
   allowRotateToFit: true,
+  toolingClampRadiusMm: 0,
   maxCopperLayers: 2,
   allowInnerLayers: false,
   minTraceMm: 0.15, // ~6 mil — realistic for contact UV exposure + etch

@@ -25,6 +25,7 @@
     "maxPanelWidth": { "label": "Max panel width", "help": "Largest blank that fits the machine work area. A bigger board can't be made in one pass (exposure or CNC)." },
     "maxPanelHeight": { "label": "Max panel height", "help": "The other side of the work area. The board is compared against it (accounting for rotation if allowed)." },
     "allowRotate": { "label": "Try 90° rotation", "help": "If the board doesn't fit as-is, try rotating it 90° before declaring it too big." },
+    "toolingClampRadius": { "label": "Tooling clamp field", "help": "Forbidden margin around registration/flip holes — no board may sit there. 0 disables." },
     "maxCopperLayers": { "label": "Max copper layers", "help": "How many copper layers you can actually make (usually 1–2 at home)." },
     "allowInner": { "label": "Allow inner layers", "help": "Allow boards with inner copper layers (4+). Not available for DIY." },
     "minTrace": { "label": "Min trace width", "help": "The thinnest trace the process reproduces. Thinner risks breaks or non-printing." },

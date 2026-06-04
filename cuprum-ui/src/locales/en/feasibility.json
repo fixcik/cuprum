@@ -132,6 +132,7 @@
     "designWarn": "{{count}} board(s) have production warnings",
     "keepOut": "{{count}} board(s) overlap a keep-out zone",
     "keepOutTooling": "{{count}} hole(s) in a machine dead zone",
+    "clamp": "{{count}} board(s) inside a tooling-hole clamp zone",
     "sectionTitle": "Layout check",
     "ok": "Layout is valid",
     "clickToHighlight": "Click to highlight on canvas"

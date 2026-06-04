@@ -7,6 +7,7 @@ import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib
 import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
+import { useSettings } from "@/settingsStore";
 
 /** Debounce window before flushing freshly-computed artifacts into the .cuprum. */
 const ARTIFACT_FLUSH_MS = 1500;
@@ -562,7 +563,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     // path, so the live re-read here is sufficient (no need to serialize the write).
     const panel: PanelDoc = get().currentManifest?.panel ?? newPanelDoc(100, 100);
     const stackup = get().currentManifest?.stackup ?? DEFAULT_STACKUP;
-    const obstacles = panelObstacles(panel, sizes);
+    const obstacles = panelObstacles(panel, sizes, { clampRadiusMm: useSettings.getState().profile.toolingClampRadiusMm });
     const clearance = nest.enabled ? nest.gapMm : 0;
     const pack = packLayoutAvoiding(w, h, panel.width_mm, panel.height_mm, nest, obstacles, clearance);
     if (pack.n === 0) return { ok: false, messageKey: "panel.add.toast.noFit", params: { name: design.source_name } };
