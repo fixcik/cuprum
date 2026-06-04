@@ -474,22 +474,22 @@ export function clampToolingHoleCenter(
   return { x: cx, y: cy };
 }
 
-/** Four corner positions for a registration-hole set, inset from each edge by
+/** Corner positions for a registration-hole set, inset from each edge by
  *  `marginMm` (clamped to half the shorter side so holes stay on the panel).
- *  Order: TL, TR, BL, BR. All mm. */
+ *  `count` 4 → all corners (TL, TR, BL, BR); 2 → diagonal pair (TL, BR). All mm. */
 export function registrationSetPositions(
   panelW: number,
   panelH: number,
   marginMm: number,
+  count: 2 | 4 = 4,
 ): { x: number; y: number }[] {
   const mx = Math.min(marginMm, panelW / 2);
   const my = Math.min(marginMm, panelH / 2);
-  return [
-    { x: mx, y: my },
-    { x: panelW - mx, y: my },
-    { x: mx, y: panelH - my },
-    { x: panelW - mx, y: panelH - my },
-  ];
+  const tl = { x: mx, y: my };
+  const tr = { x: panelW - mx, y: my };
+  const bl = { x: mx, y: panelH - my };
+  const br = { x: panelW - mx, y: panelH - my };
+  return count === 2 ? [tl, br] : [tl, tr, bl, br];
 }
 
 /** Unified placement-obstacle source: board instances + tooling holes (raw AABBs).

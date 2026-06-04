@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Group, Text } from "react-konva";
+import { Stage, Layer, Rect, Group, Text, Circle, Line } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus, LocateFixed } from "lucide-react";
@@ -22,9 +22,11 @@ import {
   INSTANCE_OFF_STROKE,
   INSTANCE_OFF_FILL,
   INSTANCE_WARN_STROKE,
+  COPPER_STROKE,
   RULER_TOP,
   RULER_LEFT,
 } from "@/components/editor/canvasStyle";
+import { DEFAULT_TOOLING_DIAMETER_MM } from "@/lib/panel";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
@@ -33,9 +35,11 @@ import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, 
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
+import { SelectionHud } from "@/components/panel/SelectionHud";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { RenestDialog } from "@/components/panel/RenestDialog";
+import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog";
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
 import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
@@ -652,9 +656,16 @@ export function PanelBlankCanvas({
   const onBgMouseDown = (e: KonvaEventObject<MouseEvent>) => {
     if (panMode || !isEmptyTarget(e)) return;
     if (tool === "tooling") {
-      // Place a new tooling hole at the click position.
+      // Edit-first: a bare click just deselects. A hole is placed only when the
+      // "+" action has armed a one-shot placement; then disarm and select it.
+      if (!addArmed) {
+        setSelectedHoleId(null);
+        return;
+      }
       const p = pointerMm();
       if (!p) return;
+      setAddArmed(false);
+      setGhostMm(null);
       void (async () => {
         const id = await addToolingHole(p.x, p.y);
         if (id) setSelectedHoleId(id);
@@ -692,6 +703,11 @@ export function PanelBlankCanvas({
         }
       }
     }
+    // Ghost crosshair follows the cursor while a tooling-hole placement is armed.
+    if (tool === "tooling" && addArmed) {
+      const p = pointerMm();
+      setGhostMm(p ? { x: p.x, y: p.y } : null);
+    }
     // Live marquee (select tool) — unchanged.
     if (!marqueeStart.current) return;
     const p = pointerMm();
@@ -728,11 +744,25 @@ export function PanelBlankCanvas({
 
   const hasSelection = selected.size > 0;
   const [renestOpen, setRenestOpen] = useState(false);
+  const [regSetOpen, setRegSetOpen] = useState(false);
   const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
+  // Tooling mode is edit-first: the "+" action ARMS a one-shot placement. While
+  // armed a ghost crosshair (ghostMm) follows the cursor; the next canvas click
+  // drops one hole and disarms. Adding is never the default click behaviour.
+  const [addArmed, setAddArmed] = useState(false);
+  const [ghostMm, setGhostMm] = useState<{ x: number; y: number } | null>(null);
+  const armAddHole = useCallback(() => {
+    setSelectedHoleId(null);
+    setAddArmed(true);
+  }, []);
 
-  // Clear selected hole when leaving tooling mode.
+  // Clear hole selection + disarm placement when leaving tooling mode.
   useEffect(() => {
-    if (tool !== "tooling") setSelectedHoleId(null);
+    if (tool !== "tooling") {
+      setSelectedHoleId(null);
+      setAddArmed(false);
+      setGhostMm(null);
+    }
   }, [tool]);
 
   // Delete/Backspace removes the selected tooling hole; Esc deselects it.
@@ -746,13 +776,19 @@ export function PanelBlankCanvas({
         const id = selectedHoleId;
         setSelectedHoleId(null);
         void removeToolingHole(id);
-      } else if (e.key === "Escape" && selectedHoleId) {
-        setSelectedHoleId(null);
+      } else if (e.key === "Escape") {
+        // Esc cancels an armed placement first, otherwise clears the selection.
+        if (addArmed) {
+          setAddArmed(false);
+          setGhostMm(null);
+        } else if (selectedHoleId) {
+          setSelectedHoleId(null);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tool, selectedHoleId, removeToolingHole]);
+  }, [tool, selectedHoleId, addArmed, removeToolingHole]);
 
   return (
     <>
@@ -760,7 +796,7 @@ export function PanelBlankCanvas({
       <ContextMenuTrigger asChild>
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : ""}`}
+      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : addArmed ? "cursor-crosshair" : ""}`}
     >
       <Stage
         ref={stageRef}
@@ -771,7 +807,7 @@ export function PanelBlankCanvas({
         onWheel={onWheel}
         onMouseDown={onBgMouseDown}
         onMouseMove={onStageMouseMove}
-        onMouseLeave={() => queueHover(null)}
+        onMouseLeave={() => { queueHover(null); setGhostMm(null); }}
         onMouseUp={onBgMouseUp}
         onDragStart={() => setCursor("grabbing")}
         onDragMove={syncViewport}
@@ -890,25 +926,55 @@ export function PanelBlankCanvas({
               rotPreview={rotPreview}
               pxPerMm={viewport.pxPerMm}
             />
-            {tool === "select" && !dragDelta && selectionBBox && (
-              <RotationHandle
-                cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
-                cy={(selectionBBox.minY + selectionBBox.maxY) / 2}
-                radiusMm={(selectionBBox.maxY - selectionBBox.minY) / 2 + Math.max(W, H) * 0.06}
-                pointerMm={pointerMm}
-                onRotate={onRotatePreview}
-                onCommit={onRotateCommit}
-              />
-            )}
+            {tool === "select" && !dragDelta && selectionBBox && (() => {
+              // Knob hangs off the top-right bbox corner (diagonal stub), leaving the
+              // top-centre clear for the selection HUD; rotation pivot stays the centre.
+              const k = (Math.max(W, H) * 0.06) / Math.SQRT2;
+              return (
+                <RotationHandle
+                  cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
+                  cy={(selectionBBox.minY + selectionBBox.maxY) / 2}
+                  anchorX={selectionBBox.maxX}
+                  anchorY={selectionBBox.minY}
+                  knobX={selectionBBox.maxX + k}
+                  knobY={selectionBBox.minY - k}
+                  pointerMm={pointerMm}
+                  onRotate={onRotatePreview}
+                  onCommit={onRotateCommit}
+                />
+              );
+            })()}
             <SnapGuides guides={guides} />
             <ToolingHoleLayer
               holes={holes}
               selectedId={tool === "tooling" ? selectedHoleId : null}
               pxPerMm={viewport.pxPerMm}
-              interactive={tool === "tooling"}
+              interactive={tool === "tooling" && !addArmed}
               onHoleMouseDown={onHoleMouseDown}
               onHoleDragEnd={onHoleDragEnd}
             />
+            {/* Ghost crosshair preview of the hole-to-be while placement is armed. */}
+            {tool === "tooling" && addArmed && ghostMm && (() => {
+              const k = viewport.pxPerMm > 0 ? 1 / viewport.pxPerMm : 0;
+              const arm = 6 * k;
+              return (
+                <Group x={ghostMm.x} y={ghostMm.y} listening={false} opacity={0.7}>
+                  <Circle
+                    radius={DEFAULT_TOOLING_DIAMETER_MM / 2}
+                    stroke={COPPER_STROKE}
+                    strokeWidth={1.5}
+                    strokeScaleEnabled={false}
+                    dash={[2, 2]}
+                  />
+                  {arm > 0 && (
+                    <>
+                      <Line points={[-arm, 0, arm, 0]} stroke={COPPER_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
+                      <Line points={[0, -arm, 0, arm]} stroke={COPPER_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
+                    </>
+                  )}
+                </Group>
+              );
+            })()}
             {marquee && (
               <Rect
                 x={Math.min(marquee.x0, marquee.x1)}
@@ -938,11 +1004,26 @@ export function PanelBlankCanvas({
         extentVariant="muted"
       />
 
+      {tool === "select" && (
+        <SelectionHud
+          viewport={viewport}
+          size={size}
+          panelW={W}
+          panelH={H}
+          livePose={{ dragDelta, rotPreview }}
+          onDuplicate={duplicateSelected}
+          onDelete={deleteSelected}
+          onRotate90={() => rotateSelectionBy(90)}
+        />
+      )}
+
       <PanelToolPalette
         tool={tool}
         onToolChange={setTool}
         onDuplicate={duplicateSelected}
-        onAddRegistrationSet={() => void addRegistrationSet()}
+        onAddHole={armAddHole}
+        addArmed={addArmed}
+        onAddRegistrationSet={() => setRegSetOpen(true)}
       />
       <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />
 
@@ -1038,6 +1119,12 @@ export function PanelBlankCanvas({
       panelW={W}
       panelH={H}
       onApply={(items) => void useShell.getState().setInstanceTransforms(items)}
+    />
+    <RegistrationSetDialog
+      open={regSetOpen}
+      onClose={() => setRegSetOpen(false)}
+      hasExisting={holes.length > 0}
+      onApply={(opts) => void addRegistrationSet(opts)}
     />
     </>
   );

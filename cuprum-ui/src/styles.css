@@ -164,3 +164,12 @@ html.scrolling *::-webkit-scrollbar-thumb {
     animation: none;
   }
 }
+
+@keyframes hudIn {
+  from {
+    transform: scale(0.97);
+  }
+  to {
+    transform: scale(1);
+  }
+}
