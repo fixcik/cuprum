@@ -4,7 +4,6 @@ import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus, LocateFixed } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
@@ -13,7 +12,6 @@ import {
   MIN_SCALE,
   MAX_SCALE,
   BLANK_STROKE,
-  BLANK_STROKE_BARE,
   BLANK_FILL,
   BLANK_LABEL,
   INSTANCE_FILL,
@@ -68,24 +66,16 @@ const EMPTY_ZONES: KeepOutZone[] = [];
 
 /** Schematic preview of an empty FR4 blank, in the dark CAD-canvas style of the
  *  exposure editor. Structure stays NEUTRAL (copper is reserved for selection):
- *  copper-clad side → solid neutral outline + faint fill + "Cu"; bare side →
- *  dashed neutral outline + "no copper". The solid-vs-dashed distinction carries
- *  the side, only the amber is dropped. Top always has copper; the bottom only
- *  when double-sided. Driven purely by props (no exposure store). */
+ *  solid neutral outline + faint fill + "Cu". A placement is side-agnostic — the
+ *  board occupies its panel slot on both sides — so the blank has no side toggle;
+ *  top/bottom is a concern of the exposure/drill operation, not the layout editor.
+ *  Driven purely by props (no exposure store). */
 export function PanelBlankCanvas({
   widthMm,
   heightMm,
-  doubleSided,
-  side,
-  onSideChange,
 }: {
   widthMm: number;
   heightMm: number;
-  doubleSided: boolean;
-  // Visible side is owned by PanelEditor so Ctrl+A can scope to it; the canvas
-  // drives the toggle through onSideChange.
-  side: "top" | "bottom";
-  onSideChange: (side: "top" | "bottom") => void;
 }) {
   const { t } = useTranslation(["project", "common"]);
   const pxPerMm = useShell((s) => s.pxPerMm);
@@ -220,20 +210,15 @@ export function PanelBlankCanvas({
     useKeepOutSelection.getState().retain(new Set(zones.map((z) => z.id)));
   }, [zones]);
 
-  // Visible instances on the current side (with resolved extents) — the candidate
-  // set for marquee hit-testing and selection.
+  // Instances with resolved extents — the candidate set for marquee hit-testing
+  // and selection. Placements are side-agnostic, so every instance is visible.
   const visibleInstances = useMemo(
-    () =>
-      instances.filter((i) => {
-        const instSide = i.layer_ref === "Bottom" ? "bottom" : "top";
-        return instSide === side && sizes[i.design_id];
-      }),
-    [instances, side, sizes],
+    () => instances.filter((i) => sizes[i.design_id]),
+    [instances, sizes],
   );
 
   const W = Math.max(widthMm, 1);
   const H = Math.max(heightMm, 1);
-  const hasCopper = side === "top" || doubleSided;
 
   // Fit the blank into the plot area (right of / below the ruler bands) so it never
   // sits under the rulers.
@@ -1041,11 +1026,10 @@ export function PanelBlankCanvas({
               y={0}
               width={W}
               height={H}
-              fill={hasCopper ? BLANK_FILL : undefined}
-              stroke={hasCopper ? BLANK_STROKE : BLANK_STROKE_BARE}
-              strokeWidth={hasCopper ? 1.25 : 1}
+              fill={BLANK_FILL}
+              stroke={BLANK_STROKE}
+              strokeWidth={1.25}
               strokeScaleEnabled={false}
-              dash={hasCopper ? undefined : [3, 2]}
             />
             {instances.length === 0 && (
               <Text
@@ -1053,7 +1037,7 @@ export function PanelBlankCanvas({
                 y={H / 2 - labelMm / 2}
                 width={W}
                 align="center"
-                text={hasCopper ? t("panel.canvas.copper") : t("panel.canvas.noCopper")}
+                text={t("panel.canvas.copper")}
                 fontSize={labelMm}
                 fill={BLANK_LABEL}
                 listening={false}
@@ -1074,10 +1058,9 @@ export function PanelBlankCanvas({
             />
             {/* Derived clamp keep-out zones (dashed ochre squares around tooling holes). */}
             <ClampZoneLayer holes={holes} clampRadiusMm={clampRadiusMm} />
-            {instances.map((inst) => {
+            {visibleInstances.map((inst) => {
               const sz = sizes[inst.design_id];
-              const instSide = inst.layer_ref === "Bottom" ? "bottom" : "top";
-              if (!sz || instSide !== side) return null;
+              if (!sz) return null;
               const name = designById.get(inst.design_id)?.source_name ?? "";
               const isSelected = selected.has(inst.id);
               // Centre-pivot: place the Group at the board centre, offset by half the
@@ -1301,17 +1284,6 @@ export function PanelBlankCanvas({
           />
         ) : null;
       })()}
-
-      <div className="absolute left-20 z-10" style={{ top: RULER_TOP + 6 }}>
-        <SegmentedControl<"top" | "bottom">
-          value={side}
-          onChange={onSideChange}
-          options={[
-            { value: "top", label: t("setup.sideTop") },
-            { value: "bottom", label: t("setup.sideBottom") },
-          ]}
-        />
-      </div>
 
       <div className="absolute right-3 z-10 rounded-md border border-border bg-card/90 px-2 py-1 text-[11px] tabular-nums text-muted-foreground" style={{ top: RULER_TOP + 6 }}>
         {W} × {H} mm

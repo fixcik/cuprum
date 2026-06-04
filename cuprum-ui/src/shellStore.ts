@@ -580,7 +580,6 @@ export const useShell = create<ShellStore>((set, get) => ({
       x_mm: rotated ? p.x + (h - w) / 2 : p.x,
       y_mm: rotated ? p.y + (w - h) / 2 : p.y,
       rotation_deg: rotated ? 90 : 0,
-      layer_ref: nest.side,
     }));
     const next: PanelDoc = { ...panel, instances: [...panel.instances, ...added] };
     await get().savePanelConfig(next, stackup);

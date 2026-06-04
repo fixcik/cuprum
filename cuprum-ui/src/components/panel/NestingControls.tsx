@@ -186,17 +186,6 @@ export function NestingControls() {
 
           <Group title={t("panel.add.nest.behavior")}>
             <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-              {t("panel.add.nest.side")}
-              <SegmentedControl<NestSettings["side"]>
-                value={nest.side}
-                onChange={(v) => setNest({ side: v })}
-                options={[
-                  { value: "Top", label: t("common:side.top") },
-                  { value: "Bottom", label: t("common:side.bottom") },
-                ]}
-              />
-            </label>
-            <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
               {t("panel.add.nest.repack")}
               <Switch
                 checked={nest.repack}

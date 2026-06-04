@@ -56,7 +56,6 @@
   "panel": {
     "canvas": {
       "copper": "Cu",
-      "noCopper": "no copper",
       "workArea": "work area"
     },
     "add": {
@@ -113,7 +112,6 @@
         "cols": "Columns",
         "step": "Step",
         "behavior": "Behavior",
-        "side": "Side",
         "repack": "Re-pack"
       }
     },
@@ -217,8 +215,6 @@
     "savePreset": "Save",
     "presetModalTitle": "Save preset",
     "presetNamePlaceholder": "Preset name",
-    "sideTop": "Top",
-    "sideBottom": "Bottom",
     "sectionBlank": "Size",
     "sectionStackup": "Stackup",
     "sides": "Sides",
