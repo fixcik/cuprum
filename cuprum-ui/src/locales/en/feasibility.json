@@ -131,6 +131,7 @@
     "designBlock": "{{count}} board(s) cannot be produced",
     "designWarn": "{{count}} board(s) have production warnings",
     "sectionTitle": "Layout check",
-    "ok": "Layout is valid"
+    "ok": "Layout is valid",
+    "clickToHighlight": "Click to highlight on canvas"
   }
 }
