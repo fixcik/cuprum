@@ -4,7 +4,7 @@ import i18n from "@/i18n";
 import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, newPanelDoc } from "@/lib/panel";
-import { packLayout } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, boxesForInstances } from "@/lib/panelPlacement";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 
@@ -495,18 +495,42 @@ export const useShell = create<ShellStore>((set, get) => ({
     } catch {
       return { ok: false, messageKey: "panel.add.toast.noSize" };
     }
-    // Re-read the live manifest after the async fetch so concurrent adds don't
-    // clobber each other. A default 100×100 blank is created when none exists yet
-    // (it will appear pre-filled in the Panel editor).
+    // Sizes of every already-placed design (cached metrics → cheap), so new copies
+    // can avoid their footprints. Dedup by design_id; failures are skipped (that
+    // instance just won't act as an obstacle).
+    const placedIds = Array.from(new Set((get().currentManifest?.panel?.instances ?? []).map((i) => i.design_id)));
+    const sizes: Record<string, { w: number; h: number }> = { [designId]: { w, h } };
+    await Promise.all(
+      placedIds.map(async (id) => {
+        if (sizes[id]) return;
+        const d = get().currentManifest?.designs.find((x) => x.id === id);
+        if (!d) return;
+        try {
+          const m = await api.projectBoardMetrics(
+            workingDir,
+            d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
+          );
+          sizes[id] = { w: m.metrics.board.widthMm, h: m.metrics.board.heightMm };
+        } catch {
+          /* unknown size → not an obstacle */
+        }
+      }),
+    );
+    // Re-read the live manifest after ALL async fetches so concurrent mutations
+    // (e.g. an instance added/removed while we were fetching sizes) are not lost.
+    // A default 100×100 blank is created when none exists yet (it will appear
+    // pre-filled in the Panel editor).
     // Single add-design window, closed on success → no concurrent addBoardInstances
     // path, so the live re-read here is sufficient (no need to serialize the write).
     const panel: PanelDoc = get().currentManifest?.panel ?? newPanelDoc(100, 100);
     const stackup = get().currentManifest?.stackup ?? DEFAULT_STACKUP;
-    const pack = packLayout(w, h, panel.width_mm, panel.height_mm, nest);
+    const obstacles = boxesForInstances(panel.instances, sizes);
+    const clearance = nest.enabled ? nest.gapMm : 0;
+    const pack = packLayoutAvoiding(w, h, panel.width_mm, panel.height_mm, nest, obstacles, clearance);
     if (pack.n === 0) return { ok: false, messageKey: "panel.add.toast.noFit", params: { name: design.source_name } };
     // Append the packed copies of the selected design. Existing instances are kept
     // and not re-packed (mixed-panel overlap is resolved by the interactive editor).
-    // packLayout anchors the (optionally swapped) footprint top-left at p.{x,y}.
+    // packLayoutAvoiding anchors the (optionally swapped) footprint top-left at p.{x,y}.
     // Our pose model stores (x,y) as the UNROTATED board top-left with rotation
     // about the centre, so for a 90° copy shift (x,y) by ±(H−W)/2 / ±(W−H)/2 so the
     // centre-rotated AABB still fills the packed cell [p.x, p.x+H]×[p.y, p.y+W].
