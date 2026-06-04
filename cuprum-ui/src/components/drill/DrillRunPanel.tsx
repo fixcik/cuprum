@@ -88,6 +88,14 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
         </div>
       )}
 
+      {/* Setup hints (work zero + manual spindle), shown when not mid-run. */}
+      {!isActive && (
+        <div className="flex flex-col gap-1 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
+          <p>{t("run.zeroHint")}</p>
+          <p>{t("run.spindleHint")}</p>
+        </div>
+      )}
+
       {/* Error banner */}
       {phase === "error" && (
         <div className="flex flex-col gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Group, Rect, Circle, Line } from "react-konva";
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 
@@ -36,6 +36,11 @@ const TOOL_CHANGE_RING_OFFSET_MM = 0.6;
 /** Tool-change marker ring stroke (px, screen-space). */
 const TOOL_CHANGE_RING_PX = 1.8;
 
+/** Machine-origin axis indicator length (px, screen-space). */
+const AXIS_PX = 30;
+/** Colour of the origin marker + axis arrows. */
+const AXIS_COLOR = "#94a3b8";
+
 export interface DrillMapCanvasProps {
   /** Panel width in mm. */
   widthMm: number;
@@ -49,8 +54,10 @@ export interface DrillMapCanvasProps {
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
- *  path, and tool-change markers at each group's first hole.
- *  Coordinates are in panel-space mm (0,0 = top-left of blank). */
+ *  path, tool-change markers at each group's first hole, and a machine-origin
+ *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank), but
+ *  the marked work zero (0,0) is the panel's bottom-left corner with Y up — the
+ *  CNC convention the G-code uses. */
 export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
@@ -185,6 +192,39 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress
               });
             })()}
           </Group>
+
+          {/* Machine-origin indicator (screen-space so labels don't scale).
+              Work zero (0,0) is the panel's BOTTOM-LEFT corner, X→ right, Y↑ up —
+              the CNC convention the G-code emitter uses (machineY = panelHeight − y).
+              This differs from the panel editor (0,0 = top-left), so we mark it. */}
+          {(() => {
+            const ox = offsetX; // panel left edge (data x=0)
+            const oy = offsetY + H * fit; // panel bottom edge (data y=H)
+            return (
+              <Group listening={false}>
+                <Arrow
+                  points={[ox, oy, ox + AXIS_PX, oy]}
+                  stroke={AXIS_COLOR}
+                  fill={AXIS_COLOR}
+                  strokeWidth={1.2}
+                  pointerLength={5}
+                  pointerWidth={5}
+                />
+                <Arrow
+                  points={[ox, oy, ox, oy - AXIS_PX]}
+                  stroke={AXIS_COLOR}
+                  fill={AXIS_COLOR}
+                  strokeWidth={1.2}
+                  pointerLength={5}
+                  pointerWidth={5}
+                />
+                <Circle x={ox} y={oy} radius={2.5} fill="#f59e0b" />
+                <Text x={ox + AXIS_PX + 3} y={oy - 6} text="X" fontSize={11} fill={AXIS_COLOR} />
+                <Text x={ox - 11} y={oy - AXIS_PX - 5} text="Y" fontSize={11} fill={AXIS_COLOR} />
+                <Text x={ox + 5} y={oy + 4} text="0,0" fontSize={10} fill={AXIS_COLOR} />
+              </Group>
+            );
+          })()}
         </Layer>
       </Stage>
     </div>
