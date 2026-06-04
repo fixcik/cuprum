@@ -16,6 +16,8 @@ import type { FindingCategory, Finding, ProblemType, Verdict } from "@/lib/feasi
 import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
 import { evaluate, overallVerdict, problemTypeOf } from "@/lib/feasibility";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
+import { useSettings } from "@/settingsStore";
+import { drillBitsFromTools } from "@/lib/toolLibrary";
 import type { StackLayer, FocusTarget } from "@/components/import/LayerStack";
 import type { DrcMarkerInput } from "@/components/preview/DrcMarkers";
 import type { PreviewMode, DrcIssue } from "@/components/preview/PreviewPane";
@@ -142,6 +144,7 @@ export function usePreviewData(
     focusNonce = 0,
     hiddenTypes,
   } = opts;
+  const tools = useSettings((s) => s.tools);
 
   // Keep the latest onArtifactFresh in a ref so the async effects (whose dep
   // arrays intentionally omit it) always call the current callback, not a stale
@@ -329,8 +332,8 @@ export function usePreviewData(
 
   // Judge measured facts against the capability profile (instant, client-side).
   const findings = useMemo(
-    () => evaluate(metrics, profile, panel, stackup),
-    [metrics, profile, panel, stackup],
+    () => evaluate(metrics, profile, panel, stackup, drillBitsFromTools(tools)),
+    [metrics, profile, panel, stackup, tools],
   );
   const verdict = overallVerdict(findings);
 

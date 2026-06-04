@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useSettings } from "@/settingsStore";
+import { useSettings, toolsFromPersisted } from "@/settingsStore";
 import { DEFAULT_PROFILE } from "@/lib/capabilityProfile";
 import { DEFAULT_NEST } from "@/lib/nest";
+import { DEFAULT_TOOLS } from "@/lib/toolLibrary";
 import type { PanelPreset } from "@/lib/panel";
 
 // Snapshot the initial state (incl. action fns) and restore it before each test
@@ -80,5 +81,21 @@ describe("panelInspector", () => {
     expect(useSettings.getState().panelInspector.width).toBe(400);
     useSettings.getState().setPanelInspector({ collapsed: true });
     expect(useSettings.getState().panelInspector).toMatchObject({ width: 400, collapsed: true });
+  });
+});
+
+describe("toolsFromPersisted (settings migration)", () => {
+  it("migrates legacy drillBitSetMm into Drill tools", () => {
+    const tools = toolsFromPersisted({ profile: { drillBitSetMm: [0.3, 0.8, 1.0] } });
+    expect(tools.map((t) => t.diameterMm)).toEqual([0.3, 0.8, 1.0]);
+    expect(tools.every((t) => t.kind === "drill")).toBe(true);
+    expect(tools.map((t) => t.id)).toEqual(["tool-1", "tool-2", "tool-3"]);
+  });
+  it("keeps existing tools as-is", () => {
+    const existing = DEFAULT_TOOLS.slice(0, 2);
+    expect(toolsFromPersisted({ tools: existing })).toBe(existing);
+  });
+  it("falls back to defaults when nothing persisted", () => {
+    expect(toolsFromPersisted({})).toBe(DEFAULT_TOOLS);
   });
 });

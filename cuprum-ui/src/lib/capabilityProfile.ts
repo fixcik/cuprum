@@ -19,7 +19,6 @@ export interface CapabilityProfile {
   ignoreBelowMm: number;
   // Drilling / Via
   minDrillMm: number; // smallest hole size you're willing to make (separate from the bit set)
-  drillBitSetMm: number[]; // available CNC bits (snap check)
   drillBitToleranceMm: number; // ± tolerance when matching a tool to a bit
   viaPlatingAvailable: boolean;
   viaWarnCount: number; // # via-sized holes above which → warn (no plating)
@@ -45,7 +44,6 @@ export const DEFAULT_PROFILE: CapabilityProfile = {
   ignoreBelowMm: 0.05, // 50 µm — below this, treat as a boolean-op artefact
 
   minDrillMm: 0.3,
-  drillBitSetMm: [0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.2, 2.0, 3.0],
   drillBitToleranceMm: 0.05,
   viaPlatingAvailable: false, // no electroless plating at home → vias are manual
   viaWarnCount: 1,

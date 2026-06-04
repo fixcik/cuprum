@@ -148,6 +148,9 @@ export function evaluate(
   profile: CapabilityProfile,
   panel?: PanelDoc | null,
   stackup?: Stackup | null,
+  /** Available drill diameters (mm) — the Drill tools' diameters. Empty = skip the
+   *  bit-snap check (no tool library configured to judge against). */
+  drillBitsMm: number[] = [],
 ): Finding[] {
   if (!metrics) return [];
   const out: Finding[] = [];
@@ -434,9 +437,12 @@ export function evaluate(
   }
 
   // Drill diameters that don't match any available bit (within tolerance).
-  const offBits = metrics.drill.uniqueToolDiametersMm.filter(
-    (d) => !profile.drillBitSetMm.some((bit) => Math.abs(d - bit) <= profile.drillBitToleranceMm),
-  );
+  // Skip entirely when no bits are configured (can't judge without a tool library).
+  const offBits = drillBitsMm.length
+    ? metrics.drill.uniqueToolDiametersMm.filter(
+        (d) => !drillBitsMm.some((bit) => Math.abs(d - bit) <= profile.drillBitToleranceMm),
+      )
+    : [];
   if (offBits.length > 0) {
     out.push({
       id: "drill.bitSnap",

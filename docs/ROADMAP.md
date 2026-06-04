@@ -763,7 +763,7 @@ G85-слоты), DFM-метрики сверловки (размер/кол-во
     отзывчивости DRO — **частота поллинга `?`** (200 мс = 5 Гц; 100 мс = 10 Гц,
     не флудить) и скорость serial, а не выбор IPC. Ось «async-актор» (вариант B,
     `tokio-serial`) ортогональна границе и не меняет её — см. «дальше».
-- [ ] **Фаза 2 — CNC-`MachineProfile` + `ToolLibrary`.** Второй фиксированный
+- [x] **Фаза 2 — CNC-`MachineProfile` + `ToolLibrary`.** (✅ 2026-06-04, PR #220) Второй фиксированный
       слот профиля `kind: Cnc` рядом с UV: work-envelope, spindle (rpm/pwm/
       controllable), `gcode_dialect=grbl_1_1`, safe-Z, runout/backlash, prepend/
       append G-code. `ToolLibrary` (`settingsStore.tools[]`): Drill/EndMill/VBit —
