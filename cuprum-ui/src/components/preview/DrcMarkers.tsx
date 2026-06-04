@@ -1,3 +1,4 @@
+import { memo } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { useTranslation } from "react-i18next";
 import type { Severity } from "@/lib/feasibility";
@@ -55,8 +56,13 @@ const LINE_HIGHLIGHT = "#3b82f6";
 
 /** DRC dimension markers overlaid on the 2D preview: a coloured dimension line
  *  with end ticks at each issue, the value drawn on the focused one, and a hover
- *  card describing the problem. Screen-space; the parent projects mm→px. */
-export function DrcMarkers({
+ *  card describing the problem. Screen-space; the parent projects mm→px.
+ *
+ *  Memoised: the design preview re-renders every frame while the hover crosshair
+ *  tracks the pointer, but the markers/size only change on a real view change.
+ *  Without memo the whole (potentially ~500-hotspot) overlay re-rasterized each
+ *  cursor frame at high zoom — the source of the zoom artifacts. */
+export const DrcMarkers = memo(function DrcMarkers({
   markers,
   width,
   height,
@@ -312,4 +318,4 @@ export function DrcMarkers({
       </TooltipPrimitive.Provider>
     </div>
   );
-}
+});
