@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capabilities for app windows",
-  "windows": ["main", "add-design", "inspector-*"],
+  "windows": ["main", "add-design", "drill", "inspector-*"],
   "permissions": [
     "core:default",
     "dialog:default",
