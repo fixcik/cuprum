@@ -21,6 +21,7 @@ import {
   zoneForbidsTooling,
   keepOutBox,
   clampZoneRect,
+  clampZonesForHoles,
   type AlignEdge,
   type GuideLine,
 } from "@/lib/panelPlacement";
@@ -648,5 +649,25 @@ describe("clampZoneRect", () => {
     const r = clampZoneRect({ x_mm: 10, y_mm: 10, width_mm: 0.2, height_mm: 0.2 }, 100, 100, 1);
     expect(r.width_mm).toBeGreaterThanOrEqual(1);
     expect(r.height_mm).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("clampZonesForHoles", () => {
+  const reg = (id: string, x: number, y: number, d = 3): ToolingHole =>
+    ({ id, x_mm: x, y_mm: y, diameter_mm: d, role: "registration" });
+  it("returns a centred square = diameter + 2·radius for registration/flip", () => {
+    const z = clampZonesForHoles([reg("h1", 50, 50, 4)], 3);
+    expect(z).toEqual([{ holeId: "h1", box: { minX: 45, minY: 45, maxX: 55, maxY: 55 } }]);
+  });
+  it("skips unused-role holes", () => {
+    const z = clampZonesForHoles([{ id: "u", x_mm: 10, y_mm: 10, diameter_mm: 3, role: "unused" }], 3);
+    expect(z).toEqual([]);
+  });
+  it("returns nothing when radius is 0 (feature off)", () => {
+    expect(clampZonesForHoles([reg("h1", 50, 50)], 0)).toEqual([]);
+  });
+  it("includes flip-role holes", () => {
+    const z = clampZonesForHoles([{ id: "f", x_mm: 20, y_mm: 20, diameter_mm: 2, role: "flip" }], 1);
+    expect(z).toEqual([{ holeId: "f", box: { minX: 18, minY: 18, maxX: 22, maxY: 22 } }]);
   });
 });
