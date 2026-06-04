@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/Button";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
+import { canMove } from "@/lib/machineControls";
 
 const AXES = ["X", "Y", "Z"] as const;
 
@@ -9,6 +10,10 @@ export function Dro() {
   const { t } = useTranslation("machine");
   const status = useMachine((s) => s.status);
   const connected = useMachine((s) => s.connected);
+  const state = useMachine((s) => s.status.state);
+  // Zeroing sets the WCS — GRBL rejects it outside Idle/Jog (e.g. Alarm), so gate
+  // it with the same canMove() used for jog/home/spindle rather than just connected.
+  const movable = canMove(state, connected);
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -25,7 +30,7 @@ export function Dro() {
             <Button
               variant="ghost"
               size="sm"
-              disabled={!connected}
+              disabled={!movable}
               onClick={() => void api.machine.setZero(i === 0, i === 1, i === 2)}
             >
               {t("dro.zeroAxis", { axis })}
@@ -36,7 +41,7 @@ export function Dro() {
       <Button
         className="mt-3 w-full"
         variant="secondary"
-        disabled={!connected}
+        disabled={!movable}
         onClick={() => void api.machine.setZero(true, true, true)}
       >
         {t("dro.zeroAll")}

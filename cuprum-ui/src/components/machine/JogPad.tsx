@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
 import { useMachine } from "@/machineStore";
@@ -17,14 +17,17 @@ export function JogPad() {
   // step if present, else the first.
   const [step, setStep] = useState(cnc.jogStepsMm[Math.min(1, cnc.jogStepsMm.length - 1)] ?? 1);
 
-  const go = (dx: number, dy: number, dz: number) => {
-    if (enabled) void api.machine.jog(dx * step, dy * step, dz * step, cnc.jogFeedMmMin);
-  };
+  const go = useCallback(
+    (dx: number, dy: number, dz: number) => {
+      if (enabled) void api.machine.jog(dx * step, dy * step, dz * step, cnc.jogFeedMmMin);
+    },
+    [enabled, step, cnc.jogFeedMmMin],
+  );
 
-  // Keyboard arrow jog: only when enabled and focus is not in an input/textarea.
+  // Keyboard arrow jog: skip while typing in an input/textarea; `go` is a no-op
+  // when motion isn't allowed, so no extra `enabled` guard is needed here.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!enabled) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       switch (e.key) {
@@ -56,9 +59,7 @@ export function JogPad() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // go is stable per render; re-register when enabled/step/feed changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, step, cnc.jogFeedMmMin]);
+  }, [go]);
 
   const cell = "grid size-12 place-items-center rounded-md border border-border bg-card text-foreground hover:bg-accent disabled:opacity-30";
 
