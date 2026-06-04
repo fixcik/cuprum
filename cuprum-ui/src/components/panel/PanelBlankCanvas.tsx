@@ -915,7 +915,7 @@ export function PanelBlankCanvas({
               pxPerMm={viewport.pxPerMm}
             />
             {tool === "select" && !dragDelta && selectionBBox && (() => {
-              // Knob hangs off the top-right bbox corner (diagonal stub), leaving the
+              // Knob hangs off the bottom-right bbox corner (diagonal stub), leaving the
               // top-centre clear for the selection HUD; rotation pivot stays the centre.
               const k = (Math.max(W, H) * 0.06) / Math.SQRT2;
               return (
@@ -923,9 +923,9 @@ export function PanelBlankCanvas({
                   cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
                   cy={(selectionBBox.minY + selectionBBox.maxY) / 2}
                   anchorX={selectionBBox.maxX}
-                  anchorY={selectionBBox.minY}
+                  anchorY={selectionBBox.maxY}
                   knobX={selectionBBox.maxX + k}
-                  knobY={selectionBBox.minY - k}
+                  knobY={selectionBBox.maxY + k}
                   pointerMm={pointerMm}
                   onRotate={onRotatePreview}
                   onCommit={onRotateCommit}
@@ -1002,6 +1002,7 @@ export function PanelBlankCanvas({
           onDuplicate={duplicateSelected}
           onDelete={deleteSelected}
           onRotate90={() => rotateSelectionBy(90)}
+          onOpenDesign={openSelectedDesign}
         />
       )}
 

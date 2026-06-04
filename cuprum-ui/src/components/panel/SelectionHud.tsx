@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { RotateCw, Ruler, Copy, Trash2 } from "lucide-react";
+import { RotateCw, Ruler, Copy, Trash2, Maximize2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
@@ -57,6 +57,7 @@ export function SelectionHud({
   onDuplicate,
   onDelete,
   onRotate90,
+  onOpenDesign,
 }: {
   viewport: Viewport;
   size: { w: number; h: number };
@@ -66,6 +67,7 @@ export function SelectionHud({
   onDuplicate: () => void;
   onDelete: () => void;
   onRotate90: () => void;
+  onOpenDesign: () => void;
 }) {
   const { t } = useTranslation("project");
   const { fmtLen } = useUnitFormat();
@@ -171,6 +173,9 @@ export function SelectionHud({
       )}
 
       {sep}
+      <button type="button" className={actionBtn} title={t("panel.menu.openDesign")} onClick={onOpenDesign}>
+        <Maximize2 className="size-4" />
+      </button>
       <button type="button" className={actionBtn} title={t("panel.hud.duplicate")} onClick={onDuplicate}>
         <Copy className="size-4" />
       </button>
