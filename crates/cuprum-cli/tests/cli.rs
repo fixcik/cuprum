@@ -128,3 +128,38 @@ fn mesh_obj_writes_obj_and_mtl() {
         .success();
     assert!(out.exists() && out.with_extension("mtl").exists());
 }
+
+#[test]
+fn check_json_has_metrics_and_gate() {
+    let out = Command::cargo_bin("cuprum")
+        .unwrap()
+        .args(["--json", "check", gerber_fixture().to_str().unwrap()])
+        .assert()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(v["metrics"].is_object());
+    assert!(v["gate"]["worst"].is_string());
+}
+
+#[test]
+fn check_gate_fails_with_strict_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let prof = dir.path().join("p.json");
+    std::fs::write(
+        &prof,
+        r#"{"minTraceMm":99.0,"minClearanceMm":99.0,"minDrillMm":99.0,"minAnnularMm":99.0}"#,
+    )
+    .unwrap();
+    Command::cargo_bin("cuprum")
+        .unwrap()
+        .args([
+            "check",
+            gerber_fixture().to_str().unwrap(),
+            "--profile",
+            prof.to_str().unwrap(),
+        ])
+        .assert()
+        .code(2);
+}
