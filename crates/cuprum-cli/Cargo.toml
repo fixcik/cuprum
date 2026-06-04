@@ -3,7 +3,7 @@ name = "cuprum-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Cuprum CLI: UV exposure on Elegoo Saturn 4 Ultra 16K"
+description = "Cuprum CAM toolbox CLI (gerber/.cuprum → previews, DFM, 3D)"
 
 [[bin]]
 name = "cuprum"

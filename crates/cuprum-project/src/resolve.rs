@@ -12,7 +12,11 @@ use crate::layer::{self, LayerType};
 /// Where a resolved design came from.
 #[derive(Debug, Clone)]
 pub enum DesignSource {
+    /// A single loose gerber/drill file.
+    GerberFile(PathBuf),
+    /// A directory of loose gerber/drill files.
     GerberDir(PathBuf),
+    /// A `.cuprum` container.
     Project(PathBuf),
 }
 
@@ -48,9 +52,10 @@ fn default_stackup() -> Stackup {
 fn looks_like_gerber(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     let ext = lower.rsplit('.').next().unwrap_or("");
-    matches!(ext, "gbr" | "drl" | "xln" | "nc" | "gko" | "gm1")
-        || ext.starts_with("gt")
-        || ext.starts_with("gb")
+    matches!(ext, "gbr" | "drl" | "xln" | "nc" | "gko")
+        || ext.starts_with("gt") // gtl/gts/gto/gtp
+        || ext.starts_with("gb") // gbl/gbs/gbo/gbp
+        || ext.starts_with("gm") // gm1/gm2/gm16 (mechanical/outline)
 }
 
 /// Resolve a path to a [`ResolvedDesign`].
@@ -83,7 +88,7 @@ fn resolve_single_file(path: &Path) -> Result<ResolvedDesign> {
         .to_string();
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
     Ok(ResolvedDesign {
-        source: DesignSource::GerberDir(path.to_path_buf()),
+        source: DesignSource::GerberFile(path.to_path_buf()),
         layers: vec![ResolvedLayer {
             kind: layer::classify(&name),
             rel: name,
@@ -174,7 +179,7 @@ mod tests {
     fn resolves_a_single_gerber_file() {
         let path = fixture_dir().join("plaid-F_Cu.gtl");
         let rd = resolve_design(&path, &ResolveOpts::default()).unwrap();
-        assert!(matches!(rd.source, DesignSource::GerberDir(_)));
+        assert!(matches!(rd.source, DesignSource::GerberFile(_)));
         assert_eq!(rd.layers.len(), 1);
         assert_eq!(rd.layers[0].kind, LayerType::TopCopper);
         assert!(!rd.layers[0].bytes.is_empty());

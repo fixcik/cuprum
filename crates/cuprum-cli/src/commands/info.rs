@@ -14,6 +14,7 @@ pub fn run(input: &Path, json: bool) -> Result<()> {
             .map(|l| serde_json::json!({ "rel": l.rel, "type": l.kind, "bytes": l.bytes.len() }))
             .collect();
         let src = match &rd.source {
+            DesignSource::GerberFile(p) => serde_json::json!({ "gerberFile": p }),
             DesignSource::GerberDir(p) => serde_json::json!({ "gerberDir": p }),
             DesignSource::Project(p) => serde_json::json!({ "project": p }),
         };
@@ -23,6 +24,7 @@ pub fn run(input: &Path, json: bool) -> Result<()> {
         );
     } else {
         match &rd.source {
+            DesignSource::GerberFile(p) => println!("gerber file: {}", p.display()),
             DesignSource::GerberDir(p) => println!("gerber dir: {}", p.display()),
             DesignSource::Project(p) => println!("project: {}", p.display()),
         }

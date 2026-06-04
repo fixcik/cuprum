@@ -843,7 +843,6 @@ fn render_svg_dto(working_dir: &str, bytes: &[u8]) -> Result<(LayerGeometryDto, 
 // just uploads typed-array views — no booleans, triangulation, SVG parsing, or
 // per-hole meshes on the main thread, and no multi-megabyte `JSON.parse`.
 
-
 /// Byte layout for one mesh buffer inside the blob's data section. Offsets are
 /// BYTE offsets into the data section; lengths are ELEMENT counts. Normals share
 /// the position length, so only their offset is stored.
