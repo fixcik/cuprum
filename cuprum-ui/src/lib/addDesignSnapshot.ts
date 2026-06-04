@@ -9,6 +9,7 @@ export function buildAddDesignSnapshot(args: {
   currentPath: string | null;
   manifest: Manifest | null;
   preselectDesignId: string | null;
+  placedSizes?: Record<string, { w: number; h: number }>;
 }): AddDesignSnapshot {
   return {
     workingDir: args.workingDir,
@@ -19,5 +20,7 @@ export function buildAddDesignSnapshot(args: {
       heightMm: args.manifest?.panel?.height_mm ?? 100,
     },
     preselectDesignId: args.preselectDesignId,
+    instances: args.manifest?.panel?.instances ?? [],
+    placedSizes: args.placedSizes ?? {},
   };
 }
