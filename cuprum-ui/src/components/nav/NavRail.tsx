@@ -1,11 +1,11 @@
-import { Home, LayoutGrid, Printer, Settings } from "lucide-react";
+import { Cpu, Home, LayoutGrid, Printer, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useShell, type View } from "@/shellStore";
 
 interface RailItem {
   view: View;
   icon: typeof Home;
-  key: "home" | "project" | "printer";
+  key: "home" | "project" | "printer" | "machine";
   /** Disabled until a project is open. */
   needsProject?: boolean;
 }
@@ -14,6 +14,7 @@ const ITEMS: RailItem[] = [
   { view: "home", icon: Home, key: "home" },
   { view: "project", icon: LayoutGrid, key: "project", needsProject: true },
   { view: "printer", icon: Printer, key: "printer" },
+  { view: "machine", icon: Cpu, key: "machine" },
 ];
 
 export function NavRail() {

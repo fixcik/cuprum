@@ -4,11 +4,13 @@ import { NavRail } from "@/components/nav/NavRail";
 import { HomePage } from "@/pages/HomePage";
 import { ProjectPage } from "@/pages/ProjectPage";
 import { PrinterPage } from "@/pages/PrinterPage";
+import { MachinePage } from "@/pages/MachinePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
+import { useMachineBridge } from "@/hooks/useMachineBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import i18n from "@/i18n";
@@ -20,6 +22,7 @@ export default function App() {
 
   useAddDesignBridge();
   useInspectorBridge();
+  useMachineBridge();
 
   useEffect(() => {
     loadDisplayScale();
@@ -98,6 +101,7 @@ export default function App() {
         {view === "home" && <HomePage />}
         {view === "project" && <ProjectPage />}
         {view === "printer" && <PrinterPage />}
+        {view === "machine" && <MachinePage />}
         {view === "settings" && <SettingsPage />}
       </div>
       <UpdateBanner />
