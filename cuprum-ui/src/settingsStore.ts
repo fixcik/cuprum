@@ -4,6 +4,30 @@ import { type CapabilityProfile, DEFAULT_PROFILE } from "@/lib/capabilityProfile
 import { type PanelPreset } from "@/lib/panel";
 import { type NestSettings, DEFAULT_NEST } from "@/lib/nest";
 import { type CncProfile, DEFAULT_CNC_PROFILE } from "@/lib/cncProfile";
+import { type Tool, DEFAULT_TOOLS, newDrillTool } from "@/lib/toolLibrary";
+
+/** Seed the tool library from a persisted state: existing tools win; else migrate
+ *  the legacy `profile.drillBitSetMm` into Drill tools; else defaults. Exported for tests. */
+export function toolsFromPersisted(p: {
+  tools?: Tool[];
+  profile?: { drillBitSetMm?: number[] };
+}): Tool[] {
+  if (p.tools) return p.tools;
+  const legacyBits = p.profile?.drillBitSetMm;
+  if (legacyBits && legacyBits.length) {
+    return legacyBits.map((d, i) => ({
+      id: `tool-${i + 1}`,
+      name: `Сверло ${d}`,
+      kind: "drill" as const,
+      diameterMm: d,
+      material: "carbide" as const,
+      recommendedRpm: 9000,
+      recommendedFeedMmMin: 100,
+      recommendedPlungeMmMin: 60,
+    }));
+  }
+  return DEFAULT_TOOLS;
+}
 
 export type Language = "auto" | "en" | "ru";
 export type Units = "mm" | "imperial";
@@ -36,6 +60,11 @@ interface SettingsStore {
   /** CNC machine profile (connection + jog/spindle defaults). */
   cncProfile: CncProfile;
   setCncProfile: (patch: Partial<CncProfile>) => void;
+  /** Shop tool library (drills / end-mills / V-bits). Drill diameters feed the DFM bit-snap. */
+  tools: Tool[];
+  addTool: () => void;
+  updateTool: (id: string, patch: Partial<Tool>) => void;
+  removeTool: (id: string) => void;
 }
 
 export const useSettings = create<SettingsStore>()(
@@ -62,15 +91,21 @@ export const useSettings = create<SettingsStore>()(
       setPanelInspector: (patch) => set((s) => ({ panelInspector: { ...s.panelInspector, ...patch } })),
       cncProfile: DEFAULT_CNC_PROFILE,
       setCncProfile: (patch) => set((s) => ({ cncProfile: { ...s.cncProfile, ...patch } })),
+      tools: DEFAULT_TOOLS,
+      addTool: () => set((s) => ({ tools: [...s.tools, newDrillTool(s.tools)] })),
+      updateTool: (id, patch) =>
+        set((s) => ({ tools: s.tools.map((t) => (t.id === id ? { ...t, ...patch } : t)) })),
+      removeTool: (id) => set((s) => ({ tools: s.tools.filter((t) => t.id !== id) })),
     }),
     {
       name: "cuprum-settings",
-      version: 5,
+      version: 6,
       migrate: (persisted) => persisted, // merge handles field defaulting across versions
       // Merge persisted values onto current defaults so fields added in later
       // versions (language, units, new profile fields) get their default.
       merge: (persisted, current) => {
         const p = persisted as Partial<SettingsStore> | undefined;
+        const tools = toolsFromPersisted((p as { tools?: Tool[]; profile?: { drillBitSetMm?: number[] } }) ?? {});
         return {
           ...current,
           ...(p ?? {}),
@@ -81,6 +116,7 @@ export const useSettings = create<SettingsStore>()(
           nest: { ...DEFAULT_NEST, ...(p?.nest ?? {}) },
           panelInspector: { width: 330, collapsed: false, sizeOpen: true, stackupOpen: true, feasibilityOpen: true, ...(p?.panelInspector ?? {}) },
           cncProfile: { ...DEFAULT_CNC_PROFILE, ...(p?.cncProfile ?? {}) },
+          tools,
         };
       },
     },

@@ -36,9 +36,9 @@ describe("profileHash", () => {
     expect(h1).not.toBe(h2);
   });
 
-  it("changing drillBitSetMm array produces a different hash", () => {
+  it("changing minDrillMm produces a different hash", () => {
     const h1 = profileHash(DEFAULT_PROFILE);
-    const h2 = profileHash({ ...DEFAULT_PROFILE, drillBitSetMm: [0.3, 0.5] });
+    const h2 = profileHash({ ...DEFAULT_PROFILE, minDrillMm: 0.5 });
     expect(h1).not.toBe(h2);
   });
 
