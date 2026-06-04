@@ -36,13 +36,14 @@ export function DesignPickerRow({
   // persisted — only fed to the client-side feasibility check.
   const panelDoc = useMemo<PanelDoc>(
     () => ({
-      schema_version: 2,
+      schema_version: 3,
       width_mm: panel.widthMm,
       height_mm: panel.heightMm,
       origin_x_mm: 0,
       origin_y_mm: 0,
       instances: [],
       tooling_holes: [],
+      keep_out_zones: [],
     }),
     [panel.widthMm, panel.heightMm],
   );

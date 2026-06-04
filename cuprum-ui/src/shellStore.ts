@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
-import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
+import { api, type AddDesignResult, type BoardInstance, type KeepOutKind, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
 import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions } from "@/lib/panelPlacement";
@@ -186,6 +186,17 @@ interface ShellStore {
   setToolingHoleRole: (id: string, role: ToolingHoleRole) => Promise<void>;
   /** Add a corner registration set (4 holes) in one undo step. */
   addRegistrationSet: (opts: { count: 2 | 4; marginMm: number; diameterMm: number; replace: boolean }) => Promise<void>;
+
+  /** Add a keep-out zone to the panel. Returns the new zone id, or "" when no panel
+   *  is open. Width/height are normalised to positive values; the zone is clamped
+   *  into [0, panelW] × [0, panelH]. Default kind is "fixture". */
+  addKeepOutZone: (z: { x_mm: number; y_mm: number; width_mm: number; height_mm: number; kind?: KeepOutKind }) => Promise<string>;
+  /** Translate the given keep-out zones by (dxMm, dyMm), clamped to the panel. */
+  moveKeepOutZones: (ids: string[], dxMm: number, dyMm: number) => Promise<void>;
+  /** Remove the given keep-out zones. */
+  removeKeepOutZones: (ids: string[]) => Promise<void>;
+  /** Change the kind of the given keep-out zones. */
+  setKeepOutKind: (ids: string[], kind: KeepOutKind) => Promise<void>;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -748,6 +759,70 @@ export const useShell = create<ShellStore>((set, get) => ({
       holes = [...holes, { id, x_mm: c.x, y_mm: c.y, diameter_mm: diameterMm, role: "registration" }];
     }
     const next: PanelDoc = { ...panel, tooling_holes: holes };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  addKeepOutZone: async ({ x_mm, y_mm, width_mm, height_mm, kind = "fixture" }) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return "";
+    // Normalise rect to positive width/height.
+    const nx = width_mm < 0 ? x_mm + width_mm : x_mm;
+    const ny = height_mm < 0 ? y_mm + height_mm : y_mm;
+    const nw = Math.abs(width_mm);
+    const nh = Math.abs(height_mm);
+    // Clamp the zone box into [0, panelW] × [0, panelH] — trim BOTH sides, so a
+    // rect straddling an edge keeps only its in-panel part (not just the right clip).
+    const cx = Math.max(0, Math.min(nx, panel.width_mm));
+    const cy = Math.max(0, Math.min(ny, panel.height_mm));
+    const cw = Math.min(nx + nw, panel.width_mm) - cx;
+    const ch = Math.min(ny + nh, panel.height_mm) - cy;
+    const id = crypto.randomUUID();
+    const zone: KeepOutZone = { id, x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch, kind };
+    const next: PanelDoc = { ...panel, keep_out_zones: [...(panel.keep_out_zones ?? []), zone] };
+    await get().savePanelConfig(next, stackup);
+    return id;
+  },
+
+  moveKeepOutZones: async (ids, dxMm, dyMm) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0 || (dxMm === 0 && dyMm === 0)) return;
+    const sel = new Set(ids);
+    const next: PanelDoc = {
+      ...panel,
+      keep_out_zones: (panel.keep_out_zones ?? []).map((z) => {
+        if (!sel.has(z.id)) return z;
+        // Clamp so the whole zone stays inside the panel.
+        const nx = Math.max(0, Math.min(z.x_mm + dxMm, panel.width_mm - z.width_mm));
+        const ny = Math.max(0, Math.min(z.y_mm + dyMm, panel.height_mm - z.height_mm));
+        return { ...z, x_mm: nx, y_mm: ny };
+      }),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  removeKeepOutZones: async (ids) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0) return;
+    const sel = new Set(ids);
+    const next: PanelDoc = {
+      ...panel,
+      keep_out_zones: (panel.keep_out_zones ?? []).filter((z) => !sel.has(z.id)),
+    };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  setKeepOutKind: async (ids, kind) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup || ids.length === 0) return;
+    const sel = new Set(ids);
+    const next: PanelDoc = {
+      ...panel,
+      keep_out_zones: (panel.keep_out_zones ?? []).map((z) => (sel.has(z.id) ? { ...z, kind } : z)),
+    };
     await get().savePanelConfig(next, stackup);
   },
 

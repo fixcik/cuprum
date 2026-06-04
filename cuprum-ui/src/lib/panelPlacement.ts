@@ -1,5 +1,5 @@
 import type { NestSettings } from "@/lib/nest";
-import type { BoardInstance, ToolingHole } from "@/lib/api";
+import type { BoardInstance, KeepOutKind, KeepOutZone, ToolingHole } from "@/lib/api";
 
 /** Axis-aligned bounding box (mm). */
 export type Box = { minX: number; minY: number; maxX: number; maxY: number };
@@ -506,6 +506,22 @@ export function panelObstacles(
   );
   return [...boards, ...holes];
 }
+
+// --- Keep-out zone helpers ---
+
+/** True when the zone prohibits board placement. All zone kinds block boards. */
+export const zoneForbidsBoard = (_kind: KeepOutKind): boolean => true;
+
+/** True when the zone prohibits tooling holes. Only "dead" zones block tooling. */
+export const zoneForbidsTooling = (kind: KeepOutKind): boolean => kind === "dead";
+
+/** AABB of a keep-out zone (panel mm). */
+export const keepOutBox = (z: Pick<KeepOutZone, "x_mm" | "y_mm" | "width_mm" | "height_mm">): Box => ({
+  minX: z.x_mm,
+  minY: z.y_mm,
+  maxX: z.x_mm + z.width_mm,
+  maxY: z.y_mm + z.height_mm,
+});
 
 /** Evenly space ≥3 instances' AABB centres along an axis; the extreme two stay put. */
 export function distributeInstances(items: AlignItem[], axis: "h" | "v"): Pose[] {

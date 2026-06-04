@@ -17,6 +17,9 @@ import {
   clampToolingHoleCenter,
   registrationSetPositions,
   panelObstacles,
+  zoneForbidsBoard,
+  zoneForbidsTooling,
+  keepOutBox,
   type AlignEdge,
   type GuideLine,
 } from "@/lib/panelPlacement";
@@ -581,5 +584,40 @@ describe("panelObstacles", () => {
     const obs = panelObstacles(panel, sizes);
     expect(obs).toContainEqual({ minX: 48, minY: 48, maxX: 52, maxY: 52 });
     expect(obs.length).toBe(2);
+  });
+});
+
+describe("zoneForbidsBoard", () => {
+  it("always returns true regardless of kind", () => {
+    expect(zoneForbidsBoard("fixture")).toBe(true);
+    expect(zoneForbidsBoard("dead")).toBe(true);
+    expect(zoneForbidsBoard("reserved")).toBe(true);
+  });
+});
+
+describe("zoneForbidsTooling", () => {
+  it("returns true only for dead zones", () => {
+    expect(zoneForbidsTooling("dead")).toBe(true);
+    expect(zoneForbidsTooling("fixture")).toBe(false);
+    expect(zoneForbidsTooling("reserved")).toBe(false);
+  });
+});
+
+describe("keepOutBox", () => {
+  it("converts x_mm/y_mm/width_mm/height_mm to an AABB", () => {
+    expect(keepOutBox({ x_mm: 10, y_mm: 20, width_mm: 30, height_mm: 15 })).toEqual({
+      minX: 10,
+      minY: 20,
+      maxX: 40,
+      maxY: 35,
+    });
+  });
+  it("handles zero-origin zone", () => {
+    expect(keepOutBox({ x_mm: 0, y_mm: 0, width_mm: 100, height_mm: 50 })).toEqual({
+      minX: 0,
+      minY: 0,
+      maxX: 100,
+      maxY: 50,
+    });
   });
 });

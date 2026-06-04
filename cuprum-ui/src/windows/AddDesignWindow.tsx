@@ -89,13 +89,14 @@ export function AddDesignWindow() {
 
   // PanelDoc for DFM evaluate — minimal, never persisted.
   const panelDoc: PanelDoc = useMemo(() => ({
-    schema_version: 2,
+    schema_version: 3,
     width_mm: panel.widthMm,
     height_mm: panel.heightMm,
     origin_x_mm: 0,
     origin_y_mm: 0,
     instances: [],
     tooling_holes: [],
+    keep_out_zones: [],
   }), [panel.widthMm, panel.heightMm]);
 
   // All preview data for the selected design (SVG layers, mesh, metrics, DRC).
