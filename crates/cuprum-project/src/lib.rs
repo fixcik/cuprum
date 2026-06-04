@@ -6,6 +6,7 @@ pub mod catalog;
 pub mod document;
 pub mod import;
 pub mod layer;
+pub mod resolve;
 
 /// Test-only tracing support shared across this crate's test modules.
 #[cfg(test)]
@@ -115,6 +116,7 @@ pub use document::panel::PanelDoc;
 pub use document::workdir::{Orphan, SessionMarker};
 pub use document::{container, history, manifest, panel, workdir};
 pub use layer::LayerType;
+pub use resolve::{resolve_design, DesignSource, ResolveOpts, ResolvedDesign, ResolvedLayer};
 
 /// Stable error token returned when a `.cuprum` file is missing on disk.
 pub const PROJECT_NOT_FOUND: &str = "PROJECT_NOT_FOUND";
