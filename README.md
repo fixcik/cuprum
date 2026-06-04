@@ -40,7 +40,7 @@ everything:
 | Component        | Crate / dir            | What it does |
 |------------------|------------------------|--------------|
 | **Core library** | `crates/cuprum-core`   | Gerber parsing, rasterization (tiny-skia), composition onto the 15120×6230 screen, `.goo` encoding, and the SDCP protocol (discover / upload / expose). |
-| **CLI**          | `crates/cuprum-cli`    | `cuprum` binary: `discover`, `gerber-info`, `render`, `prepare`, `print`, `calibrate`, `gen-goo`, `upload`, `expose`, `stop`. |
+| **CLI**          | `crates/cuprum-cli`    | `cuprum` binary: a headless toolbox over the same engine as the GUI — `info`, `render` (PNG), `svg`, `3d` (glTF/STL/OBJ), `check` (DFM metrics + gate), each over a gerber file/dir or a `.cuprum` project. |
 | **Project model**| `crates/cuprum-project`| The self-contained `.cuprum` project container and the recents catalog. |
 | **Desktop UI**   | `cuprum-ui`            | Tauri 2 + React app: native-sharp preview, CAD-style navigation (zoom-to-cursor, pan, grid, snapping), multi-select, alignment/auto-layout, 3D board view, and one-click exposure. |
 
@@ -95,20 +95,26 @@ threshold is editable on the Settings page.
 # Build the whole workspace
 cargo build --release
 
-# Find a printer on the LAN
-cargo run -p cuprum-cli -- discover
+# Summarise a gerber file/dir or a .cuprum project
+cargo run -p cuprum-cli -- info path/to/gerbers/
 
-# Inspect a Gerber file
-cargo run -p cuprum-cli -- gerber-info path/to/board.gbr
+# Composite colour PNG / SVG preview
+cargo run -p cuprum-cli -- render path/to/gerbers/ -o board.png
+cargo run -p cuprum-cli -- svg path/to/board.cuprum -o board.svg
 
-# Render a Gerber to a PNG preview (no printer involved)
-cargo run -p cuprum-cli -- render path/to/board.gbr out.png
+# Export the 3D board mesh (glTF/STL/OBJ)
+cargo run -p cuprum-cli -- 3d path/to/gerbers/ -o board.glb --format gltf
+
+# Measure DFM facts and gate against manufacturability limits (exit 2 on fail)
+cargo run -p cuprum-cli -- check path/to/board.cuprum
+cargo run -p cuprum-cli -- --json check path/to/gerbers/
 ```
 
+Each command accepts a gerber file, a directory of gerbers, or a `.cuprum` project.
 Run `cargo run -p cuprum-cli -- --help` for the full command list.
 
-> ⚠️ The `expose` and `print` commands **fire the UV screen**. Remove the build
-> plate first.
+> Driving the printer (discover / upload / expose) currently lives in the desktop
+> app; a headless hardware workflow on the project model is planned.
 
 ### Desktop UI
 
