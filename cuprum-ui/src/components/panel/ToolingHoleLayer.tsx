@@ -67,6 +67,16 @@ export function ToolingHoleLayer({
                 : undefined
             }
           >
+            {/* Invisible hit target. Konva hit-tests a Group through its children;
+             *  every visual child below is listening=false, so without this filled
+             *  circle the hole couldn't be clicked (to select) or dragged — clicks
+             *  fell through to the panel background and just added another hole.
+             *  Sized to a comfortable target (>= 7 screen px radius) since bores are
+             *  tiny (~3 mm). transparent fill stays on the hit graph but invisible. */}
+            {interactive && (
+              <Circle radius={Math.max(r, 7 * k)} fill="transparent" listening />
+            )}
+
             {/* Selection ring — copper, outside the main circle */}
             {isSelected && selOutset > 0 && (
               <Circle
