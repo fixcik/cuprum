@@ -122,6 +122,16 @@
       "rotateCcw": "Rotate 90° counter-clockwise",
       "resetRotation": "Reset rotation",
       "delete": "Delete"
+    },
+    "align": {
+      "left": "Align left edges",
+      "hcenter": "Align horizontal centres",
+      "right": "Align right edges",
+      "top": "Align top edges",
+      "vmiddle": "Align vertical centres",
+      "bottom": "Align bottom edges",
+      "distributeH": "Distribute horizontally",
+      "distributeV": "Distribute vertically"
     }
   },
   "operations": {

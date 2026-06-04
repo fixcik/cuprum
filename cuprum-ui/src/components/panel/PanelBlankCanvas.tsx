@@ -10,7 +10,8 @@ import { CadGrid } from "@/components/editor/CadGrid";
 import { MIN_SCALE, MAX_SCALE, COPPER_STROKE, COPPER_FILL, NO_COPPER_STROKE } from "@/components/editor/canvasStyle";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances } from "@/lib/panelPlacement";
+import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, type AlignEdge } from "@/lib/panelPlacement";
+import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
@@ -326,6 +327,41 @@ export function PanelBlankCanvas({
     usePanelSelection.getState().clear();
   }, []);
 
+  // Build AlignItem array for the current selection (instances with resolved sizes).
+  const selectedAlignItems = useCallback(
+    () => {
+      const sel = usePanelSelection.getState().selected;
+      return instances
+        .filter((i) => sel.has(i.id) && sizes[i.design_id])
+        .map((i) => {
+          const sz = sizes[i.design_id];
+          return {
+            id: i.id, x_mm: i.x_mm, y_mm: i.y_mm,
+            box: instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg }),
+          };
+        });
+    },
+    [instances, sizes],
+  );
+
+  const alignSelected = useCallback(
+    (edge: AlignEdge) => {
+      const items = selectedAlignItems();
+      if (items.length < 2) return;
+      void useShell.getState().setInstancePoses(alignInstances(items, edge));
+    },
+    [selectedAlignItems],
+  );
+
+  const distributeSelected = useCallback(
+    (axis: "h" | "v") => {
+      const items = selectedAlignItems();
+      if (items.length < 3) return;
+      void useShell.getState().setInstancePoses(distributeInstances(items, axis));
+    },
+    [selectedAlignItems],
+  );
+
   // Duplicate the current selection with a clamped offset so copies stay within
   // the panel bounds. Re-selects the new copies on completion.
   const duplicateSelected = useCallback(() => {
@@ -587,6 +623,7 @@ export function PanelBlankCanvas({
       </Stage>
 
       <PanelToolPalette tool={tool} onToolChange={setTool} onDuplicate={duplicateSelected} />
+      <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />
 
       <div className="absolute left-20 top-3 z-10">
         <SegmentedControl<"top" | "bottom">
