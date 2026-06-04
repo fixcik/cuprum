@@ -36,6 +36,7 @@ import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { RenestDialog } from "@/components/panel/RenestDialog";
+import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog";
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
 import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
@@ -737,6 +738,7 @@ export function PanelBlankCanvas({
 
   const hasSelection = selected.size > 0;
   const [renestOpen, setRenestOpen] = useState(false);
+  const [regSetOpen, setRegSetOpen] = useState(false);
   const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
   // Tooling mode is edit-first: the "+" action ARMS a one-shot placement. While
   // armed a ghost crosshair (ghostMm) follows the cursor; the next canvas click
@@ -987,7 +989,7 @@ export function PanelBlankCanvas({
         onDuplicate={duplicateSelected}
         onAddHole={armAddHole}
         addArmed={addArmed}
-        onAddRegistrationSet={() => void addRegistrationSet()}
+        onAddRegistrationSet={() => setRegSetOpen(true)}
       />
       <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />
 
@@ -1083,6 +1085,12 @@ export function PanelBlankCanvas({
       panelW={W}
       panelH={H}
       onApply={(items) => void useShell.getState().setInstanceTransforms(items)}
+    />
+    <RegistrationSetDialog
+      open={regSetOpen}
+      onClose={() => setRegSetOpen(false)}
+      hasExisting={holes.length > 0}
+      onApply={(opts) => void addRegistrationSet(opts)}
     />
     </>
   );

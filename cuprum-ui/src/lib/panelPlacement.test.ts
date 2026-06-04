@@ -564,6 +564,11 @@ describe("registrationSetPositions", () => {
       { x: 4, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 4 },
     ]);
   });
+  it("count 2 returns the diagonal pair (TL, BR)", () => {
+    expect(registrationSetPositions(100, 80, 5, 2)).toEqual([
+      { x: 5, y: 5 }, { x: 95, y: 75 },
+    ]);
+  });
 });
 
 describe("panelObstacles", () => {

@@ -3,7 +3,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
 import { api, type AddDesignResult, type BoardInstance, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
-import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, REGISTRATION_SET_MARGIN_MM, newPanelDoc } from "@/lib/panel";
+import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
 import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions } from "@/lib/panelPlacement";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
@@ -185,7 +185,7 @@ interface ShellStore {
   /** Change the role of a tooling hole. */
   setToolingHoleRole: (id: string, role: ToolingHoleRole) => Promise<void>;
   /** Add a corner registration set (4 holes) in one undo step. */
-  addRegistrationSet: () => Promise<void>;
+  addRegistrationSet: (opts: { count: 2 | 4; marginMm: number; diameterMm: number; replace: boolean }) => Promise<void>;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -732,15 +732,20 @@ export const useShell = create<ShellStore>((set, get) => ({
     await get().savePanelConfig(next, stackup);
   },
 
-  addRegistrationSet: async () => {
+  addRegistrationSet: async ({ count, marginMm, diameterMm, replace }) => {
     const panel = get().currentManifest?.panel;
     const stackup = get().currentManifest?.stackup;
     if (!panel || !stackup) return;
-    const positions = registrationSetPositions(panel.width_mm, panel.height_mm, REGISTRATION_SET_MARGIN_MM);
-    let holes = [...panel.tooling_holes];
+    const positions = registrationSetPositions(panel.width_mm, panel.height_mm, marginMm, count);
+    // "replace" wipes existing tooling holes; otherwise the set is appended.
+    let holes = replace ? [] : [...panel.tooling_holes];
+    const r = diameterMm / 2;
     for (const pos of positions) {
+      // Keep the whole bore inside the panel, like addToolingHole — a tiny margin
+      // with a large diameter would otherwise push the bore past the edge.
+      const c = clampToolingHoleCenter(pos.x, pos.y, r, panel.width_mm, panel.height_mm);
       const id = nextToolingId(holes);
-      holes = [...holes, { id, x_mm: pos.x, y_mm: pos.y, diameter_mm: DEFAULT_TOOLING_DIAMETER_MM, role: "registration" }];
+      holes = [...holes, { id, x_mm: c.x, y_mm: c.y, diameter_mm: diameterMm, role: "registration" }];
     }
     const next: PanelDoc = { ...panel, tooling_holes: holes };
     await get().savePanelConfig(next, stackup);

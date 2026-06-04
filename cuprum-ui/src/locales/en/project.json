@@ -153,6 +153,18 @@
       "apply": "Apply",
       "cancel": "Cancel"
     },
+    "regset": {
+      "title": "Registration set",
+      "placement": "Layout",
+      "placement4": "4 (corners)",
+      "placement2": "2 (diagonal)",
+      "params": "Parameters",
+      "margin": "Edge margin",
+      "existing": "Existing holes",
+      "existingAdd": "Add",
+      "existingReplace": "Replace all",
+      "apply": "Place"
+    },
     "align": {
       "left": "Align left edges",
       "hcenter": "Align horizontal centres",
