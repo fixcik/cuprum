@@ -124,7 +124,16 @@
       "rotateCw": "Rotate 90° clockwise",
       "rotateCcw": "Rotate 90° counter-clockwise",
       "resetRotation": "Reset rotation",
+      "renest": "Re-arrange",
       "delete": "Delete"
+    },
+    "renest": {
+      "title": "Re-arrange",
+      "summaryFit": "{{n}} boards → grid",
+      "summaryPartial": "{{placed}} of {{requested}} fit",
+      "summaryNone": "None fit",
+      "apply": "Apply",
+      "cancel": "Cancel"
     },
     "align": {
       "left": "Align left edges",

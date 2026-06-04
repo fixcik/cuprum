@@ -11,6 +11,7 @@ import {
   alignInstances,
   distributeInstances,
   computeSmartGuides,
+  renestSelection,
   type AlignEdge,
   type GuideLine,
 } from "@/lib/panelPlacement";
@@ -368,5 +369,116 @@ describe("packLayoutAvoiding", () => {
     expect(r.max).toBe(6);
     expect(r.requested).toBe(6);
     expect(r.n).toBe(3);
+  });
+});
+
+const NEST = { ...DEFAULT_NEST, enabled: true, marginMm: 0, gapMm: 0, corner: "tl" as const, rotate: false };
+
+describe("renestSelection", () => {
+  it("packs one design's selection into a corner grid", () => {
+    // 40×30 board, 100×100 panel, tl, no margin/gap → cols=2, rows=3. 3 selected.
+    const r = renestSelection({
+      selected: [
+        { id: "a", design_id: "d1" },
+        { id: "b", design_id: "d1" },
+        { id: "c", design_id: "d1" },
+      ],
+      sizes: { d1: { w: 40, h: 30 } },
+      obstacles: [],
+      panelW: 100, panelH: 100,
+      nest: NEST,
+    });
+    expect(r.requested).toBe(3);
+    expect(r.placed).toBe(3);
+    // row-major tl: (0,0),(40,0),(0,30)
+    expect(r.transforms.map((t) => [t.x_mm, t.y_mm, t.rotation_deg])).toEqual([
+      [0, 0, 0], [40, 0, 0], [0, 30, 0],
+    ]);
+  });
+
+  it("avoids non-selected obstacles", () => {
+    // Obstacle covers the first cell [0,40]×[0,30]; 1 selected → goes to (40,0).
+    const r = renestSelection({
+      selected: [{ id: "a", design_id: "d1" }],
+      sizes: { d1: { w: 40, h: 30 } },
+      obstacles: [{ minX: 0, minY: 0, maxX: 40, maxY: 30 }],
+      panelW: 100, panelH: 100,
+      nest: NEST,
+    });
+    expect(r.transforms).toEqual([{ id: "a", x_mm: 40, y_mm: 0, rotation_deg: 0 }]);
+  });
+
+  it("rotate swaps footprint and sets centre-pivot pose (rotation 90)", () => {
+    // 40×30 with rotate → footprint 30×40; tl cell at (0,0). Centre-pivot:
+    // x = 0 + (30-40)/2 = -5; y = 0 + (40-30)/2 = 5; rotation 90.
+    const r = renestSelection({
+      selected: [{ id: "a", design_id: "d1" }],
+      sizes: { d1: { w: 40, h: 30 } },
+      obstacles: [],
+      panelW: 100, panelH: 100,
+      nest: { ...NEST, rotate: true },
+    });
+    expect(r.transforms).toEqual([{ id: "a", x_mm: -5, y_mm: 5, rotation_deg: 90 }]);
+  });
+
+  it("rotate works when nest.enabled is false (default settings)", () => {
+    // re-nest always grids (groupNest forces enabled:true), so rotate alone must
+    // drive the 90° flip even with the persisted default nest.enabled === false.
+    const r = renestSelection({
+      selected: [{ id: "a", design_id: "d1" }],
+      sizes: { d1: { w: 40, h: 30 } },
+      obstacles: [],
+      panelW: 100, panelH: 100,
+      nest: { ...NEST, enabled: false, rotate: true },
+    });
+    expect(r.transforms).toEqual([{ id: "a", x_mm: -5, y_mm: 5, rotation_deg: 90 }]);
+  });
+
+  it("two designs pack into non-overlapping groups", () => {
+    // d1 40×30 (1 copy) → (0,0); d2 40×30 (1 copy) avoids d1's new cell → (40,0).
+    const r = renestSelection({
+      selected: [
+        { id: "a", design_id: "d1" },
+        { id: "b", design_id: "d2" },
+      ],
+      sizes: { d1: { w: 40, h: 30 }, d2: { w: 40, h: 30 } },
+      obstacles: [],
+      panelW: 100, panelH: 100,
+      nest: NEST,
+    });
+    const a = r.transforms.find((t) => t.id === "a")!;
+    const b = r.transforms.find((t) => t.id === "b")!;
+    expect([a.x_mm, a.y_mm]).toEqual([0, 0]);
+    expect([b.x_mm, b.y_mm]).toEqual([40, 0]);
+  });
+
+  it("places as many as fit when the grid is too small (partial)", () => {
+    // 60×60 board on 100×100, tl, no margin/gap → cols=1,rows=1 → max 1. 2 selected.
+    const r = renestSelection({
+      selected: [
+        { id: "a", design_id: "d1" },
+        { id: "b", design_id: "d1" },
+      ],
+      sizes: { d1: { w: 60, h: 60 } },
+      obstacles: [],
+      panelW: 100, panelH: 100,
+      nest: NEST,
+    });
+    expect(r.requested).toBe(2);
+    expect(r.placed).toBe(1);
+    expect(r.transforms).toHaveLength(1);
+  });
+
+  it("skips a group whose design size is unknown", () => {
+    const r = renestSelection({
+      selected: [{ id: "a", design_id: "missing" }],
+      sizes: {},
+      obstacles: [],
+      panelW: 100, panelH: 100,
+      nest: NEST,
+    });
+    expect(r.requested).toBe(0);
+    expect(r.placed).toBe(0);
+    expect(r.transforms).toEqual([]);
   });
 });

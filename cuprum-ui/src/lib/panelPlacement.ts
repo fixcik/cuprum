@@ -309,6 +309,74 @@ export function computeSmartGuides(opts: {
   return { dx, dy, guides };
 }
 
+export type RenestTransform = { id: string; x_mm: number; y_mm: number; rotation_deg: number };
+
+/** Re-pack a selection into tidy corner-anchored grids, one per design, each
+ *  avoiding non-selected instances AND the grids already placed in this run.
+ *  Mirrors addBoardInstances' centre-pivot pose for rotated copies. Only the
+ *  instances that fit get a transform (placed ≤ requested). Pure. */
+export function renestSelection(opts: {
+  selected: { id: string; design_id: string }[];
+  sizes: Record<string, { w: number; h: number }>;
+  obstacles: Box[];
+  panelW: number;
+  panelH: number;
+  nest: NestSettings;
+}): { transforms: RenestTransform[]; requested: number; placed: number } {
+  const { selected, sizes, obstacles, panelW, panelH, nest } = opts;
+  // Group by design id, preserving first-seen order.
+  const order: string[] = [];
+  const groups = new Map<string, string[]>();
+  for (const s of selected) {
+    if (!groups.has(s.design_id)) {
+      groups.set(s.design_id, []);
+      order.push(s.design_id);
+    }
+    groups.get(s.design_id)!.push(s.id);
+  }
+
+  // groupNest forces enabled:true (re-nest always grids), so the packer swaps the
+  // footprint on nest.rotate alone — the pose flip must follow the same flag, NOT
+  // the raw nest.enabled (false by default → would desync pose from the packed cell).
+  const rotated = nest.rotate;
+  const placedBoxes: Box[] = [];
+  const transforms: RenestTransform[] = [];
+  let requested = 0;
+  let placed = 0;
+
+  for (const designId of order) {
+    const ids = groups.get(designId)!;
+    const sz = sizes[designId];
+    if (!sz) continue; // unknown size → leave this group untouched
+    requested += ids.length;
+    const groupNest: NestSettings = {
+      ...nest,
+      enabled: true,
+      fillMode: "copies",
+      copies: ids.length,
+    };
+    const pack = packLayoutAvoiding(
+      sz.w, sz.h, panelW, panelH,
+      groupNest,
+      obstacles.concat(placedBoxes),
+      nest.gapMm,
+    );
+    placed += pack.n;
+    pack.placements.forEach((p, k) => {
+      transforms.push({
+        id: ids[k],
+        // Centre-pivot shift: footprint swapped to (h×w); unrotated origin offset
+        // so the board centre lands at the same point. Mirrors addBoardInstances.
+        x_mm: rotated ? p.x + (sz.h - sz.w) / 2 : p.x,
+        y_mm: rotated ? p.y + (sz.w - sz.h) / 2 : p.y,
+        rotation_deg: rotated ? 90 : 0,
+      });
+      placedBoxes.push({ minX: p.x, minY: p.y, maxX: p.x + pack.bw, maxY: p.y + pack.bh });
+    });
+  }
+  return { transforms, requested, placed };
+}
+
 /** Evenly space ≥3 instances' AABB centres along an axis; the extreme two stay put. */
 export function distributeInstances(items: AlignItem[], axis: "h" | "v"): Pose[] {
   if (items.length < 3) return items.map(pose);

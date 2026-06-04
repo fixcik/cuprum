@@ -30,6 +30,7 @@ import { SnapGuides } from "@/components/panel/SnapGuides";
 import { PanelAlignBar } from "@/components/panel/PanelAlignBar";
 import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
+import { RenestDialog } from "@/components/panel/RenestDialog";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import { api, type BoardInstance, type ProjectDesign } from "@/lib/api";
 import {
@@ -606,8 +607,10 @@ export function PanelBlankCanvas({
   };
 
   const hasSelection = selected.size > 0;
+  const [renestOpen, setRenestOpen] = useState(false);
 
   return (
+    <>
     <ContextMenu>
       <ContextMenuTrigger asChild>
     <div
@@ -826,11 +829,25 @@ export function PanelBlankCanvas({
         <ContextMenuItem disabled={!hasSelection} onSelect={() => resetSelectionRotation()}>
           {t("panel.menu.resetRotation")}
         </ContextMenuItem>
+        <ContextMenuItem disabled={!hasSelection} onSelect={() => setRenestOpen(true)}>
+          {t("panel.menu.renest")}
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={!hasSelection} onSelect={() => deleteSelected()}>
           {t("panel.menu.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+    <RenestDialog
+      open={renestOpen}
+      onClose={() => setRenestOpen(false)}
+      selectedIds={[...selected]}
+      instances={instances}
+      sizes={sizes}
+      panelW={W}
+      panelH={H}
+      onApply={(items) => void useShell.getState().setInstanceTransforms(items)}
+    />
+    </>
   );
 }
