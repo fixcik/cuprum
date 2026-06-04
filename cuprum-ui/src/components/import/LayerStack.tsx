@@ -286,7 +286,9 @@ export function LayerStack({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setMA(null); setMB(null); }
+      // Esc backs out of both viewer tools: exit the measure tool (clearing any
+      // placed points) and turn the hover crosshair off.
+      if (e.key === "Escape") { setTool("pan"); setMA(null); setMB(null); setHover(null); setShowCrosshair(false); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -330,6 +332,29 @@ export function LayerStack({
     }
     return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
   }, [edgeLayer]);
+
+  // Project DRC markers (board mm → screen px) with the live view transform,
+  // memoised so a cursor-only re-render (the hover crosshair tracking the
+  // pointer) does NOT rebuild the array. A fresh array forced the heavy DRC
+  // overlay (up to ~500 hotspots, incl. per-stroke "line" highlights) to
+  // re-rasterize every frame at high zoom — the root of the zoom artifacts.
+  const projectedMarkers = useMemo<ProjectedMarker[]>(() => {
+    if (!box) return [];
+    const mir = side === "bottom" && !mirror;
+    const mY = box.minY + box.maxY;
+    const mX = box.minX + box.maxX;
+    const toScr = (g: [number, number]): [number, number] => {
+      const dx = mir ? mX - g[0] : g[0];
+      const dy = mY - g[1];
+      return [view.tx + view.s * dx, view.ty + view.s * dy];
+    };
+    return markers.map((m) => {
+      const [ax, ay] = toScr(m.a);
+      const [bx, by] = toScr(m.b);
+      const [mx, my] = toScr([(m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2]);
+      return { ...m, ax, ay, bx, by, mx, my, widthPx: m.widthMm != null ? m.widthMm * view.s : undefined };
+    });
+  }, [markers, box, side, mirror, view.s, view.tx, view.ty]);
 
   if (!box) {
     return (
@@ -476,14 +501,6 @@ export function LayerStack({
   const rulerViewport: Viewport | null = ready
     ? { pxPerMm: view.s, originX: view.tx, originY: view.ty }
     : null;
-
-  // Project DRC markers (board mm) to screen px using the live view transform.
-  const projectedMarkers: ProjectedMarker[] = markers.map((m) => {
-    const [ax, ay] = toScreen(m.a);
-    const [bx, by] = toScreen(m.b);
-    const [mx, my] = toScreen([(m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2]);
-    return { ...m, ax, ay, bx, by, mx, my, widthPx: m.widthMm != null ? m.widthMm * view.s : undefined };
-  });
 
   return (
     <div ref={setContainer} className="relative h-full w-full overflow-hidden bg-pcb-preview">
@@ -720,14 +737,26 @@ export function LayerStack({
         <button
           className={`cursor-pointer rounded p-1 hover:bg-muted/60 ${tool === "measure" ? "bg-primary/20 text-primary" : ""}`}
           title={t("viewer.ruler")}
-          onClick={() => { setTool((t) => (t === "measure" ? "pan" : "measure")); setMA(null); setMB(null); setHover(null); }}
+          onClick={() => {
+            // Ruler and crosshair are mutually exclusive: turning the ruler on
+            // turns the crosshair off (and vice-versa, below).
+            const next = tool === "measure" ? "pan" : "measure";
+            setTool(next);
+            if (next === "measure") setShowCrosshair(false);
+            setMA(null); setMB(null); setHover(null);
+          }}
         >
           <Ruler className="size-4" />
         </button>
         <button
           className={`cursor-pointer rounded p-1 hover:bg-muted/60 ${showCrosshair ? "bg-primary/20 text-primary" : ""}`}
           title={t("viewer.crosshair")}
-          onClick={() => setShowCrosshair((v) => !v)}
+          onClick={() => {
+            const next = !showCrosshair;
+            setShowCrosshair(next);
+            // Turning the crosshair on backs out of the ruler (mutually exclusive).
+            if (next && tool === "measure") { setTool("pan"); setMA(null); setMB(null); setHover(null); }
+          }}
         >
           <LocateFixed className="size-4" />
         </button>

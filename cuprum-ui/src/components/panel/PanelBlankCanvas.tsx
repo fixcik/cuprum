@@ -205,6 +205,13 @@ export function PanelBlankCanvas({
     };
   }, []);
 
+  // Esc turns the hover crosshair off (mirrors the design preview's Esc behaviour).
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setShowCrosshair(false); };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, []);
+
   const clampPos = useCallback(
     (x: number, y: number, scale: number) => {
       const sw = W * fit * scale;
