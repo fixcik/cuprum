@@ -17,6 +17,7 @@ cuprum-gerber.workspace = true
 cuprum-mesh.workspace = true
 cuprum-dfm.workspace = true
 cuprum-sdcp.workspace = true
+cuprum-grbl.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

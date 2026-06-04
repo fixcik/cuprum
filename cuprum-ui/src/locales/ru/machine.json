@@ -1,0 +1,54 @@
+{
+  "title": "Станок",
+  "connection": {
+    "port": "Порт",
+    "refresh": "Обновить",
+    "noPorts": "Нет serial-портов",
+    "baud": "Скорость",
+    "connect": "Подключить",
+    "disconnect": "Отключить",
+    "disconnected": "Отключён"
+  },
+  "state": {
+    "idle": "Простой",
+    "run": "Работа",
+    "hold": "Пауза",
+    "jog": "Подвод",
+    "alarm": "Авария",
+    "home": "Базирование",
+    "door": "Дверца",
+    "check": "Проверка",
+    "sleep": "Сон",
+    "unknown": "—"
+  },
+  "dro": {
+    "work": "Рабочие",
+    "machine": "Машинные",
+    "zeroAxis": "Ноль {{axis}}",
+    "zeroAll": "Ноль XYZ"
+  },
+  "jog": {
+    "title": "Подвод",
+    "step": "Шаг",
+    "feed": "Подача"
+  },
+  "spindle": {
+    "title": "Шпиндель",
+    "on": "Вкл",
+    "off": "Выкл",
+    "rpm": "об/мин"
+  },
+  "controls": {
+    "home": "Базирование",
+    "unlock": "Снять блокировку",
+    "feedHold": "Пауза",
+    "cycleStart": "Продолжить",
+    "softReset": "Мягкий сброс"
+  },
+  "console": {
+    "title": "Консоль",
+    "placeholder": "G-code…",
+    "send": "Отправить"
+  },
+  "alarm": "Станок в аварии — снимите блокировку или сделайте мягкий сброс."
+}

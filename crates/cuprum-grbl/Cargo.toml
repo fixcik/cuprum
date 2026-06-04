@@ -1,0 +1,11 @@
+[package]
+name = "cuprum-grbl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GRBL 1.1 client: serial transport, status/line parsing, command encoding"
+
+[dependencies]
+anyhow.workspace = true
+serialport.workspace = true
+tracing.workspace = true

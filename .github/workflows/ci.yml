@@ -43,6 +43,9 @@ jobs:
         with:
           key: lint
 
+      - name: Install Linux build deps (serialport → libudev)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
       - name: rustfmt (workspace)
         run: cargo fmt --check
 
@@ -64,6 +67,9 @@ jobs:
         with:
           key: test
 
+      - name: Install Linux build deps (serialport → libudev)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
       - name: cargo test
         run: cargo test --workspace
 
@@ -83,7 +89,9 @@ jobs:
             libayatana-appindicator3-dev \
             libxdo-dev \
             libsoup-3.0-dev \
-            patchelf
+            patchelf \
+            libudev-dev \
+            pkg-config
 
       - uses: dtolnay/rust-toolchain@stable
         with:

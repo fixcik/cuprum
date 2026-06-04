@@ -22,12 +22,14 @@ import enUpdater from "@/locales/en/updater.json";
 import ruUpdater from "@/locales/ru/updater.json";
 import enMenu from "@/locales/en/menu.json";
 import ruMenu from "@/locales/ru/menu.json";
+import enMachine from "@/locales/en/machine.json";
+import ruMachine from "@/locales/ru/machine.json";
 
 // Add new namespaces here as features are migrated.
 export const resources = {
-  en: { common: enCommon, nav: enNav, settings: enSettings, feasibility: enFeasibility, metrics: enMetrics, import: enImport, home: enHome, printer: enPrinter, project: enProject, layers: enLayers, updater: enUpdater, menu: enMenu },
-  ru: { common: ruCommon, nav: ruNav, settings: ruSettings, feasibility: ruFeasibility, metrics: ruMetrics, import: ruImport, home: ruHome, printer: ruPrinter, project: ruProject, layers: ruLayers, updater: ruUpdater, menu: ruMenu },
+  en: { common: enCommon, nav: enNav, settings: enSettings, feasibility: enFeasibility, metrics: enMetrics, import: enImport, home: enHome, printer: enPrinter, project: enProject, layers: enLayers, updater: enUpdater, menu: enMenu, machine: enMachine },
+  ru: { common: ruCommon, nav: ruNav, settings: ruSettings, feasibility: ruFeasibility, metrics: ruMetrics, import: ruImport, home: ruHome, printer: ruPrinter, project: ruProject, layers: ruLayers, updater: ruUpdater, menu: ruMenu, machine: ruMachine },
 } as const;
 
-export const NAMESPACES = ["common", "nav", "settings", "feasibility", "metrics", "import", "home", "printer", "project", "layers", "updater", "menu"] as const;
+export const NAMESPACES = ["common", "nav", "settings", "feasibility", "metrics", "import", "home", "printer", "project", "layers", "updater", "menu", "machine"] as const;
 export const DEFAULT_NS = "common";
