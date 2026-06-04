@@ -26,8 +26,10 @@ export function DrillWindow() {
   const hasProject = !!(snap?.workingDir && snap.manifest);
   const hasHoles = !!(plan && plan.totalHoles > 0 && route);
 
-  // Empty state: no project open yet, or plan is empty.
-  if (!hasProject || (!loading && !hasHoles)) {
+  // Empty state: no project open yet, or the plan finished computing with no holes.
+  // Gate the "no holes" branch on `plan !== null` so the very first render after a
+  // snapshot arrives (before the effect flips `loading`) doesn't flash the message.
+  if (!hasProject || (plan !== null && !loading && !hasHoles)) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-[#0a0c10] text-slate-500 text-sm">
         {loading ? (

@@ -54,9 +54,6 @@ export function DrillSummary({ plan, route }: DrillSummaryProps) {
       <ul className="flex flex-col gap-1.5">
         {route.groups.map((g, gi) => {
           const color = groupColor(gi);
-          const toolLabel = g.toolId
-            ? g.diameterMm.toFixed(2) + " mm"
-            : t("summary.noTool");
           return (
             <li key={gi} className="flex items-center gap-2">
               {/* Colour chip */}
@@ -68,9 +65,9 @@ export function DrillSummary({ plan, route }: DrillSummaryProps) {
               <span className="text-slate-100 tabular-nums">{fmtLen(g.diameterMm)}</span>
               {/* Class */}
               <span className="text-slate-400">{t(CLASS_LABEL[g.class])}</span>
-              {/* Tool name or "no drill" */}
+              {/* "no drill" for groups with no matching tool */}
               {!g.toolId && (
-                <span className="text-amber-400 text-xs">{toolLabel}</span>
+                <span className="text-amber-400 text-xs">{t("summary.noTool")}</span>
               )}
               {/* Hole count */}
               <span className="ml-auto text-slate-500 tabular-nums text-xs">

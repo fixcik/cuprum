@@ -25,6 +25,10 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
   // Per-design holes cache: avoids re-fetching the same design across snapshots.
   // Keyed by design_id; stored in a ref (not state) so updates don't retrigger the effect.
   const holesCache = useRef<Map<string, LocalHole[]>>(new Map());
+  // Design IDs are sequential PER PROJECT (design-1, design-2, …), not globally
+  // unique. Clear the cache when the working dir changes so a new project's
+  // design-1 doesn't serve the old project's design-1 holes.
+  const lastWorkingDir = useRef<string | null>(null);
 
   useEffect(() => {
     if (!snapshot?.workingDir || !snapshot.manifest?.panel) {
@@ -35,6 +39,11 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
     const { workingDir, manifest, placedSizes } = snapshot;
     const panel = manifest.panel!;
     let cancelled = false;
+
+    if (workingDir !== lastWorkingDir.current) {
+      holesCache.current.clear();
+      lastWorkingDir.current = workingDir;
+    }
 
     setResult((prev) => ({ ...prev, loading: true }));
 
