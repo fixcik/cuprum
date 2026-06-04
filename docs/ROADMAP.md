@@ -410,9 +410,14 @@ mesh 836, metrics 516). Публичный API и кеш-теги ни в одн
   `cuprum-dfm` поменяли только `use gerber_viewer::…`→`use cuprum_gerber::…` — публичный API наружу и
   кеш-теги не тронуты. Атрибуция форка (MIT/Apache, NOTICE + LICENSE-*) на месте. Ядро: 6206 → 3859
   строк; тесты ядра viewer'а теперь гоняются в воркспейсе (+47 нетто к набору).
-- [ ] **Фаза B — разбить `viewer/layer.rs`** (2501 строки — крупнейший файл): на фокусные модули
-  `primitive`/`bbox`/`build`/`layer` (типы примитивов / `WithBoundingBox` / билдер `GerberLayer` +
-  `Region`/`ApertureKind` / структура + аксессоры). Чистый перенос, поведение/число тестов не меняются.
+- [x] **Фаза B — разбить `viewer/layer.rs`** (✅ 2026-06-04, PR #129): монолит 2500 строк →
+  `layer.rs` (75, структура `GerberLayer` + аксессоры + реэкспорты) и подмодули `layer/`:
+  `primitive.rs` (283, типы примитивов), `bbox.rs` (385, `WithBoundingBox`), `build/` —
+  `mod.rs` (769, трёхпроходный билдер `build_primitives`), `aperture.rs` (386, `ApertureKind` +
+  раскрытие макросов + flash стандартных апертур), `plot.rs` (100, дуговая интерполяция G02/G03),
+  `region.rs` (99, `Region`/`RegionError` G36/G37), `tests.rs` (328). Чистый перенос: поведение,
+  публичный API и число тестов ядра (82) не изменились; внутренняя видимость минимизирована
+  (`pub(crate)`/`pub(super)`), без `#[allow]`-заглушек.
 - [ ] **Техдолг: `GerberImageTransform` — полу-разведённая фича.** Команды MI/SF/OF/IR/AS парсятся
   (`build_image_transform`) и хранятся в `GerberLayer.image_transform`, но `to_matrix()` нигде не
   вызывается → трансформ **не применяется** к координатам примитивов: эти (deprecated) Gerber-команды
