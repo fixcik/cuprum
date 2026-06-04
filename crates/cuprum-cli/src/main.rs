@@ -23,12 +23,24 @@ struct Cli {
 enum Command {
     /// Summarise a gerber file/dir or a .cuprum project.
     Info { input: PathBuf },
+    /// Composite colour PNG (top side).
+    Render {
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Longest side, px.
+        #[arg(long, default_value_t = 1024)]
+        max_px: u32,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match &cli.command {
         Command::Info { input } => commands::info::run(input, cli.json),
+        Command::Render { input, out, max_px } => {
+            commands::render::run(input, out.clone(), *max_px)
+        }
     };
     match result {
         Ok(()) => ExitCode::from(output::EXIT_OK as u8),
