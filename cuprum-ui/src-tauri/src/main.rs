@@ -105,6 +105,7 @@ fn set_app_menu(app: AppHandle, labels: MenuLabels) -> Result<(), String> {
 fn main() {
     let app = tauri::Builder::default()
         .manage(PendingOpen::default())
+        .manage(commands::machine::MachineState::default())
         .menu(|handle| build_app_menu(handle, &default_menu_labels()))
         .on_menu_event(|app, event| {
             // Manual "Check for Updates…" → the frontend runs a loud check (surfaces
@@ -183,7 +184,19 @@ fn main() {
             commands::windows::take_pending_open,
             commands::windows::open_add_design_window,
             commands::windows::open_inspector_window,
-            set_app_menu
+            set_app_menu,
+            commands::machine::list_serial_ports,
+            commands::machine::machine_connect,
+            commands::machine::machine_disconnect,
+            commands::machine::machine_jog,
+            commands::machine::machine_set_zero,
+            commands::machine::machine_home,
+            commands::machine::machine_unlock,
+            commands::machine::machine_spindle,
+            commands::machine::machine_send,
+            commands::machine::machine_soft_reset,
+            commands::machine::machine_feed_hold,
+            commands::machine::machine_cycle_start
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");
