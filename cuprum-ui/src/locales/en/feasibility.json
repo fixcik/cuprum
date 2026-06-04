@@ -121,5 +121,16 @@
     "warns": "{{count}} risk",
     "allOk": "all clear",
     "footer": "Thresholds are set in Settings. Rows without problems are hidden."
+  },
+  "panel": {
+    "empty": "No boards on the panel",
+    "offPanel": "{{count}} board(s) extend past the panel edge",
+    "overlap": "{{count}} board(s) overlap each other",
+    "spacing": "{{count}} board(s) are too close together or to the panel edge",
+    "workArea": "{{count}} board(s) are outside the machine work area",
+    "designBlock": "{{count}} board(s) cannot be produced",
+    "designWarn": "{{count}} board(s) have production warnings",
+    "sectionTitle": "Layout check",
+    "ok": "Layout is valid"
   }
 }
