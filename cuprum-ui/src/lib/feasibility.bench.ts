@@ -36,7 +36,7 @@ const denseMetrics = (): BoardMetrics => ({
   copper: [],
   drill: {
     totalHoles: HOT_N,
-    uniqueToolDiametersMm: [0.7], // off the bit set → triggers drill.bitSnap
+    uniqueToolDiametersMm: [0.7], // arbitrary diameter; bit-snap is not exercised in the bench
     minHoleMm: 0.2,
     platedHoleCount: HOT_N,
     nonplatedHoleCount: 0,

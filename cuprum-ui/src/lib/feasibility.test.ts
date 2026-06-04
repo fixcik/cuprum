@@ -298,9 +298,24 @@ describe("evaluate — drill", () => {
 
   it("warns on a tool diameter that snaps to no available bit", () => {
     const metrics = makeMetrics({ drill: { uniqueToolDiametersMm: [0.7] } });
-    const findings = evaluate(metrics, makeProfile());
+    // Pass the available bit set as the 5th arg; 0.7 is not in [0.3, 0.6] → bitSnap fires.
+    const findings = evaluate(metrics, makeProfile(), null, null, [0.3, 0.6]);
     const snap = findings.find((f) => f.id === "drill.bitSnap");
     expect(snap?.severity).toBe("warn");
+  });
+
+  it("skips bit-snap when no drill bits are configured (empty tool library)", () => {
+    const metrics = makeMetrics({ drill: { uniqueToolDiametersMm: [0.7] } });
+    // Default 5th arg = [] → bit-snap check is skipped entirely.
+    const findings = evaluate(metrics, makeProfile());
+    expect(findings.find((f) => f.id === "drill.bitSnap")).toBeUndefined();
+  });
+
+  it("passes bit-snap when the diameter matches a configured bit within tolerance", () => {
+    const metrics = makeMetrics({ drill: { uniqueToolDiametersMm: [0.8] } });
+    // 0.8 snaps to the 0.8 bit (tolerance 0.05) → no bitSnap finding.
+    const findings = evaluate(metrics, makeProfile(), null, null, [0.3, 0.8, 1.2]);
+    expect(findings.find((f) => f.id === "drill.bitSnap")).toBeUndefined();
   });
 
   it("reports slots as an ok informational row", () => {

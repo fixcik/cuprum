@@ -3,6 +3,8 @@ import { api, type GerberFile, type PanelDoc, type Stackup } from "@/lib/api";
 import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
 import { missingRequired } from "@/lib/layerColors";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
+import { useSettings } from "@/settingsStore";
+import { drillBitsFromTools } from "@/lib/toolLibrary";
 
 export interface DesignVerdict {
   /** DFM verdict, or null until the required layers (outline + copper) are present. */
@@ -34,6 +36,7 @@ export function useDesignVerdict(
   } = {},
 ): DesignVerdict {
   const { panel = null, stackup = null, traceSession, onMetrics } = opts;
+  const tools = useSettings((s) => s.tools);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [settled, setSettled] = useState(false);
@@ -61,7 +64,7 @@ export function useDesignVerdict(
       .then((m) => {
         if (cancelled) return;
         setSize({ w: m.metrics.board.widthMm, h: m.metrics.board.heightMm });
-        setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panel, stackup)) : null);
+        setVerdict(hasRequired ? overallVerdict(evaluate(m.metrics, profile, panel, stackup, drillBitsFromTools(tools))) : null);
         onMetricsRef.current?.(m.fresh);
         setSettled(true);
       })
@@ -75,7 +78,7 @@ export function useDesignVerdict(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- gerbersKey stands in for `gerbers`
-  }, [workingDir, gerbersKey, profile, panel, stackup, traceSession]);
+  }, [workingDir, gerbersKey, profile, tools, panel, stackup, traceSession]);
 
   return { verdict, size, settled };
 }
