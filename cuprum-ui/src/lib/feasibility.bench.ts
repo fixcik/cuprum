@@ -21,7 +21,7 @@ const hots = (n: number, v: number, side: GeoHotspot["side"]): GeoHotspot[] =>
   });
 
 const denseMetrics = (): BoardMetrics => ({
-  board: { widthMm: 50, heightMm: 40, outlineClosed: true, cutoutCount: 0, hasEdgeLayer: true },
+  board: { widthMm: 50, heightMm: 40, originXMm: 0, originYMm: 0, outlineClosed: true, cutoutCount: 0, hasEdgeLayer: true },
   layers: {
     copperTop: true,
     copperBottom: true,

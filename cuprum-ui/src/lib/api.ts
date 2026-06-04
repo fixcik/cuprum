@@ -290,6 +290,10 @@ export interface BoardMetrics {
   board: {
     widthMm: number;
     heightMm: number;
+    /** X coordinate of the board outline bounding-box min corner (mm). */
+    originXMm: number;
+    /** Y coordinate of the board outline bounding-box min corner (mm). */
+    originYMm: number;
     outlineClosed: boolean;
     cutoutCount: number;
     hasEdgeLayer: boolean;

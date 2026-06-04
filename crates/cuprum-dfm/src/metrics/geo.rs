@@ -48,6 +48,8 @@ pub(super) fn board_dims(layers: &[MetricLayerInput]) -> BoardDims {
         return BoardDims {
             width_mm: 0.0,
             height_mm: 0.0,
+            origin_x_mm: 0.0,
+            origin_y_mm: 0.0,
             outline_closed: false,
             cutout_count: 0,
             has_edge_layer: false,
@@ -58,6 +60,8 @@ pub(super) fn board_dims(layers: &[MetricLayerInput]) -> BoardDims {
         return BoardDims {
             width_mm: 0.0,
             height_mm: 0.0,
+            origin_x_mm: 0.0,
+            origin_y_mm: 0.0,
             outline_closed: false,
             cutout_count: 0,
             has_edge_layer: true,
@@ -73,6 +77,8 @@ pub(super) fn board_dims(layers: &[MetricLayerInput]) -> BoardDims {
     BoardDims {
         width_mm: (max_x - min_x) as f32,
         height_mm: (max_y - min_y) as f32,
+        origin_x_mm: min_x as f32,
+        origin_y_mm: min_y as f32,
         outline_closed: perimeter_closed,
         cutout_count: (loops.len() - 1) as u32,
         has_edge_layer: true,

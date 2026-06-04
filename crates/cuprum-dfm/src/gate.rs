@@ -99,6 +99,8 @@ mod tests {
         BoardDims {
             width_mm: 50.0,
             height_mm: 50.0,
+            origin_x_mm: 0.0,
+            origin_y_mm: 0.0,
             outline_closed: true,
             cutout_count: 0,
             has_edge_layer: true,

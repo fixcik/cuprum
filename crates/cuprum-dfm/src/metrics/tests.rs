@@ -179,6 +179,41 @@ fn board_size_from_edge_square() {
 }
 
 #[test]
+fn board_origin_from_offset_edge_square() {
+    // 10×10 mm square whose min corner sits at (5, 10) mm — guards that the
+    // origin is the outline bbox min corner (not hardcoded 0 / not x↔y swapped).
+    const EDGE_OFFSET: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.1*%\nD10*\nX50000Y100000D02*\nX150000Y100000D01*\nX150000Y200000D01*\nX50000Y200000D01*\nX50000Y100000D01*\nM02*\n";
+    let m = board_metrics(&[edge(EDGE_OFFSET)]);
+    let dims = &m.board;
+    assert!(
+        (dims.origin_x_mm - 5.0).abs() < 0.01,
+        "origin_x={}",
+        dims.origin_x_mm
+    );
+    assert!(
+        (dims.origin_y_mm - 10.0).abs() < 0.01,
+        "origin_y={}",
+        dims.origin_y_mm
+    );
+    assert!((dims.width_mm - 10.0).abs() < 0.01, "w={}", dims.width_mm);
+    assert!((dims.height_mm - 10.0).abs() < 0.01, "h={}", dims.height_mm);
+}
+
+#[test]
+fn board_dims_without_edge_layer_has_zero_origin() {
+    // No Edge_Cuts layer at all → both early-return branches must yield origin (0, 0).
+    let no_edge = board_metrics(&[MetricLayerInput {
+        role: Role::Copper,
+        side: Side::Top,
+        inner: false,
+        plated: false,
+        bytes: CU_TRACE,
+    }]);
+    assert_eq!(no_edge.board.origin_x_mm, 0.0, "no-edge origin_x");
+    assert_eq!(no_edge.board.origin_y_mm, 0.0, "no-edge origin_y");
+}
+
+#[test]
 fn no_edge_layer_is_flagged() {
     let m = board_metrics(&[MetricLayerInput {
         role: Role::Copper,

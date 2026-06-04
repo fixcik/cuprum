@@ -193,6 +193,22 @@ export function packLayout(
   return packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, [], 0);
 }
 
+/** Rotate point (px,py) about center (cx,cy) by `rotationDeg` (degrees, CCW in
+ *  the panel's Y-down space). Shared by instanceBounds and panel-drill projection
+ *  so a placed board's holes land exactly on its drawn footprint. */
+export function rotatePointAroundCenter(
+  px: number,
+  py: number,
+  cx: number,
+  cy: number,
+  rotationDeg: number,
+): [number, number] {
+  const rad = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return [cx + (px - cx) * cos - (py - cy) * sin, cy + (px - cx) * sin + (py - cy) * cos];
+}
+
 /** Axis-aligned bounding box (mm) of a placed board. `(x, y)` is the top-left of
  *  the UNROTATED board; `rotation_deg` is an arbitrary angle about the board
  *  CENTRE (`cx = x + W/2`, `cy = y + H/2`). The four corners are rotated about the
@@ -209,17 +225,15 @@ export function instanceBounds(opts: {
   const { xMm, yMm, boardW, boardH, rotationDeg } = opts;
   const cx = xMm + boardW / 2;
   const cy = yMm + boardH / 2;
-  const rad = (rotationDeg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const corners = [
+  const corners: [number, number][] = [
     [xMm, yMm],
     [xMm + boardW, yMm],
     [xMm, yMm + boardH],
     [xMm + boardW, yMm + boardH],
   ];
-  const xs = corners.map(([px, py]) => cx + (px - cx) * cos - (py - cy) * sin);
-  const ys = corners.map(([px, py]) => cy + (px - cx) * sin + (py - cy) * cos);
+  const rotated = corners.map(([px, py]) => rotatePointAroundCenter(px, py, cx, cy, rotationDeg));
+  const xs = rotated.map((p) => p[0]);
+  const ys = rotated.map((p) => p[1]);
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 

@@ -23,7 +23,7 @@ type MetricsOverride = {
 /** A minimal, clean single-sided board that passes every check; override per case. */
 const makeMetrics = (o: MetricsOverride = {}): BoardMetrics => {
   const base: BoardMetrics = {
-    board: { widthMm: 50, heightMm: 40, outlineClosed: true, cutoutCount: 0, hasEdgeLayer: true },
+    board: { widthMm: 50, heightMm: 40, originXMm: 0, originYMm: 0, outlineClosed: true, cutoutCount: 0, hasEdgeLayer: true },
     layers: {
       copperTop: true,
       copperBottom: false,

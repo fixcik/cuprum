@@ -127,6 +127,12 @@ impl BoardMetrics {
 pub struct BoardDims {
     pub width_mm: f32,
     pub height_mm: f32,
+    /// X coordinate of the board outline bounding-box min corner (mm). Zero when
+    /// no Edge_Cuts layer is present or the layer has no closed perimeter.
+    pub origin_x_mm: f32,
+    /// Y coordinate of the board outline bounding-box min corner (mm). Zero when
+    /// no Edge_Cuts layer is present or the layer has no closed perimeter.
+    pub origin_y_mm: f32,
     /// Did the perimeter stitch into a closed loop? (Open → size is an estimate.)
     pub outline_closed: bool,
     /// Inner cutouts (holes in the board outline), = loops − 1.
@@ -219,6 +225,8 @@ mod tests {
             board: BoardDims {
                 width_mm: 10.0,
                 height_mm: 10.0,
+                origin_x_mm: 0.0,
+                origin_y_mm: 0.0,
                 outline_closed: true,
                 cutout_count: 0,
                 has_edge_layer: true,
