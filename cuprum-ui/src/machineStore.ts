@@ -43,10 +43,13 @@ export const useMachine = create<MachineStore>((set, get) => ({
     set({ connected: true, port });
   },
   disconnect: async () => {
+    if (!get().connected) return;
     await api.machine.disconnect();
     get().reset();
   },
   pushLine: (line) => set((s) => ({ lines: [...s.lines.slice(-(MAX_LINES - 1)), line] })),
   setStatus: (status) => set({ status }),
-  reset: () => set({ connected: false, port: null, status: IDLE_STATUS, lines: [] }),
+  // Keep `lines` so the user still sees why the connection dropped (e.g. the
+  // error line pushed just before an unplug). Connection state + DRO reset.
+  reset: () => set({ connected: false, port: null, status: IDLE_STATUS }),
 }));
