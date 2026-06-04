@@ -385,6 +385,16 @@ describe("packLayoutAvoiding", () => {
       prev = r.n;
     }
   });
+
+  it("anchors the greedy fill flush to the corner even when step doesn't divide the range", () => {
+    // board 10×10 on 100×95, no margin/gap, snap 3 (step 3 ∤ yEnd=85), corner bl, 1 copy.
+    // Obstacle parked at the top so it doesn't block the bottom-left target.
+    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, snapMm: 3, corner: "bl", fillMode: "copies", copies: 1 });
+    const r = packLayoutAvoiding(10, 10, 100, 95, nest, [box(0, 0, 10, 10)], 0);
+    // bl → first candidate flush to the bottom (yEnd = 95−10 = 85), not 84 (the
+    // largest multiple of 3 from y0). Left-anchored x stays at 0.
+    expect(r.placements[0]).toEqual({ x: 0, y: 85 });
+  });
 });
 
 const NEST = { ...DEFAULT_NEST, enabled: true, marginMm: 0, gapMm: 0, corner: "tl" as const, rotate: false };

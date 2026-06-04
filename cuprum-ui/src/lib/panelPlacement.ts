@@ -109,14 +109,21 @@ export function packLayoutAvoiding(
   const y0 = margin;
   const xEnd = panelWmm - margin - bw; // last fitting top-left x
   const yEnd = panelHmm - margin - bh; // last fitting top-left y
-  // Candidate coordinates honouring the anchor corner — order controls which cells
-  // win the `requested` cap, not the count.
-  const xs: number[] = [];
-  for (let x = x0; x <= xEnd + 1e-9; x += step) xs.push(x);
-  const ys: number[] = [];
-  for (let y = y0; y <= yEnd + 1e-9; y += step) ys.push(y);
-  if (nest.corner === "tr" || nest.corner === "br") xs.reverse();
-  if (nest.corner === "bl" || nest.corner === "br") ys.reverse();
+  // Candidate coordinates honouring the anchor corner. Generated directly in the
+  // anchor direction so the corner-adjacent position (xEnd/yEnd) is always included
+  // even when `step` doesn't divide the range — the first candidate sits flush to
+  // the chosen corner. Order controls which cells win the `requested` cap, not the count.
+  const axisCandidates = (start: number, end: number, fromEnd: boolean): number[] => {
+    const out: number[] = [];
+    if (fromEnd) {
+      for (let v = end; v >= start - 1e-9; v -= step) out.push(v);
+    } else {
+      for (let v = start; v <= end + 1e-9; v += step) out.push(v);
+    }
+    return out;
+  };
+  const xs = axisCandidates(x0, xEnd, nest.corner === "tr" || nest.corner === "br");
+  const ys = axisCandidates(y0, yEnd, nest.corner === "bl" || nest.corner === "br");
   const placed: Box[] = [];
   const placements: { x: number; y: number }[] = [];
   const tryCell = (x: number, y: number): void => {
