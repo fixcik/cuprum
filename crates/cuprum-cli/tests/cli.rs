@@ -1,0 +1,39 @@
+use assert_cmd::Command;
+use predicates::prelude::*;
+
+fn gerber_fixture() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/gerber/plaid")
+}
+
+#[test]
+fn info_on_gerber_dir_lists_layers() {
+    Command::cargo_bin("cuprum")
+        .unwrap()
+        .args(["info", gerber_fixture().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("layers ("));
+}
+
+#[test]
+fn info_json_is_parseable() {
+    let out = Command::cargo_bin("cuprum")
+        .unwrap()
+        .args(["--json", "info", gerber_fixture().to_str().unwrap()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(v["layers"].is_array());
+}
+
+#[test]
+fn missing_input_errors_with_code_1() {
+    Command::cargo_bin("cuprum")
+        .unwrap()
+        .args(["info", "/no/such/path"])
+        .assert()
+        .code(1);
+}

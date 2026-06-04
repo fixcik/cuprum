@@ -12,6 +12,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 cuprum-core = { path = "crates/cuprum-core" }
+cuprum-project = { path = "crates/cuprum-project" }
 cuprum-trace = { path = "crates/cuprum-trace" }
 cuprum-diskcache = { path = "crates/cuprum-diskcache" }
 cuprum-cache = { path = "crates/cuprum-cache" }
