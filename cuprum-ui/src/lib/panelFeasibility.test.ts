@@ -40,6 +40,16 @@ describe("evaluatePanel", () => {
     expect(ov?.instanceIds.sort()).toEqual(["a", "b"]);
   });
 
+  it("overlapping boards are NOT also double-counted as a spacing warning", () => {
+    // Both boards sit at the panel corner → overlap AND within minGap of an edge.
+    const f = evaluatePanel({
+      panel: panel(100, 100, [inst("a", "d1", 0, 0), inst("b", "d1", 5, 5)]),
+      sizes: { d1: { w: 20, h: 20 } }, profile: prof, designVerdicts: { d1: "ok" },
+    });
+    expect(f.some((x) => x.category === "overlap")).toBe(true);
+    expect(f.some((x) => x.category === "spacing")).toBe(false);
+  });
+
   it("boards within MIN_PANEL_GAP but not overlapping → warn spacing", () => {
     // a:[0,20], b at x=20+0.5 → gap 0.5 < 1 mm, no overlap.
     const f = evaluatePanel({

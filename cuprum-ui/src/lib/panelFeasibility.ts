@@ -125,8 +125,10 @@ export function evaluatePanel(opts: {
     }
   }
   // Edge margin (warn): board inside panel but within minGap of any panel edge.
+  // Skip off-panel (already block) and overlapping boards (already block) so a
+  // single instance is never flagged both block and warn.
   for (const { inst, box } of sized) {
-    if (offIds.includes(inst.id)) continue;
+    if (offIds.includes(inst.id) || overlapIds.has(inst.id)) continue;
     const margin = Math.min(
       box.minX,
       box.minY,

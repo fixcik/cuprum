@@ -384,7 +384,7 @@ export function PanelInspector({
               {/* Findings list — skip the "empty" info finding to keep it quiet */}
               {panelFindings.filter((f) => f.category !== "empty").length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">
-                  {panelFindings.length === 0
+                  {panelFindings.some((f) => f.category === "empty") || panelFindings.length === 0
                     ? t("feasibility:panel.empty")
                     : t("feasibility:panel.ok")}
                 </p>

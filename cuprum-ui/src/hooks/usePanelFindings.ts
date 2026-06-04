@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
-import { api } from "@/lib/api";
+import { api, type BoardMetrics } from "@/lib/api";
 import { evaluate, overallVerdict, type Severity, type Verdict } from "@/lib/feasibility";
 import { evaluatePanel, type PanelFinding } from "@/lib/panelFeasibility";
 import { worseSeverity } from "@/lib/severity";
@@ -34,9 +34,10 @@ export function usePanelFindings(): PanelFindingsResult {
   // Board sizes per design id (already fetched by usePlacedBoardSizes).
   const sizes = usePlacedBoardSizes();
 
-  // Per-design verdicts, fetched via the same disk-cached call as sizes.
-  // State keyed by design id → Verdict (null until resolved).
-  const [verdictMap, setVerdictMap] = useState<Record<string, Verdict>>({});
+  // Per-design board metrics (disk-cached), keyed by design id. Cached by design
+  // CONTENT only; verdicts are derived from these against the CURRENT profile/panel/
+  // stackup in a memo below, so a profile change re-evaluates without re-fetching.
+  const [metricsMap, setMetricsMap] = useState<Record<string, BoardMetrics>>({});
 
   // Ref used to guard stale async updates (cancel on cleanup / dependency change).
   const cancelRef = useRef<Set<string>>(new Set());
@@ -47,8 +48,9 @@ export function usePanelFindings(): PanelFindingsResult {
     // Ids currently placed.
     const liveIds = new Set(instances.map((i) => i.design_id));
 
-    // Fetch metrics for designs not yet resolved.
-    const needed = Array.from(liveIds).filter((id) => !(id in verdictMap));
+    // Fetch metrics for designs not yet resolved. Keyed by design content only —
+    // NOT profile/panel/stackup (verdicts are derived from these metrics below).
+    const needed = Array.from(liveIds).filter((id) => !(id in metricsMap));
 
     needed.forEach((id) => {
       const d = designs.find((x) => x.id === id);
@@ -62,14 +64,13 @@ export function usePanelFindings(): PanelFindingsResult {
         .then((m) => {
           // If this id is no longer needed (unmounted or design removed), skip.
           if (cancelRef.current.has(id)) return;
-          const v = overallVerdict(evaluate(m.metrics, profile, panel, stackup));
-          setVerdictMap((prev) => ({ ...prev, [id]: v }));
+          setMetricsMap((prev) => ({ ...prev, [id]: m.metrics }));
         })
         .catch(() => {});
     });
 
     // Prune stale entries (design no longer placed).
-    setVerdictMap((prev) => {
+    setMetricsMap((prev) => {
       const entries = Object.entries(prev).filter(([id]) => liveIds.has(id));
       return entries.length === Object.keys(prev).length
         ? prev
@@ -80,15 +81,25 @@ export function usePanelFindings(): PanelFindingsResult {
       // Mark all current needed ids as cancelled so in-flight responses are ignored.
       needed.forEach((id) => cancelRef.current.add(id));
     };
-    // verdictMap intentionally omitted (same pattern as usePlacedBoardSizes).
+    // metricsMap intentionally omitted (same fetch-and-prune pattern as usePlacedBoardSizes).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingDir, instances, designs, profile, panel, stackup]);
+  }, [workingDir, instances, designs]);
+
+  // Per-design verdict, derived from cached metrics against the CURRENT profile /
+  // panel / stackup. Recomputes on a profile change without re-fetching metrics.
+  const designVerdicts = useMemo((): Record<string, Verdict> => {
+    const out: Record<string, Verdict> = {};
+    for (const [id, m] of Object.entries(metricsMap)) {
+      out[id] = overallVerdict(evaluate(m, profile, panel, stackup));
+    }
+    return out;
+  }, [metricsMap, profile, panel, stackup]);
 
   // Run evaluatePanel with all resolved inputs.
   const findings = useMemo((): PanelFinding[] => {
     if (!panel) return [];
-    return evaluatePanel({ panel, sizes, profile, designVerdicts: verdictMap });
-  }, [panel, sizes, profile, verdictMap]);
+    return evaluatePanel({ panel, sizes, profile, designVerdicts });
+  }, [panel, sizes, profile, designVerdicts]);
 
   // Overall verdict from the findings.
   const verdict = useMemo((): Verdict => overallVerdict(findings), [findings]);
