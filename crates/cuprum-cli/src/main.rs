@@ -38,6 +38,16 @@ enum Command {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    /// Export the triangulated board mesh (glTF/STL/OBJ).
+    #[command(name = "3d")]
+    Mesh {
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// gltf | stl | obj (default: gltf/glb, or inferred from -o extension).
+        #[arg(long)]
+        format: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -48,6 +58,9 @@ fn main() -> ExitCode {
             commands::render::run(input, out.clone(), *max_px)
         }
         Command::Svg { input, out } => commands::svg::run(input, out.clone()),
+        Command::Mesh { input, out, format } => {
+            commands::mesh::run(input, out.clone(), format.clone())
+        }
     };
     match result {
         Ok(()) => ExitCode::from(output::EXIT_OK as u8),
