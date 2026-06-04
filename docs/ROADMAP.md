@@ -347,9 +347,16 @@ Panel-модель ниже. Ведётся инкрементальными PR 
   6 измерительных функций geometry (`point_*`/`poly_containing`/`circle`/`shapes_to_polys`) повышены
   `pub(crate)`→`pub` (их зовёт core). Заодно `geometry.rs` (683) разбит на `geometry/{mod,build,tess,measure}.rs`.
   Чистое перемещение, вывод не тронут.
-- [ ] **PR8+ — `cuprum-mesh` / `cuprum-dfm`** (каждый с разбивкой своего крупного файла:
-  mesh.rs 836, dfm/metrics/mod 516). Слоистость: `cuprum-mesh` → `cuprum-gerber`;
-  `cuprum-dfm` → `cuprum-mesh`+`cuprum-gerber`. После этого `cuprum-core` = только оркестрация
+- [x] **PR8 — вынести `cuprum-mesh` + разбить `mesh.rs`** (✅ 2026-06-04): модуль `mesh` →
+  новый крейт `cuprum-mesh` (deps: `cuprum-gerber`+`cuprum-trace` + gerber_viewer/i_overlay/
+  earcutr/rayon/tracing). В core — фасад `pub use cuprum_mesh as mesh;`, так что
+  `cuprum_core::mesh::…` (UI, preview, dfm) резолвится без правок вызовов; внутри переписаны
+  `crate::{geometry,gerber,drill}`→`cuprum_gerber::…`, `crate::trace`→`cuprum_trace`. `outline_info`
+  повышена `pub(crate)`→`pub` (зовёт preview/dfm). Из core убраны ставшие неиспользуемыми
+  `earcutr`/`i_overlay`. Заодно `mesh.rs` (836) разбит на `mesh/{lib,emit,outline,build}.rs`.
+  Чистое перемещение, вывод не тронут.
+- [ ] **PR9 — `cuprum-dfm`** (+ разбивка `dfm/metrics/mod.rs` 516). Слоистость: `cuprum-dfm` →
+  `cuprum-mesh`+`cuprum-gerber`. После этого `cuprum-core` = только оркестрация
   (compose/preview/cache-path-хелперы/cal).
 
 ## Workstream: переосмысление CLI с нуля
