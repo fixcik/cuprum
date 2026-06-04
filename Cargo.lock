@@ -487,11 +487,10 @@ dependencies = [
  "cuprum-diskcache",
  "cuprum-gerber",
  "cuprum-goo",
+ "cuprum-mesh",
  "cuprum-sdcp",
  "cuprum-trace",
- "earcutr",
  "gerber_viewer",
- "i_overlay",
  "lru",
  "rayon",
  "resvg",
@@ -534,6 +533,20 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "goo",
+ "tracing",
+]
+
+[[package]]
+name = "cuprum-mesh"
+version = "0.3.0"
+dependencies = [
+ "cuprum-gerber",
+ "cuprum-trace",
+ "earcutr",
+ "gerber_viewer",
+ "i_overlay",
+ "rayon",
+ "serde_json",
  "tracing",
 ]
 

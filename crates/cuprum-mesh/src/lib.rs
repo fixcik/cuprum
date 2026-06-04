@@ -14,9 +14,9 @@
 //! in). The frontend just wraps them in `BufferGeometry` — no booleans, no
 //! triangulation, no per-hole meshes, no million-element `JSON.parse`.
 //!
-//! It builds on [`crate::geometry`] for the clean, drill-subtracted fill
-//! polygons (`layer_polygons` / `mask_polygons`), and on [`crate::drill`] for
-//! the holes. Surface layers are triangulated in parallel with `rayon`.
+//! It builds on [`cuprum_gerber::geometry`] for the clean, drill-subtracted fill
+//! polygons (`layer_polygons` / `mask_polygons`), and on [`cuprum_gerber::drill`]
+//! for the holes. Surface layers are triangulated in parallel with `rayon`.
 
 use std::f64::consts::TAU;
 
@@ -26,7 +26,7 @@ use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::overlay::FloatOverlay;
 use rayon::prelude::*;
 
-use crate::geometry::{self, Hole, Poly};
+use cuprum_gerber::geometry::{self, Hole, Poly};
 
 /// Default FR4 substrate thickness in mm, used when the project's panel stackup
 /// is not configured. The real thickness is passed into [`board_geometry`].
@@ -246,7 +246,7 @@ fn add_barrel(buf: &mut Buffer, cx: f32, cy: f32, r: f32, z0: f32, z1: f32) {
 /// circles / fills are ignored — they're not part of the cut path.
 fn edge_segments(edge_bytes: &[u8]) -> Vec<([f64; 2], [f64; 2])> {
     // Shared cross-operation parse: metrics/mesh/SVG reuse one parsed layer.
-    let layer = match crate::gerber::parse_layer_cached(edge_bytes) {
+    let layer = match cuprum_gerber::gerber::parse_layer_cached(edge_bytes) {
         Ok(l) => l,
         Err(_) => return Vec::new(),
     };
@@ -281,7 +281,7 @@ fn edge_segments(edge_bytes: &[u8]) -> Vec<([f64; 2], [f64; 2])> {
 /// Edge_Cuts outline loops plus whether the board PERIMETER (largest loop)
 /// closed. Perimeter first, then inner cutouts. Used by the metrics module to
 /// report board size, cutout count and whether the outline forms a closed shape.
-pub(crate) fn outline_info(edge_bytes: &[u8]) -> (Vec<Vec<[f64; 2]>>, bool) {
+pub fn outline_info(edge_bytes: &[u8]) -> (Vec<Vec<[f64; 2]>>, bool) {
     let loops = stitch(edge_segments(edge_bytes));
     let perimeter_closed = loops.first().map(|(_, closed)| *closed).unwrap_or(false);
     (
@@ -493,7 +493,7 @@ pub fn board_geometry(layers: &[LayerInput], thickness: f32) -> BoardMesh {
         let _span = tracing::info_span!("collect_holes").entered();
         for l in layers {
             if l.role == Role::Drill {
-                if let Ok(hs) = crate::drill::parse_drill(l.bytes) {
+                if let Ok(hs) = cuprum_gerber::drill::parse_drill(l.bytes) {
                     for h in hs {
                         holes.push(Hole {
                             x: h.x_mm as f64,
@@ -522,13 +522,13 @@ pub fn board_geometry(layers: &[LayerInput], thickness: f32) -> BoardMesh {
     // instead of running before it. Capture the current span so spans created on
     // rayon workers (either side of the join, possibly stolen onto a worker
     // thread) stay its children and route to this operation's trace file.
-    let dh = crate::trace::capture_dispatch();
+    let dh = cuprum_trace::capture_dispatch();
     let (substrate, mut meshes) = rayon::join(
         || dh.run(|| build_substrate(&outline, &holes, thickness)),
         || {
             dh.run(|| {
                 let _span = tracing::info_span!("triangulate_parallel").entered();
-                let dh = crate::trace::capture_dispatch();
+                let dh = cuprum_trace::capture_dispatch();
                 layers
                     .par_iter()
                     .filter_map(|l| dh.run(|| build_surface_layer(l, &holes, &outline, thickness)))
@@ -544,7 +544,7 @@ pub fn board_geometry(layers: &[LayerInput], thickness: f32) -> BoardMesh {
             if l.role != Role::Drill {
                 continue;
             }
-            let Ok(hs) = crate::drill::parse_drill(l.bytes) else {
+            let Ok(hs) = cuprum_gerber::drill::parse_drill(l.bytes) else {
                 continue;
             };
             let mut buf = Buffer::default();
@@ -773,8 +773,8 @@ mod tests {
 
         let tmp = std::env::temp_dir().join(format!("cuprum-mesh-trace-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        let cfg = crate::trace::TraceConfig::Dir(tmp.clone());
-        let board = crate::trace::run_with_config(&cfg, "mesh", &tmp, || {
+        let cfg = cuprum_trace::TraceConfig::Dir(tmp.clone());
+        let board = cuprum_trace::run_with_config(&cfg, "mesh", &tmp, || {
             board_geometry(&layers, DEFAULT_FR4_THICK)
         });
         assert!(!board.substrate.positions.is_empty(), "board still built");
