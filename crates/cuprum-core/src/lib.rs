@@ -39,3 +39,7 @@ pub use cuprum_mesh as mesh;
 // the historical path so `cuprum_core::dfm::…` (and in-crate `crate::dfm::…`, e.g.
 // the cache-wrapper facade) keep resolving for the CLI and the UI.
 pub use cuprum_dfm as dfm;
+
+// GRBL machine client lives in its own leaf crate; re-export under `cuprum_core::grbl`
+// so the UI (Tauri machine commands) reaches it through the core facade, like sdcp.
+pub use cuprum_grbl as grbl;
