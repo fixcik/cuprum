@@ -140,7 +140,11 @@ fn check_json_has_metrics_and_gate() {
         .clone();
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
     assert!(v["metrics"].is_object());
-    assert!(v["gate"]["worst"].is_string());
+    // Severity serializes lowercase ("ok"/"block"), consistent with the rest of the API.
+    assert!(matches!(
+        v["gate"]["worst"].as_str(),
+        Some("ok") | Some("block")
+    ));
 }
 
 #[test]

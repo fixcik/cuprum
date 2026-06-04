@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 use crate::BoardMetrics;
 
 /// Hard manufacturability limits (mm). Defaults are conservative home-fab values.
+/// `default` so a partial `--profile` JSON only overrides the keys it lists; the
+/// rest fall back to [`GateProfile::default`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct GateProfile {
     pub min_trace_mm: f32,
     pub min_clearance_mm: f32,
@@ -28,6 +30,7 @@ impl Default for GateProfile {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] // "Ok" → "ok", "Block" → "block"
 pub enum GateSeverity {
     Ok,
     Block,
