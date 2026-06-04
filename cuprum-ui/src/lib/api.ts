@@ -122,6 +122,16 @@ export const DEFAULT_FR4_THICKNESS_MM = 1.6;
 
 export type LayerRef = "Top" | "Bottom";
 export type ToolingHoleRole = "registration" | "flip" | "unused";
+export type KeepOutKind = "fixture" | "dead" | "reserved";
+
+export interface KeepOutZone {
+  id: string;
+  x_mm: number;
+  y_mm: number;
+  width_mm: number;
+  height_mm: number;
+  kind: KeepOutKind;
+}
 
 export interface BoardInstance {
   id: string;
@@ -148,6 +158,7 @@ export interface PanelDoc {
   origin_y_mm: number;
   instances: BoardInstance[];
   tooling_holes: ToolingHole[];
+  keep_out_zones: KeepOutZone[];
 }
 
 export interface Manifest {

@@ -115,13 +115,14 @@ describe("evaluate — size", () => {
   it("checks against the panel dimensions when a panel is configured", () => {
     const metrics = makeMetrics({ board: { widthMm: 70, heightMm: 40 } });
     const panel = {
-      schema_version: 2,
+      schema_version: 3,
       width_mm: 60,
       height_mm: 60,
       origin_x_mm: 0,
       origin_y_mm: 0,
       instances: [],
       tooling_holes: [],
+      keep_out_zones: [],
     };
     const findings = evaluate(metrics, makeProfile(), panel);
     const size = findings.find((f) => f.id === "size.fits");
