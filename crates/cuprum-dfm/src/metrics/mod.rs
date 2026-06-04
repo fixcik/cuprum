@@ -22,6 +22,8 @@ mod geo;
 mod parse;
 mod types;
 
+#[cfg(test)]
+pub(crate) use types::{BoardDims, CopperLayerMetric, DrillMetrics, GeoMetrics, LayerSummary};
 pub use types::{BoardMetrics, Hotspot, MetricLayerInput};
 
 use cuprum_mesh::Side;

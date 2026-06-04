@@ -48,22 +48,29 @@ enum Command {
         #[arg(long)]
         format: Option<String>,
     },
+    /// Measure DFM facts and gate against manufacturability limits.
+    Check {
+        input: PathBuf,
+        #[arg(long)]
+        profile: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let result = match &cli.command {
-        Command::Info { input } => commands::info::run(input, cli.json),
+    let result: anyhow::Result<i32> = match &cli.command {
+        Command::Info { input } => commands::info::run(input, cli.json).map(|_| 0),
         Command::Render { input, out, max_px } => {
-            commands::render::run(input, out.clone(), *max_px)
+            commands::render::run(input, out.clone(), *max_px).map(|_| 0)
         }
-        Command::Svg { input, out } => commands::svg::run(input, out.clone()),
+        Command::Svg { input, out } => commands::svg::run(input, out.clone()).map(|_| 0),
         Command::Mesh { input, out, format } => {
-            commands::mesh::run(input, out.clone(), format.clone())
+            commands::mesh::run(input, out.clone(), format.clone()).map(|_| 0)
         }
+        Command::Check { input, profile } => commands::check::run(input, profile.clone(), cli.json),
     };
     match result {
-        Ok(()) => ExitCode::from(output::EXIT_OK as u8),
+        Ok(code) => ExitCode::from(code as u8),
         Err(e) => {
             output::print_error(cli.json, &format!("{e:#}"));
             ExitCode::from(output::EXIT_ERR as u8)
