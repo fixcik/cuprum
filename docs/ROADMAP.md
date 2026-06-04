@@ -728,7 +728,7 @@ milling, ProfileRoute и auto-leveling — следующим заходом.
 G85-слоты), DFM-метрики сверловки (размер/кол-во/гистограмма/поясок/снап к
 свёрлам), 3D-барели в меше, поля `drillBitSetMm`/`drillBitToleranceMm` в профиле.
 
-- [ ] **Фаза 1 — связь со станком (GRBL).** Новый лист-крейт `cuprum-grbl` (по
+- [x] **Фаза 1 — связь со станком (GRBL).** (✅ 2026-06-04, PR #156) Новый лист-крейт `cuprum-grbl` (по
       образцу `cuprum-sdcp`): serial/USB-транспорт (`serialport`), дискавери
       портов, протокол GRBL 1.1 — статус `?` (парс `<Idle|Run|Alarm,MPos,WPos>`),
       `$$`-настройки, `$X` unlock, soft-reset (Ctrl-X), `$J=` jog, feed-hold `!` /
