@@ -13,6 +13,5 @@ mod types;
 #[cfg(test)]
 mod testing;
 
-pub use geometry::*;
-pub use layer::*;
+pub use layer::{GerberLayer, GerberPrimitive};
 pub use types::Exposure;

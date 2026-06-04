@@ -70,20 +70,6 @@ pub mod geometry {
         (edges, midpoints)
     }
 
-    pub fn compute_center_based_rotations(
-        midpoints: &[(f64, f64)],
-        shape_center: (f64, f64),
-    ) -> Vec<f64> {
-        midpoints
-            .iter()
-            .map(|&(mx, my)| {
-                let dx = mx - shape_center.0;
-                let dy = my - shape_center.1;
-                -dy.atan2(dx).to_degrees()
-            })
-            .collect()
-    }
-
     pub fn compute_edge_rotations(edges: &[((f64, f64), (f64, f64))]) -> Vec<f64> {
         edges
             .iter()

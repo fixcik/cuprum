@@ -14,9 +14,10 @@ use super::expressions::{
     evaluate_expression, macro_boolean_to_bool, macro_decimal_pair_to_f64, macro_decimal_to_f64,
     macro_integer_to_u32, ExpressionEvaluationError, MacroContext,
 };
+use super::geometry;
+use super::geometry::GerberImageTransform;
 use super::spacial::deduplicate::DedupEpsilon;
 use super::spacial::ToVector;
-use super::{geometry, GerberImageTransform};
 use crate::viewer::geometry::BoundingBox;
 use crate::viewer::types::{Exposure, Winding};
 
@@ -2140,10 +2141,10 @@ mod circle_aperture_tests {
     };
     use nalgebra::Point2;
 
+    use crate::viewer::layer::ArcGerberPrimitive;
+    use crate::viewer::layer::{GerberLayer, GerberPrimitive};
     use crate::viewer::testing::dump_gerber_source;
     use crate::viewer::types::Exposure;
-    use crate::viewer::ArcGerberPrimitive;
-    use crate::viewer::{GerberLayer, GerberPrimitive};
 
     #[test]
     fn test_circle_with_hole_rendering() {

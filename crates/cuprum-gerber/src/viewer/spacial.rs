@@ -10,48 +10,6 @@ impl ToVector for Point2<f64> {
     }
 }
 
-pub trait FromTuple2 {
-    fn from(value: (f64, f64)) -> Self;
-}
-
-impl FromTuple2 for Point2<f64> {
-    fn from(value: (f64, f64)) -> Self {
-        Self::new(value.0, value.1)
-    }
-}
-
-pub trait ToPosition {
-    fn to_position(self) -> Point2<f64>;
-}
-
-impl ToPosition for Vector2<f64> {
-    fn to_position(self) -> Point2<f64> {
-        Point2::new(self.x, self.y)
-    }
-}
-
-pub trait Invert {
-    fn invert_x(self) -> Self;
-    fn invert_y(self) -> Self;
-}
-
-macro_rules! impl_invert {
-    ($name:ty) => {
-        impl Invert for $name {
-            fn invert_x(self) -> Self {
-                Self::new(-self.x, self.y)
-            }
-
-            fn invert_y(self) -> Self {
-                Self::new(self.x, -self.y)
-            }
-        }
-    };
-}
-
-impl_invert!(Vector2<f64>);
-impl_invert!(Point2<f64>);
-
 pub mod deduplicate {
     use nalgebra::Point2;
 
