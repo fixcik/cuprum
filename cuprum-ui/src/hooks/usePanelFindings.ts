@@ -18,6 +18,8 @@ export interface PanelFindingsResult {
   verdict: Verdict;
   /** Worst severity per instance id — for canvas highlight and inspector display. */
   byInstance: Map<string, Severity>;
+  /** Worst severity per tooling-hole id (keep-out-tooling). */
+  byTooling: Map<string, Severity>;
   /** True when all placed instances have resolved sizes AND metrics, so the verdict
    *  is complete and safe to persist to the catalog. False during initial load or
    *  when designs are still being fetched. */
@@ -119,6 +121,17 @@ export function usePanelFindings(): PanelFindingsResult {
     return map;
   }, [findings]);
 
+  // Per-tooling-hole worst severity, for canvas highlight of keep-out violations.
+  const byTooling = useMemo((): Map<string, Severity> => {
+    const map = new Map<string, Severity>();
+    for (const f of findings) {
+      for (const id of f.toolingHoleIds ?? []) {
+        map.set(id, worseSeverity(map.get(id), f.severity));
+      }
+    }
+    return map;
+  }, [findings]);
+
   // Verdict is ready when all placed designs have both sizes and metrics resolved.
   const ready = useMemo((): boolean => {
     const placedIds = new Set(instances.map((i) => i.design_id));
@@ -129,5 +142,5 @@ export function usePanelFindings(): PanelFindingsResult {
     return true;
   }, [instances, sizes, metricsMap]);
 
-  return { findings, verdict, byInstance, ready };
+  return { findings, verdict, byInstance, byTooling, ready };
 }

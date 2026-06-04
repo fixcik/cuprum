@@ -161,7 +161,7 @@ export function PanelBlankCanvas({
   const sizes = usePlacedBoardSizes();
   // Panel-level findings from the single source of truth (evaluatePanel).
   // byInstance maps each instance id to its worst severity — drives canvas highlight.
-  const { byInstance } = usePanelFindings();
+  const { byInstance, byTooling } = usePanelFindings();
   // Live drag preview (mm). While dragging selected instances we shift their render
   // by this delta and commit a single moveInstances on drag end; null when idle.
   const [dragDelta, setDragDelta] = useState<{ dx: number; dy: number } | null>(null);
@@ -1105,6 +1105,7 @@ export function PanelBlankCanvas({
               selectedId={tool === "tooling" ? selectedHoleId : null}
               pxPerMm={viewport.pxPerMm}
               interactive={tool === "tooling" && !addArmed}
+              severityByHole={byTooling}
               onHoleMouseDown={onHoleMouseDown}
               onHoleDragEnd={onHoleDragEnd}
             />
