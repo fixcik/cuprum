@@ -1040,7 +1040,7 @@ export function PanelBlankCanvas({
         ) : null;
       })()}
 
-      <div className="absolute left-20 top-3 z-10">
+      <div className="absolute left-20 z-10" style={{ top: RULER_TOP + 6 }}>
         <SegmentedControl<"top" | "bottom">
           value={side}
           onChange={onSideChange}
@@ -1051,7 +1051,7 @@ export function PanelBlankCanvas({
         />
       </div>
 
-      <div className="absolute right-3 top-3 z-10 rounded-md border border-border bg-card/90 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
+      <div className="absolute right-3 z-10 rounded-md border border-border bg-card/90 px-2 py-1 text-[11px] tabular-nums text-muted-foreground" style={{ top: RULER_TOP + 6 }}>
         {W} × {H} mm
       </div>
 

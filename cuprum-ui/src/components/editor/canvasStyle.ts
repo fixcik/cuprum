@@ -41,5 +41,5 @@ export const INSTANCE_WARN_STROKE = "#f59e0b";
 
 // Edge-ruler band thickness (px). Left is wider to fit the rotated vertical
 // labels. Shared by the canvas (fit/centre math) and the RulersOverlay.
-export const RULER_TOP = 24;
-export const RULER_LEFT = 30;
+export const RULER_TOP = 16;
+export const RULER_LEFT = 20;
