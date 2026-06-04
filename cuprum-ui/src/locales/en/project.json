@@ -169,7 +169,7 @@
     "inspectorExpand": "Expand",
     "blankSummaryLabel": "Blank",
     "workZone": "area {{w}} × {{h}}",
-    "overWorkArea": "Larger than the machine work area ({{w}} × {{h}} mm)",
+    "overWorkArea": "Larger than the machine work area ({{w}} × {{h}})",
     "rotate90": "Rotate 90°",
     "stackupSingle": "single-sided",
     "stackupDouble": "double-sided",

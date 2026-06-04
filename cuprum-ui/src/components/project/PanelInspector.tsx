@@ -144,6 +144,7 @@ export function PanelInspector({
           onPointerDown={handleResizePointerDown}
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
         />
       )}
 
@@ -219,7 +220,12 @@ export function PanelInspector({
               <div className="mb-1 text-[11px] text-muted-foreground">{t("setup.preset")}</div>
               <div className="mb-3 grid grid-cols-2 gap-1.5">
                 {presets.map((p) => {
-                  const active = p.widthMm === width && p.heightMm === height;
+                  const active =
+                    p.widthMm === width &&
+                    p.heightMm === height &&
+                    p.stackup.copper_weight_oz === copperWeight &&
+                    p.stackup.substrate_thickness_mm === substrate &&
+                    (p.stackup.double_sided ?? false) === doubleSided;
                   return (
                     <button
                       key={p.id}

@@ -169,7 +169,7 @@
     "inspectorExpand": "Развернуть",
     "blankSummaryLabel": "Заготовка",
     "workZone": "зона {{w}} × {{h}}",
-    "overWorkArea": "Больше рабочей зоны станка ({{w}} × {{h}} мм)",
+    "overWorkArea": "Больше рабочей зоны станка ({{w}} × {{h}})",
     "rotate90": "Повернуть 90°",
     "stackupSingle": "односторонняя",
     "stackupDouble": "двухсторонняя",
