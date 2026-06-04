@@ -16,11 +16,14 @@ import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
 import { NestingControls } from "@/components/panel/NestingControls";
 import { packLayout } from "@/lib/panelPlacement";
 import { usePreviewData } from "@/hooks/usePreviewData";
+import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 
 /** Root of the separate "Add design to panel" window (label "add-design"). */
 export function AddDesignWindow() {
   const { t } = useTranslation("project");
-  const [snap, setSnap] = useState<AddDesignSnapshot | null>(null);
+  // Subscribe to project snapshots, announcing readiness only after the listener
+  // is live (so the main window's reply can't land before it and be dropped).
+  const snap = useSnapshotSubscription<AddDesignSnapshot>(api.onAddDesignSnapshot, api.emitAddDesignReady);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -53,34 +56,14 @@ export function AddDesignWindow() {
     getCurrentWindow().setTitle(t("panel.add.window.title")).catch(() => {});
   }, [t]);
 
-  // Subscribe to snapshots, then announce readiness so the main window sends one.
-  // The listener must be live BEFORE we emit `ready`, or the main window's reply
-  // can land before the listener is registered and the snapshot is dropped.
+  // Apply a preselect carried by the snapshot (e.g. "add this design to panel"
+  // invoked from the main window) once it's present in the list. The preselect is
+  // one-shot on the main side, so later snapshots won't re-trigger this.
   useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | null = null;
-    void api
-      .onAddDesignSnapshot((s) => {
-        if (active) {
-          setSnap(s);
-          if (s.preselectDesignId && s.designs.some((d) => d.id === s.preselectDesignId)) {
-            setSelectedId(s.preselectDesignId);
-          }
-        }
-      })
-      .then((un) => {
-        if (!active) {
-          un();
-          return;
-        }
-        unlisten = un;
-        void api.emitAddDesignReady(); // emit only after the listener is live
-      });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, []);
+    if (snap?.preselectDesignId && snap.designs.some((d) => d.id === snap.preselectDesignId)) {
+      setSelectedId(snap.preselectDesignId);
+    }
+  }, [snap]);
 
   const designs: ProjectDesign[] = snap?.designs ?? [];
   const workingDir = snap?.workingDir ?? null;

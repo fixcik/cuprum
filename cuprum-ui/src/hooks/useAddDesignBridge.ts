@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useShell } from "@/shellStore";
 import { api } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
+import { useBridgeListeners } from "@/hooks/useTauriListeners";
 
 /** Push the current project snapshot to the add-design window. */
 function emitSnapshot() {
@@ -29,21 +30,16 @@ export function useAddDesignBridge() {
     void emitSnapshot();
   }, [designs, panel]);
 
-  useEffect(() => {
-    const subs: Promise<() => void>[] = [
-      api.onAddDesignReady(() => {
-        void emitSnapshot();
-        // One-shot: the preselect was just carried by the ready snapshot.
-        if (useShell.getState().pendingAddDesignId) useShell.setState({ pendingAddDesignId: null });
-      }),
-      api.onAddDesignImport(({ paths }) => void useShell.getState().addDesignsFromPaths(paths)),
-      api.onAddDesignAddToPanel(async ({ designId, nest }) => {
-        const r = await useShell.getState().addBoardInstances(designId, nest);
-        void api.emitAddDesignResult(r);
-      }),
-    ];
-    return () => {
-      subs.forEach((p) => void p.then((un) => un()));
-    };
-  }, []);
+  useBridgeListeners(() => [
+    api.onAddDesignReady(() => {
+      void emitSnapshot();
+      // One-shot: the preselect was just carried by the ready snapshot.
+      if (useShell.getState().pendingAddDesignId) useShell.setState({ pendingAddDesignId: null });
+    }),
+    api.onAddDesignImport(({ paths }) => void useShell.getState().addDesignsFromPaths(paths)),
+    api.onAddDesignAddToPanel(async ({ designId, nest }) => {
+      const r = await useShell.getState().addBoardInstances(designId, nest);
+      void api.emitAddDesignResult(r);
+    }),
+  ]);
 }
