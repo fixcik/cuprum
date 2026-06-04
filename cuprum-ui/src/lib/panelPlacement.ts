@@ -237,6 +237,22 @@ export function clampDeltaToPanel(
   return { dx, dy };
 }
 
+/** Shift a single instance pose so its (rotated) AABB sits fully inside the panel
+ *  [0,panelW]×[0,panelH]; an already-inside pose is returned unchanged. Used by the
+ *  numeric placement inspector so typed X/Y/rotation can't push a board off-panel
+ *  (same clamp the drag/nudge paths use). Returns the corrected top-left origin. */
+export function clampPoseIntoPanel(
+  pose: { x_mm: number; y_mm: number; rotation_deg: number },
+  boardW: number,
+  boardH: number,
+  panelW: number,
+  panelH: number,
+): { x_mm: number; y_mm: number } {
+  const b = instanceBounds({ xMm: pose.x_mm, yMm: pose.y_mm, boardW, boardH, rotationDeg: pose.rotation_deg });
+  const { dx, dy } = clampDeltaToPanel([b], 0, 0, panelW, panelH);
+  return { x_mm: pose.x_mm + dx, y_mm: pose.y_mm + dy };
+}
+
 /** Build rotated-AABB boxes for instances whose board size is known. Instances
  *  with no resolved size are skipped (their extents are unknown). Shared by the
  *  drag, nudge and duplicate clamp paths so they agree on geometry. */

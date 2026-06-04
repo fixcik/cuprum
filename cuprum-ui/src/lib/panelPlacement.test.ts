@@ -5,6 +5,7 @@ import {
   instanceBounds,
   isOffPanel,
   clampDeltaToPanel,
+  clampPoseIntoPanel,
   marqueeHits,
   snapAngle,
   boxesForInstances,
@@ -155,6 +156,30 @@ describe("clampDeltaToPanel", () => {
   });
   it("clamps a delta that would cross the left/top edge", () => {
     expect(clampDeltaToPanel(boxes, -20, -20, 100, 100)).toEqual({ dx: -5, dy: -5 });
+  });
+});
+
+describe("clampPoseIntoPanel", () => {
+  it("leaves an inside pose unchanged", () => {
+    expect(clampPoseIntoPanel({ x_mm: 10, y_mm: 20, rotation_deg: 0 }, 40, 30, 100, 100)).toEqual({
+      x_mm: 10,
+      y_mm: 20,
+    });
+  });
+  it("pulls a board poking off the right/bottom back in", () => {
+    // 40×30 at (80,80): AABB [80,120]×[80,110] overflows a 100×100 panel.
+    expect(clampPoseIntoPanel({ x_mm: 80, y_mm: 80, rotation_deg: 0 }, 40, 30, 100, 100)).toEqual({
+      x_mm: 60,
+      y_mm: 70,
+    });
+  });
+  it("clamps using the ROTATED footprint (90° swaps w/h)", () => {
+    // 40×30 rotated 90° → AABB is 30 wide × 40 tall around the centre. At x=85 it
+    // overflows; the corrected origin keeps the rotated AABB inside.
+    const r = clampPoseIntoPanel({ x_mm: 85, y_mm: 10, rotation_deg: 90 }, 40, 30, 100, 100);
+    const b = instanceBounds({ xMm: r.x_mm, yMm: r.y_mm, boardW: 40, boardH: 30, rotationDeg: 90 });
+    expect(b.maxX).toBeLessThanOrEqual(100 + 1e-9);
+    expect(b.minX).toBeGreaterThanOrEqual(-1e-9);
   });
 });
 
