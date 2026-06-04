@@ -13,7 +13,7 @@ pub struct MacroContext {
 
 impl MacroContext {
     pub fn get(&self, variable: &u32) -> f64 {
-        self.variables.get(&variable).copied().unwrap_or(0.0)
+        self.variables.get(variable).copied().unwrap_or(0.0)
     }
 
     pub fn put(&mut self, variable: u32, decimal: f64) -> Result<&mut f64, MacroContextError> {
@@ -91,7 +91,7 @@ pub enum ExpressionEvaluationError {
 
 /// Evaluates a Gerber macro expression using a recursive descent parser.
 pub fn evaluate_expression(
-    expr: &String,
+    expr: &str,
     ctx: &MacroContext,
 ) -> Result<f64, ExpressionEvaluationError> {
     let mut parser = Parser::new(expr, ctx);

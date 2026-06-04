@@ -14,12 +14,17 @@ pub fn gerber_commands_to_source(commands: &Vec<Command>) -> String {
         .serialize(&mut buf)
         .expect("Could not generate Gerber code");
     let bytes = buf.into_inner().unwrap();
-    let gerber_source = String::from_utf8(bytes).unwrap();
-    gerber_source
+
+    String::from_utf8(bytes).unwrap()
 }
 
 pub mod geometry {
     use std::f64::consts::PI;
+
+    /// A 2D point in (x, y) form.
+    type Point = (f64, f64);
+    /// An edge connecting two points.
+    type Edge = (Point, Point);
 
     /// generate points alternating between outer and inner radius
     pub fn calculate_alternating_points(
@@ -50,9 +55,7 @@ pub mod geometry {
         points
     }
 
-    pub fn extract_edges_and_midpoints(
-        points: &[(f64, f64)],
-    ) -> (Vec<((f64, f64), (f64, f64))>, Vec<(f64, f64)>) {
+    pub fn extract_edges_and_midpoints(points: &[Point]) -> (Vec<Edge>, Vec<Point>) {
         let len = points.len();
         assert!(len >= 3, "Need at least 3 points to form a closed shape");
 
@@ -70,7 +73,7 @@ pub mod geometry {
         (edges, midpoints)
     }
 
-    pub fn compute_edge_rotations(edges: &[((f64, f64), (f64, f64))]) -> Vec<f64> {
+    pub fn compute_edge_rotations(edges: &[Edge]) -> Vec<f64> {
         edges
             .iter()
             .map(|&(a, b)| {

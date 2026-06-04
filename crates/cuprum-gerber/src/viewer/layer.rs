@@ -36,7 +36,7 @@ pub struct GerberLayer {
 }
 
 impl GerberLayer {
-    fn build_image_transform(commands: &Vec<Command>) -> GerberImageTransform {
+    fn build_image_transform(commands: &[Command]) -> GerberImageTransform {
         let mut transform = GerberImageTransform::default();
 
         for cmd in commands.iter() {
@@ -412,7 +412,7 @@ impl GerberLayer {
                                                 .ok();
                                         }
                                         MacroDecimal::Expression(expression) => {
-                                            evaluate_expression(&expression, &macro_context)
+                                            evaluate_expression(expression, &macro_context)
                                                 .map(|value| {
                                                     macro_context
                                                         .put(arg_number, value)
@@ -761,7 +761,7 @@ impl GerberLayer {
                                             expression,
                                         }) => {
                                             let result =
-                                                evaluate_expression(&expression, macro_context);
+                                                evaluate_expression(expression, macro_context);
                                             match result {
                                                 Ok(value) => {
                                                     macro_context
@@ -1047,7 +1047,7 @@ impl GerberLayer {
                 }
 
                 Command::FunctionCode(FunctionCode::DCode(DCode::SelectAperture(code))) => {
-                    current_aperture = apertures.get(&code);
+                    current_aperture = apertures.get(code);
                     if current_aperture.is_none() {
                         aperture_selection_errors.insert(*code);
                     }
@@ -1511,7 +1511,7 @@ impl GerberLayer {
             index += 1;
         }
 
-        if aperture_selection_errors.len() > 0 {
+        if !aperture_selection_errors.is_empty() {
             error!(
                 "Selecting some apertures failed; Check gerber file content and parser errors. aperture_codes: {:?}",
                 aperture_selection_errors
@@ -1824,10 +1824,9 @@ mod circular_plotting_tests {
 
         let format = CoordinateFormat::new(ZeroOmission::Leading, CoordinateMode::Absolute, 3, 5);
 
-        let mut commands: Vec<Command> = Vec::new();
-
         // Set unit to millimeters
-        commands.push(Command::ExtendedCode(ExtendedCode::Unit(Unit::Millimeters)));
+        let mut commands: Vec<Command> =
+            vec![Command::ExtendedCode(ExtendedCode::Unit(Unit::Millimeters))];
 
         // Define circle aperture for outline
         commands.push(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
@@ -1997,25 +1996,25 @@ mod circular_plotting_tests {
         assert_eq!(primitives.len(), 16);
 
         // Verify that we have the required groups
-        for i in 0..16 {
+        for (i, primitive) in primitives.iter().enumerate() {
             match i % 4 {
                 0 => assert!(
-                    matches!(primitives[i], GerberPrimitive::Circle { .. }),
+                    matches!(primitive, GerberPrimitive::Circle { .. }),
                     "Expected Circle at index {}",
                     i
                 ),
                 1 => assert!(
-                    matches!(primitives[i], GerberPrimitive::Arc { .. }),
+                    matches!(primitive, GerberPrimitive::Arc { .. }),
                     "Expected Arc at index {}",
                     i
                 ),
                 2 => assert!(
-                    matches!(primitives[i], GerberPrimitive::Circle { .. }),
+                    matches!(primitive, GerberPrimitive::Circle { .. }),
                     "Expected Circle at index {}",
                     i
                 ),
                 3 => assert!(
-                    matches!(primitives[i], GerberPrimitive::Line { .. }),
+                    matches!(primitive, GerberPrimitive::Line { .. }),
                     "Expected Line at index {}",
                     i
                 ),
