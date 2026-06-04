@@ -42,10 +42,15 @@ export interface RulersOverlayProps {
   extentVariant?: "copper" | "muted";
 }
 
+// Copper = action/cursor (hover crosshair + ruler cursor arrows) and the blank
+// projection highlight ("where's my blank"). Structure (work area, origin marker)
+// is neutral — see MUTED_* below.
 const COPPER = "hsl(var(--primary))";
 const COPPER_14 = "hsl(var(--primary) / 0.14)";
-const COPPER_50 = "hsl(var(--primary) / 0.5)";
 const COPPER_70 = "hsl(var(--primary) / 0.7)";
+const MUTED = "hsl(var(--muted-foreground))";
+const MUTED_40 = "hsl(var(--muted-foreground) / 0.4)";
+const MUTED_70 = "hsl(var(--muted-foreground) / 0.7)";
 const READOUT_BG = "hsl(222 16% 9% / 0.92)";
 const READOUT_FG = "rgba(255,255,255,0.95)";
 
@@ -143,12 +148,12 @@ export function RulersOverlay({
                 width={sx.w}
                 height={sy.h}
                 fill="none"
-                stroke={COPPER_50}
+                stroke={MUTED_40}
                 strokeWidth={1}
                 strokeDasharray="6 4"
               />
               {workAreaLabel && sx.w > 60 && (
-                <text x={sx.x + 4} y={sy.y + 12} style={{ fill: COPPER_70, fontSize: "10px" }}>
+                <text x={sx.x + 4} y={sy.y + 12} style={{ fill: MUTED_70, fontSize: "10px" }}>
                   {workAreaLabel}
                 </text>
               )}
@@ -158,8 +163,8 @@ export function RulersOverlay({
 
         {showOrigin && (
           <g>
-            <line x1={ax - 7} y1={ay} x2={ax + 7} y2={ay} stroke={accent} strokeWidth={1} />
-            <line x1={ax} y1={ay - 7} x2={ax} y2={ay + 7} stroke={accent} strokeWidth={1} />
+            <line x1={ax - 7} y1={ay} x2={ax + 7} y2={ay} stroke={MUTED} strokeWidth={1} />
+            <line x1={ax} y1={ay - 7} x2={ax} y2={ay + 7} stroke={MUTED} strokeWidth={1} />
             <text x={ax + 5} y={ay - 4} style={{ fill: "hsl(var(--muted-foreground))", fontSize: "10px" }}>
               0,0
             </text>
