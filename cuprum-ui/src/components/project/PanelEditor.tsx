@@ -6,16 +6,12 @@ import { Modal } from "@/components/ui/Modal";
 import { PanelBlankCanvas } from "@/components/panel/PanelBlankCanvas";
 import { PanelInspector } from "@/components/project/PanelInspector";
 import { BUILTIN_PANEL_PRESETS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
-import { isOffPanel, clampDeltaToPanel, boxesForInstances } from "@/lib/panelPlacement";
+import { clampDeltaToPanel, boxesForInstances } from "@/lib/panelPlacement";
+import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
-import type { BoardInstance } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
 import { useSettings } from "@/settingsStore";
-
-// Stable empty fallbacks: returning a fresh `[]` from a zustand selector on every
-// render triggers an infinite re-render loop, so share one frozen array instead.
-const EMPTY_INSTANCES: BoardInstance[] = [];
 
 /** Inline FR4-blank editor (left params + right schematic canvas). Autosaves on
  *  change (debounced) via savePanelConfig — no Save button. Lives in the Panel
@@ -26,7 +22,6 @@ export function PanelEditor() {
   const currentPath = useShell((s) => s.currentPath);
   const savePanelConfig = useShell((s) => s.savePanelConfig);
   const docNonce = useShell((s) => s.docNonce);
-  const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const userPresets = useSettings((s) => s.panelPresets);
   const addPanelPreset = useSettings((s) => s.addPanelPreset);
   // The panel is bounded by the machine's work area (from Settings): you can't
@@ -46,8 +41,10 @@ export function PanelEditor() {
   const [presetOpen, setPresetOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
   // Board extents (mm) per placed design — shared hook, fetched once per design.
-  // Used for the off-panel counter and the keyboard clamp (nudge + duplicate).
+  // Used for the keyboard clamp (nudge + duplicate).
   const sizes = usePlacedBoardSizes();
+  // Panel-level findings — single source for the off-panel count shown in the inspector.
+  const { findings: panelFindings } = usePanelFindings();
 
   // Snapshot of the last-persisted params, so the autosave effect skips writing
   // the just-prefilled values (and skips no-op rewrites). Seed with the initial
@@ -123,25 +120,12 @@ export function PanelEditor() {
     return () => clearTimeout(id);
   }, [currentPath, width, height, copperWeight, substrate, doubleSided, valid, savePanelConfig]);
 
-  // Count designs poking off the (live-edited) blank. Drives a non-blocking warning
-  // so shrinking the panel surfaces the consequence instead of silently hiding it.
+  // Count boards that are off the panel — derived from the single findings source
+  // (evaluatePanel) so all off-panel logic lives in one place.
   const offPanelCount = useMemo(() => {
-    if (!valid) return 0;
-    return instances.reduce((n, inst) => {
-      const sz = sizes[inst.design_id];
-      if (!sz) return n;
-      const off = isOffPanel({
-        xMm: inst.x_mm,
-        yMm: inst.y_mm,
-        boardW: sz.w,
-        boardH: sz.h,
-        rotationDeg: inst.rotation_deg,
-        panelW: width,
-        panelH: height,
-      });
-      return off ? n + 1 : n;
-    }, 0);
-  }, [instances, sizes, width, height, valid]);
+    const f = panelFindings.find((x) => x.category === "off-panel");
+    return f ? f.instanceIds.length : 0;
+  }, [panelFindings]);
 
   // Clear the ephemeral selection whenever the project path or the document
   // identity changes (open/close, undo/redo/restore) — stale ids must not linger.

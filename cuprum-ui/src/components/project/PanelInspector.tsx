@@ -6,6 +6,7 @@ import {
   PanelRightOpen,
   Ruler,
   Layers,
+  ShieldCheck,
   ChevronDown,
   RotateCw,
   AlertTriangle,
@@ -20,6 +21,11 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { StackupDiagram } from "@/components/project/StackupDiagram";
 import { COPPER_WEIGHTS, type PanelPreset } from "@/lib/panel";
+import { usePanelFindings } from "@/hooks/usePanelFindings";
+import { usePanelSelection } from "@/panelSelectionStore";
+import { SEVERITY } from "@/lib/severity";
+import { overallVerdict } from "@/lib/feasibility";
+import type { PanelFinding } from "@/lib/panelFeasibility";
 
 // ---- local sub-components ----
 
@@ -55,6 +61,39 @@ function PresetMini({ w, h }: { w: number; h: number }) {
     <svg width={22} height={16} viewBox="0 0 22 16" className="shrink-0">
       <rect x={1.5} y={1.5} width={rw} height={rh} fill="none" stroke="hsl(var(--primary))" strokeWidth={1.2} rx={1} />
     </svg>
+  );
+}
+
+/** Compact verdict badge pill. */
+function VerdictPill({ findings }: { findings: PanelFinding[] }) {
+  const { t } = useTranslation("feasibility");
+  const verdict = overallVerdict(findings);
+  const sev = verdict === "ok" ? "ok" : verdict === "warn" ? "warn" : "block";
+  const { Icon, fg, bg } = SEVERITY[sev];
+  const key = verdict === "ok" ? "verdict.ok" : verdict === "warn" ? "verdict.warn" : "verdict.block";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${bg} ${fg}`}>
+      <Icon className="size-3" />
+      {t(key)}
+    </span>
+  );
+}
+
+/** One finding row: severity icon + text; clicking selects the culprit instances. */
+function FindingRow({ finding, onSelect }: { finding: PanelFinding; onSelect: (ids: string[]) => void }) {
+  const { t } = useTranslation("feasibility");
+  const { Icon, fg } = SEVERITY[finding.severity];
+  const text = t(finding.title.key, finding.title.params as Record<string, string | number>);
+  return (
+    <button
+      type="button"
+      className={`flex w-full items-start gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-foreground/8 ${finding.instanceIds.length > 0 ? "cursor-pointer" : "cursor-default"}`}
+      onClick={() => { if (finding.instanceIds.length > 0) onSelect(finding.instanceIds); }}
+      title={finding.instanceIds.length > 0 ? t("panel.clickToHighlight") : undefined}
+    >
+      <Icon className={`mt-px size-3 shrink-0 ${fg}`} />
+      <span className="leading-snug text-foreground/80">{text}</span>
+    </button>
   );
 }
 
@@ -111,6 +150,10 @@ export function PanelInspector({
 
   const ui = useSettings((s) => s.panelInspector);
   const setUi = useSettings((s) => s.setPanelInspector);
+
+  // Panel-level findings — single source of truth.
+  const { findings: panelFindings } = usePanelFindings();
+  const setSelection = usePanelSelection((s) => s.set);
 
   // Resize drag state — stored in refs so pointer handlers don't trigger re-renders.
   const resizeDrag = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -319,6 +362,35 @@ export function PanelInspector({
               <SettingRow label={t("setup.substrate")}>
                 <UnitField value={substrate} onChange={setSubstrate} dim="fine" step="0.1" />
               </SettingRow>
+            </AccordionSection>
+
+            {/* Layout check (feasibility) accordion */}
+            <AccordionSection
+              icon={ShieldCheck}
+              title={t("feasibility:panel.sectionTitle")}
+              open={ui.feasibilityOpen}
+              onToggle={() => setUi({ feasibilityOpen: !ui.feasibilityOpen })}
+            >
+              {/* Verdict badge */}
+              <div className="mb-2 flex items-center gap-2">
+                <VerdictPill findings={panelFindings} />
+              </div>
+              {/* Findings list — skip the "empty" info finding to keep it quiet */}
+              {panelFindings.filter((f) => f.category !== "empty").length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  {panelFindings.some((f) => f.category === "empty") || panelFindings.length === 0
+                    ? t("feasibility:panel.empty")
+                    : t("feasibility:panel.ok")}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {panelFindings
+                    .filter((f) => f.category !== "empty")
+                    .map((f) => (
+                      <FindingRow key={f.id} finding={f} onSelect={setSelection} />
+                    ))}
+                </div>
+              )}
             </AccordionSection>
           </div>
         </div>

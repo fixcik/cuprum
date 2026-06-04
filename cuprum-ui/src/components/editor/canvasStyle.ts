@@ -30,11 +30,14 @@ export const BLANK_LABEL = "rgba(139,151,167,0.55)";
 export const INSTANCE_FILL = "#171c24";
 export const INSTANCE_STROKE = "rgba(139,151,167,0.45)";
 export const INSTANCE_LABEL = "rgba(139,151,167,0.7)";
-// OFF-PANEL = a placed board poking past the panel edge (matches the editor's
-// "N designs off the panel" warning). Red outline + faint red fill so it reads as
-// "fix this"; the label stays neutral for legibility.
+// OFF-PANEL / OVERLAP = a placed board with a blocking issue (off-panel or overlapping).
+// Red outline + faint red fill so it reads as "fix this"; the label stays neutral for
+// legibility.
 export const INSTANCE_OFF_STROKE = "#e5484d";
 export const INSTANCE_OFF_FILL = "rgba(229,72,77,0.12)";
+// WARN = a placed board with a non-blocking issue (too close to edge / work-area).
+// Amber outline only (no fill) — softer than the block red.
+export const INSTANCE_WARN_STROKE = "#f59e0b";
 
 // Edge-ruler band thickness (px). Left is wider to fit the rotated vertical
 // labels. Shared by the canvas (fit/centre math) and the RulersOverlay.
