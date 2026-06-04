@@ -270,6 +270,7 @@ export function AddDesignWindow() {
                     obstacles={boardBoxes}
                     clearanceMm={clearance}
                     toolingHoles={snap?.tooling_holes ?? []}
+                    keepOutZones={snap?.keep_out_zones ?? []}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted-foreground">

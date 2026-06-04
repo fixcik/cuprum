@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { packLayoutAvoiding, toolingHoleBounds, type Box } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, toolingHoleBounds, keepOutBox, type Box } from "@/lib/panelPlacement";
 import type { NestSettings } from "@/lib/nest";
-import type { ToolingHole } from "@/lib/api";
+import type { KeepOutZone, ToolingHole } from "@/lib/api";
 
 /** Live "on the panel" layout preview: the FR4 blank with the packed copies.
  *  `obstacles` are existing board instances (dimmed squares); `toolingHoles` are
@@ -17,6 +17,7 @@ export function PanelLayoutPreview({
   obstacles,
   clearanceMm,
   toolingHoles,
+  keepOutZones,
 }: {
   boardWmm: number;
   boardHmm: number;
@@ -26,15 +27,18 @@ export function PanelLayoutPreview({
   obstacles?: Box[];
   clearanceMm?: number;
   toolingHoles?: ToolingHole[];
+  keepOutZones?: KeepOutZone[];
 }) {
-  // Board boxes + tooling-hole bounds form one obstacle list for the packer; holes
-  // render separately as circles (above), so they aren't passed in as squares.
+  // Board boxes + tooling-hole bounds + keep-out zones form one obstacle list for the
+  // packer; holes render separately as circles (above), so they aren't passed in as
+  // squares. Zones are packer-only here (drawing them is out of scope).
   const packObstacles = useMemo(
     () => [
       ...(obstacles ?? []),
       ...(toolingHoles ?? []).map((h) => toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm })),
+      ...(keepOutZones ?? []).map(keepOutBox),
     ],
-    [obstacles, toolingHoles],
+    [obstacles, toolingHoles, keepOutZones],
   );
   const pack = useMemo(
     () => packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, packObstacles, clearanceMm ?? 0),
