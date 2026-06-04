@@ -149,7 +149,13 @@ impl StatusTracker {
             (None, Some(w)) => (add(w), w),
             (None, None) => ([0.0; 3], [0.0; 3]),
         };
-        ResolvedStatus { state: r.state, mpos, wpos, feed: r.feed, spindle: r.spindle }
+        ResolvedStatus {
+            state: r.state,
+            mpos,
+            wpos,
+            feed: r.feed,
+            spindle: r.spindle,
+        }
     }
 }
 
@@ -162,7 +168,10 @@ mod tests {
         assert!(matches!(parse_line("ok"), Line::Ok));
         assert!(matches!(parse_line("error:9"), Line::Error(9)));
         assert!(matches!(parse_line("ALARM:1"), Line::Alarm(1)));
-        assert!(matches!(parse_line("Grbl 1.1h ['$' for help]"), Line::Welcome(_)));
+        assert!(matches!(
+            parse_line("Grbl 1.1h ['$' for help]"),
+            Line::Welcome(_)
+        ));
         match parse_line("[MSG:Enabled]") {
             Line::Message(m) => assert_eq!(m, "MSG:Enabled"),
             other => panic!("expected Message, got {other:?}"),
@@ -199,9 +208,18 @@ mod tests {
 
     #[test]
     fn parses_state_with_substate() {
-        assert_eq!(status_state("<Hold:0|MPos:0.000,0.000,0.000>"), MachineState::Hold);
-        assert_eq!(status_state("<Door:1|MPos:0.000,0.000,0.000>"), MachineState::Door);
-        assert_eq!(status_state("<Jog|MPos:0.000,0.000,0.000>"), MachineState::Jog);
+        assert_eq!(
+            status_state("<Hold:0|MPos:0.000,0.000,0.000>"),
+            MachineState::Hold
+        );
+        assert_eq!(
+            status_state("<Door:1|MPos:0.000,0.000,0.000>"),
+            MachineState::Door
+        );
+        assert_eq!(
+            status_state("<Jog|MPos:0.000,0.000,0.000>"),
+            MachineState::Jog
+        );
     }
 
     fn status_state(s: &str) -> MachineState {
@@ -214,18 +232,39 @@ mod tests {
     #[test]
     fn tracker_derives_wpos_from_cached_wco() {
         let mut t = StatusTracker::default();
-        let r1 = StatusReport { state: MachineState::Idle, mpos: Some([10.0, 10.0, 0.0]), wpos: None, wco: Some([2.0, 3.0, 0.0]), feed: 0.0, spindle: 0.0 };
+        let r1 = StatusReport {
+            state: MachineState::Idle,
+            mpos: Some([10.0, 10.0, 0.0]),
+            wpos: None,
+            wco: Some([2.0, 3.0, 0.0]),
+            feed: 0.0,
+            spindle: 0.0,
+        };
         let s1 = t.resolve(&r1);
         assert_eq!(s1.mpos, [10.0, 10.0, 0.0]);
         assert_eq!(s1.wpos, [8.0, 7.0, 0.0]);
 
         // Next report omits WCO → tracker reuses the cached one.
-        let r2 = StatusReport { state: MachineState::Idle, mpos: Some([12.0, 10.0, 0.0]), wpos: None, wco: None, feed: 0.0, spindle: 0.0 };
+        let r2 = StatusReport {
+            state: MachineState::Idle,
+            mpos: Some([12.0, 10.0, 0.0]),
+            wpos: None,
+            wco: None,
+            feed: 0.0,
+            spindle: 0.0,
+        };
         let s2 = t.resolve(&r2);
         assert_eq!(s2.wpos, [10.0, 7.0, 0.0]);
 
         // Report carries WPos only → derive MPos = WPos + WCO.
-        let r3 = StatusReport { state: MachineState::Jog, mpos: None, wpos: Some([5.0, 0.0, 0.0]), wco: None, feed: 0.0, spindle: 0.0 };
+        let r3 = StatusReport {
+            state: MachineState::Jog,
+            mpos: None,
+            wpos: Some([5.0, 0.0, 0.0]),
+            wco: None,
+            feed: 0.0,
+            spindle: 0.0,
+        };
         let s3 = t.resolve(&r3);
         assert_eq!(s3.mpos, [7.0, 3.0, 0.0]);
     }
