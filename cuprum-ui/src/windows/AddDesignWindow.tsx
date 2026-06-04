@@ -14,7 +14,7 @@ import { PreviewPane, type PreviewMode } from "@/components/preview/PreviewPane"
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
 import { NestingControls } from "@/components/panel/NestingControls";
-import { packLayoutAvoiding, panelObstacles } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, panelObstacles, boxesForInstances } from "@/lib/panelPlacement";
 import { usePreviewData } from "@/hooks/usePreviewData";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 
@@ -158,13 +158,19 @@ export function AddDesignWindow() {
     return () => void pending.then((un) => un());
   }, []);
 
-  // Combined obstacles: placed board instances + tooling holes (for packing + preview).
+  // Full obstacle set (boards + tooling holes) for the fit-line packer.
   const existingBoxes = useMemo(
     () =>
       panelObstacles(
         { instances: snap?.instances ?? [], tooling_holes: snap?.tooling_holes ?? [] },
         snap?.placedSizes ?? {},
       ),
+    [snap],
+  );
+  // Board-only boxes for the preview's dim squares; the preview folds tooling holes
+  // (passed separately) into its own packer and draws them as circles.
+  const boardBoxes = useMemo(
+    () => boxesForInstances(snap?.instances ?? [], snap?.placedSizes ?? {}),
     [snap],
   );
 
@@ -260,7 +266,7 @@ export function AddDesignWindow() {
                     panelWmm={panel.widthMm}
                     panelHmm={panel.heightMm}
                     nest={nest}
-                    obstacles={existingBoxes}
+                    obstacles={boardBoxes}
                     clearanceMm={clearance}
                     toolingHoles={snap?.tooling_holes ?? []}
                   />

@@ -6,8 +6,8 @@ import { UnitField } from "@/components/ui/settings/UnitField";
 import { Switch } from "@/components/ui/Switch";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { useSettings } from "@/settingsStore";
-import { renestSelection, boxesForInstances } from "@/lib/panelPlacement";
-import type { BoardInstance } from "@/lib/api";
+import { renestSelection, panelObstacles } from "@/lib/panelPlacement";
+import type { BoardInstance, ToolingHole } from "@/lib/api";
 import type { NestSettings } from "@/lib/nest";
 
 // Corner picker constants — mirrors NestingControls so both use the same layout.
@@ -40,6 +40,7 @@ export function RenestDialog({
   onClose,
   selectedIds,
   instances,
+  toolingHoles,
   sizes,
   panelW,
   panelH,
@@ -49,6 +50,7 @@ export function RenestDialog({
   onClose: () => void;
   selectedIds: string[];
   instances: BoardInstance[];
+  toolingHoles: ToolingHole[];
   sizes: Record<string, { w: number; h: number }>;
   panelW: number;
   panelH: number;
@@ -63,12 +65,14 @@ export function RenestDialog({
     const selected = instances
       .filter((i) => sel.has(i.id))
       .map((i) => ({ id: i.id, design_id: i.design_id }));
-    const obstacles = boxesForInstances(
-      instances.filter((i) => !sel.has(i.id)),
+    // Unselected boards AND tooling holes are obstacles, via the same unified
+    // builder used by add-design nesting — re-nest must not drop boards onto pins.
+    const obstacles = panelObstacles(
+      { instances: instances.filter((i) => !sel.has(i.id)), tooling_holes: toolingHoles },
       sizes,
     );
     return renestSelection({ selected, sizes, obstacles, panelW, panelH, nest });
-  }, [selectedIds, instances, sizes, panelW, panelH, nest]);
+  }, [selectedIds, instances, toolingHoles, sizes, panelW, panelH, nest]);
 
   const summary =
     result.placed === 0

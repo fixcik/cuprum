@@ -1,11 +1,13 @@
 import { useMemo } from "react";
-import { packLayoutAvoiding, type Box } from "@/lib/panelPlacement";
+import { packLayoutAvoiding, toolingHoleBounds, type Box } from "@/lib/panelPlacement";
 import type { NestSettings } from "@/lib/nest";
 import type { ToolingHole } from "@/lib/api";
 
 /** Live "on the panel" layout preview: the FR4 blank with the packed copies.
- *  Existing instances are drawn dimmed underneath; tooling holes are rendered as
- *  dimmed circles; new copies go in free cells. */
+ *  `obstacles` are existing board instances (dimmed squares); `toolingHoles` are
+ *  dimmed circles. Both are avoided when packing (holes folded into the obstacle
+ *  list here so they render once as circles, not also as squares); new copies go
+ *  in free cells. */
 export function PanelLayoutPreview({
   boardWmm,
   boardHmm,
@@ -25,9 +27,18 @@ export function PanelLayoutPreview({
   clearanceMm?: number;
   toolingHoles?: ToolingHole[];
 }) {
+  // Board boxes + tooling-hole bounds form one obstacle list for the packer; holes
+  // render separately as circles (above), so they aren't passed in as squares.
+  const packObstacles = useMemo(
+    () => [
+      ...(obstacles ?? []),
+      ...(toolingHoles ?? []).map((h) => toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm })),
+    ],
+    [obstacles, toolingHoles],
+  );
   const pack = useMemo(
-    () => packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, obstacles ?? [], clearanceMm ?? 0),
-    [boardWmm, boardHmm, panelWmm, panelHmm, nest, obstacles, clearanceMm],
+    () => packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, packObstacles, clearanceMm ?? 0),
+    [boardWmm, boardHmm, panelWmm, panelHmm, nest, packObstacles, clearanceMm],
   );
   const VIEW_W = 520; // px width budget
   const VIEW_H = 420; // px height budget (pane minus p-6 padding)

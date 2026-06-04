@@ -1007,6 +1007,7 @@ export function PanelBlankCanvas({
       onClose={() => setRenestOpen(false)}
       selectedIds={[...selected]}
       instances={instances}
+      toolingHoles={holes}
       sizes={sizes}
       panelW={W}
       panelH={H}
