@@ -36,7 +36,9 @@ export interface DrillSummaryProps {
   onSetClass?: (diameterMm: number, klass: RouteGroup["class"] | null) => void;
 }
 
-/** Summary sidebar: total holes/tools count, per-group list, and unmatched warnings. */
+/** Summary sidebar of the ACTIVE run: total holes/tools, the per-group list of the
+ *  selected classes, and warnings. Unselected classes are shown dimmed on the
+ *  canvas, not here — this list reflects what this run will drill. */
 export function DrillSummary({ plan, route, onSetClass }: DrillSummaryProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -53,6 +55,11 @@ export function DrillSummary({ plan, route, onSetClass }: DrillSummaryProps) {
         {" · "}
         {t("summary.tools", { count: route.toolCount })}
       </p>
+
+      {/* Nothing-selected hint: shown when no holes are in this run */}
+      {route.totalHoles === 0 && (
+        <p className="text-xs text-slate-500 italic">{t("empty.nothingSelected")}</p>
+      )}
 
       {/* Per-group list */}
       <ul className="flex flex-col gap-1.5">

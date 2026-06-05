@@ -1,15 +1,19 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { api, type DrillSnapshot, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
+import { api, type DrillSnapshot, type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram } from "@/lib/drillGcode";
+import { planDrillRoute } from "@/lib/drillRoute";
+import { datumCornerPanelPoint } from "@/lib/datum";
+import { filterPlanByClasses, classCounts, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillSummary } from "@/components/drill/DrillSummary";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
+import { DrillPassSelector } from "@/components/drill/DrillPassSelector";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
@@ -23,7 +27,10 @@ export function DrillWindow() {
   const { t } = useTranslation("drill");
 
   const snap = useSnapshotSubscription<DrillSnapshot>(api.onDrillSnapshot, api.emitDrillReady);
-  const { plan, route, loading } = useDrillPlan(snap);
+
+  // useDrillPlan now returns only the full plan (no route — route is computed here
+  // after filtering by the selected class set).
+  const { plan, loading } = useDrillPlan(snap);
 
   // Keep the window title localised.
   useEffect(() => {
@@ -32,7 +39,6 @@ export function DrillWindow() {
 
   const panel = snap?.manifest?.panel ?? null;
   const hasProject = !!(snap?.workingDir && snap.manifest);
-  const hasHoles = !!(plan && plan.totalHoles > 0 && route);
 
   // Shop settings for the G-code context come from the snapshot (pushed live by
   // the main window), so profile/tool edits apply without restarting this window.
@@ -57,10 +63,29 @@ export function DrillWindow() {
     [snap?.manifest?.panel?.keep_out_zones],
   );
 
-  // Build the drill program (G-code + steps) from the plan whenever inputs change.
+  // Drill-window-owned, ephemeral selection. Default: the alignment pass.
+  const [selected, setSelected] = useState<Set<DrillClass>>(DEFAULT_SELECTED_CLASSES);
+
+  // Counts per class over the full (unfiltered) plan; null until plan is ready.
+  const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
+
+  // Filter the plan to the selected classes, then derive route + program from it.
+  const filteredPlan = useMemo(
+    () => (plan ? filterPlanByClasses(plan, selected) : null),
+    [plan, selected],
+  );
+
+  // Route computed from the filtered plan; null while plan/panel unavailable.
+  const route = useMemo(() => {
+    if (!filteredPlan || !panel) return null;
+    const start = datumCornerPanelPoint(drillDatumCorner, panel.width_mm, panel.height_mm);
+    return planDrillRoute(filteredPlan, start, zones);
+  }, [filteredPlan, panel, drillDatumCorner, zones]);
+
+  // Build the drill program (G-code + steps) from the filtered plan whenever inputs change.
   const program = useMemo(() => {
-    if (!plan || !panel || !cncProfile) return null;
-    return emitDrillProgram(plan, {
+    if (!filteredPlan || !panel || !cncProfile) return null;
+    return emitDrillProgram(filteredPlan, {
       panelHeightMm: panel.height_mm,
       panelWidthMm: panel.width_mm,
       datumCorner: drillDatumCorner,
@@ -69,17 +94,22 @@ export function DrillWindow() {
       substrateThicknessMm,
       keepOutZones: zones,
     });
-  }, [plan, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner]);
+  }, [filteredPlan, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner]);
 
   // Live-run hook.
   const run = useDrillRun();
   const machineWork = useMachinePosition();
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
-  // Empty state: no project open yet, or the plan finished computing with no holes.
-  // Gate the "no holes" branch on `plan !== null` so the very first render after a
-  // snapshot arrives (before the effect flips `loading`) doesn't flash the message.
-  if (!hasProject || (plan !== null && !loading && !hasHoles)) {
+  // hasAnyHoles: whether the FULL plan has any holes (independent of selection).
+  // Used to gate the "no holes" empty-screen (not the "nothing selected" case).
+  const hasAnyHoles = !!(plan && plan.totalHoles > 0);
+
+  // Empty state: no project open yet, or the full plan finished computing with no holes at all.
+  // Gate "no holes" on plan !== null so the first render after a snapshot (before the effect
+  // flips loading) doesn't flash the message. The "nothing selected" case is NOT a full-screen
+  // empty state — it keeps the normal layout (canvas shows dimmed holes + selector).
+  if (!hasProject || (plan !== null && !loading && !hasAnyHoles)) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-[#0a0c10] text-slate-500 text-sm">
         {loading ? (
@@ -110,16 +140,23 @@ export function DrillWindow() {
         />
       </div>
 
+      {/* Pass selector: preset buttons + per-class checkboxes with counts */}
+      {counts && (
+        <DrillPassSelector selected={selected} counts={counts} onChange={setSelected} />
+      )}
+
       {/* Main layout: canvas hero + summary sidebar */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Drill map (takes all remaining space) */}
+        {/* Drill map (takes all remaining space); renders even when selection is empty
+            so unselected holes appear dimmed and the user knows what was excluded. */}
         <div className="relative flex-1 overflow-hidden">
-          {plan && route && panel && (
+          {plan && filteredPlan && route && panel && (
             <DrillMapCanvas
               widthMm={panel.width_mm}
               heightMm={panel.height_mm}
               plan={plan}
               route={route}
+              selectedClasses={selected}
               zones={zones}
               datum={drillDatumCorner}
               progress={{
@@ -131,12 +168,12 @@ export function DrillWindow() {
           )}
         </div>
 
-        {/* Summary sidebar */}
-        {plan && route && (
+        {/* Summary sidebar; always shown once plan is available */}
+        {filteredPlan && route && (
           <div className="w-72 shrink-0 border-l border-slate-800 overflow-y-auto">
             <DrillRunPanel steps={program?.steps ?? []} run={run} />
             <DrillSummary
-              plan={plan}
+              plan={filteredPlan}
               route={route}
               onSetClass={(dMm, klass) =>
                 api.emitDrillSetClassOverride(String(Math.round(dMm * 1000)), klass)

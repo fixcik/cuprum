@@ -27,9 +27,16 @@
     "npth": "NPTH",
     "mechanical": "mech"
   },
+  "pass": {
+    "label": "Pass",
+    "alignment": "Alignment",
+    "preplating": "Before plating",
+    "postplating": "After plating"
+  },
   "empty": {
     "noProject": "No project open",
-    "noHoles": "No drill holes found"
+    "noHoles": "No drill holes found",
+    "nothingSelected": "No hole types selected"
   },
   "datum": {
     "label": "Zero (0,0)",
