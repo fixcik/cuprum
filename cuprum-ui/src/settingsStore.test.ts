@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useSettings, toolsFromPersisted } from "@/settingsStore";
+import { useSettings, toolsFromPersisted, machinesFromPersisted } from "@/settingsStore";
 import { DEFAULT_PROFILE } from "@/lib/capabilityProfile";
 import { DEFAULT_NEST } from "@/lib/nest";
 import { DEFAULT_TOOLS } from "@/lib/toolLibrary";
+import { DEFAULT_CNC_MACHINE, DEFAULT_UV_MACHINE } from "@/lib/machine";
 import type { PanelPreset } from "@/lib/panel";
 
 // Snapshot the initial state (incl. action fns) and restore it before each test
@@ -81,6 +82,120 @@ describe("panelInspector", () => {
     expect(useSettings.getState().panelInspector.width).toBe(400);
     useSettings.getState().setPanelInspector({ collapsed: true });
     expect(useSettings.getState().panelInspector).toMatchObject({ width: 400, collapsed: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Machine migration tests
+// ---------------------------------------------------------------------------
+
+describe("machinesFromPersisted (settings migration)", () => {
+  it("migrates legacy cncProfile into a cnc machine and marks it active", () => {
+    const legacyCncProfile = {
+      name: "My CNC",
+      port: "/dev/tty.usbserial",
+      baud: 115200,
+      jogFeedMmMin: 500,
+      jogStepsMm: [0.1, 1, 10],
+      workEnvelopeMm: { x: 300, y: 180, z: 45 },
+      spindleMaxRpm: 9000,
+      spindleControllable: false,
+      spindleHasPwm: true,
+      gcodeDialect: "grbl_1_1" as const,
+      safeZMm: 5,
+      runoutMm: 0.15,
+      backlashMm: { x: 0.05, y: 0.1, z: 0.05 },
+      prependGcode: "",
+      appendGcode: "",
+      workZeroMm: null,
+    };
+
+    const result = machinesFromPersisted({ cncProfile: legacyCncProfile });
+    expect(result.machines).toHaveLength(2); // cnc + uvlcd
+    const cnc = result.machines.find((m) => m.kind === "cnc");
+    expect(cnc).toBeDefined();
+    expect(cnc!.name).toBe("My CNC");
+    if (cnc!.kind === "cnc") {
+      expect(cnc!.port).toBe("/dev/tty.usbserial");
+      expect(cnc!.safeZMm).toBe(5);
+    }
+    expect(result.activeCncMachineId).toBe(cnc!.id);
+  });
+
+  it("migrates UV profile (with screenWidthMm/screenHeightMm) into uvlcd machine", () => {
+    const result = machinesFromPersisted({});
+    const uv = result.machines.find((m) => m.kind === "uvlcd");
+    expect(uv).toBeDefined();
+    if (uv!.kind === "uvlcd") {
+      expect(uv!.screenWidthMm).toBe(DEFAULT_UV_MACHINE.screenWidthMm);
+      expect(uv!.screenHeightMm).toBe(DEFAULT_UV_MACHINE.screenHeightMm);
+    }
+    expect(result.activeUvMachineId).toBe(uv!.id);
+  });
+
+  it("keeps existing machines array as-is when already migrated", () => {
+    const existingMachines = [DEFAULT_CNC_MACHINE, DEFAULT_UV_MACHINE];
+    const result = machinesFromPersisted({
+      machines: existingMachines,
+      activeCncMachineId: "machine-1",
+      activeUvMachineId: "machine-2",
+    });
+    expect(result.machines).toBe(existingMachines);
+    expect(result.activeCncMachineId).toBe("machine-1");
+    expect(result.activeUvMachineId).toBe("machine-2");
+  });
+
+  it("loads old persisted state without errors, no values lost from cncProfile", () => {
+    const legacy = {
+      cncProfile: {
+        name: "Workshop CNC",
+        port: "/dev/cu.wchusbserial",
+        baud: 115200,
+        jogFeedMmMin: 750,
+        jogStepsMm: [0.1, 0.5, 1],
+        workEnvelopeMm: { x: 200, y: 100, z: 30 },
+        spindleMaxRpm: 10000,
+        spindleControllable: true,
+        spindleHasPwm: true,
+        gcodeDialect: "grbl_1_1" as const,
+        safeZMm: 3,
+        runoutMm: 0.1,
+        backlashMm: { x: 0.02, y: 0.02, z: 0.02 },
+        prependGcode: "G21",
+        appendGcode: "M5",
+        workZeroMm: { x: 10, y: 20 },
+      },
+    };
+
+    const result = machinesFromPersisted(legacy);
+    const cnc = result.machines.find((m) => m.kind === "cnc");
+    expect(cnc).toBeDefined();
+    if (cnc!.kind === "cnc") {
+      expect(cnc!.name).toBe("Workshop CNC");
+      expect(cnc!.port).toBe("/dev/cu.wchusbserial");
+      expect(cnc!.jogFeedMmMin).toBe(750);
+      expect(cnc!.workZeroMm).toEqual({ x: 10, y: 20 });
+      expect(cnc!.prependGcode).toBe("G21");
+      expect(cnc!.appendGcode).toBe("M5");
+      expect(cnc!.spindleControllable).toBe(true);
+      expect(cnc!.safeZMm).toBe(3);
+    }
+  });
+
+  it("active CNC shim selector returns cncProfile-compatible fields", () => {
+    // setCncProfile patches the active CNC machine and keeps cncProfile in sync
+    useSettings.getState().setCncProfile({ name: "Shim Test", safeZMm: 7 });
+    const cncProfile = useSettings.getState().cncProfile;
+    expect(cncProfile.name).toBe("Shim Test");
+    expect(cncProfile.safeZMm).toBe(7);
+    expect(cncProfile.baud).toBe(DEFAULT_CNC_MACHINE.baud);
+    // The machines array is also updated
+    const machine = useSettings.getState().machines.find((m) => m.kind === "cnc");
+    expect(machine).toBeDefined();
+    if (machine?.kind === "cnc") {
+      expect(machine.name).toBe("Shim Test");
+      expect(machine.safeZMm).toBe(7);
+    }
   });
 });
 
