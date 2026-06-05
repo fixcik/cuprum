@@ -6,7 +6,14 @@ use tauri::{AppHandle, Emitter, State};
 
 use cuprum_core::grbl;
 
-use super::machine::MachineState;
+use super::machine::{Activity, MachineState};
+
+/// Abort the run if GRBL goes completely silent (no line — not even a status
+/// poll reply) for this long: a real stall/disconnect.
+const STALL_SILENCE: Duration = Duration::from_secs(4);
+/// Abort if GRBL reports Idle (buffer drained, nothing executing) for this long
+/// after a line was sent without an `ok`: the `ok` was lost on the wire.
+const IDLE_NO_ACK: Duration = Duration::from_millis(2500);
 
 // ── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +101,7 @@ pub fn drill_run_start(
 
     let writer = machine.writer().ok_or("not connected")?;
     let ack_slot = machine.ack_slot().ok_or("not connected")?;
+    let activity = machine.activity().ok_or("not connected")?;
 
     // Register the ack channel so the reader thread can forward ok/error/alarm.
     let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
@@ -126,9 +134,12 @@ pub fn drill_run_start(
     let handle = std::thread::spawn(move || {
         run_job(
             app_thread,
-            writer,
-            rx,
-            ack_slot,
+            RunConn {
+                writer,
+                rx,
+                ack_slot,
+                activity,
+            },
             ctrl_thread,
             steps,
             holes_total,
@@ -208,15 +219,29 @@ pub fn drill_run_stop(machine: State<MachineState>, job: State<DrillJob>) -> Res
 
 // ── Runner thread ────────────────────────────────────────────────────────────
 
-fn run_job(
-    app: AppHandle,
+/// Connection handles the runner owns (cloned out of `MachineState` before the
+/// thread spawns, so no `State<>` crosses the thread boundary).
+struct RunConn {
     writer: Arc<Mutex<cuprum_core::grbl::GrblWriter>>,
     rx: std::sync::mpsc::Receiver<grbl::Line>,
     ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
+    activity: Arc<Mutex<Activity>>,
+}
+
+fn run_job(
+    app: AppHandle,
+    conn: RunConn,
     ctrl: Arc<Control>,
     steps: Vec<DrillStepDto>,
     holes_total: u32,
 ) {
+    let RunConn {
+        writer,
+        rx,
+        ack_slot,
+        activity,
+    } = conn;
+
     let emit_state = |phase: &str| {
         let _ = app.emit(
             "drill-run://state",
@@ -256,9 +281,14 @@ fn run_job(
                 aborted_msg = Some(format!("write failed: {e}"));
                 break 'outer;
             }
-            // Wait for ok, but stay responsive to abort (soft-reset sends a banner,
-            // not an ok, so a single 30s wait would block on stop).
-            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            // Wait for ok based on GRBL LIVENESS, not a fixed deadline: a long
+            // move keeps GRBL in Run and the 200 ms status poll flowing, so we
+            // keep waiting as long as the link is alive. Abort only on a real
+            // stall (no line at all for STALL_SILENCE), a lost ok (GRBL Idle —
+            // buffer drained — with no ack for IDLE_NO_ACK), abort, or error.
+            // (Soft-reset on Stop replies with a banner, not an ok, so abort is
+            // re-checked at the top each tick.)
+            let sent = std::time::Instant::now();
             loop {
                 if ctrl.abort.load(Relaxed) {
                     break 'outer;
@@ -276,11 +306,19 @@ fn run_job(
                     // Stray non-ok line: keep waiting for the real ack.
                     Ok(_) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        if std::time::Instant::now() >= deadline {
-                            aborted_msg = Some("timeout waiting for ok".into());
+                        let (silent, idle) = {
+                            let a = activity.lock().unwrap();
+                            (a.last.elapsed(), a.idle)
+                        };
+                        if silent > STALL_SILENCE {
+                            aborted_msg = Some("no response from machine".into());
                             break 'outer;
                         }
-                        // else keep polling (abort re-checked at loop top)
+                        if idle && sent.elapsed() > IDLE_NO_ACK {
+                            aborted_msg = Some("machine idle, no ack (lost ok)".into());
+                            break 'outer;
+                        }
+                        // else GRBL is alive and busy — keep waiting.
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         aborted_msg = Some("connection lost".into());
