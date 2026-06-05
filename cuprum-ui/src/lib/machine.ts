@@ -108,3 +108,35 @@ export const DEFAULT_UV_MACHINE: UvLcdMachine = {
   screenWidthMm: 211.68,
   screenHeightMm: 118.37,
 };
+
+// ---------------------------------------------------------------------------
+// Builders ("add machine" buttons)
+// ---------------------------------------------------------------------------
+
+/** A name not yet taken by any machine: `base`, else `base (2)`, `base (3)`, … */
+function uniqueName(machines: Machine[], base: string): string {
+  const taken = new Set(machines.map((m) => m.name));
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base} (${n})`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/** A fresh default CNC machine with the next id and a unique name. */
+export function newCncMachine(machines: Machine[]): CncMachine {
+  return {
+    ...DEFAULT_CNC_MACHINE,
+    id: nextMachineId(machines),
+    name: uniqueName(machines, DEFAULT_CNC_MACHINE.name),
+  };
+}
+
+/** A fresh default UV LCD machine with the next id and a unique name. */
+export function newUvMachine(machines: Machine[]): UvLcdMachine {
+  return {
+    ...DEFAULT_UV_MACHINE,
+    id: nextMachineId(machines),
+    name: uniqueName(machines, DEFAULT_UV_MACHINE.name),
+  };
+}

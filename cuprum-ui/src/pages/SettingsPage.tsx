@@ -6,14 +6,14 @@ import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Diagrams } from "@/components/settings/diagrams";
 import { NumberField, BoolField } from "@/components/settings/fields";
-import { CncProfileSection } from "@/components/settings/CncProfileSection";
+import { EquipmentSection } from "@/components/settings/EquipmentSection";
 import { ToolLibrarySection } from "@/components/settings/ToolLibrarySection";
 import { useSettings } from "@/settingsStore";
 import { type Language, type Units } from "@/settingsStore";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
-type Tab = "general" | "capabilities" | "cnc";
-const TABS: Tab[] = ["general", "capabilities", "cnc"];
+type Tab = "general" | "capabilities" | "equipment" | "tools";
+const TABS: Tab[] = ["general", "capabilities", "equipment", "tools"];
 type CapCategoryId = "panel" | "copper" | "drill" | "maskSilk";
 const CAP_CATEGORIES: CapCategoryId[] = ["panel", "copper", "drill", "maskSilk"];
 
@@ -297,12 +297,11 @@ export function SettingsPage() {
       </div>
       )}
 
-      {tab === "cnc" && (
+      {tab === "equipment" && <EquipmentSection />}
+
+      {tab === "tools" && (
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-xl p-6">
-            <h3 className="mb-3 text-[13px] font-semibold text-foreground">{t("cnc.machine")}</h3>
-            <CncProfileSection />
-            <h3 className="mb-3 mt-8 text-[13px] font-semibold text-foreground">{t("cnc.tools")}</h3>
             <ToolLibrarySection />
           </div>
         </div>
