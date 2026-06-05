@@ -225,7 +225,8 @@ mod tests {
         assert_eq!(z.x_mm, 5.0);
         assert_eq!(z.width_mm, 12.0);
 
-        let json_dead = r#"{"id":"koz-3","x_mm":1.0,"y_mm":2.0,"width_mm":3.0,"height_mm":4.0,"kind":"dead"}"#;
+        let json_dead =
+            r#"{"id":"koz-3","x_mm":1.0,"y_mm":2.0,"width_mm":3.0,"height_mm":4.0,"kind":"dead"}"#;
         let z2: KeepOutZone = serde_json::from_str(json_dead).unwrap();
         assert_eq!(z2.id, "koz-3");
 
