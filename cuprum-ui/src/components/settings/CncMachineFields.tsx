@@ -4,7 +4,8 @@ import { NumberField, BoolField } from "@/components/settings/fields";
 import type { CncMachine } from "@/lib/machine";
 
 /** Field editor for a single CNC machine. Reads/writes the machine directly via
- *  `updateMachine`; mirrors CncProfile v1 fields 1:1. */
+ *  `updateMachine`. Exposes the persistent configuration fields; runtime-tunable
+ *  jog settings (jogFeedMmMin / jogStepsMm) are edited in-context in the jog pad. */
 export function CncMachineFields({ machine }: { machine: CncMachine }) {
   const { t } = useTranslation("settings");
   const update = useSettings((s) => s.updateMachine);

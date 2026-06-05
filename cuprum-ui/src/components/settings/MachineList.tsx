@@ -36,11 +36,15 @@ export function MachineList({
 
   const confirmDelete = () => {
     if (!deleteId) return;
-    removeMachine(deleteId);
+    // Pick the next selection from the post-deletion list: prefer the machine
+    // that was after the deleted one (same index), else the previous, else none.
     if (selectedId === deleteId) {
-      const next = machines.find((m) => m.id !== deleteId);
+      const idx = machines.findIndex((m) => m.id === deleteId);
+      const remaining = machines.filter((m) => m.id !== deleteId);
+      const next = remaining[idx] ?? remaining[idx - 1] ?? null;
       onSelect(next?.id ?? null);
     }
+    removeMachine(deleteId);
     setDeleteId(null);
   };
 
