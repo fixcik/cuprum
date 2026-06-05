@@ -1,83 +1,85 @@
 import { useTranslation } from "react-i18next";
 import { useSettings } from "@/settingsStore";
 import { NumberField, BoolField } from "@/components/settings/fields";
+import type { CncMachine } from "@/lib/machine";
 
-export function CncProfileSection() {
+/** Field editor for a single CNC machine. Reads/writes the machine directly via
+ *  `updateMachine`; mirrors CncProfile v1 fields 1:1. */
+export function CncMachineFields({ machine }: { machine: CncMachine }) {
   const { t } = useTranslation("settings");
-  const cnc = useSettings((s) => s.cncProfile);
-  const setCnc = useSettings((s) => s.setCncProfile);
+  const update = useSettings((s) => s.updateMachine);
   return (
     <div className="divide-y divide-border/60">
       <NumberField
         label={t("cnc.envX")}
-        value={cnc.workEnvelopeMm.x}
+        value={machine.workEnvelopeMm.x}
         dim="coarse"
-        onChange={(x) => setCnc({ workEnvelopeMm: { ...cnc.workEnvelopeMm, x } })}
+        onChange={(x) => update(machine.id, { workEnvelopeMm: { ...machine.workEnvelopeMm, x } })}
       />
       <NumberField
         label={t("cnc.envY")}
-        value={cnc.workEnvelopeMm.y}
+        value={machine.workEnvelopeMm.y}
         dim="coarse"
-        onChange={(y) => setCnc({ workEnvelopeMm: { ...cnc.workEnvelopeMm, y } })}
+        onChange={(y) => update(machine.id, { workEnvelopeMm: { ...machine.workEnvelopeMm, y } })}
       />
       <NumberField
         label={t("cnc.envZ")}
-        value={cnc.workEnvelopeMm.z}
+        value={machine.workEnvelopeMm.z}
         dim="coarse"
-        onChange={(z) => setCnc({ workEnvelopeMm: { ...cnc.workEnvelopeMm, z } })}
+        onChange={(z) => update(machine.id, { workEnvelopeMm: { ...machine.workEnvelopeMm, z } })}
       />
       <NumberField
         label={t("cnc.spindleMaxRpm")}
-        value={cnc.spindleMaxRpm}
+        value={machine.spindleMaxRpm}
         step="100"
         suffix={t("cnc.unitRpm")}
-        onChange={(spindleMaxRpm) => setCnc({ spindleMaxRpm })}
+        onChange={(spindleMaxRpm) => update(machine.id, { spindleMaxRpm })}
       />
       <BoolField
         label={t("cnc.spindleControllable")}
-        value={cnc.spindleControllable}
-        onChange={(spindleControllable) => setCnc({ spindleControllable })}
+        value={machine.spindleControllable}
+        onChange={(spindleControllable) => update(machine.id, { spindleControllable })}
       />
       <BoolField
         label={t("cnc.spindleHasPwm")}
-        value={cnc.spindleHasPwm}
-        onChange={(spindleHasPwm) => setCnc({ spindleHasPwm })}
+        value={machine.spindleHasPwm}
+        onChange={(spindleHasPwm) => update(machine.id, { spindleHasPwm })}
       />
       <NumberField
         label={t("cnc.safeZ")}
-        value={cnc.safeZMm}
+        value={machine.safeZMm}
         dim="coarse"
-        onChange={(safeZMm) => setCnc({ safeZMm })}
+        onChange={(safeZMm) => update(machine.id, { safeZMm })}
       />
       <NumberField
         label={t("cnc.runout")}
-        value={cnc.runoutMm}
+        value={machine.runoutMm}
         dim="fine"
-        onChange={(runoutMm) => setCnc({ runoutMm })}
+        onChange={(runoutMm) => update(machine.id, { runoutMm })}
       />
       <NumberField
         label={t("cnc.backlashX")}
-        value={cnc.backlashMm.x}
+        value={machine.backlashMm.x}
         dim="fine"
-        onChange={(x) => setCnc({ backlashMm: { ...cnc.backlashMm, x } })}
+        onChange={(x) => update(machine.id, { backlashMm: { ...machine.backlashMm, x } })}
       />
       <NumberField
         label={t("cnc.backlashY")}
-        value={cnc.backlashMm.y}
+        value={machine.backlashMm.y}
         dim="fine"
-        onChange={(y) => setCnc({ backlashMm: { ...cnc.backlashMm, y } })}
+        onChange={(y) => update(machine.id, { backlashMm: { ...machine.backlashMm, y } })}
       />
       <NumberField
         label={t("cnc.backlashZ")}
-        value={cnc.backlashMm.z}
+        value={machine.backlashMm.z}
         dim="fine"
-        onChange={(z) => setCnc({ backlashMm: { ...cnc.backlashMm, z } })}
+        onChange={(z) => update(machine.id, { backlashMm: { ...machine.backlashMm, z } })}
       />
       <NumberField
         label={t("cnc.baud")}
-        value={cnc.baud}
+        value={machine.baud}
         step="1"
-        onChange={(baud) => setCnc({ baud })}
+        onChange={(baud) => update(machine.id, { baud })}
       />
       <label className="flex items-center justify-between gap-4 py-2">
         <span className="text-[12px] text-foreground">{t("cnc.dialect")}</span>
@@ -86,8 +88,8 @@ export function CncProfileSection() {
       <label className="flex flex-col gap-1 py-2">
         <span className="text-[12px] text-foreground">{t("cnc.prepend")}</span>
         <textarea
-          value={cnc.prependGcode}
-          onChange={(e) => setCnc({ prependGcode: e.target.value })}
+          value={machine.prependGcode}
+          onChange={(e) => update(machine.id, { prependGcode: e.target.value })}
           rows={2}
           className="rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px]"
         />
@@ -95,8 +97,8 @@ export function CncProfileSection() {
       <label className="flex flex-col gap-1 py-2">
         <span className="text-[12px] text-foreground">{t("cnc.append")}</span>
         <textarea
-          value={cnc.appendGcode}
-          onChange={(e) => setCnc({ appendGcode: e.target.value })}
+          value={machine.appendGcode}
+          onChange={(e) => update(machine.id, { appendGcode: e.target.value })}
           rows={2}
           className="rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px]"
         />
