@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
-import { api, type AddDesignResult, type BoardInstance, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
+import { api, type AddDesignResult, type BoardInstance, type DrillClass, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
 import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
@@ -185,6 +185,9 @@ interface ShellStore {
   setToolingHoleDiameter: (id: string, diameterMm: number) => Promise<void>;
   /** Change the role of a tooling hole. */
   setToolingHoleRole: (id: string, role: ToolingHoleRole) => Promise<void>;
+  /** Set or clear (klass=null) the drill-class override for a diameter bucket
+   *  (key = round(diameterMm*1000) as string). Persisted in the panel manifest. */
+  setDrillClassOverride: (diameterKey: string, klass: DrillClass | null) => Promise<void>;
   /** Add a corner registration set (4 holes) in one undo step. */
   addRegistrationSet: (opts: { count: 2 | 4; marginMm: number; diameterMm: number; replace: boolean }) => Promise<void>;
 
@@ -741,6 +744,16 @@ export const useShell = create<ShellStore>((set, get) => ({
       tooling_holes: panel.tooling_holes.map((h) => (h.id === id ? { ...h, role } : h)),
     };
     await get().savePanelConfig(next, stackup);
+  },
+
+  setDrillClassOverride: async (diameterKey, klass) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const next = { ...(panel.drill_class_overrides ?? {}) } as Record<string, DrillClass>;
+    if (klass === null) delete next[diameterKey];
+    else next[diameterKey] = klass;
+    await get().savePanelConfig({ ...panel, drill_class_overrides: next }, stackup);
   },
 
   addRegistrationSet: async ({ count, marginMm, diameterMm, replace }) => {

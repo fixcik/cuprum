@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type DrillSnapshot } from "@/lib/api";
+import { api, type DrillSnapshot, type DrillClass } from "@/lib/api";
 import { collectDesignHoles, buildPanelDrillPlan, type LocalHole } from "@/lib/panelDrill";
 import { planDrillRoute, type DrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
@@ -119,10 +119,12 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
           w: z.width_mm,
           h: z.height_mm,
         }));
+        // Apply per-diameter class overrides stored in the panel manifest.
+        const overrides = new Map<string, DrillClass>(Object.entries(panel.drill_class_overrides ?? {}));
         const plan = buildPanelDrillPlan(panel, holesCache.current, sizes, tools, {
           viaMaxDiameterMm,
           drillBitToleranceMm,
-        }, zones);
+        }, zones, overrides);
 
         const start = datumCornerPanelPoint(datumCorner, panel.width_mm, panel.height_mm);
         const route = planDrillRoute(plan, start, zones);

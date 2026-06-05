@@ -587,6 +587,15 @@ export const api = {
   emitDrillSnapshot: (s: DrillSnapshot) => emit("drill://snapshot", s),
   onDrillSnapshot: (cb: (s: DrillSnapshot) => void): Promise<UnlistenFn> =>
     listen<DrillSnapshot>("drill://snapshot", (e) => cb(e.payload)),
+  emitDrillSetClassOverride: (diameterKey: string, klass: DrillClass | null) =>
+    emit("drill://set-class-override", { diameterKey, klass }),
+  onDrillSetClassOverride: (
+    cb: (p: { diameterKey: string; klass: DrillClass | null }) => void,
+  ): Promise<UnlistenFn> =>
+    listen<{ diameterKey: string; klass: DrillClass | null }>(
+      "drill://set-class-override",
+      (e) => cb(e.payload),
+    ),
 
   /** Apply localised native-menu labels (called on mount and on language change). */
   setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),
