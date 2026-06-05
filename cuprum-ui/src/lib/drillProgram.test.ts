@@ -18,6 +18,7 @@ const profile = (over: Partial<CncProfile> = {}): CncProfile => ({
 });
 const plan = (groups: PanelDrillPlan["groups"]): PanelDrillPlan => ({
   groups, totalHoles: groups.reduce((n, g) => n + g.holes.length, 0), unmatchedDiametersMm: [],
+  skippedInKeepout: 0, registrationInKeepout: 0,
 });
 const ctx = (over: Partial<Parameters<typeof emitDrillProgram>[1]> = {}) =>
   ({ panelHeightMm: 50, profile: profile(), substrateThicknessMm: 1.6, tools: [], ...over });
