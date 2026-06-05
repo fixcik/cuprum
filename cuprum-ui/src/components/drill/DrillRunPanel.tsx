@@ -13,7 +13,7 @@ export interface DrillRunPanelProps {
  *  tool-change prompt, and error banner. Rendered in the drill window sidebar. */
 export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
   const { t } = useTranslation("drill");
-  const { state, connected, start, pause, resume, stop, confirmToolChange } = run;
+  const { state, connected, start, pause, resume, stop, estop, confirmToolChange } = run;
   const { phase } = state;
 
   const hasHoles = steps.some((s) => s.kind === "hole");
@@ -54,10 +54,27 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
           </Button>
         )}
 
-        {/* Stop: visible when active */}
+        {/* Stop (graceful): finishes current hole and lifts to safe Z */}
         {isActive && (
-          <Button size="sm" variant="destructive" onClick={stop}>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={stop}
+            title={t("run.stopTitle")}
+          >
             {t("run.stop")}
+          </Button>
+        )}
+
+        {/* Emergency stop: immediate halt, no safe-Z move */}
+        {isActive && (
+          <Button
+            size="sm"
+            className="border border-red-700 bg-red-600 font-semibold text-white shadow-md hover:bg-red-700 active:bg-red-800"
+            onClick={estop}
+            title={t("run.estopTitle")}
+          >
+            {t("run.estop")}
           </Button>
         )}
       </div>

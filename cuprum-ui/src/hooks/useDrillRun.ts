@@ -15,6 +15,7 @@ export interface UseDrillRun {
   pause: () => void;
   resume: () => void;
   stop: () => void;
+  estop: () => void;
   confirmToolChange: () => void;
 }
 
@@ -74,9 +75,13 @@ export function useDrillRun(): UseDrillRun {
     void api.drillRun.stop();
   }, []);
 
+  const estop = useCallback(() => {
+    void api.drillRun.estop();
+  }, []);
+
   const confirmToolChange = useCallback(() => {
     void api.drillRun.confirmToolChange();
   }, []);
 
-  return { state, connected, start, pause, resume, stop, confirmToolChange };
+  return { state, connected, start, pause, resume, stop, estop, confirmToolChange };
 }
