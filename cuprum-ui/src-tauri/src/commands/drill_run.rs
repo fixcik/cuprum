@@ -168,7 +168,12 @@ pub fn drill_run_pause(app: AppHandle, job: State<DrillJob>) -> Result<(), Strin
         h.ctrl.paused.store(true, Relaxed);
         // Emit intermediate "pausing" immediately so the UI can show a spinner
         // while the runner waits for the bit to reach safe Z.
-        let _ = app.emit("drill-run://state", StatePayload { phase: "pausing".into() });
+        let _ = app.emit(
+            "drill-run://state",
+            StatePayload {
+                phase: "pausing".into(),
+            },
+        );
     }
     Ok(())
 }
@@ -198,10 +203,19 @@ pub fn drill_run_confirm_tool_change(job: State<DrillJob>) -> Result<(), String>
 pub fn drill_run_stop(app: AppHandle, job: State<DrillJob>) -> Result<(), String> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
+        // Idempotent: a second stop while already stopping is a no-op.
+        if h.ctrl.stopping.load(Relaxed) {
+            return Ok(());
+        }
         h.ctrl.stopping.store(true, Relaxed);
         // Emit intermediate "stopping" immediately so the UI can show a spinner
         // while the runner finishes the current hole and retracts to safe Z.
-        let _ = app.emit("drill-run://state", StatePayload { phase: "stopping".into() });
+        let _ = app.emit(
+            "drill-run://state",
+            StatePayload {
+                phase: "stopping".into(),
+            },
+        );
     }
     Ok(())
 }
