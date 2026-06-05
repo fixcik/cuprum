@@ -3,6 +3,8 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { type NestSettings } from "@/lib/nest";
 import type { DrillStep } from "@/lib/drillGcode";
+import type { CncProfile } from "@/lib/cncProfile";
+import type { Tool } from "@/lib/toolLibrary";
 
 /** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
  *  appear in the browser Network tab — in dev builds we log every command (args,
@@ -245,13 +247,22 @@ export interface AddDesignResult {
 }
 
 /** Snapshot pushed from the main window to the drill-preview window.
- *  Contains the minimum data needed to build the drill plan; tool inventory
- *  and capability profile are read from useSettings inside the window. */
+ *  Contains the data needed to build the drill plan. Shop settings (CNC profile,
+ *  tools, DFM thresholds) are pushed live from the main window so the drill
+ *  window reflects edits without a restart (it has its own persisted store
+ *  that only rehydrates on load). */
 export interface DrillSnapshot {
   workingDir: string | null;
   manifest: Manifest | null;
   /** Board extent (mm) per placed design_id; needed for panel drill plan. */
   placedSizes: Record<string, { w: number; h: number }>;
+  /** CNC machine profile (safe-Z, spindle, g-code wrappers, …). */
+  cncProfile: CncProfile;
+  /** Shop tool library (drill diameters / rpm / plunge). */
+  tools: Tool[];
+  /** DFM thresholds used to classify/snap drill holes. */
+  viaMaxDiameterMm: number;
+  drillBitToleranceMm: number;
 }
 
 export interface Orphan {
