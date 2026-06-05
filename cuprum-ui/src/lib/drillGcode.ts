@@ -31,7 +31,10 @@ export interface DrillStep {
   pauseForToolChange?: boolean;    // toolchange step only
   toolName?: string;               // toolchange step only
   diameterMm?: number;             // toolchange step only
-  holeIndex?: number;              // hole step only: index into planDrillRoute(...).pathPoints
+  // hole step only: 0-based index into the actual drilled-hole sequence (matches
+  // gIdx in DrillMapCanvas). NOT an index into pathPoints, which may also contain
+  // keep-out detour waypoints.
+  holeIndex?: number;
 }
 
 export interface DrillProgramResult {

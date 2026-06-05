@@ -232,7 +232,13 @@ export function avoidZones(
   }
 
   function route(pa: Pt, pb: Pt, depth: number): Pt[] {
-    if (depth > 8) return [];
+    if (depth > 8) {
+      // Safety cap (≥9 nested zone crossings — not expected on a real panel).
+      // Returning [] means the traverse falls back to a straight line that may
+      // still cut through a zone, so make it observable rather than silent.
+      console.warn("[avoidZones] recursion cap hit; traverse may cross a keep-out zone");
+      return [];
+    }
 
     const blocker = firstBlocker(pa, pb);
     if (blocker === null) return [];
