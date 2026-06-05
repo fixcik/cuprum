@@ -9,8 +9,8 @@ const inst = (id: string, design_id: string, x: number, y: number, rot = 0) =>
   ({ id, design_id, x_mm: x, y_mm: y, rotation_deg: rot });
 const panel = (w: number, h: number, instances: ReturnType<typeof inst>[], tooling_holes: ToolingHole[] = [], keep_out_zones: KeepOutZone[] = []): PanelDoc =>
   ({ width_mm: w, height_mm: h, instances, tooling_holes, keep_out_zones } as unknown as PanelDoc);
-const zone = (id: string, x: number, y: number, w: number, h: number, kind: KeepOutZone["kind"] = "fixture"): KeepOutZone =>
-  ({ id, x_mm: x, y_mm: y, width_mm: w, height_mm: h, kind });
+const zone = (id: string, x: number, y: number, w: number, h: number): KeepOutZone =>
+  ({ id, x_mm: x, y_mm: y, width_mm: w, height_mm: h });
 const hole = (id: string, x: number, y: number, d = 3): ToolingHole =>
   ({ id, x_mm: x, y_mm: y, diameter_mm: d, role: "registration" as const });
 
@@ -141,21 +141,21 @@ describe("evaluatePanel", () => {
     expect(overallVerdict(f)).toBe("block");
   });
 
-  it("flags a tooling hole in a dead zone, ignores fixture/reserved (block)", () => {
-    // h1 at (20,20) d=3 → AABB [18.5,21.5]×[18.5,21.5]; dead zone [10,30]×[10,30] → overlap
-    // h2 at (80,20) d=3 → AABB [78.5,81.5]×[18.5,21.5]; fixture zone [70,90]×[10,30] → NOT flagged
+  it("flags a tooling hole inside any keep-out zone as keep-out (block)", () => {
+    // h1 at (20,20) d=3 → AABB [18.5,21.5]×[18.5,21.5]; zone [10,30]×[10,30] → overlap
+    // h2 at (80,20) d=3 → AABB [78.5,81.5]×[18.5,21.5]; zone [70,90]×[10,30] → also flagged
     const f = evaluatePanel({
       panel: panel(
         100, 100,
         [inst("clear", "d1", 50, 50)],
         [hole("h1", 20, 20), hole("h2", 80, 20)],
-        [zone("z1", 10, 10, 20, 20, "dead"), zone("z2", 70, 10, 20, 20, "fixture")],
+        [zone("z1", 10, 10, 20, 20), zone("z2", 70, 10, 20, 20)],
       ),
       sizes: { d1: { w: 5, h: 5 } }, profile: prof, designVerdicts: { d1: "ok" },
     });
-    const ko = f.find((x) => x.category === "keep-out-tooling");
+    const ko = f.find((x) => x.category === "keep-out");
     expect(ko?.severity).toBe("block");
-    expect(ko?.toolingHoleIds).toEqual(["h1"]);
+    expect(ko?.toolingHoleIds).toEqual(["h1", "h2"]);
     expect(overallVerdict(f)).toBe("block");
   });
 

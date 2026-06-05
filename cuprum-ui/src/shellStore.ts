@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
-import { api, type AddDesignResult, type BoardInstance, type KeepOutKind, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
+import { api, type AddDesignResult, type BoardInstance, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
 import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
@@ -190,16 +190,14 @@ interface ShellStore {
 
   /** Add a keep-out zone to the panel. Returns the new zone id, or "" when no panel
    *  is open. Width/height are normalised to positive values; the zone is clamped
-   *  into [0, panelW] × [0, panelH]. Default kind is "fixture". */
-  addKeepOutZone: (z: { x_mm: number; y_mm: number; width_mm: number; height_mm: number; kind?: KeepOutKind }) => Promise<string>;
+   *  into [0, panelW] × [0, panelH]. */
+  addKeepOutZone: (z: { x_mm: number; y_mm: number; width_mm: number; height_mm: number }) => Promise<string>;
   /** Resize a keep-out zone; new rect is normalised and clamped into the panel. */
   resizeKeepOutZone: (id: string, rect: { x_mm: number; y_mm: number; width_mm: number; height_mm: number }) => Promise<void>;
   /** Translate the given keep-out zones by (dxMm, dyMm), clamped to the panel. */
   moveKeepOutZones: (ids: string[], dxMm: number, dyMm: number) => Promise<void>;
   /** Remove the given keep-out zones. */
   removeKeepOutZones: (ids: string[]) => Promise<void>;
-  /** Change the kind of the given keep-out zones. */
-  setKeepOutKind: (ids: string[], kind: KeepOutKind) => Promise<void>;
 }
 
 /** Strip directory + .cu/.cuprum extension to a display/default name. */
@@ -764,14 +762,14 @@ export const useShell = create<ShellStore>((set, get) => ({
     await get().savePanelConfig(next, stackup);
   },
 
-  addKeepOutZone: async ({ x_mm, y_mm, width_mm, height_mm, kind = "fixture" }) => {
+  addKeepOutZone: async ({ x_mm, y_mm, width_mm, height_mm }) => {
     const panel = get().currentManifest?.panel;
     const stackup = get().currentManifest?.stackup;
     if (!panel || !stackup) return "";
     const { x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch } =
       clampZoneRect({ x_mm, y_mm, width_mm, height_mm }, panel.width_mm, panel.height_mm, KEEPOUT_MIN_MM);
     const id = crypto.randomUUID();
-    const zone: KeepOutZone = { id, x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch, kind };
+    const zone: KeepOutZone = { id, x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch };
     const next: PanelDoc = { ...panel, keep_out_zones: [...(panel.keep_out_zones ?? []), zone] };
     await get().savePanelConfig(next, stackup);
     return id;
@@ -815,18 +813,6 @@ export const useShell = create<ShellStore>((set, get) => ({
     const next: PanelDoc = {
       ...panel,
       keep_out_zones: (panel.keep_out_zones ?? []).filter((z) => !sel.has(z.id)),
-    };
-    await get().savePanelConfig(next, stackup);
-  },
-
-  setKeepOutKind: async (ids, kind) => {
-    const panel = get().currentManifest?.panel;
-    const stackup = get().currentManifest?.stackup;
-    if (!panel || !stackup || ids.length === 0) return;
-    const sel = new Set(ids);
-    const next: PanelDoc = {
-      ...panel,
-      keep_out_zones: (panel.keep_out_zones ?? []).map((z) => (sel.has(z.id) ? { ...z, kind } : z)),
     };
     await get().savePanelConfig(next, stackup);
   },

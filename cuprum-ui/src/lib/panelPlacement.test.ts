@@ -17,8 +17,6 @@ import {
   clampToolingHoleCenter,
   registrationSetPositions,
   panelObstacles,
-  zoneForbidsBoard,
-  zoneForbidsTooling,
   keepOutBox,
   clampZoneRect,
   clampZonesForHoles,
@@ -593,27 +591,11 @@ describe("panelObstacles", () => {
       instances: [] as BoardInstance[],
       tooling_holes: [] as ToolingHole[],
       keep_out_zones: [
-        { id: "z1", x_mm: 10, y_mm: 20, width_mm: 5, height_mm: 8, kind: "fixture" as const },
+        { id: "z1", x_mm: 10, y_mm: 20, width_mm: 5, height_mm: 8 },
       ],
     };
     const obs = panelObstacles(panel, {});
     expect(obs).toContainEqual({ minX: 10, minY: 20, maxX: 15, maxY: 28 });
-  });
-});
-
-describe("zoneForbidsBoard", () => {
-  it("always returns true regardless of kind", () => {
-    expect(zoneForbidsBoard("fixture")).toBe(true);
-    expect(zoneForbidsBoard("dead")).toBe(true);
-    expect(zoneForbidsBoard("reserved")).toBe(true);
-  });
-});
-
-describe("zoneForbidsTooling", () => {
-  it("returns true only for dead zones", () => {
-    expect(zoneForbidsTooling("dead")).toBe(true);
-    expect(zoneForbidsTooling("fixture")).toBe(false);
-    expect(zoneForbidsTooling("reserved")).toBe(false);
   });
 });
 

@@ -1,7 +1,7 @@
 import type { Severity, Verdict, I18nText } from "@/lib/feasibility";
 import type { PanelDoc, BoardInstance } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
-import { boxesOverlap, instanceBounds, keepOutBox, toolingHoleBounds, zoneForbidsTooling, clampZonesForHoles, type Box } from "@/lib/panelPlacement";
+import { boxesOverlap, instanceBounds, keepOutBox, toolingHoleBounds, clampZonesForHoles, type Box } from "@/lib/panelPlacement";
 
 export const MIN_PANEL_GAP_MM = 1;
 
@@ -12,7 +12,6 @@ export type PanelFindingCategory =
   | "design"
   | "empty"
   | "keep-out"
-  | "keep-out-tooling"
   | "clamp";
 
 export interface PanelFinding {
@@ -23,7 +22,7 @@ export interface PanelFinding {
   detail?: I18nText;
   /** Instance ids implicated in this finding (drives highlight + dock-list focus). */
   instanceIds: string[];
-  /** Tooling-hole ids implicated (only keep-out-tooling uses this). */
+  /** Tooling-hole ids implicated (keep-out finding includes tooling holes in any zone). */
   toolingHoleIds?: string[];
 }
 
@@ -176,44 +175,32 @@ export function evaluatePanel(opts: {
     });
   }
 
-  // 7) Keep-out (block): a board AABB intersects ANY keep-out zone.
+  // 7) Keep-out (block): a board AABB or tooling-hole AABB intersects ANY keep-out zone.
+  //    All zones are uniformly forbidden for both boards and tooling holes.
   const zones = panel.keep_out_zones ?? [];
   if (zones.length) {
-    const zoneBoxes = zones.map((z) => ({ z, box: keepOutBox(z) }));
+    const zoneBoxes = zones.map((z) => keepOutBox(z));
     const koIds = new Set<string>();
     for (const s of sized) {
-      if (zoneBoxes.some(({ box: zb }) => boxesOverlap(s.box, zb))) {
+      if (zoneBoxes.some((zb) => boxesOverlap(s.box, zb))) {
         koIds.add(s.inst.id);
       }
     }
-    if (koIds.size) {
+    const koHoleIds: string[] = [];
+    for (const h of panel.tooling_holes ?? []) {
+      const hb = toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm });
+      if (zoneBoxes.some((zb) => boxesOverlap(hb, zb))) koHoleIds.push(h.id);
+    }
+    const totalCount = koIds.size + koHoleIds.length;
+    if (totalCount > 0) {
       out.push({
         id: "keep-out",
         category: "keep-out",
         severity: "block",
-        title: { key: "feasibility:panel.keepOut", params: { count: koIds.size } },
+        title: { key: "feasibility:panel.keepOut", params: { count: totalCount } },
         instanceIds: [...koIds],
+        toolingHoleIds: koHoleIds.length > 0 ? koHoleIds : undefined,
       });
-    }
-
-    // 8) Keep-out tooling (block): a tooling hole intersects a DEAD zone only.
-    const deadBoxes = zoneBoxes.filter(({ z }) => zoneForbidsTooling(z.kind)).map(({ box }) => box);
-    if (deadBoxes.length) {
-      const holeIds: string[] = [];
-      for (const h of panel.tooling_holes ?? []) {
-        const hb = toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm });
-        if (deadBoxes.some((db) => boxesOverlap(hb, db))) holeIds.push(h.id);
-      }
-      if (holeIds.length) {
-        out.push({
-          id: "keep-out-tooling",
-          category: "keep-out-tooling",
-          severity: "block",
-          title: { key: "feasibility:panel.keepOutTooling", params: { count: holeIds.length } },
-          instanceIds: [],
-          toolingHoleIds: holeIds,
-        });
-      }
     }
   }
 

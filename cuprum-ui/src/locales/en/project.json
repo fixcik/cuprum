@@ -126,13 +126,7 @@
       "keepout": "Forbidden zone"
     },
     "keepout": {
-      "kind": {
-        "fixture": "Clamp",
-        "dead": "Dead zone",
-        "reserved": "Reserved"
-      },
       "delete": "Delete",
-      "setKind": "Zone type",
       "draw": "Draw a forbidden zone"
     },
     "tooling": {

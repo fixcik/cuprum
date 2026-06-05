@@ -1,29 +1,16 @@
-import { Group, Rect, Text, Line } from "react-konva";
+import { Group, Rect, Line } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
   KEEPOUT_FIXTURE_FILL,
   KEEPOUT_FIXTURE_STROKE,
-  KEEPOUT_DEAD_FILL,
-  KEEPOUT_DEAD_STROKE,
-  KEEPOUT_RESERVED_FILL,
-  KEEPOUT_RESERVED_STROKE,
   KEEPOUT_SELECTED_STROKE,
 } from "@/components/editor/canvasStyle";
-import type { KeepOutKind, KeepOutZone } from "@/lib/api";
+import type { KeepOutZone } from "@/lib/api";
 
 export type ZoneCorner = "tl" | "tr" | "bl" | "br";
 
-/** Resolve fill/stroke colours for a keep-out kind. */
-function kindColors(kind: KeepOutKind): { fill: string; stroke: string } {
-  switch (kind) {
-    case "dead":
-      return { fill: KEEPOUT_DEAD_FILL, stroke: KEEPOUT_DEAD_STROKE };
-    case "reserved":
-      return { fill: KEEPOUT_RESERVED_FILL, stroke: KEEPOUT_RESERVED_STROKE };
-    default:
-      return { fill: KEEPOUT_FIXTURE_FILL, stroke: KEEPOUT_FIXTURE_STROKE };
-  }
-}
+const ZONE_FILL = KEEPOUT_FIXTURE_FILL;
+const ZONE_STROKE = KEEPOUT_FIXTURE_STROKE;
 
 /** Konva layer rendering keep-out zones inside the mm fit-group, below board
  *  instances. Each zone is a tinted/hatched rect with a type label and, when
@@ -73,7 +60,8 @@ export function KeepOutLayer({
         const displayW = isResizing ? resizePreview!.width_mm : zone.width_mm;
         const displayH = isResizing ? resizePreview!.height_mm : zone.height_mm;
 
-        const { fill, stroke } = kindColors(zone.kind);
+        const fill = ZONE_FILL;
+        const stroke = ZONE_STROKE;
 
         // Build diagonal hatch lines clipped to the displayed rect.
         const hatchLines: number[][] = [];
@@ -179,22 +167,6 @@ export function KeepOutLayer({
               ))}
             </Group>
 
-            {/* Kind label — centred, visible when the zone is large enough. */}
-            {Math.max(Math.min(displayW, displayH) * 0.08, 2) >= 1.5 && (
-              <Text
-                x={0}
-                y={0}
-                width={displayW}
-                height={displayH}
-                align="center"
-                verticalAlign="middle"
-                text={zone.kind}
-                fontSize={Math.max(Math.min(displayW, displayH) * 0.08, 2)}
-                fill={stroke}
-                opacity={0.8}
-                listening={false}
-              />
-            )}
 
             {/* Corner resize handles — rendered on top, only when selected. */}
             {interactive && isSelected && corners.map(({ corner, cx, cy, cursor }) => (
