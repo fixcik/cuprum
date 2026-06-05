@@ -14,7 +14,7 @@ const profile = (over: Partial<CncProfile> = {}): CncProfile => ({
   workEnvelopeMm: { x: 300, y: 180, z: 45 }, spindleMaxRpm: 9000,
   spindleControllable: true, spindleHasPwm: true, gcodeDialect: "grbl_1_1",
   safeZMm: 5, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
-  prependGcode: "", appendGcode: "", ...over,
+  prependGcode: "", appendGcode: "", workZeroMm: null, ...over,
 });
 const plan = (groups: PanelDrillPlan["groups"]): PanelDrillPlan => ({
   groups, totalHoles: groups.reduce((n, g) => n + g.holes.length, 0), unmatchedDiametersMm: [],

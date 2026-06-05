@@ -25,7 +25,11 @@
     "work": "Рабочие",
     "machine": "Машинные",
     "zeroAxis": "Ноль {{axis}}",
-    "zeroAll": "Ноль XYZ"
+    "zeroAll": "Ноль XYZ",
+    "saveZero": "Сохранить ноль",
+    "restoreZero": "Базирование + восстановить ноль",
+    "zeroSaved": "Ноль сохранён: X{{x}} Y{{y}}",
+    "homingUnavailable": "Восстановление недоступно: включите homing в прошивке ($22=1)"
   },
   "jog": {
     "title": "Подвод",

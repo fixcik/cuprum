@@ -28,6 +28,9 @@ export interface CncProfile {
   // --- free-form G-code wrappers ---
   prependGcode: string;
   appendGcode: string;
+  /** Saved work-zero in MACHINE coordinates (XY only), for restore-after-homing.
+   *  null until the operator saves it. Z is always set manually (touch-off). */
+  workZeroMm: { x: number; y: number } | null;
 }
 
 export const DEFAULT_CNC_PROFILE: CncProfile = {
@@ -46,4 +49,5 @@ export const DEFAULT_CNC_PROFILE: CncProfile = {
   backlashMm: { x: 0.05, y: 0.1, z: 0.05 },
   prependGcode: "",
   appendGcode: "",
+  workZeroMm: null,
 };
