@@ -388,6 +388,33 @@ fn run_job(
             }
         }
 
+        // Sync to physical completion before any gate or the next step. GRBL acks
+        // each line on buffer-accept, NOT on motion-done, so without this the
+        // runner races ahead by the planner-buffer depth (~15 blocks ≈ a few
+        // holes) and a pause/stop would only take effect after the already-buffered
+        // holes had drained — the operator sees the spindle overrun the current
+        // hole. We pre-clear `idle` (motion was just queued, so any prior Idle is
+        // stale) and poll status until GRBL reports a fresh Idle, so the pause/stop
+        // gates land on the true hole boundary. E-stop (`abort`) skips the wait; a
+        // graceful stop does NOT — the current hole's buffered retract to safe Z is
+        // allowed to finish (that is the point of a clean stop). A lost link times
+        // out at 30 s and the next streamed line surfaces the real error.
+        {
+            activity.lock().unwrap().idle = false;
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while std::time::Instant::now() < deadline {
+                if ctrl.abort.load(Relaxed) {
+                    break;
+                }
+                // Poll promptly — the background poller only queries every 200 ms.
+                let _ = writer.lock().unwrap().write_realtime(grbl::STATUS_QUERY);
+                std::thread::sleep(Duration::from_millis(40));
+                if activity.lock().unwrap().idle {
+                    break;
+                }
+            }
+        }
+
         // Tool-change gate — AFTER the step's lines (the spindle was stopped and
         // Z retracted above), so the operator swaps the bit with the spindle off.
         // Spindle-up (M3 S…) lives on the next group's first hole step, streamed
