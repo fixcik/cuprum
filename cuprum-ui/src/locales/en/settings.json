@@ -5,7 +5,26 @@
   "tab": {
     "general": "General",
     "capabilities": "Capabilities",
-    "cnc": "CNC"
+    "equipment": "Equipment",
+    "tools": "Tools"
+  },
+  "equipment": {
+    "active": "Active",
+    "addCnc": "Add CNC",
+    "addUv": "Add UV LCD",
+    "delete": "Remove",
+    "cancel": "Cancel",
+    "empty": "Select a machine to edit",
+    "screenWidth": "Screen width",
+    "screenHeight": "Screen height",
+    "type": {
+      "cnc": "CNC",
+      "uvlcd": "UV LCD"
+    },
+    "confirmDelete": {
+      "title": "Delete machine?",
+      "message": "This machine will be removed from the library."
+    }
   },
   "category": {
     "panel": "Panel size",
@@ -43,8 +62,6 @@
     "maxOvershoot": { "label": "Max overshoot", "help": "How far layer features may stick out past the board outline. More and something hangs off the edge." }
   },
   "cnc": {
-    "machine": "CNC machine",
-    "tools": "Tools",
     "envX": "Envelope X",
     "envY": "Envelope Y",
     "envZ": "Envelope Z",
