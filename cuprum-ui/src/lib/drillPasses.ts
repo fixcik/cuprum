@@ -40,6 +40,11 @@ export function filterPlanByClasses(plan: PanelDrillPlan, selected: Set<DrillCla
     groups,
     totalHoles: groups.reduce((n, g) => n + g.holes.length, 0),
     unmatchedDiametersMm: [...unmatched].sort((a, b) => a - b),
+    // The loud "registration holes in a clamp zone" banner is only actionable
+    // when this run actually drills registration holes — silence it otherwise.
+    // (skippedInKeepout stays panel-wide: the plan doesn't track which class each
+    // skipped board hole belonged to.)
+    registrationInKeepout: selected.has("registration") ? plan.registrationInKeepout : 0,
   };
 }
 

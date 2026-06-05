@@ -158,10 +158,10 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
             {selectedClasses &&
               plan.groups
                 .filter((g) => !selectedClasses.has(g.class))
-                .flatMap((g, gi) =>
+                .flatMap((g) =>
                   g.holes.map((h, hi) => (
                     <Circle
-                      key={`dim-${gi}-${hi}`}
+                      key={`dim-${g.class}-${g.diameterMm}-${hi}`}
                       x={h.xMm}
                       y={h.yMm}
                       radius={Math.max(g.diameterMm / 2, 0.1)}

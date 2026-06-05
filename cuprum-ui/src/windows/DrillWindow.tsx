@@ -175,7 +175,6 @@ export function DrillWindow() {
             <DrillSummary
               plan={filteredPlan}
               route={route}
-              selectedClasses={selected}
               onSetClass={(dMm, klass) =>
                 api.emitDrillSetClassOverride(String(Math.round(dMm * 1000)), klass)
               }

@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
-import type { DrillClass } from "@/lib/api";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 /** Palette colours mirroring DrillMapCanvas — must stay in sync. */
@@ -35,13 +34,12 @@ export interface DrillSummaryProps {
   route: DrillRoute;
   /** Set/clear the class override for a group's diameter. Omit to render read-only. */
   onSetClass?: (diameterMm: number, klass: RouteGroup["class"] | null) => void;
-  /** When provided, rows for unselected classes are dimmed to indicate they are
-   *  excluded from this run. When route.totalHoles === 0 a hint is shown. */
-  selectedClasses?: Set<DrillClass>;
 }
 
-/** Summary sidebar: total holes/tools count, per-group list, and unmatched warnings. */
-export function DrillSummary({ plan, route, onSetClass, selectedClasses }: DrillSummaryProps) {
+/** Summary sidebar of the ACTIVE run: total holes/tools, the per-group list of the
+ *  selected classes, and warnings. Unselected classes are shown dimmed on the
+ *  canvas, not here — this list reflects what this run will drill. */
+export function DrillSummary({ plan, route, onSetClass }: DrillSummaryProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
 
@@ -67,10 +65,8 @@ export function DrillSummary({ plan, route, onSetClass, selectedClasses }: Drill
       <ul className="flex flex-col gap-1.5">
         {route.groups.map((g, gi) => {
           const color = groupColor(gi);
-          // Dim the row if selectedClasses is provided and this class is not selected.
-          const dimmed = selectedClasses !== undefined && !selectedClasses.has(g.class);
           return (
-            <li key={gi} className={`flex items-center gap-2${dimmed ? " opacity-40" : ""}`}>
+            <li key={gi} className="flex items-center gap-2">
               {/* Colour chip */}
               <span
                 className="inline-block w-2.5 h-2.5 rounded-full shrink-0"

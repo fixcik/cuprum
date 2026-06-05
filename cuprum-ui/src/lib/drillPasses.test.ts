@@ -13,7 +13,7 @@ const plan = (): PanelDrillPlan => ({
   totalHoles: 4,
   unmatchedDiametersMm: [1],
   skippedInKeepout: 5,
-  registrationInKeepout: 0,
+  registrationInKeepout: 2,
 });
 
 describe("drillPasses", () => {
@@ -27,11 +27,18 @@ describe("drillPasses", () => {
     expect(f.totalHoles).toBe(2);
     expect(f.unmatchedDiametersMm).toEqual([]);
     expect(f.skippedInKeepout).toBe(5);
+    // registration is selected here → the registration-in-keepout count is kept.
+    expect(f.registrationInKeepout).toBe(2);
   });
 
   it("preserves an unmatched diameter when its group stays selected", () => {
     const f = filterPlanByClasses(plan(), new Set(["mechanical"]));
     expect(f.unmatchedDiametersMm).toEqual([1]);
+  });
+
+  it("silences registrationInKeepout when registration is not selected", () => {
+    const f = filterPlanByClasses(plan(), new Set(["npth", "mechanical"]));
+    expect(f.registrationInKeepout).toBe(0);
   });
 
   it("identifies the active preset, or null for a custom selection", () => {
