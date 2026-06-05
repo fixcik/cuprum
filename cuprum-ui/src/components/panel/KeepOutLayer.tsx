@@ -1,16 +1,16 @@
 import { Group, Rect, Line } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
-  KEEPOUT_FIXTURE_FILL,
-  KEEPOUT_FIXTURE_STROKE,
+  KEEPOUT_FILL,
+  KEEPOUT_STROKE,
   KEEPOUT_SELECTED_STROKE,
 } from "@/components/editor/canvasStyle";
 import type { KeepOutZone } from "@/lib/api";
 
 export type ZoneCorner = "tl" | "tr" | "bl" | "br";
 
-const ZONE_FILL = KEEPOUT_FIXTURE_FILL;
-const ZONE_STROKE = KEEPOUT_FIXTURE_STROKE;
+const ZONE_FILL = KEEPOUT_FILL;
+const ZONE_STROKE = KEEPOUT_STROKE;
 
 /** Konva layer rendering keep-out zones inside the mm fit-group, below board
  *  instances. Each zone is a tinted/hatched rect with a type label and, when

@@ -228,6 +228,10 @@ mod tests {
         let json_dead = r#"{"id":"koz-3","x_mm":1.0,"y_mm":2.0,"width_mm":3.0,"height_mm":4.0,"kind":"dead"}"#;
         let z2: KeepOutZone = serde_json::from_str(json_dead).unwrap();
         assert_eq!(z2.id, "koz-3");
+
+        let json_reserved = r#"{"id":"koz-4","x_mm":2.0,"y_mm":3.0,"width_mm":5.0,"height_mm":6.0,"kind":"reserved"}"#;
+        let z3: KeepOutZone = serde_json::from_str(json_reserved).unwrap();
+        assert_eq!(z3.id, "koz-4");
     }
 
     #[test]
