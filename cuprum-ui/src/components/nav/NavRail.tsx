@@ -1,11 +1,11 @@
-import { Cpu, Home, LayoutGrid, Printer, Settings } from "lucide-react";
+import { Boxes, Cpu, Home, LayoutGrid, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useShell, type View } from "@/shellStore";
 
 interface RailItem {
   view: View;
   icon: typeof Home;
-  key: "home" | "project" | "printer" | "machine";
+  key: "home" | "project" | "equipment" | "machine";
   /** Disabled until a project is open. */
   needsProject?: boolean;
 }
@@ -13,7 +13,7 @@ interface RailItem {
 const ITEMS: RailItem[] = [
   { view: "home", icon: Home, key: "home" },
   { view: "project", icon: LayoutGrid, key: "project", needsProject: true },
-  { view: "printer", icon: Printer, key: "printer" },
+  { view: "equipment", icon: Boxes, key: "equipment" },
   { view: "machine", icon: Cpu, key: "machine" },
 ];
 

@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { NavRail } from "@/components/nav/NavRail";
 import { HomePage } from "@/pages/HomePage";
 import { ProjectPage } from "@/pages/ProjectPage";
-import { PrinterPage } from "@/pages/PrinterPage";
+import { EquipmentPage } from "@/pages/EquipmentPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
@@ -102,7 +102,7 @@ export default function App() {
       <div className="flex min-w-0 flex-1 flex-col">
         {view === "home" && <HomePage />}
         {view === "project" && <ProjectPage />}
-        {view === "printer" && <PrinterPage />}
+        {view === "equipment" && <EquipmentPage />}
         {view === "machine" && <MachinePage />}
         {view === "settings" && <SettingsPage />}
       </div>
