@@ -50,6 +50,8 @@ export interface DrillMapCanvasProps {
   heightMm: number;
   plan: PanelDrillPlan;
   route: DrillRoute;
+  /** Keep-out zones in panel-space mm (optional). */
+  zones?: { x: number; y: number; w: number; h: number }[];
   /** Optional live-run progress for highlight overlay. When absent the canvas
    *  renders exactly as it did before (no visual change). */
   progress?: { holesCompleted: number; currentHoleIndex: number | null };
@@ -62,7 +64,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank), but
  *  the marked work zero (0,0) is the panel's bottom-left corner with Y up — the
  *  CNC convention the G-code uses. */
-export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress, machineWork }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, progress, machineWork }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
 
@@ -113,6 +115,23 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress
               fill="#0f172a"
               listening={false}
             />
+
+            {/* Keep-out zones: semi-transparent red fill, thin red border, above
+                the panel background but below the path and holes. */}
+            {(zones ?? []).map((z, zi) => (
+              <Rect
+                key={`zone-${zi}`}
+                x={z.x}
+                y={z.y}
+                width={z.w}
+                height={z.h}
+                fill="rgba(244,63,94,0.12)"
+                stroke="#f43f5e"
+                strokeWidth={1}
+                strokeScaleEnabled={false}
+                listening={false}
+              />
+            ))}
 
             {/* Traverse path drawn UNDER the holes. */}
             {pathFlat.length >= 4 && (

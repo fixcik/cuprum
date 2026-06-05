@@ -1,6 +1,11 @@
 import type { BoardInstance, Hole, ToolingHole } from "@/lib/api";
 import type { Tool } from "@/lib/toolLibrary";
 import { rotatePointAroundCenter } from "@/lib/panelPlacement";
+import { holeInZones, type Rect } from "@/lib/keepoutGeometry";
+
+export { type Rect };
+
+export const KEEPOUT_DRILL_CLEARANCE_MM = 0.2;
 
 /** Drill class — heuristic in v1; manual override + persistence come later. */
 export type DrillClass = "registration" | "pth" | "npth" | "mechanical";
@@ -26,6 +31,10 @@ export interface PanelDrillPlan {
   totalHoles: number;
   /** Diameters with no matching drill in the library (sorted asc) — for a warning. */
   unmatchedDiametersMm: number[];
+  /** Board holes skipped because they fell inside a keep-out zone. */
+  skippedInKeepout: number;
+  /** Registration/tooling holes skipped because they fell inside a keep-out zone (setup error — warn loudly). */
+  registrationInKeepout: number;
 }
 
 /** Board-local hole (Y-up, origin at the design's outline min corner). */
@@ -93,8 +102,12 @@ export function buildPanelDrillPlan(
   sizes: Map<string, { w: number; h: number }>,
   tools: Tool[],
   opts: { viaMaxDiameterMm: number; drillBitToleranceMm: number },
+  keepOutZones: Rect[] = [],
 ): PanelDrillPlan {
   const buckets = new Map<string, DrillGroup>();
+  let skippedInKeepout = 0;
+  let registrationInKeepout = 0;
+
   const add = (diameterMm: number, cls: DrillClass, hole: PlanHole) => {
     const key = bucketKey(diameterMm, cls);
     let g = buckets.get(key);
@@ -110,12 +123,21 @@ export function buildPanelDrillPlan(
     const sz = sizes.get(inst.design_id);
     if (!holes || !sz) continue;
     for (const h of holes) {
-      add(h.dMm, designHoleClass(h.dMm, opts.viaMaxDiameterMm), projectHoleToPanel(h, inst, sz.w, sz.h));
+      const p = projectHoleToPanel(h, inst, sz.w, sz.h);
+      if (holeInZones(p.xMm, p.yMm, h.dMm / 2, keepOutZones, KEEPOUT_DRILL_CLEARANCE_MM)) {
+        skippedInKeepout++;
+        continue;
+      }
+      add(h.dMm, designHoleClass(h.dMm, opts.viaMaxDiameterMm), p);
     }
   }
 
   for (const th of panel.tooling_holes) {
     if (th.role === "unused") continue;
+    if (holeInZones(th.x_mm, th.y_mm, th.diameter_mm / 2, keepOutZones, KEEPOUT_DRILL_CLEARANCE_MM)) {
+      registrationInKeepout++;
+      continue;
+    }
     add(th.diameter_mm, "registration", { xMm: th.x_mm, yMm: th.y_mm });
   }
 
@@ -133,5 +155,7 @@ export function buildPanelDrillPlan(
     groups,
     totalHoles,
     unmatchedDiametersMm: [...unmatched].sort((a, b) => a - b),
+    skippedInKeepout,
+    registrationInKeepout,
   };
 }

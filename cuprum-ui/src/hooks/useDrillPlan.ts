@@ -113,12 +113,18 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
 
         // Build plan using the populated cache.
         const sizes = new Map(Object.entries(placedSizes));
+        const zones = (panel.keep_out_zones ?? []).map((z) => ({
+          x: z.x_mm,
+          y: z.y_mm,
+          w: z.width_mm,
+          h: z.height_mm,
+        }));
         const plan = buildPanelDrillPlan(panel, holesCache.current, sizes, tools, {
           viaMaxDiameterMm,
           drillBitToleranceMm,
-        });
+        }, zones);
 
-        const route = planDrillRoute(plan, { xMm: 0, yMm: panel.height_mm });
+        const route = planDrillRoute(plan, { xMm: 0, yMm: panel.height_mm }, zones);
 
         if (!cancelled) {
           setResult({ plan, route, loading: false });

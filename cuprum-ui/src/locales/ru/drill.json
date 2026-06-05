@@ -12,7 +12,12 @@
     "tools_many": "{{count}} инструментов",
     "tools_other": "{{count}} инструментов",
     "noTool": "нет сверла",
-    "unmatchedWarning": "Нет подходящего сверла: {{diameters}}"
+    "unmatchedWarning": "Нет подходящего сверла: {{diameters}}",
+    "keepoutSkipped_one": "{{count}} отверстие платы в мёртвой зоне — пропущено",
+    "keepoutSkipped_few": "{{count}} отверстия плат в мёртвой зоне — пропущены",
+    "keepoutSkipped_many": "{{count}} отверстий плат в мёртвой зоне — пропущены",
+    "keepoutSkipped_other": "{{count}} отверстий плат в мёртвой зоне — пропущены",
+    "registrationInKeepout": "Реперные отверстия в зоне зажима ({{count}}) — перенесите репер или зажим"
   },
   "class": {
     "registration": "реперное",
