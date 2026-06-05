@@ -32,10 +32,12 @@ const CLASS_LABEL: Record<RouteGroup["class"], string> = {
 export interface DrillSummaryProps {
   plan: PanelDrillPlan;
   route: DrillRoute;
+  /** Set/clear the class override for a group's diameter. Omit to render read-only. */
+  onSetClass?: (diameterMm: number, klass: RouteGroup["class"] | null) => void;
 }
 
 /** Summary sidebar: total holes/tools count, per-group list, and unmatched warnings. */
-export function DrillSummary({ plan, route }: DrillSummaryProps) {
+export function DrillSummary({ plan, route, onSetClass }: DrillSummaryProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
 
@@ -65,8 +67,29 @@ export function DrillSummary({ plan, route }: DrillSummaryProps) {
               />
               {/* Diameter */}
               <span className="text-slate-100 tabular-nums">{fmtLen(g.diameterMm)}</span>
-              {/* Class */}
-              <span className="text-slate-400">{t(CLASS_LABEL[g.class])}</span>
+              {/* Class — editable dropdown when onSetClass is provided */}
+              {onSetClass ? (
+                <select
+                  className="bg-transparent text-slate-400 text-xs outline-none cursor-pointer hover:text-slate-200"
+                  value={g.class}
+                  onChange={(e) =>
+                    onSetClass(
+                      g.diameterMm,
+                      e.target.value === "" ? null : (e.target.value as RouteGroup["class"]),
+                    )
+                  }
+                  aria-label={t("class.aria", "Drill class")}
+                >
+                  <option value="">{t("class.auto")}</option>
+                  {(["registration", "pth", "npth", "mechanical"] as const).map((c) => (
+                    <option key={c} value={c}>
+                      {t(CLASS_LABEL[c])}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-slate-400">{t(CLASS_LABEL[g.class])}</span>
+              )}
               {/* "no drill" for groups with no matching tool */}
               {!g.toolId && (
                 <span className="text-amber-400 text-xs">{t("summary.noTool")}</span>
