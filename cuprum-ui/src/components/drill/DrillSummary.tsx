@@ -40,6 +40,8 @@ export function DrillSummary({ plan, route }: DrillSummaryProps) {
   const { fmtLen } = useUnitFormat();
 
   const hasUnmatched = plan.unmatchedDiametersMm.length > 0;
+  const hasSkippedInKeepout = plan.skippedInKeepout > 0;
+  const hasRegistrationInKeepout = plan.registrationInKeepout > 0;
 
   return (
     <div className="flex flex-col gap-3 p-4 text-sm text-slate-300 overflow-y-auto">
@@ -87,6 +89,22 @@ export function DrillSummary({ plan, route }: DrillSummaryProps) {
               diameters: plan.unmatchedDiametersMm.map((d) => fmtLen(d)).join(", "),
             })}
           </span>
+        </div>
+      )}
+
+      {/* Keep-out skipped holes warning (amber) */}
+      {hasSkippedInKeepout && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{t("summary.keepoutSkipped", { count: plan.skippedInKeepout })}</span>
+        </div>
+      )}
+
+      {/* Registration holes in keep-out — loud red banner */}
+      {hasRegistrationInKeepout && (
+        <div className="flex items-start gap-2 rounded-md border border-rose-500/60 bg-rose-500/15 px-3 py-2 text-rose-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{t("summary.registrationInKeepout", { count: plan.registrationInKeepout })}</span>
         </div>
       )}
     </div>

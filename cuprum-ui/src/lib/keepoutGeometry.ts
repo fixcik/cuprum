@@ -4,6 +4,10 @@ export interface Rect { x: number; y: number; w: number; h: number }
 /** 2-D point. */
 export interface Pt { x: number; y: number }
 
+/** Clearance (mm) used when routing the drill traverse around keep-out zones.
+ *  The path rides the expanded-rect boundary at this offset from the zone edge. */
+export const KEEPOUT_TRAVERSE_MARGIN_MM = 1.0;
+
 // ---------------------------------------------------------------------------
 // expand
 // ---------------------------------------------------------------------------

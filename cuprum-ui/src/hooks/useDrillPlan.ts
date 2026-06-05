@@ -124,7 +124,7 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
           drillBitToleranceMm,
         }, zones);
 
-        const route = planDrillRoute(plan, { xMm: 0, yMm: panel.height_mm });
+        const route = planDrillRoute(plan, { xMm: 0, yMm: panel.height_mm }, zones);
 
         if (!cancelled) {
           setResult({ plan, route, loading: false });

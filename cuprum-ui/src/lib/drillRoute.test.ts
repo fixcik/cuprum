@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { orderNearest, planDrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
+import { segIntersectsRect } from "@/lib/keepoutGeometry";
+import type { Rect } from "@/lib/keepoutGeometry";
 
 // ---------------------------------------------------------------------------
 // orderNearest
@@ -138,5 +140,92 @@ describe("planDrillRoute", () => {
     const route = planDrillRoute(plan, { xMm: 0, yMm: 0 });
     const diameters = route.groups.map((g) => g.diameterMm);
     expect(diameters).toEqual([0.5, 1.0, 2.0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// planDrillRoute — keep-out zone detour
+// ---------------------------------------------------------------------------
+
+describe("planDrillRoute with keepout zones", () => {
+  /** Checks that no consecutive segment in pathPoints crosses the expanded zone. */
+  function noSegmentCrossesZone(
+    pathPoints: { xMm: number; yMm: number }[],
+    start: { xMm: number; yMm: number },
+    zone: Rect,
+    marginMm: number,
+  ): boolean {
+    const expanded: Rect = {
+      x: zone.x - marginMm,
+      y: zone.y - marginMm,
+      w: zone.w + 2 * marginMm,
+      h: zone.h + 2 * marginMm,
+    };
+    // Build the full point sequence including start.
+    const pts = [start, ...pathPoints];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = { x: pts[i].xMm, y: pts[i].yMm };
+      const b = { x: pts[i + 1].xMm, y: pts[i + 1].yMm };
+      if (segIntersectsRect(a, b, expanded)) return false;
+    }
+    return true;
+  }
+
+  it("inserts detour waypoints when straight segment crosses a zone", () => {
+    // Hole A at (5,5), hole B at (45,5). Zone centred at x=25, y=0..10.
+    // Straight A→B passes through the zone; detour must go around.
+    const zone: Rect = { x: 20, y: 0, w: 10, h: 10 };
+    const plan = makePlan([
+      {
+        diameterMm: 0.8,
+        class: "pth",
+        toolId: "t1",
+        holes: [{ xMm: 5, yMm: 5 }, { xMm: 45, yMm: 5 }],
+      },
+    ]);
+    const start = { xMm: 0, yMm: 0 };
+    const route = planDrillRoute(plan, start, [zone]);
+
+    // pathPoints should contain more than just the 2 holes (waypoints were inserted).
+    expect(route.pathPoints.length).toBeGreaterThan(2);
+
+    // totalHoles must still be 2 (only actual holes, not waypoints).
+    expect(route.totalHoles).toBe(2);
+
+    // No segment in the full traversal (start + pathPoints) should cross the expanded zone.
+    const MARGIN = 1.0; // KEEPOUT_TRAVERSE_MARGIN_MM
+    expect(noSegmentCrossesZone(route.pathPoints, start, zone, MARGIN)).toBe(true);
+  });
+
+  it("does NOT insert waypoints when no zone is crossed", () => {
+    // Holes well away from the zone.
+    const zone: Rect = { x: 50, y: 50, w: 10, h: 10 };
+    const plan = makePlan([
+      {
+        diameterMm: 0.8,
+        class: "pth",
+        toolId: "t1",
+        holes: [{ xMm: 5, yMm: 5 }, { xMm: 10, yMm: 5 }],
+      },
+    ]);
+    const route = planDrillRoute(plan, { xMm: 0, yMm: 0 }, [zone]);
+
+    // Exactly the 2 holes, no extra waypoints.
+    expect(route.pathPoints).toHaveLength(2);
+    expect(route.totalHoles).toBe(2);
+  });
+
+  it("pathPoints equals holes-only when no zones passed (unchanged behaviour)", () => {
+    const plan = makePlan([
+      {
+        diameterMm: 0.8,
+        class: "pth",
+        toolId: "t1",
+        holes: [{ xMm: 5, yMm: 5 }, { xMm: 45, yMm: 5 }],
+      },
+    ]);
+    const route = planDrillRoute(plan, { xMm: 0, yMm: 0 });
+    expect(route.pathPoints).toHaveLength(2);
+    expect(route.totalHoles).toBe(2);
   });
 });

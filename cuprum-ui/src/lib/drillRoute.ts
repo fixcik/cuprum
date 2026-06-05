@@ -1,4 +1,6 @@
 import type { PanelDrillPlan, DrillGroup, PlanHole } from "@/lib/panelDrill";
+import type { Rect } from "@/lib/keepoutGeometry";
+import { avoidZones, KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
 
 /** Greedy nearest-neighbour ordering from a start point. Stable: ties resolve to
  *  the earlier index, so output is deterministic. Shared by the G-code emitter and
@@ -51,13 +53,20 @@ export interface DrillRoute {
 
 /** Order the plan for drilling/preview: groups registration→ascending diameter,
  *  holes within a group by nearest-neighbour, carrying the cursor across groups.
- *  `start` mirrors the emitter's machine origin = panel bottom-left (0, panelHeight). */
-export function planDrillRoute(plan: PanelDrillPlan, start: { xMm: number; yMm: number }): DrillRoute {
+ *  `start` mirrors the emitter's machine origin = panel bottom-left (0, panelHeight).
+ *  `zones` are keep-out zones in panel space; when provided, detour waypoints are
+ *  inserted between consecutive path points to route around the zones. */
+export function planDrillRoute(
+  plan: PanelDrillPlan,
+  start: { xMm: number; yMm: number },
+  zones: Rect[] = [],
+): DrillRoute {
   const groups = [...plan.groups].sort(
     (a, b) => CLASS_ORDER[a.class] - CLASS_ORDER[b.class] || a.diameterMm - b.diameterMm,
   );
   const out: RouteGroup[] = [];
-  const path: PlanHole[] = [];
+  // Collect the actual drill holes in travel order (without waypoints).
+  const orderedHolesList: PlanHole[] = [];
   let cx = start.xMm;
   let cy = start.yMm;
   const toolIds = new Set<string>();
@@ -66,12 +75,40 @@ export function planDrillRoute(plan: PanelDrillPlan, start: { xMm: number; yMm: 
     const order = orderNearest(pts, cx, cy);
     const ordered = order.map((i) => g.holes[i]);
     out.push({ diameterMm: g.diameterMm, class: g.class, toolId: g.toolId, orderedHoles: ordered });
-    for (const h of ordered) path.push(h);
+    for (const h of ordered) orderedHolesList.push(h);
     if (ordered.length) {
       cx = ordered[ordered.length - 1].xMm;
       cy = ordered[ordered.length - 1].yMm;
     }
     if (g.toolId) toolIds.add(g.toolId);
   }
-  return { groups: out, pathPoints: path, totalHoles: path.length, toolCount: toolIds.size };
+
+  // Build pathPoints: for each consecutive pair (prev→cur), insert detour waypoints
+  // before the actual hole so the traverse avoids keep-out zones.
+  const path: PlanHole[] = [];
+  let prevX = start.xMm;
+  let prevY = start.yMm;
+  for (const h of orderedHolesList) {
+    if (zones.length > 0) {
+      const waypoints = avoidZones(
+        { x: prevX, y: prevY },
+        { x: h.xMm, y: h.yMm },
+        zones,
+        KEEPOUT_TRAVERSE_MARGIN_MM,
+      );
+      for (const wp of waypoints) {
+        path.push({ xMm: wp.x, yMm: wp.y });
+      }
+    }
+    path.push(h);
+    prevX = h.xMm;
+    prevY = h.yMm;
+  }
+
+  return {
+    groups: out,
+    pathPoints: path,
+    totalHoles: orderedHolesList.length,
+    toolCount: toolIds.size,
+  };
 }

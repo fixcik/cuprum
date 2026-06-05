@@ -1,18 +1,22 @@
 import type { PanelDrillPlan, DrillGroup, PlanHole } from "@/lib/panelDrill";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
+import type { Rect } from "@/lib/keepoutGeometry";
+import { avoidZones, KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
 import { orderNearest } from "@/lib/drillRoute";
 
 /** Context for emitting a drill program: the panel height (for the Y-flip),
  *  the CNC profile (safe-Z / spindle / G-code wrappers), the tool library (rpm /
  *  plunge by id) and the substrate thickness (depth). `opts` tunes breakthrough
- *  and optional manual peck. */
+ *  and optional manual peck. `keepOutZones` (panel-space) inserts detour waypoints
+ *  in the rapid traverse between holes so the spindle avoids clamp bodies. */
 export interface DrillGcodeCtx {
   panelHeightMm: number;
   profile: CncProfile;
   tools: Tool[];
   substrateThicknessMm: number;
   opts?: { breakthroughMm?: number; peckDepthMm?: number };
+  keepOutZones?: Rect[];
 }
 
 export interface DrillGcodeResult {
@@ -60,6 +64,16 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
   const safeZ = profile.safeZMm;
   const depth = substrateThicknessMm + breakthrough; // positive magnitude; drill to -depth
   const toolById = new Map(tools.map((t) => [t.id, t]));
+
+  // Pre-compute machine-space keep-out zones (Y-flip from panel to machine coords).
+  // Panel: Y-down, origin top-left. Machine: Y-up, origin panel bottom-left.
+  // Zone panel y-range [y, y+h] → machine y-range [panelH-(y+h), panelH-y].
+  const zonesMachine = (ctx.keepOutZones ?? []).map((z) => ({
+    x: z.x,
+    y: panelHeightMm - (z.y + z.h),
+    w: z.w,
+    h: z.h,
+  }));
 
   const allLines: string[] = [];
   const steps: DrillStep[] = [];
@@ -146,6 +160,21 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
         for (const sl of spindleUpLines) {
           holeLines.push(sl);
           allLines.push(sl);
+        }
+      }
+
+      // Emit detour waypoints (XY-only rapids at safe Z) before the hole rapid.
+      if (zonesMachine.length > 0) {
+        const waypoints = avoidZones(
+          { x: curX, y: curY },
+          { x: mx, y: my },
+          zonesMachine,
+          KEEPOUT_TRAVERSE_MARGIN_MM,
+        );
+        for (const wp of waypoints) {
+          const wpLine = `G0 X${fmt(wp.x)} Y${fmt(wp.y)}`;
+          holeLines.push(wpLine);
+          allLines.push(wpLine);
         }
       }
 

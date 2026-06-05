@@ -38,6 +38,18 @@ export function DrillWindow() {
   const substrateThicknessMm =
     snap?.manifest?.stackup?.substrate_thickness_mm ?? DEFAULT_FR4_THICKNESS_MM;
 
+  // Build keep-out zones from the panel manifest (panel-space coords).
+  const zones = useMemo(
+    () =>
+      (snap?.manifest?.panel?.keep_out_zones ?? []).map((z) => ({
+        x: z.x_mm,
+        y: z.y_mm,
+        w: z.width_mm,
+        h: z.height_mm,
+      })),
+    [snap?.manifest?.panel?.keep_out_zones],
+  );
+
   // Build the drill program (G-code + steps) from the plan whenever inputs change.
   const program = useMemo(() => {
     if (!plan || !panel) return null;
@@ -46,8 +58,9 @@ export function DrillWindow() {
       profile: cncProfile,
       tools,
       substrateThicknessMm,
+      keepOutZones: zones,
     });
-  }, [plan, panel, cncProfile, tools, substrateThicknessMm]);
+  }, [plan, panel, cncProfile, tools, substrateThicknessMm, zones]);
 
   // Live-run hook.
   const run = useDrillRun();
@@ -88,6 +101,7 @@ export function DrillWindow() {
               heightMm={panel.height_mm}
               plan={plan}
               route={route}
+              zones={zones}
               progress={{
                 holesCompleted: run.state.holesCompleted,
                 currentHoleIndex: run.state.currentHoleIndex,

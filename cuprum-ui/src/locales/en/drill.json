@@ -12,7 +12,12 @@
     "tools_many": "{{count}} tools",
     "tools_other": "{{count}} tools",
     "noTool": "no drill",
-    "unmatchedWarning": "No matching drill bit for: {{diameters}}"
+    "unmatchedWarning": "No matching drill bit for: {{diameters}}",
+    "keepoutSkipped_one": "{{count}} board hole in a clamp zone — skipped",
+    "keepoutSkipped_few": "{{count}} board holes in a clamp zone — skipped",
+    "keepoutSkipped_many": "{{count}} board holes in a clamp zone — skipped",
+    "keepoutSkipped_other": "{{count}} board holes in a clamp zone — skipped",
+    "registrationInKeepout": "Registration holes in clamp zone ({{count}}) — move the registration hole or the clamp"
   },
   "class": {
     "registration": "registration",
