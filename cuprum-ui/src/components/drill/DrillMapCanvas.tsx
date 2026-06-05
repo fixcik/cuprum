@@ -2,6 +2,8 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
+import { MachineMarker } from "./MachineMarker";
+import { workPosToPanel } from "@/lib/machineMarker";
 
 /** Palette of distinct colours for drill groups, cycling when there are more groups than colours. */
 const GROUP_PALETTE = [
@@ -51,6 +53,8 @@ export interface DrillMapCanvasProps {
   /** Optional live-run progress for highlight overlay. When absent the canvas
    *  renders exactly as it did before (no visual change). */
   progress?: { holesCompleted: number; currentHoleIndex: number | null };
+  /** Live machine WORK position (mm), or null to hide the marker. */
+  machineWork?: { x: number; y: number } | null;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
@@ -58,7 +62,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank), but
  *  the marked work zero (0,0) is the panel's bottom-left corner with Y up — the
  *  CNC convention the G-code uses. */
-export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress, machineWork }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
 
@@ -223,6 +227,19 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, progress
                 <Text x={ox - 11} y={oy - AXIS_PX - 5} text="Y" fontSize={11} fill={AXIS_COLOR} />
                 <Text x={ox + 5} y={oy + 4} text="0,0" fontSize={10} fill={AXIS_COLOR} />
               </Group>
+            );
+          })()}
+
+          {/* Live machine-position marker (screen-space, constant size). */}
+          {machineWork && (() => {
+            const p = workPosToPanel(machineWork.x, machineWork.y, H);
+            return (
+              <MachineMarker
+                screenX={offsetX + p.xMm * fit}
+                screenY={offsetY + p.yMm * fit}
+                workX={machineWork.x}
+                workY={machineWork.y}
+              />
             );
           })()}
         </Layer>

@@ -11,6 +11,8 @@ import { useSettings } from "@/settingsStore";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillSummary } from "@/components/drill/DrillSummary";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
+import { useMachinePosition } from "@/hooks/useMachinePosition";
+import { shouldShowMarker } from "@/lib/machineMarker";
 
 /** Root of the separate drill-preview window (label "drill").
  *  Subscribes to project snapshots from the main window, builds the drill plan,
@@ -49,6 +51,8 @@ export function DrillWindow() {
 
   // Live-run hook.
   const run = useDrillRun();
+  const machineWork = useMachinePosition();
+  const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
   // Empty state: no project open yet, or the plan finished computing with no holes.
   // Gate the "no holes" branch on `plan !== null` so the very first render after a
@@ -88,6 +92,7 @@ export function DrillWindow() {
                 holesCompleted: run.state.holesCompleted,
                 currentHoleIndex: run.state.currentHoleIndex,
               }}
+              machineWork={showMarker ? machineWork : null}
             />
           )}
         </div>
