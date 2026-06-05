@@ -17,7 +17,16 @@ export async function restoreWorkZero(z: { x: number; y: number }): Promise<void
   for (;;) {
     const st = useMachine.getState().status.state;
     if (st === "home" || st === "run") break;
-    if (Date.now() - guardStart > GUARD_MS) break; // firmware may skip intermediate states
+    if (st === "alarm") throw new Error("alarm during homing");
+    if (Date.now() - guardStart > GUARD_MS) {
+      // Homing never started within the guard window. If the machine is still
+      // idle/jog, $H was effectively a no-op (e.g. rejected) — refuse to apply
+      // the offset on an un-homed machine (would set a wrong datum).
+      if (st === "idle" || st === "jog") {
+        throw new Error("homing did not start");
+      }
+      break; // left idle (some other state) — fall through to the completion wait
+    }
     await new Promise<void>((r) => setTimeout(r, POLL_MS));
   }
 

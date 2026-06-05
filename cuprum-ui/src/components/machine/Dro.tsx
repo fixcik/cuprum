@@ -100,7 +100,7 @@ export function Dro() {
         </div>
       )}
 
-      {connected && !homingAvailable && (
+      {connected && !homingAvailable && workZeroMm && (
         <div className="mt-1 text-xs text-muted-foreground">
           {t("dro.homingUnavailable")}
         </div>
