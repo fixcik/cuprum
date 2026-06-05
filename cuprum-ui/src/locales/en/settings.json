@@ -5,11 +5,9 @@
   "tab": {
     "general": "General",
     "capabilities": "Capabilities",
-    "equipment": "Equipment",
     "tools": "Tools"
   },
   "equipment": {
-    "active": "Active",
     "addCnc": "Add CNC",
     "addUv": "Add UV LCD",
     "delete": "Remove",

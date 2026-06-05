@@ -6,14 +6,13 @@ import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Diagrams } from "@/components/settings/diagrams";
 import { NumberField, BoolField } from "@/components/settings/fields";
-import { EquipmentSection } from "@/components/settings/EquipmentSection";
 import { ToolLibrarySection } from "@/components/settings/ToolLibrarySection";
 import { useSettings } from "@/settingsStore";
 import { type Language, type Units } from "@/settingsStore";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
-type Tab = "general" | "capabilities" | "equipment" | "tools";
-const TABS: Tab[] = ["general", "capabilities", "equipment", "tools"];
+type Tab = "general" | "capabilities" | "tools";
+const TABS: Tab[] = ["general", "capabilities", "tools"];
 type CapCategoryId = "panel" | "copper" | "drill" | "maskSilk";
 const CAP_CATEGORIES: CapCategoryId[] = ["panel", "copper", "drill", "maskSilk"];
 
@@ -296,8 +295,6 @@ export function SettingsPage() {
         </div>
       </div>
       )}
-
-      {tab === "equipment" && <EquipmentSection />}
 
       {tab === "tools" && (
         <div className="min-h-0 flex-1 overflow-auto">

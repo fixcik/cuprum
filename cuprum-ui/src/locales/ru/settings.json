@@ -5,11 +5,9 @@
   "tab": {
     "general": "Общие",
     "capabilities": "Возможности станка",
-    "equipment": "Оборудование",
     "tools": "Инструменты"
   },
   "equipment": {
-    "active": "Активный",
     "addCnc": "Добавить ЧПУ",
     "addUv": "Добавить UV LCD",
     "delete": "Удалить",

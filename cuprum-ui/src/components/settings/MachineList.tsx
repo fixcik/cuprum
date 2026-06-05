@@ -4,11 +4,11 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/settingsStore";
 import { EditableText } from "@/components/ui/EditableText";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { newCncMachine, newUvMachine, type Machine } from "@/lib/machine";
+import { newCncMachine, newUvMachine } from "@/lib/machine";
 
 /** Left master pane of the equipment section: the machine library.
- *  Lists every machine with an "active per kind" radio, an inline-editable name,
- *  and a delete button; the bottom holds two dashed add-buttons. */
+ *  Lists every machine with a type badge, an inline-editable name, and a delete
+ *  button; the bottom holds two dashed add-buttons. */
 export function MachineList({
   selectedId,
   onSelect,
@@ -18,21 +18,12 @@ export function MachineList({
 }) {
   const { t } = useTranslation("settings");
   const machines = useSettings((s) => s.machines);
-  const activeCncMachineId = useSettings((s) => s.activeCncMachineId);
-  const activeUvMachineId = useSettings((s) => s.activeUvMachineId);
   const addMachine = useSettings((s) => s.addMachine);
   const removeMachine = useSettings((s) => s.removeMachine);
   const updateMachine = useSettings((s) => s.updateMachine);
-  const setActiveCncMachineId = useSettings((s) => s.setActiveCncMachineId);
-  const setActiveUvMachineId = useSettings((s) => s.setActiveUvMachineId);
 
   // The machine queued for deletion (drives the confirm dialog).
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  const isActive = (m: Machine) =>
-    (m.kind === "cnc" ? activeCncMachineId : activeUvMachineId) === m.id;
-  const setActive = (m: Machine) =>
-    m.kind === "cnc" ? setActiveCncMachineId(m.id) : setActiveUvMachineId(m.id);
 
   const confirmDelete = () => {
     if (!deleteId) return;
@@ -52,13 +43,11 @@ export function MachineList({
     const mc = newCncMachine(machines);
     addMachine(mc);
     onSelect(mc.id);
-    if (activeCncMachineId == null) setActiveCncMachineId(mc.id);
   };
   const addUv = () => {
     const mc = newUvMachine(machines);
     addMachine(mc);
     onSelect(mc.id);
-    if (activeUvMachineId == null) setActiveUvMachineId(mc.id);
   };
 
   return (
@@ -79,14 +68,6 @@ export function MachineList({
             selectedId === m.id ? "bg-primary/15" : "hover:bg-foreground/5"
           }`}
         >
-          <input
-            type="radio"
-            checked={isActive(m)}
-            onChange={() => setActive(m)}
-            onClick={(e) => e.stopPropagation()}
-            aria-label={t("equipment.active")}
-            className="shrink-0"
-          />
           <span className="shrink-0 rounded bg-foreground/10 px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
             {t(`equipment.type.${m.kind}`)}
           </span>
