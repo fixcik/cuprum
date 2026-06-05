@@ -51,6 +51,9 @@ pub struct PortDto {
 pub(crate) struct Activity {
     pub last: std::time::Instant,
     pub idle: bool,
+    /// Whether GRBL last reported the Hold state. Retained for future use
+    /// (was used by the old pause path; kept so machine.rs stays consistent).
+    #[allow(dead_code)]
     pub hold: bool,
 }
 
