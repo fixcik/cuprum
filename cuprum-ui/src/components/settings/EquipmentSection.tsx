@@ -16,9 +16,13 @@ export function EquipmentSection() {
 
   // Selecting a machine also records it as the "last selected" per kind, so the
   // cncProfile shim and UV consumers (exposure) follow the user's latest choice.
+  // Read the live store list (not the render-snapshot `machines`) so a machine
+  // just added by MachineList — not yet in this render's closure — is found.
   const handleSelect = (id: string | null) => {
     setSelectedId(id);
-    const machine = id ? machines.find((m) => m.id === id) : null;
+    const machine = id
+      ? useSettings.getState().machines.find((m) => m.id === id)
+      : null;
     if (!machine) return;
     if (machine.kind === "cnc") setActiveCncMachineId(id);
     else setActiveUvMachineId(id);
