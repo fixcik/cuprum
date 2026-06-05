@@ -8,7 +8,6 @@ export const MIN_PANEL_GAP_MM = 1;
 export type PanelFindingCategory =
   | "off-panel"
   | "overlap"
-  | "work-area"
   | "spacing"
   | "design"
   | "empty"
@@ -148,26 +147,6 @@ export function evaluatePanel(opts: {
       severity: "warn",
       title: { key: "feasibility:panel.spacing", params: { count: spacingIds.size } },
       instanceIds: [...spacingIds],
-    });
-  }
-
-  // 3) Work area (warn): AABB exceeds the machine's maxPanel dimensions.
-  const waIds = sized
-    .filter(
-      ({ box }) =>
-        box.minX < -1e-6 ||
-        box.minY < -1e-6 ||
-        box.maxX > profile.maxPanelWidthMm + 1e-6 ||
-        box.maxY > profile.maxPanelHeightMm + 1e-6,
-    )
-    .map(({ inst }) => inst.id);
-  if (waIds.length) {
-    out.push({
-      id: "work-area",
-      category: "work-area",
-      severity: "warn",
-      title: { key: "feasibility:panel.workArea", params: { count: waIds.length } },
-      instanceIds: waIds,
     });
   }
 

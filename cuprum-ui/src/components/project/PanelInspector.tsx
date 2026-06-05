@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   ChevronDown,
   RotateCw,
-  AlertTriangle,
   Save,
   type LucideIcon,
 } from "lucide-react";
@@ -110,10 +109,6 @@ interface PanelInspectorProps {
   setCopperWeight: (n: number) => void;
   setSubstrate: (n: number) => void;
   setDoubleSided: (b: boolean) => void;
-  widthTooBig: boolean;
-  heightTooBig: boolean;
-  maxW: number;
-  maxH: number;
   offPanelCount: number;
   presets: PanelPreset[];
   onApplyPreset: (id: string) => void;
@@ -135,10 +130,6 @@ export function PanelInspector({
   setCopperWeight,
   setSubstrate,
   setDoubleSided,
-  widthTooBig,
-  heightTooBig,
-  maxW,
-  maxH,
   offPanelCount,
   presets,
   onApplyPreset,
@@ -231,23 +222,10 @@ export function PanelInspector({
 
           {/* Summary */}
           <div className="border-b border-border px-3 py-3">
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-[11px] text-muted-foreground">{t("setup.blankSummaryLabel")}</div>
-                <div className="text-[18px] font-semibold tabular-nums text-foreground">
-                  {fmtLen(width)} × {fmtLen(height)}
-                </div>
-              </div>
-              <span className="rounded-md bg-muted px-2 py-1 text-[10px] tabular-nums text-muted-foreground">
-                {t("setup.workZone", { w: fmtLen(maxW), h: fmtLen(maxH) })}
-              </span>
+            <div className="text-[11px] text-muted-foreground">{t("setup.blankSummaryLabel")}</div>
+            <div className="text-[18px] font-semibold tabular-nums text-foreground">
+              {fmtLen(width)} × {fmtLen(height)}
             </div>
-            {(widthTooBig || heightTooBig) && (
-              <div className="mt-2 flex items-center gap-1.5 rounded-md bg-warning/15 px-2 py-1.5 text-[11px] text-warning">
-                <AlertTriangle className="size-3.5 shrink-0" />
-                {t("setup.overWorkArea", { w: fmtLen(maxW), h: fmtLen(maxH) })}
-              </div>
-            )}
           </div>
 
           {/* Scrollable accordion body */}
@@ -299,10 +277,10 @@ export function PanelInspector({
 
               {/* Width / Height fields */}
               <SettingRow label={t("setup.width")}>
-                <UnitField value={width} onChange={setWidth} dim="coarse" step="1" invalid={widthTooBig} />
+                <UnitField value={width} onChange={setWidth} dim="coarse" step="1" />
               </SettingRow>
               <SettingRow label={t("setup.height")}>
-                <UnitField value={height} onChange={setHeight} dim="coarse" step="1" invalid={heightTooBig} />
+                <UnitField value={height} onChange={setHeight} dim="coarse" step="1" />
               </SettingRow>
 
               {/* Rotate button */}

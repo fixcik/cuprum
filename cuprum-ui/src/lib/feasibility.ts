@@ -141,8 +141,8 @@ function viaCount(metrics: BoardMetrics, maxDiaMm: number): number {
 /** Judge measured board metrics against the machine capability profile. Returns
  *  one Phase-1 finding per applicable check (Phase 2/3 checks are omitted).
  *  `panel` is the project's FR4 blank: a design must fit ON the panel, so the
- *  size check uses the panel's dimensions when one is configured, falling back to
- *  the machine's max work area (from settings) until a panel is set. */
+ *  size check uses the panel's dimensions; if no panel is configured the size
+ *  check is skipped entirely. */
 export function evaluate(
   metrics: BoardMetrics | null,
   profile: CapabilityProfile,
@@ -156,40 +156,43 @@ export function evaluate(
   const out: Finding[] = [];
   const { board, layers, drill } = metrics;
 
-  // --- Size: fits the panel (or the machine's max work area until a panel is
-  // set), trying rotated if allowed ---
+  // --- Size: fits the panel, trying rotated if allowed.
+  //     Without a panel configured there is no reference dimension — skip the check. ---
   if (board.hasEdgeLayer) {
     const { widthMm: w, heightMm: h } = board;
     const hasPanel = !!panel && panel.width_mm > 0 && panel.height_mm > 0;
-    const mw = hasPanel ? panel!.width_mm : profile.maxPanelWidthMm;
-    const mh = hasPanel ? panel!.height_mm : profile.maxPanelHeightMm;
-    const fitsDirect = w <= mw && h <= mh;
-    const fitsRotated = h <= mw && w <= mh;
-    const label: I18nText = { key: "feasibility:size.label" };
-    const measured: I18nText = { key: "feasibility:size.measured", params: { w, h } };
-    const limit: I18nText = { key: "feasibility:size.limit", params: { w: mw, h: mh } };
-    if (fitsDirect) {
-      out.push({ id: "size.fits", category: "size", severity: "ok", label, measured, limit });
-    } else if (profile.allowRotateToFit && fitsRotated) {
-      out.push({
-        id: "size.fits",
-        category: "size",
-        severity: "warn",
-        label,
-        measured,
-        limit,
-        detail: { key: "feasibility:size.rotated" },
-      });
-    } else {
-      out.push({
-        id: "size.fits",
-        category: "size",
-        severity: "block",
-        label,
-        measured,
-        limit,
-        detail: { key: "feasibility:size.tooBig" },
-      });
+
+    if (hasPanel) {
+      const mw = panel!.width_mm;
+      const mh = panel!.height_mm;
+      const fitsDirect = w <= mw && h <= mh;
+      const fitsRotated = h <= mw && w <= mh;
+      const label: I18nText = { key: "feasibility:size.label" };
+      const measured: I18nText = { key: "feasibility:size.measured", params: { w, h } };
+      const limit: I18nText = { key: "feasibility:size.limit", params: { w: mw, h: mh } };
+      if (fitsDirect) {
+        out.push({ id: "size.fits", category: "size", severity: "ok", label, measured, limit });
+      } else if (profile.allowRotateToFit && fitsRotated) {
+        out.push({
+          id: "size.fits",
+          category: "size",
+          severity: "warn",
+          label,
+          measured,
+          limit,
+          detail: { key: "feasibility:size.rotated" },
+        });
+      } else {
+        out.push({
+          id: "size.fits",
+          category: "size",
+          severity: "block",
+          label,
+          measured,
+          limit,
+          detail: { key: "feasibility:size.tooBig" },
+        });
+      }
     }
 
     // --- Outline closed (open → size is an estimate) ---

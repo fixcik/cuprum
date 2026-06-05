@@ -24,10 +24,6 @@ export interface RulersOverlayProps {
   /** Extent (mm) highlighted on the rulers — the blank/board, so the scale
    *  "sticks" to it at any zoom. Null hides the highlight. */
   extentMm?: { x: number; y: number; w: number; h: number } | null;
-  /** Machine work-area limit (mm) drawn as a dashed rectangle from the origin. */
-  workAreaMm?: { w: number; h: number } | null;
-  /** Localised label for the work-area rectangle. */
-  workAreaLabel?: string;
   /** Cursor position in screen px (for the crosshair/readout). Null when off-canvas.
    *  `snapped` marks the point locked onto a feature/edge/corner → a lock ring is
    *  drawn at the crosshair intersection. */
@@ -45,14 +41,13 @@ export interface RulersOverlayProps {
 }
 
 // Copper = action/cursor (hover crosshair + ruler cursor arrows) and the blank
-// projection highlight ("where's my blank"). Structure (work area, origin marker)
+// projection highlight ("where's my blank"). Structure (origin marker)
 // is neutral — see MUTED_* below.
 const COPPER = "hsl(var(--primary))";
 const COPPER_14 = "hsl(var(--primary) / 0.14)";
 const COPPER_70 = "hsl(var(--primary) / 0.7)";
 const MUTED = "hsl(var(--muted-foreground))";
-const MUTED_40 = "hsl(var(--muted-foreground) / 0.4)";
-const MUTED_70 = "hsl(var(--muted-foreground) / 0.7)";
+
 const READOUT_BG = "hsl(222 16% 9% / 0.92)";
 const READOUT_FG = "rgba(255,255,255,0.95)";
 
@@ -73,8 +68,6 @@ export function RulersOverlay({
   fmt,
   anchorMm = { x: 0, y: 0 },
   extentMm = null,
-  workAreaMm = null,
-  workAreaLabel,
   hover = null,
   showOrigin = true,
   rulerTop = RULER_TOP,
@@ -169,30 +162,6 @@ export function RulersOverlay({
 
       {/* Plot-area guides: clipped so nothing bleeds onto the ruler bands. */}
       <g clipPath={`url(#${clipId})`}>
-        {workAreaMm && (() => {
-          const sx = spanX(0, workAreaMm.w);
-          const sy = spanY(0, workAreaMm.h);
-          return (
-            <>
-              <rect
-                x={sx.x}
-                y={sy.y}
-                width={sx.w}
-                height={sy.h}
-                fill="none"
-                stroke={MUTED_40}
-                strokeWidth={1}
-                strokeDasharray="6 4"
-              />
-              {workAreaLabel && sx.w > 60 && (
-                <text x={sx.x + 4} y={sy.y + 12} style={{ fill: MUTED_70, fontSize: "10px" }}>
-                  {workAreaLabel}
-                </text>
-              )}
-            </>
-          );
-        })()}
-
         {showOrigin && (
           <g>
             <line x1={ax - 7} y1={ay} x2={ax + 7} y2={ay} stroke={MUTED} strokeWidth={1} />
