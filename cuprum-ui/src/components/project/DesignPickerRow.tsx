@@ -44,6 +44,7 @@ export function DesignPickerRow({
       instances: [],
       tooling_holes: [],
       keep_out_zones: [],
+      drill_class_overrides: {},
     }),
     [panel.widthMm, panel.heightMm],
   );

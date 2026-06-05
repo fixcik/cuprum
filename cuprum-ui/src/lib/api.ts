@@ -25,6 +25,9 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   );
 }
 
+/** Class of a drill hole. Mirrors the Rust `DrillClass`. */
+export type DrillClass = "registration" | "pth" | "npth" | "mechanical";
+
 /** Overall panel feasibility verdict. Matches `Verdict` in `feasibility.ts`. */
 export type Verdict = "ok" | "warn" | "block";
 
@@ -195,6 +198,7 @@ export interface PanelDoc {
   instances: BoardInstance[];
   tooling_holes: ToolingHole[];
   keep_out_zones: KeepOutZone[];
+  drill_class_overrides: Record<string, DrillClass>;
 }
 
 export interface Manifest {

@@ -97,6 +97,7 @@ export function AddDesignWindow() {
     instances: [],
     tooling_holes: [],
     keep_out_zones: [],
+    drill_class_overrides: {},
   }), [panel.widthMm, panel.heightMm]);
 
   // All preview data for the selected design (SVG layers, mesh, metrics, DRC).

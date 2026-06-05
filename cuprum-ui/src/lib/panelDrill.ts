@@ -1,14 +1,12 @@
-import type { BoardInstance, Hole, ToolingHole } from "@/lib/api";
+import type { BoardInstance, Hole, ToolingHole, DrillClass } from "@/lib/api";
 import type { Tool } from "@/lib/toolLibrary";
 import { rotatePointAroundCenter } from "@/lib/panelPlacement";
 import { holeInZones, type Rect } from "@/lib/keepoutGeometry";
 
 export { type Rect };
+export type { DrillClass } from "@/lib/api";
 
 export const KEEPOUT_DRILL_CLEARANCE_MM = 0.2;
-
-/** Drill class — heuristic in v1; manual override + persistence come later. */
-export type DrillClass = "registration" | "pth" | "npth" | "mechanical";
 
 /** A hole position in panel space (mm). */
 export interface PlanHole {
@@ -103,16 +101,19 @@ export function buildPanelDrillPlan(
   tools: Tool[],
   opts: { viaMaxDiameterMm: number; drillBitToleranceMm: number },
   keepOutZones: Rect[] = [],
+  overrides: Map<string, DrillClass> = new Map(),
 ): PanelDrillPlan {
   const buckets = new Map<string, DrillGroup>();
   let skippedInKeepout = 0;
   let registrationInKeepout = 0;
 
   const add = (diameterMm: number, cls: DrillClass, hole: PlanHole) => {
-    const key = bucketKey(diameterMm, cls);
+    const ovr = overrides.get(String(Math.round(diameterMm * 1000)));
+    const finalCls = ovr ?? cls;
+    const key = bucketKey(diameterMm, finalCls);
     let g = buckets.get(key);
     if (!g) {
-      g = { diameterMm, class: cls, toolId: null, holes: [] };
+      g = { diameterMm, class: finalCls, toolId: null, holes: [] };
       buckets.set(key, g);
     }
     g.holes.push(hole);

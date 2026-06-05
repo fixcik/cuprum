@@ -18,6 +18,7 @@ describe("newPanelDoc", () => {
       instances: [],
       tooling_holes: [],
       keep_out_zones: [],
+      drill_class_overrides: {},
     });
   });
 
