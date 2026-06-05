@@ -3,6 +3,8 @@ import { api, type DrillSnapshot } from "@/lib/api";
 import { collectDesignHoles, buildPanelDrillPlan, type LocalHole } from "@/lib/panelDrill";
 import { planDrillRoute, type DrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
+import { useSettings } from "@/settingsStore";
+import { datumCornerPanelPoint } from "@/lib/datum";
 
 export interface DrillPlanResult {
   plan: PanelDrillPlan | null;
@@ -16,6 +18,8 @@ export interface DrillPlanResult {
  *  Guards against stale async results via cancel flag. */
 export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
   const [result, setResult] = useState<DrillPlanResult>({ plan: null, route: null, loading: false });
+  // Drill-window-owned datum corner: changing it re-runs the route.
+  const datumCorner = useSettings((s) => s.drillDatumCorner);
 
   // Per-design holes cache: avoids re-fetching the same design across snapshots.
   // Keyed by design_id; stored in a ref (not state) so updates don't retrigger the effect.
@@ -120,7 +124,8 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
           drillBitToleranceMm,
         }, zones);
 
-        const route = planDrillRoute(plan, { xMm: 0, yMm: panel.height_mm }, zones);
+        const start = datumCornerPanelPoint(datumCorner, panel.width_mm, panel.height_mm);
+        const route = planDrillRoute(plan, start, zones);
 
         if (!cancelled) {
           setResult({ plan, route, loading: false });
@@ -135,10 +140,10 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
     return () => {
       cancelled = true;
     };
-  // Re-run when the snapshot identity changes. The snapshot now carries tools /
-  // DFM thresholds (pushed live from the main window), so a fresh snapshot on a
-  // settings edit re-runs the plan without a window restart.
-  }, [snapshot]);
+  // Re-run when the snapshot identity changes or the datum corner changes.
+  // The snapshot carries tools/DFM thresholds (pushed live from the main window),
+  // so a fresh snapshot on a settings edit re-runs the plan without a window restart.
+  }, [snapshot, datumCorner]);
 
   return result;
 }

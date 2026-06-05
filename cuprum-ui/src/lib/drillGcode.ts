@@ -1,17 +1,23 @@
-import type { PanelDrillPlan, DrillGroup, PlanHole } from "@/lib/panelDrill";
+import type { PanelDrillPlan, DrillGroup } from "@/lib/panelDrill";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
 import type { Rect } from "@/lib/keepoutGeometry";
 import { avoidZones, KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
 import { orderNearest } from "@/lib/drillRoute";
+import { type DatumCorner, machinePoint } from "@/lib/datum";
 
 /** Context for emitting a drill program: the panel height (for the Y-flip),
  *  the CNC profile (safe-Z / spindle / G-code wrappers), the tool library (rpm /
  *  plunge by id) and the substrate thickness (depth). `opts` tunes breakthrough
  *  and optional manual peck. `keepOutZones` (panel-space) inserts detour waypoints
- *  in the rapid traverse between holes so the spindle avoids clamp bodies. */
+ *  in the rapid traverse between holes so the spindle avoids clamp bodies.
+ *  `datumCorner` selects which panel corner is machine (0,0); defaults to
+ *  "bottom-left" (existing behaviour). `panelWidthMm` is required for non-left
+ *  datums but unused (and may be omitted) when datum is "bottom-left". */
 export interface DrillGcodeCtx {
   panelHeightMm: number;
+  panelWidthMm?: number;
+  datumCorner?: DatumCorner;
   profile: CncProfile;
   tools: Tool[];
   substrateThicknessMm: number;
@@ -53,30 +59,29 @@ const CLASS_ORDER: Record<DrillGroup["class"], number> = {
 
 const fmt = (n: number) => n.toFixed(3);
 
-/** Panel space (Y-down, origin top-left) → machine (Y-up, origin = panel bottom-left). */
-function machineXY(h: PlanHole, panelHeightMm: number): [number, number] {
-  return [h.xMm, panelHeightMm - h.yMm];
-}
-
 /** Internal builder: produces both the flat lines array (for gcode text) and
  *  the structured steps array simultaneously. */
 function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgramResult {
   const { panelHeightMm, profile, tools, substrateThicknessMm } = ctx;
+  const datum: DatumCorner = ctx.datumCorner ?? "bottom-left";
+  const wMm = ctx.panelWidthMm ?? 0;
   const breakthrough = ctx.opts?.breakthroughMm ?? 0.3;
   const peck = ctx.opts?.peckDepthMm ?? 0;
   const safeZ = profile.safeZMm;
   const depth = substrateThicknessMm + breakthrough; // positive magnitude; drill to -depth
   const toolById = new Map(tools.map((t) => [t.id, t]));
 
-  // Pre-compute machine-space keep-out zones (Y-flip from panel to machine coords).
-  // Panel: Y-down, origin top-left. Machine: Y-up, origin panel bottom-left.
-  // Zone panel y-range [y, y+h] → machine y-range [panelH-(y+h), panelH-y].
-  const zonesMachine = (ctx.keepOutZones ?? []).map((z) => ({
-    x: z.x,
-    y: panelHeightMm - (z.y + z.h),
-    w: z.w,
-    h: z.h,
-  }));
+  // Pre-compute machine-space keep-out zones using the same machinePoint transform
+  // used for holes, so avoidance is consistent for any datum corner.
+  // For a panel-space rect (zx, zy, zw, zh) we map its four corner extremes and
+  // take the min/max to form a valid AABB regardless of coordinate sign flips.
+  const zonesMachine = (ctx.keepOutZones ?? []).map((z) => {
+    const [x1, y1] = machinePoint(z.x,        z.y,        datum, wMm, panelHeightMm);
+    const [x2, y2] = machinePoint(z.x + z.w,  z.y + z.h, datum, wMm, panelHeightMm);
+    const minX = Math.min(x1, x2);
+    const minY = Math.min(y1, y2);
+    return { x: minX, y: minY, w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
+  });
 
   const allLines: string[] = [];
   const steps: DrillStep[] = [];
@@ -148,7 +153,7 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
       spindleUpLines.push("M3");
     }
 
-    const machinePts = g.holes.map((h) => machineXY(h, panelHeightMm));
+    const machinePts = g.holes.map((h) => machinePoint(h.xMm, h.yMm, datum, wMm, panelHeightMm));
     const order = orderNearest(machinePts, curX, curY);
     const plunge = Math.round(tool.recommendedPlungeMmMin);
 

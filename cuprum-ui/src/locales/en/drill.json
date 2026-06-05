@@ -29,6 +29,13 @@
     "noProject": "No project open",
     "noHoles": "No drill holes found"
   },
+  "datum": {
+    "label": "Zero (0,0)",
+    "bottom-left": "Bottom-left",
+    "bottom-right": "Bottom-right",
+    "top-left": "Top-left",
+    "top-right": "Top-right"
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",
