@@ -158,10 +158,7 @@ pub fn drill_run_start(
 }
 
 #[tauri::command]
-pub fn drill_run_pause(
-    app: AppHandle,
-    job: State<DrillJob>,
-) -> Result<(), String> {
+pub fn drill_run_pause(job: State<DrillJob>) -> Result<(), String> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         // Idempotent: if already paused, do nothing.
@@ -169,34 +166,19 @@ pub fn drill_run_pause(
             return Ok(());
         }
         h.ctrl.paused.store(true, Relaxed);
-        drop(slot);
         // The runner detects this flag at the next step boundary (safe Z),
-        // stops the spindle, and waits — no feed-hold needed here.
-        let _ = app.emit(
-            "drill-run://state",
-            StatePayload {
-                phase: "paused".into(),
-            },
-        );
+        // stops the spindle, waits for the bit to physically reach safe Z, and
+        // only THEN emits "paused" — so the UI shows "Resume" once truly stopped.
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn drill_run_resume(
-    app: AppHandle,
-    job: State<DrillJob>,
-) -> Result<(), String> {
+pub fn drill_run_resume(job: State<DrillJob>) -> Result<(), String> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         h.ctrl.paused.store(false, Relaxed);
-        drop(slot);
-        let _ = app.emit(
-            "drill-run://state",
-            StatePayload {
-                phase: "running".into(),
-            },
-        );
+        // The runner emits "running" itself once it re-spins the spindle.
     }
     Ok(())
 }
@@ -275,7 +257,10 @@ fn run_job(
     let wait_idle = |ctrl: &Control, activity: &Arc<Mutex<Activity>>| {
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while std::time::Instant::now() < deadline {
-            if ctrl.abort.load(Relaxed) || activity.lock().unwrap().idle {
+            if ctrl.abort.load(Relaxed)
+                || ctrl.stopping.load(Relaxed)
+                || activity.lock().unwrap().idle
+            {
                 return;
             }
             std::thread::sleep(Duration::from_millis(50));
