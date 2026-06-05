@@ -10,6 +10,15 @@ describe("workPosToPanel", () => {
   it("passes X through unchanged", () => {
     expect(workPosToPanel(42.5, 5, 60).xMm).toBeCloseTo(42.5);
   });
+  it("inverts machinePoint for non-default datums (W=40, H=60)", () => {
+    // machinePoint(x,y,datum,40,60) then workPosToPanel must round-trip to (x,y).
+    // top-left: machine = (x, -y) → back = (mx, -my)
+    expect(workPosToPanel(25, -10, 60, "top-left", 40)).toEqual({ xMm: 25, yMm: 10 });
+    // bottom-right: machine = (x-40, 60-y) → back = (mx+40, 60-my)
+    expect(workPosToPanel(-15, 50, 60, "bottom-right", 40)).toEqual({ xMm: 25, yMm: 10 });
+    // top-right: machine = (x-40, -y) → back = (mx+40, -my)
+    expect(workPosToPanel(-15, -10, 60, "top-right", 40)).toEqual({ xMm: 25, yMm: 10 });
+  });
 });
 
 describe("shouldShowMarker", () => {

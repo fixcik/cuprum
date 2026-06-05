@@ -254,7 +254,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, p
 
           {/* Live machine-position marker (screen-space, constant size). */}
           {machineWork && (() => {
-            const p = workPosToPanel(machineWork.x, machineWork.y, H);
+            const p = workPosToPanel(machineWork.x, machineWork.y, H, datum, W);
             return (
               <MachineMarker
                 screenX={offsetX + p.xMm * fit}
