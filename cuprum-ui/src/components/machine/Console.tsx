@@ -15,6 +15,7 @@ export function Console() {
   const lines = useMachine((s) => s.lines);
   const connected = useMachine((s) => s.connected);
   const [input, setInput] = useState("");
+  const [copied, setCopied] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,12 +30,34 @@ export function Console() {
     }
   };
 
+  const copyLog = () => {
+    const text = lines
+      .map((l) => `${fmtTime(l.ts)} ${l.dir === "tx" ? "»" : "‹"} ${l.text}`)
+      .join("\n");
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-card">
-      <div className="border-b border-border px-3 py-1.5 text-xs font-medium text-muted-foreground">
-        {t("console.title")}
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs font-medium text-muted-foreground">
+        <span>{t("console.title")}</span>
+        <button
+          onClick={copyLog}
+          disabled={lines.length === 0}
+          className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+        >
+          {copied ? t("console.copied") : t("console.copy")}
+        </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs leading-relaxed">
+      {/* select-text overrides the app-global `user-select: none` (styles.css) so
+          the operator can select/copy console output (e.g. g-code, errors). */}
+      <div className="min-h-0 flex-1 select-text overflow-auto p-3 font-mono text-xs leading-relaxed">
         {lines.map((l, i) => (
           <div key={i} className={l.dir === "tx" ? "text-primary" : "text-muted-foreground"}>
             <span className="select-none opacity-40">{fmtTime(l.ts)} </span>
