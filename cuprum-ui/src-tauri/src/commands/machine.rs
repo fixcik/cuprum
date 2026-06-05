@@ -43,6 +43,16 @@ pub struct PortDto {
     pub kind: String,
 }
 
+/// Connection liveness shared with the drill job-runner: the time of the last
+/// line received from GRBL (any line — the 200 ms status poll keeps this fresh
+/// while connected) and whether GRBL last reported Idle. Lets the runner wait
+/// for `ok` based on the machine actually being alive/busy rather than a blind
+/// fixed timeout (a long move keeps GRBL in Run and the status flowing).
+pub(crate) struct Activity {
+    pub last: std::time::Instant,
+    pub idle: bool,
+}
+
 /// Live connection held in Tauri managed state.
 struct MachineConn {
     writer: Arc<Mutex<GrblWriter>>,
@@ -51,6 +61,7 @@ struct MachineConn {
     reader_handle: Option<JoinHandle<()>>,
     poller_handle: Option<JoinHandle<()>>,
     ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
+    activity: Arc<Mutex<Activity>>,
 }
 
 #[derive(Default)]
@@ -105,17 +116,25 @@ pub fn machine_connect(
     let stop = Arc::new(AtomicBool::new(false));
     let ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>> =
         Arc::new(Mutex::new(None));
+    let activity = Arc::new(Mutex::new(Activity {
+        last: std::time::Instant::now(),
+        idle: false,
+    }));
 
     // Reader thread: parse lines, push status + raw rx lines.
     let r_stop = stop.clone();
     let r_tel = telemetry.clone();
     let r_app = app.clone();
     let r_ack = ack_tx.clone();
+    let r_activity = activity.clone();
     let reader_handle = std::thread::spawn(move || {
         let mut tracker = grbl::StatusTracker::default();
         while !r_stop.load(Ordering::Relaxed) {
             match reader.read_line() {
                 Ok(Some(line)) => {
+                    // Any line from GRBL = the link is alive (used by the runner's
+                    // liveness-based ok-wait).
+                    r_activity.lock().unwrap().last = std::time::Instant::now();
                     let _ = r_tel.send(Telemetry::Line {
                         dir: "rx".into(),
                         text: line.clone(),
@@ -131,6 +150,7 @@ pub fn machine_connect(
                     }
                     if let grbl::Line::Status(rep) = &parsed {
                         let s = tracker.resolve(rep);
+                        r_activity.lock().unwrap().idle = matches!(s.state, GrblState::Idle);
                         let _ = r_tel.send(Telemetry::Status {
                             state: state_str(s.state).into(),
                             mpos: s.mpos,
@@ -182,6 +202,7 @@ pub fn machine_connect(
         reader_handle: Some(reader_handle),
         poller_handle: Some(poller_handle),
         ack_tx,
+        activity,
     });
     drop(guard);
     let _ = app.emit("machine://connected", ());
@@ -305,6 +326,10 @@ impl MachineState {
         &self,
     ) -> Option<Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>> {
         self.0.lock().unwrap().as_ref().map(|c| c.ack_tx.clone())
+    }
+
+    pub(crate) fn activity(&self) -> Option<Arc<Mutex<Activity>>> {
+        self.0.lock().unwrap().as_ref().map(|c| c.activity.clone())
     }
 
     pub(crate) fn is_connected(&self) -> bool {
