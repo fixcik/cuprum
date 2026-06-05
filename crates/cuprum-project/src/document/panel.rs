@@ -1,9 +1,22 @@
 //! FR4 blank definition (`PanelDoc`): size, panel-space origin, board instances,
-//! tooling holes, and keep-out zones. Embedded in `Manifest::panel` (manifest
-//! schema v4+; previously a separate `panel.json` entry). `PanelDoc` itself is
-//! schema v3 (added `keep_out_zones`).
+//! tooling holes, keep-out zones, and per-diameter drill-class overrides.
+//! Embedded in `Manifest::panel` (manifest schema v4+; previously a separate
+//! `panel.json` entry). `PanelDoc` itself is schema v4 (added
+//! `drill_class_overrides`).
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+
+/// Class of a drill hole. Mirrors the TS `DrillClass` literals.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DrillClass {
+    Registration,
+    Pth,
+    Npth,
+    Mechanical,
+}
 
 /// Purpose of a tooling hole on the panel.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -64,7 +77,8 @@ pub struct ToolingHole {
 /// Bump when the on-disk shape changes incompatibly.
 /// v2: panel carries board instances and tooling holes.
 /// v3: panel carries keep-out zones (`keep_out_zones`).
-pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 3;
+/// v4: panel carries per-diameter drill-class overrides (`drill_class_overrides`).
+pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 4;
 
 /// The FR4 blank definition (size + panel-space origin + layout). Embedded in
 /// `Manifest::panel` since manifest schema v4; previously a separate `panel.json`
@@ -91,6 +105,12 @@ pub struct PanelDoc {
     /// Keep-out zones on this panel.
     #[serde(default)]
     pub keep_out_zones: Vec<KeepOutZone>,
+    /// Manual per-diameter class overrides. Key = diameter bucket in microns
+    /// (`round(diameter_mm * 1000)` as a decimal string, matching the TS
+    /// `bucketKey`); value = the forced class. Entries with an unrecognised
+    /// class value are dropped on load (forward/legacy tolerance).
+    #[serde(default, deserialize_with = "de_lenient_overrides")]
+    pub drill_class_overrides: BTreeMap<String, DrillClass>,
 }
 
 impl PanelDoc {
@@ -105,8 +125,22 @@ impl PanelDoc {
             instances: Vec::new(),
             tooling_holes: Vec::new(),
             keep_out_zones: Vec::new(),
+            drill_class_overrides: BTreeMap::new(),
         }
     }
+}
+
+/// Deserialize the override map, silently dropping entries whose value is not a
+/// known `DrillClass` (so a newer/older file never fails the whole load).
+fn de_lenient_overrides<'de, D>(d: D) -> Result<BTreeMap<String, DrillClass>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: BTreeMap<String, serde_json::Value> = BTreeMap::deserialize(d)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|(k, v)| serde_json::from_value::<DrillClass>(v).ok().map(|c| (k, c)))
+        .collect())
 }
 
 #[cfg(test)]
@@ -176,13 +210,13 @@ mod tests {
     }
 
     #[test]
-    fn panel_new_is_schema_v3_empty() {
+    fn panel_new_is_schema_v4_empty() {
         let p = PanelDoc::new(150.0, 100.0);
         assert_eq!(p.schema_version, CURRENT_PANEL_SCHEMA_VERSION);
-        assert_eq!(CURRENT_PANEL_SCHEMA_VERSION, 3);
         assert!(p.instances.is_empty());
         assert!(p.tooling_holes.is_empty());
         assert!(p.keep_out_zones.is_empty());
+        assert!(p.drill_class_overrides.is_empty());
     }
 
     #[test]
@@ -250,5 +284,45 @@ mod tests {
         assert!(p.keep_out_zones.is_empty());
         assert!(p.instances.is_empty());
         assert!(p.tooling_holes.is_empty());
+    }
+
+    #[test]
+    fn drill_class_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&DrillClass::Npth).unwrap(),
+            "\"npth\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DrillClass::Registration).unwrap(),
+            "\"registration\""
+        );
+    }
+
+    #[test]
+    fn panel_round_trips_drill_class_overrides() {
+        let mut p = PanelDoc::new(100.0, 80.0);
+        p.drill_class_overrides
+            .insert("300".into(), DrillClass::Npth);
+        p.drill_class_overrides
+            .insert("3000".into(), DrillClass::Registration);
+        let json = serde_json::to_string(&p).unwrap();
+        let back: PanelDoc = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.drill_class_overrides, p.drill_class_overrides);
+    }
+
+    #[test]
+    fn panel_without_overrides_defaults_empty() {
+        let json = r#"{"schema_version":3,"width_mm":50.0,"height_mm":50.0}"#;
+        let p: PanelDoc = serde_json::from_str(json).unwrap();
+        assert!(p.drill_class_overrides.is_empty());
+    }
+
+    #[test]
+    fn drill_class_overrides_skip_unknown_values() {
+        let json = r#"{"schema_version":4,"width_mm":50.0,"height_mm":50.0,
+            "drill_class_overrides":{"300":"npth","500":"bogus"}}"#;
+        let p: PanelDoc = serde_json::from_str(json).unwrap();
+        assert_eq!(p.drill_class_overrides.get("300"), Some(&DrillClass::Npth));
+        assert_eq!(p.drill_class_overrides.get("500"), None);
     }
 }
