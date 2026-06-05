@@ -41,7 +41,7 @@ export interface RulersOverlayProps {
 }
 
 // Copper = action/cursor (hover crosshair + ruler cursor arrows) and the blank
-// projection highlight ("where's my blank"). Structure (work area, origin marker)
+// projection highlight ("where's my blank"). Structure (origin marker)
 // is neutral — see MUTED_* below.
 const COPPER = "hsl(var(--primary))";
 const COPPER_14 = "hsl(var(--primary) / 0.14)";

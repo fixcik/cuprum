@@ -33,7 +33,7 @@ export const INSTANCE_LABEL = "rgba(139,151,167,0.7)";
 // legibility.
 export const INSTANCE_OFF_STROKE = "#e5484d";
 export const INSTANCE_OFF_FILL = "rgba(229,72,77,0.12)";
-// WARN = a placed board with a non-blocking issue (too close to edge / work-area).
+// WARN = a placed board with a non-blocking issue (too close to edge).
 // Amber outline only (no fill) — softer than the block red.
 export const INSTANCE_WARN_STROKE = "#f59e0b";
 

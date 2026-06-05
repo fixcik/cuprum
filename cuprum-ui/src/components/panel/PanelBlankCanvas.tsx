@@ -1085,7 +1085,7 @@ export function PanelBlankCanvas({
                 panelH: H,
               });
               // Committed severity from the single findings source (covers off-panel,
-              // overlap, spacing, work-area). During a live drag/rotate the committed
+              // overlap, spacing). During a live drag/rotate the committed
               // value may lag the render; fall back to liveOff for block.
               const committedSev = byInstance.get(inst.id);
               const liveZoneHit = keepOutPreviewBox
