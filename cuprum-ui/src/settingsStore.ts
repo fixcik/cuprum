@@ -239,6 +239,20 @@ function deriveCncProfile(machines: Machine[], activeCncMachineId: string | null
   return machineToProfile(resolveActiveCnc(machines, activeCncMachineId));
 }
 
+/** Keep an active-id pointer consistent with the machines list: if it points at a
+ *  machine that no longer exists (or has the wrong kind), retarget it at the first
+ *  machine of `kind`, or null when none remain. */
+function resolveActiveId(
+  machines: Machine[],
+  activeId: string | null,
+  kind: Machine["kind"],
+): string | null {
+  if (activeId && machines.some((m) => m.id === activeId && m.kind === kind)) {
+    return activeId;
+  }
+  return machines.find((m) => m.kind === kind)?.id ?? null;
+}
+
 export const useSettings = create<SettingsStore>()(
   persist(
     (set) => ({
@@ -290,14 +304,27 @@ export const useSettings = create<SettingsStore>()(
       removeMachine: (id) =>
         set((s) => {
           const machines = s.machines.filter((m) => m.id !== id);
-          return { machines, cncProfile: deriveCncProfile(machines, s.activeCncMachineId) };
+          // Retarget active pointers if the removed machine was active, so no
+          // dangling id leaks into the persist.
+          const activeCncMachineId = resolveActiveId(machines, s.activeCncMachineId, "cnc");
+          const activeUvMachineId = resolveActiveId(machines, s.activeUvMachineId, "uvlcd");
+          return {
+            machines,
+            activeCncMachineId,
+            activeUvMachineId,
+            cncProfile: deriveCncProfile(machines, activeCncMachineId),
+          };
         }),
       setActiveCncMachineId: (id) =>
-        set((s) => ({
-          activeCncMachineId: id,
-          cncProfile: deriveCncProfile(s.machines, id),
-        })),
-      setActiveUvMachineId: (id) => set({ activeUvMachineId: id }),
+        set((s) => {
+          const activeCncMachineId = resolveActiveId(s.machines, id, "cnc");
+          return {
+            activeCncMachineId,
+            cncProfile: deriveCncProfile(s.machines, activeCncMachineId),
+          };
+        }),
+      setActiveUvMachineId: (id) =>
+        set((s) => ({ activeUvMachineId: resolveActiveId(s.machines, id, "uvlcd") })),
 
       // Shim: cncProfile is initialized from the default CNC machine
       cncProfile: machineToProfile(DEFAULT_CNC_MACHINE),

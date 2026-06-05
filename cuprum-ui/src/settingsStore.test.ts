@@ -4,6 +4,7 @@ import { DEFAULT_PROFILE } from "@/lib/capabilityProfile";
 import { DEFAULT_NEST } from "@/lib/nest";
 import { DEFAULT_TOOLS } from "@/lib/toolLibrary";
 import { DEFAULT_CNC_MACHINE, DEFAULT_UV_MACHINE } from "@/lib/machine";
+import type { CncMachine, UvLcdMachine } from "@/lib/machine";
 import type { PanelPreset } from "@/lib/panel";
 
 // Snapshot the initial state (incl. action fns) and restore it before each test
@@ -196,6 +197,150 @@ describe("machinesFromPersisted (settings migration)", () => {
       expect(machine.name).toBe("Shim Test");
       expect(machine.safeZMm).toBe(7);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Machine registry mutators
+// ---------------------------------------------------------------------------
+
+const cncMachine = (id: string, name = id): CncMachine => ({
+  ...DEFAULT_CNC_MACHINE,
+  id,
+  name,
+});
+
+const uvMachine = (id: string, name = id): UvLcdMachine => ({
+  ...DEFAULT_UV_MACHINE,
+  id,
+  name,
+});
+
+describe("settingsStore machine registry mutators", () => {
+  it("addMachine appends a machine and keeps cncProfile synced", () => {
+    const before = useSettings.getState().machines.length;
+    useSettings.getState().addMachine(cncMachine("machine-9", "Extra CNC"));
+    const { machines } = useSettings.getState();
+    expect(machines).toHaveLength(before + 1);
+    expect(machines.at(-1)!.id).toBe("machine-9");
+    // Active CNC is still machine-1, so cncProfile reflects the active (default) machine.
+    expect(useSettings.getState().cncProfile.name).toBe(DEFAULT_CNC_MACHINE.name);
+  });
+
+  it("updateMachine patches a machine in place", () => {
+    useSettings.getState().updateMachine("machine-1", { name: "Renamed CNC" });
+    const m = useSettings.getState().machines.find((x) => x.id === "machine-1");
+    expect(m!.name).toBe("Renamed CNC");
+  });
+
+  it("updateMachine on the active CNC keeps cncProfile in sync", () => {
+    useSettings.getState().updateMachine("machine-1", { name: "Active Rename" } as Partial<CncMachine>);
+    expect(useSettings.getState().cncProfile.name).toBe("Active Rename");
+  });
+
+  it("removeMachine drops the machine by id", () => {
+    useSettings.getState().addMachine(cncMachine("machine-9"));
+    useSettings.getState().removeMachine("machine-9");
+    expect(useSettings.getState().machines.some((m) => m.id === "machine-9")).toBe(false);
+  });
+
+  it("removeMachine retargets the active CNC to a remaining CNC and recomputes cncProfile", () => {
+    // Two CNC machines; machine-1 is active.
+    useSettings.setState((s) => ({
+      ...s,
+      machines: [cncMachine("machine-1", "First CNC"), cncMachine("machine-3", "Second CNC"), uvMachine("machine-2")],
+      activeCncMachineId: "machine-1",
+      activeUvMachineId: "machine-2",
+    }));
+    useSettings.getState().removeMachine("machine-1");
+    const s = useSettings.getState();
+    expect(s.activeCncMachineId).toBe("machine-3");
+    expect(s.cncProfile.name).toBe("Second CNC");
+  });
+
+  it("removeMachine sets the active CNC id to null when no CNC machines remain", () => {
+    useSettings.setState((s) => ({
+      ...s,
+      machines: [cncMachine("machine-1"), uvMachine("machine-2")],
+      activeCncMachineId: "machine-1",
+      activeUvMachineId: "machine-2",
+    }));
+    useSettings.getState().removeMachine("machine-1");
+    const s = useSettings.getState();
+    expect(s.activeCncMachineId).toBeNull();
+    // With no CNC machines, cncProfile falls back to the default machine's fields.
+    expect(s.cncProfile.name).toBe(DEFAULT_CNC_MACHINE.name);
+    expect(s.cncProfile.safeZMm).toBe(DEFAULT_CNC_MACHINE.safeZMm);
+  });
+
+  it("removeMachine retargets the active UV when the active UV machine is removed", () => {
+    useSettings.setState((s) => ({
+      ...s,
+      machines: [cncMachine("machine-1"), uvMachine("machine-2", "First UV"), uvMachine("machine-4", "Second UV")],
+      activeCncMachineId: "machine-1",
+      activeUvMachineId: "machine-2",
+    }));
+    useSettings.getState().removeMachine("machine-2");
+    expect(useSettings.getState().activeUvMachineId).toBe("machine-4");
+  });
+
+  it("removeMachine leaves a non-active machine's active pointers untouched", () => {
+    useSettings.setState((s) => ({
+      ...s,
+      machines: [cncMachine("machine-1"), cncMachine("machine-3"), uvMachine("machine-2")],
+      activeCncMachineId: "machine-1",
+      activeUvMachineId: "machine-2",
+    }));
+    useSettings.getState().removeMachine("machine-3");
+    const s = useSettings.getState();
+    expect(s.activeCncMachineId).toBe("machine-1");
+    expect(s.activeUvMachineId).toBe("machine-2");
+  });
+
+  it("setActiveCncMachineId switches the active machine and recomputes cncProfile", () => {
+    useSettings.setState((s) => ({
+      ...s,
+      machines: [cncMachine("machine-1", "First CNC"), cncMachine("machine-3", "Second CNC"), uvMachine("machine-2")],
+      activeCncMachineId: "machine-1",
+    }));
+    useSettings.getState().setActiveCncMachineId("machine-3");
+    const s = useSettings.getState();
+    expect(s.activeCncMachineId).toBe("machine-3");
+    expect(s.cncProfile.name).toBe("Second CNC");
+  });
+
+  it("setActiveCncMachineId ignores an unknown id (stays consistent)", () => {
+    useSettings.getState().setActiveCncMachineId("does-not-exist");
+    // Falls back to the first CNC machine rather than a dangling pointer.
+    expect(useSettings.getState().activeCncMachineId).toBe("machine-1");
+  });
+
+  it("setActiveUvMachineId ignores an id of the wrong kind", () => {
+    // machine-1 is a CNC; selecting it as the active UV must not stick.
+    useSettings.getState().setActiveUvMachineId("machine-1");
+    expect(useSettings.getState().activeUvMachineId).toBe("machine-2");
+  });
+
+  it("setCncProfile syncs the active CNC machine inside machines[]", () => {
+    useSettings.getState().setCncProfile({ safeZMm: 12, name: "Tuned" });
+    const m = useSettings.getState().machines.find((x) => x.id === "machine-1");
+    expect(m!.kind).toBe("cnc");
+    if (m?.kind === "cnc") {
+      expect(m.safeZMm).toBe(12);
+      expect(m.name).toBe("Tuned");
+    }
+    expect(useSettings.getState().cncProfile.safeZMm).toBe(12);
+  });
+
+  it("keeps drillDatumCorner independent of the cncProfile shim", () => {
+    // drillDatumCorner is a standalone store field (PR #257), not part of the
+    // CNC machine/profile — editing the active machine must not disturb it, and
+    // setting the datum must not touch cncProfile.
+    expect(useSettings.getState().drillDatumCorner).toBe("bottom-left");
+    useSettings.getState().setDrillDatumCorner("top-right");
+    useSettings.getState().setCncProfile({ safeZMm: 9 });
+    expect(useSettings.getState().drillDatumCorner).toBe("top-right");
+    expect(useSettings.getState().cncProfile.safeZMm).toBe(9);
   });
 });
 
