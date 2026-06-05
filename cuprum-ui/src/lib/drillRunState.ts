@@ -1,7 +1,9 @@
 export type DrillRunPhase =
   | "idle"
   | "running"
+  | "pausing"
   | "paused"
+  | "stopping"
   | "awaitingToolChange"
   | "done"
   | "error";
