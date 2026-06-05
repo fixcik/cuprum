@@ -25,6 +25,9 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   );
 }
 
+/** Class of a drill hole. Mirrors the Rust `DrillClass`. */
+export type DrillClass = "registration" | "pth" | "npth" | "mechanical";
+
 /** Overall panel feasibility verdict. Matches `Verdict` in `feasibility.ts`. */
 export type Verdict = "ok" | "warn" | "block";
 
@@ -195,6 +198,7 @@ export interface PanelDoc {
   instances: BoardInstance[];
   tooling_holes: ToolingHole[];
   keep_out_zones: KeepOutZone[];
+  drill_class_overrides: Record<string, DrillClass>;
 }
 
 export interface Manifest {
@@ -583,6 +587,15 @@ export const api = {
   emitDrillSnapshot: (s: DrillSnapshot) => emit("drill://snapshot", s),
   onDrillSnapshot: (cb: (s: DrillSnapshot) => void): Promise<UnlistenFn> =>
     listen<DrillSnapshot>("drill://snapshot", (e) => cb(e.payload)),
+  emitDrillSetClassOverride: (diameterKey: string, klass: DrillClass | null) =>
+    emit("drill://set-class-override", { diameterKey, klass }),
+  onDrillSetClassOverride: (
+    cb: (p: { diameterKey: string; klass: DrillClass | null }) => void,
+  ): Promise<UnlistenFn> =>
+    listen<{ diameterKey: string; klass: DrillClass | null }>(
+      "drill://set-class-override",
+      (e) => cb(e.payload),
+    ),
 
   /** Apply localised native-menu labels (called on mount and on language change). */
   setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),

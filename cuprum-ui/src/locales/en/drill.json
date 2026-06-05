@@ -20,6 +20,8 @@
     "registrationInKeepout": "Registration holes in clamp zone ({{count}}) — move the registration hole or the clamp"
   },
   "class": {
+    "aria": "Drill class",
+    "auto": "auto",
     "registration": "registration",
     "pth": "PTH",
     "npth": "NPTH",

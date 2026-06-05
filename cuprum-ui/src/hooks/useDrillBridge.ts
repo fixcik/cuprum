@@ -53,9 +53,15 @@ export function useDrillBridge() {
   }, [designs, panel, placedSizes, cncProfile, tools, viaMaxDiameterMm, drillBitToleranceMm]);
 
   // Reply to the drill window's ready signal with a fresh snapshot.
+  // Also handle drill-window intents (class override persisted by the main window,
+  // which is the sole writer; snapshot re-push fires automatically on panel change).
   useBridgeListeners(() => [
     api.onDrillReady(() => {
       void emitSnapshot();
     }),
+    api.onDrillSetClassOverride(
+      ({ diameterKey, klass }) =>
+        void useShell.getState().setDrillClassOverride(diameterKey, klass),
+    ),
   ]);
 }

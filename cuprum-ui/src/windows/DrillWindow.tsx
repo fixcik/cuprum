@@ -135,7 +135,13 @@ export function DrillWindow() {
         {plan && route && (
           <div className="w-72 shrink-0 border-l border-slate-800 overflow-y-auto">
             <DrillRunPanel steps={program?.steps ?? []} run={run} />
-            <DrillSummary plan={plan} route={route} />
+            <DrillSummary
+              plan={plan}
+              route={route}
+              onSetClass={(dMm, klass) =>
+                api.emitDrillSetClassOverride(String(Math.round(dMm * 1000)), klass)
+              }
+            />
           </div>
         )}
       </div>

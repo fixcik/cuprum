@@ -5,7 +5,7 @@ import {
   collectDesignHoles,
   projectHoleToPanel,
 } from "@/lib/panelDrill";
-import type { Rect } from "@/lib/panelDrill";
+import type { Rect, DrillClass, LocalHole } from "@/lib/panelDrill";
 import type { BoardInstance, Hole, ToolingHole } from "@/lib/api";
 import type { Tool } from "@/lib/toolLibrary";
 
@@ -215,5 +215,40 @@ describe("buildPanelDrillPlan — keep-out zone exclusion", () => {
     const plan = buildPanelDrillPlan(panel, new Map(), sizes, tools, opts, [zone]);
     expect(plan.registrationInKeepout).toBe(1);
     expect(plan.totalHoles).toBe(0);
+  });
+});
+
+describe("buildPanelDrillPlan — drill class overrides", () => {
+  it("override forces a group's class by diameter, collapsing into one group", () => {
+    const sizes = new Map([["d1", { w: 20, h: 20 }]]);
+    const holes = new Map<string, LocalHole[]>([
+      ["d1", [{ xMm: 5, yMm: 5, dMm: 0.3 }]],
+    ]);
+    const panel = {
+      instances: [{ id: "i1", design_id: "d1", x_mm: 0, y_mm: 0, rotation_deg: 0 }],
+      tooling_holes: [],
+    };
+    const overrides = new Map<string, DrillClass>([["300", "npth"]]);
+    const plan = buildPanelDrillPlan(
+      panel as never, holes, sizes, [],
+      { viaMaxDiameterMm: 0.6, drillBitToleranceMm: 0.1 }, [], overrides,
+    );
+    expect(plan.groups.map((g) => g.class)).toEqual(["npth"]);
+  });
+
+  it("no override leaves the heuristic class unchanged", () => {
+    const sizes = new Map([["d1", { w: 20, h: 20 }]]);
+    const holes = new Map<string, LocalHole[]>([
+      ["d1", [{ xMm: 5, yMm: 5, dMm: 0.3 }]],
+    ]);
+    const panel = {
+      instances: [{ id: "i1", design_id: "d1", x_mm: 0, y_mm: 0, rotation_deg: 0 }],
+      tooling_holes: [],
+    };
+    const plan = buildPanelDrillPlan(
+      panel as never, holes, sizes, [],
+      { viaMaxDiameterMm: 0.6, drillBitToleranceMm: 0.1 }, [],
+    );
+    expect(plan.groups.map((g) => g.class)).toEqual(["pth"]);
   });
 });
