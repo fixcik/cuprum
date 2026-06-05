@@ -52,8 +52,10 @@
     "toolChangeTitle": "Tool change",
     "toolChangePrompt": "Insert drill Ø{{diameter}} ({{name}}), then continue",
     "continue": "Continue",
+    "unlock": "Unlock",
+    "reset": "Reset",
     "notConnected": "Connect the machine on the Machine page",
-    "errorHint": "Run error. Recover on the Machine page (unlock/reset).",
+    "errorHint": "Unlock the machine, then start again.",
     "zeroHint": "Work zero (0,0) is the selected datum corner of the panel (marked on the canvas; X right, Y up). Set it by jogging on the Machine page.",
     "spindleHint": "If the spindle is on a manual dial (3018 default), turn it on by hand — handy during the tool-change pause."
   }

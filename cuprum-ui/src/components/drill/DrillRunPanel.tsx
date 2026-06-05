@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Loader2, WrenchIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { api } from "@/lib/api";
 import type { DrillStep } from "@/lib/drillGcode";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 
@@ -142,6 +143,21 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
             <span className="font-medium">{state.error}</span>
           </div>
           <p className="text-[12px] text-muted-foreground">{t("run.errorHint")}</p>
+          <div className="flex gap-2 pt-0.5">
+            {/* Unlock ($X) — clears ALARM state */}
+            <Button size="sm" disabled={!connected} onClick={() => void api.machine.unlock()}>
+              {t("run.unlock")}
+            </Button>
+            {/* Soft reset (0x18) — secondary recovery action */}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!connected}
+              onClick={() => void api.machine.softReset()}
+            >
+              {t("run.reset")}
+            </Button>
+          </div>
         </div>
       )}
     </div>
