@@ -64,13 +64,16 @@ describe("evaluatePanel", () => {
     expect(f.some((x) => x.category === "overlap")).toBe(false);
   });
 
-  it("instance inside panel but past the machine work area → warn", () => {
-    // panel 200×150, work area 200×100; board at y=120 (within panel, past 100).
+  it("instance inside panel but past the old machine work-area limit → no extra finding", () => {
+    // panel 200×150, old work area 200×100; board at y=120 (within panel, past old 100 limit).
+    // After the refactor, panel DFM no longer checks machine work-area bounds — only off-panel matters.
     const f = evaluatePanel({
       panel: panel(200, 150, [inst("a", "d1", 10, 120)]),
       sizes: { d1: { w: 20, h: 20 } }, profile: prof, designVerdicts: { d1: "ok" },
     });
-    expect(f.some((x) => x.category === "work-area" && x.severity === "warn")).toBe(true);
+    // Board is fully inside the panel → no off-panel finding; no work-area category exists.
+    expect(f.some((x) => x.category === "off-panel")).toBe(false);
+    expect(f).toHaveLength(0);
   });
 
   it("a placed design's own block verdict escalates the panel verdict", () => {

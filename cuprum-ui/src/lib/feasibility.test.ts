@@ -92,22 +92,26 @@ describe("minAbove", () => {
 });
 
 describe("evaluate — size", () => {
-  it("ok when the board fits the machine work area (no panel)", () => {
+  it("no size.fits finding when no panel is configured", () => {
+    // Without a panel there is no reference dimension to compare against — skip the check.
     const findings = evaluate(makeMetrics(), makeProfile());
     const size = findings.find((f) => f.id === "size.fits");
-    expect(size?.severity).toBe("ok");
+    expect(size).toBeUndefined();
   });
 
-  it("warns when it fits only rotated and rotation is allowed", () => {
+  it("warns when it fits only rotated and rotation is allowed (panel present)", () => {
+    // Board 90×150: direct 90≤160 but 150>100 → fails; rotated 150≤160 and 90≤100 → fits.
     const metrics = makeMetrics({ board: { widthMm: 90, heightMm: 150 } });
-    const findings = evaluate(metrics, makeProfile({ allowRotateToFit: true }));
+    const panel = { schema_version: 3, width_mm: 160, height_mm: 100, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [] };
+    const findings = evaluate(metrics, makeProfile({ allowRotateToFit: true }), panel);
     const size = findings.find((f) => f.id === "size.fits");
     expect(size?.severity).toBe("warn");
   });
 
-  it("blocks when the board does not fit in any orientation", () => {
+  it("blocks when the board does not fit the panel in any orientation", () => {
     const metrics = makeMetrics({ board: { widthMm: 250, heightMm: 250 } });
-    const findings = evaluate(metrics, makeProfile());
+    const panel = { schema_version: 3, width_mm: 200, height_mm: 200, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [] };
+    const findings = evaluate(metrics, makeProfile(), panel);
     const size = findings.find((f) => f.id === "size.fits");
     expect(size?.severity).toBe("block");
   });
