@@ -80,9 +80,6 @@ export function PanelBlankCanvas({
   const { t } = useTranslation(["project", "common"]);
   const pxPerMm = useShell((s) => s.pxPerMm);
   const { fmtLen } = useUnitFormat();
-  // Machine bed limit (mm) → dashed work-area rectangle on the canvas.
-  const maxPanelW = useSettings((s) => s.profile.maxPanelWidthMm);
-  const maxPanelH = useSettings((s) => s.profile.maxPanelHeightMm);
   const clampRadiusMm = useSettings((s) => s.profile.toolingClampRadiusMm);
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
@@ -1243,8 +1240,6 @@ export function PanelBlankCanvas({
         size={size}
         fmt={fmtLen}
         extentMm={{ x: 0, y: 0, w: W, h: H }}
-        workAreaMm={{ w: maxPanelW, h: maxPanelH }}
-        workAreaLabel={t("panel.canvas.workArea")}
         hover={showCrosshair ? hoverPx : null}
         extentVariant="muted"
       />

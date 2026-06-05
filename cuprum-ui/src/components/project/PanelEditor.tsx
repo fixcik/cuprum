@@ -25,11 +25,7 @@ export function PanelEditor() {
   const docNonce = useShell((s) => s.docNonce);
   const userPresets = useSettings((s) => s.panelPresets);
   const addPanelPreset = useSettings((s) => s.addPanelPreset);
-  // The panel is bounded by the machine's work area (from Settings): you can't
-  // make a blank larger than the machine can expose/process.
   const profile = useSettings((s) => s.profile);
-  const maxW = profile.maxPanelWidthMm;
-  const maxH = profile.maxPanelHeightMm;
 
   const [width, setWidth] = useState(100);
   const [height, setHeight] = useState(100);
@@ -84,12 +80,6 @@ export function PanelEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPath, docNonce]);
 
-  // Exceeding the machine's work area is an advisory hint, NOT a hard limit: flag
-  // the field so the user knows it won't fit as-is, but still persist the value —
-  // they may raise the work area in Settings later, and the real "board > panel"
-  // gate lives in the DFM check. Persistence only needs finite positive numbers.
-  const widthTooBig = width > maxW;
-  const heightTooBig = height > maxH;
   const valid = width > 0 && height > 0 && substrate > 0;
 
   // Debounced autosave: write only when the params differ from the last-persisted
@@ -245,10 +235,6 @@ export function PanelEditor() {
         setCopperWeight={setCopperWeight}
         setSubstrate={setSubstrate}
         setDoubleSided={setDoubleSided}
-        widthTooBig={widthTooBig}
-        heightTooBig={heightTooBig}
-        maxW={maxW}
-        maxH={maxH}
         offPanelCount={offPanelCount}
         presets={presets}
         onApplyPreset={applyPreset}
