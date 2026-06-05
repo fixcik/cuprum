@@ -25,7 +25,11 @@
     "work": "Work",
     "machine": "Machine",
     "zeroAxis": "Zero {{axis}}",
-    "zeroAll": "Zero XYZ"
+    "zeroAll": "Zero XYZ",
+    "saveZero": "Save zero",
+    "restoreZero": "Home + restore zero",
+    "zeroSaved": "Zero saved: X{{x}} Y{{y}}",
+    "homingUnavailable": "Restore unavailable: enable homing in firmware ($22=1)"
   },
   "jog": {
     "title": "Jog",

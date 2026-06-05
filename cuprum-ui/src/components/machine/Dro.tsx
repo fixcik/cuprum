@@ -1,8 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/Button";
 import { useMachine } from "@/machineStore";
+import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
+import { workZeroFromStatus } from "@/lib/workZero";
+import { restoreWorkZero } from "@/lib/restoreWorkZero";
 
 const AXES = ["X", "Y", "Z"] as const;
 
@@ -11,9 +14,31 @@ export function Dro() {
   const status = useMachine((s) => s.status);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
+  const homingAvailable = useMachine((s) => s.homingAvailable);
+  const cncProfile = useSettings((s) => s.cncProfile);
+  const setCncProfile = useSettings((s) => s.setCncProfile);
   // Zeroing sets the WCS — GRBL rejects it outside Idle/Jog (e.g. Alarm), so gate
   // it with the same canMove() used for jog/home/spindle rather than just connected.
   const movable = canMove(state, connected);
+
+  function handleSaveZero() {
+    setCncProfile({ workZeroMm: workZeroFromStatus(status.mpos, status.wpos) });
+  }
+
+  function handleRestoreZero() {
+    if (!cncProfile.workZeroMm) return;
+    const z = cncProfile.workZeroMm;
+    void (async () => {
+      try {
+        await restoreWorkZero(z);
+      } catch (e) {
+        useMachine.getState().pushLine({ dir: "rx", text: `restore failed: ${String(e)}` });
+      }
+    })();
+  }
+
+  const { workZeroMm } = cncProfile;
+  const canRestore = connected && homingAvailable && workZeroMm !== null && movable;
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -46,6 +71,40 @@ export function Dro() {
       >
         {t("dro.zeroAll")}
       </Button>
+
+      {/* Work-zero save / restore row */}
+      <div className="mt-3 flex gap-2">
+        <Button
+          className="flex-1"
+          variant="ghost"
+          size="sm"
+          disabled={!movable}
+          onClick={handleSaveZero}
+        >
+          {t("dro.saveZero")}
+        </Button>
+        <Button
+          className="flex-1"
+          variant="secondary"
+          size="sm"
+          disabled={!canRestore}
+          onClick={handleRestoreZero}
+        >
+          {t("dro.restoreZero")}
+        </Button>
+      </div>
+
+      {workZeroMm && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          {t("dro.zeroSaved", { x: workZeroMm.x.toFixed(3), y: workZeroMm.y.toFixed(3) })}
+        </div>
+      )}
+
+      {connected && !homingAvailable && workZeroMm && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          {t("dro.homingUnavailable")}
+        </div>
+      )}
     </div>
   );
 }
