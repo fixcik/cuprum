@@ -163,6 +163,11 @@ pub fn drill_run_pause(
 ) -> Result<(), String> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
+        // Idempotent: a second pause while already paused must NOT spawn a second
+        // 0x9E toggle (two toggles cancel out, leaving the spindle running in Hold).
+        if h.ctrl.paused.load(Relaxed) {
+            return Ok(());
+        }
         h.ctrl.paused.store(true, Relaxed);
         drop(slot);
         send_rt(&machine, grbl::FEED_HOLD);
@@ -172,14 +177,23 @@ pub fn drill_run_pause(
         if let (Some(writer), Some(activity)) = (machine.writer(), machine.activity()) {
             std::thread::spawn(move || {
                 let deadline = std::time::Instant::now() + Duration::from_millis(2000);
+                let mut reached_hold = false;
                 while std::time::Instant::now() < deadline {
                     if activity.lock().unwrap().hold {
+                        reached_hold = true;
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(50));
                 }
-                // Safe to send regardless: outside Hold GRBL ignores the overlay.
-                let _ = writer.lock().unwrap().write_realtime(grbl::SPINDLE_STOP_TOGGLE);
+                // Only toggle if we actually observed Hold — avoids relying on GRBL
+                // ignoring the overlay outside Hold, and avoids a stray toggle if the
+                // user already resumed.
+                if reached_hold {
+                    let _ = writer
+                        .lock()
+                        .unwrap()
+                        .write_realtime(grbl::SPINDLE_STOP_TOGGLE);
+                }
             });
         }
         let _ = app.emit(
