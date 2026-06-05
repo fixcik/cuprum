@@ -52,7 +52,9 @@
   "console": {
     "title": "Console",
     "placeholder": "G-code…",
-    "send": "Send"
+    "send": "Send",
+    "copy": "Copy log",
+    "copied": "Copied"
   },
   "alarm": "Machine in alarm — unlock or soft-reset to continue."
 }
