@@ -44,15 +44,19 @@ export interface MachineStatusEvent {
   wpos: [number, number, number];
 }
 
+/** A console line as stored in the UI: direction, text, and the local arrival
+ *  time (epoch ms, stamped front-side in `pushLine`). */
 export interface ConsoleLine {
   dir: "rx" | "tx";
   text: string;
+  ts: number;
 }
 
-/** Telemetry over the connect Channel. Matches `Telemetry` in machine.rs. */
+/** Telemetry over the connect Channel. Matches `Telemetry` in machine.rs.
+ *  The "line" payload has no timestamp — it's stamped when stored. */
 export type Telemetry =
   | ({ type: "status" } & MachineStatus)
-  | ({ type: "line" } & ConsoleLine);
+  | { type: "line"; dir: "rx" | "tx"; text: string };
 
 export interface SerialPortInfo {
   name: string;

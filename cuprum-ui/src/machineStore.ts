@@ -22,7 +22,7 @@ interface MachineStore {
   homingAvailable: boolean;
   connect: (port: string, baud: number) => Promise<void>;
   disconnect: () => Promise<void>;
-  pushLine: (line: ConsoleLine) => void;
+  pushLine: (line: Omit<ConsoleLine, "ts">) => void;
   setStatus: (status: MachineStatus) => void;
   reset: () => void;
 }
@@ -56,7 +56,10 @@ export const useMachine = create<MachineStore>((set, get) => ({
     await api.machine.disconnect();
     get().reset();
   },
-  pushLine: (line) => set((s) => ({ lines: [...s.lines.slice(-(MAX_LINES - 1)), line] })),
+  // Stamp the local arrival time front-side so the console can show per-line
+  // timings (e.g. how long an `ok` took).
+  pushLine: (line) =>
+    set((s) => ({ lines: [...s.lines.slice(-(MAX_LINES - 1)), { ...line, ts: Date.now() }] })),
   setStatus: (status) => set({ status }),
   // Keep `lines` so the user still sees why the connection dropped (e.g. the
   // error line pushed just before an unplug). Connection state + DRO reset.

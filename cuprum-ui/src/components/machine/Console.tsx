@@ -3,6 +3,13 @@ import { useTranslation } from "react-i18next";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 
+/** Local wall-clock time of a console line as HH:MM:SS.mmm. */
+function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
 export function Console() {
   const { t } = useTranslation("machine");
   const lines = useMachine((s) => s.lines);
@@ -30,6 +37,7 @@ export function Console() {
       <div className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs leading-relaxed">
         {lines.map((l, i) => (
           <div key={i} className={l.dir === "tx" ? "text-primary" : "text-muted-foreground"}>
+            <span className="select-none opacity-40">{fmtTime(l.ts)} </span>
             <span className="select-none opacity-50">{l.dir === "tx" ? "» " : "‹ "}</span>
             {l.text}
           </div>
