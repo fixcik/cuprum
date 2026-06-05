@@ -166,6 +166,22 @@ pub fn drill_run_pause(
         h.ctrl.paused.store(true, Relaxed);
         drop(slot);
         send_rt(&machine, grbl::FEED_HOLD);
+        // Stop the spindle once the feed hold is in effect — 0x9E (Toggle Spindle
+        // Stop) only takes effect in the Hold state. Off-thread so the command
+        // returns promptly; GRBL auto-restores the spindle on cycle-start (resume).
+        if let (Some(writer), Some(activity)) = (machine.writer(), machine.activity()) {
+            std::thread::spawn(move || {
+                let deadline = std::time::Instant::now() + Duration::from_millis(2000);
+                while std::time::Instant::now() < deadline {
+                    if activity.lock().unwrap().hold {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                // Safe to send regardless: outside Hold GRBL ignores the overlay.
+                let _ = writer.lock().unwrap().write_realtime(grbl::command::SPINDLE_STOP_TOGGLE);
+            });
+        }
         let _ = app.emit(
             "drill-run://state",
             StatePayload {

@@ -51,6 +51,7 @@ pub struct PortDto {
 pub(crate) struct Activity {
     pub last: std::time::Instant,
     pub idle: bool,
+    pub hold: bool,
 }
 
 /// Live connection held in Tauri managed state.
@@ -119,6 +120,7 @@ pub fn machine_connect(
     let activity = Arc::new(Mutex::new(Activity {
         last: std::time::Instant::now(),
         idle: false,
+        hold: false,
     }));
 
     // Reader thread: parse lines, push status + raw rx lines.
@@ -150,7 +152,11 @@ pub fn machine_connect(
                     }
                     if let grbl::Line::Status(rep) = &parsed {
                         let s = tracker.resolve(rep);
-                        r_activity.lock().unwrap().idle = matches!(s.state, GrblState::Idle);
+                        {
+                            let mut a = r_activity.lock().unwrap();
+                            a.idle = matches!(s.state, GrblState::Idle);
+                            a.hold = matches!(s.state, GrblState::Hold);
+                        }
                         let _ = r_tel.send(Telemetry::Status {
                             state: state_str(s.state).into(),
                             mpos: s.mpos,
