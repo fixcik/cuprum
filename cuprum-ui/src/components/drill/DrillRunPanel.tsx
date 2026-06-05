@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, WrenchIcon } from "lucide-react";
+import { AlertTriangle, Loader2, WrenchIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import type { DrillStep } from "@/lib/drillGcode";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
@@ -18,7 +18,12 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
 
   const hasHoles = steps.some((s) => s.kind === "hole");
   const canStart = connected && (phase === "idle" || phase === "done" || phase === "error") && hasHoles;
-  const isActive = phase === "running" || phase === "paused" || phase === "awaitingToolChange";
+  const isActive =
+    phase === "running" ||
+    phase === "pausing" ||
+    phase === "paused" ||
+    phase === "stopping" ||
+    phase === "awaitingToolChange";
 
   return (
     <div className="flex flex-col gap-3 border-b border-border p-4 text-sm">
@@ -40,6 +45,22 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
           </Button>
         )}
 
+        {/* Pausing spinner: shown while waiting for the bit to reach safe Z */}
+        {phase === "pausing" && (
+          <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t("run.pausing")}
+          </span>
+        )}
+
+        {/* Stopping spinner: shown while waiting for the current hole to finish */}
+        {phase === "stopping" && (
+          <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t("run.stopping")}
+          </span>
+        )}
+
         {/* Pause: visible while running */}
         {phase === "running" && (
           <Button size="sm" variant="secondary" onClick={pause}>
@@ -54,8 +75,8 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
           </Button>
         )}
 
-        {/* Stop (graceful): finishes current hole and lifts to safe Z */}
-        {isActive && (
+        {/* Stop (graceful): visible while running, paused, or awaiting tool change; hidden during pausing/stopping */}
+        {(phase === "running" || phase === "paused" || phase === "awaitingToolChange") && (
           <Button
             size="sm"
             variant="destructive"
@@ -66,7 +87,7 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
           </Button>
         )}
 
-        {/* Emergency stop: immediate halt, no safe-Z move */}
+        {/* Emergency stop: always visible when active (including pausing/stopping) */}
         {isActive && (
           <Button
             size="sm"
@@ -80,7 +101,7 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
       </div>
 
       {/* Progress counter */}
-      {(phase === "running" || phase === "paused" || phase === "awaitingToolChange" || phase === "done") && (
+      {(phase === "running" || phase === "pausing" || phase === "paused" || phase === "stopping" || phase === "awaitingToolChange" || phase === "done") && (
         <p className="tabular-nums text-[12px] text-muted-foreground">
           {t("run.progress", { done: state.holesCompleted, total: state.holesTotal })}
         </p>

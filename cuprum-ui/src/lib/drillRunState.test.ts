@@ -193,6 +193,80 @@ describe("drillRunReducer", () => {
     expect(next.holesTotal).toBe(10);
   });
 
+  // 6b. pausing/stopping intermediate states
+  it("state{pausing} from running: sets phase=pausing, keeps counters", () => {
+    const running: DrillRunState = {
+      ...initialDrillRunState,
+      phase: "running",
+      holesTotal: 10,
+      holesCompleted: 4,
+      currentHoleIndex: 6,
+    };
+    const next = drillRunReducer(running, { type: "state", phase: "pausing" });
+    expect(next.phase).toBe("pausing");
+    expect(next.holesCompleted).toBe(4);
+    expect(next.holesTotal).toBe(10);
+    expect(next.currentHoleIndex).toBe(6);
+  });
+
+  it("state{paused} from pausing: transitions to paused, keeps counters", () => {
+    const pausing: DrillRunState = {
+      ...initialDrillRunState,
+      phase: "pausing",
+      holesTotal: 10,
+      holesCompleted: 4,
+      currentHoleIndex: 6,
+    };
+    const next = drillRunReducer(pausing, { type: "state", phase: "paused" });
+    expect(next.phase).toBe("paused");
+    expect(next.holesCompleted).toBe(4);
+    expect(next.holesTotal).toBe(10);
+  });
+
+  it("state{running} from pausing: resumes running, clears toolChange", () => {
+    const pausing: DrillRunState = {
+      ...initialDrillRunState,
+      phase: "pausing",
+      holesTotal: 10,
+      holesCompleted: 4,
+      currentHoleIndex: 6,
+      toolChange: null,
+    };
+    const next = drillRunReducer(pausing, { type: "state", phase: "running" });
+    expect(next.phase).toBe("running");
+    expect(next.toolChange).toBeNull();
+    expect(next.holesCompleted).toBe(4);
+  });
+
+  it("state{stopping} from running: sets phase=stopping, keeps counters", () => {
+    const running: DrillRunState = {
+      ...initialDrillRunState,
+      phase: "running",
+      holesTotal: 10,
+      holesCompleted: 5,
+      currentHoleIndex: 7,
+    };
+    const next = drillRunReducer(running, { type: "state", phase: "stopping" });
+    expect(next.phase).toBe("stopping");
+    expect(next.holesCompleted).toBe(5);
+    expect(next.holesTotal).toBe(10);
+    expect(next.currentHoleIndex).toBe(7);
+  });
+
+  it("state{idle} from stopping: transitions to idle, keeps counters", () => {
+    const stopping: DrillRunState = {
+      ...initialDrillRunState,
+      phase: "stopping",
+      holesTotal: 10,
+      holesCompleted: 5,
+      currentHoleIndex: 7,
+    };
+    const next = drillRunReducer(stopping, { type: "state", phase: "idle" });
+    expect(next.phase).toBe("idle");
+    expect(next.holesCompleted).toBe(5);
+    expect(next.holesTotal).toBe(10);
+  });
+
   // 7. reset returns initial state
   it("reset: returns initialDrillRunState regardless of current state", () => {
     const messy: DrillRunState = {

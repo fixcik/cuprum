@@ -41,8 +41,10 @@
   "run": {
     "start": "Start",
     "pause": "Pause",
+    "pausing": "Pausing…",
     "resume": "Resume",
     "stop": "Stop",
+    "stopping": "Stopping…",
     "stopTitle": "Graceful stop — finishes the current hole and lifts to safe height",
     "estop": "Emergency stop",
     "estopTitle": "Immediate halt — machine stops without a safe-Z move",
