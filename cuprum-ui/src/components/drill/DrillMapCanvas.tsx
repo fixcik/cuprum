@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
+import type { DrillClass } from "@/lib/api";
 import { MachineMarker } from "./MachineMarker";
 import { workPosToPanel } from "@/lib/machineMarker";
 import { type DatumCorner, datumCornerPanelPoint } from "@/lib/datum";
@@ -60,13 +61,16 @@ export interface DrillMapCanvasProps {
   machineWork?: { x: number; y: number } | null;
   /** Which panel corner is machine (0,0). Defaults to "bottom-left". */
   datum?: DatumCorner;
+  /** Set of drill classes selected for this run. Holes whose class is NOT in this
+   *  set are drawn as a dim base layer so the operator can see what is excluded. */
+  selectedClasses?: Set<DrillClass>;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
  *  path, tool-change markers at each group's first hole, and a machine-origin
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left). */
-export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, progress, machineWork, datum = "bottom-left" }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
 
@@ -147,6 +151,28 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, p
                 listening={false}
               />
             )}
+
+            {/* Dim base layer: holes excluded from the current selection.
+                Coordinates and radius use the same mm-direct mapping as the route-hole
+                layer below (within this scaled Group: x=xMm, y=yMm, radius=diameterMm/2). */}
+            {selectedClasses &&
+              plan.groups
+                .filter((g) => !selectedClasses.has(g.class))
+                .flatMap((g, gi) =>
+                  g.holes.map((h, hi) => (
+                    <Circle
+                      key={`dim-${gi}-${hi}`}
+                      x={h.xMm}
+                      y={h.yMm}
+                      radius={Math.max(g.diameterMm / 2, 0.1)}
+                      stroke="#334155"
+                      strokeWidth={HOLE_STROKE_PX}
+                      strokeScaleEnabled={false}
+                      opacity={0.25}
+                      listening={false}
+                    />
+                  )),
+                )}
 
             {/* Holes per group with distinct colour; first hole of each group gets a
                 tool-change ring marker. A running global index gIdx tracks position
