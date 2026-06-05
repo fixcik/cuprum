@@ -37,6 +37,8 @@ pub struct DrillStepDto {
 #[derive(Default)]
 struct Control {
     abort: AtomicBool,
+    /// Graceful stop: runner breaks at the next step boundary (safe Z).
+    stopping: AtomicBool,
     paused: AtomicBool,
     confirm_tool_change: AtomicBool,
     finished: AtomicBool,
@@ -158,44 +160,18 @@ pub fn drill_run_start(
 #[tauri::command]
 pub fn drill_run_pause(
     app: AppHandle,
-    machine: State<MachineState>,
     job: State<DrillJob>,
 ) -> Result<(), String> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
-        // Idempotent: a second pause while already paused must NOT spawn a second
-        // 0x9E toggle (two toggles cancel out, leaving the spindle running in Hold).
+        // Idempotent: if already paused, do nothing.
         if h.ctrl.paused.load(Relaxed) {
             return Ok(());
         }
         h.ctrl.paused.store(true, Relaxed);
         drop(slot);
-        send_rt(&machine, grbl::FEED_HOLD);
-        // Stop the spindle once the feed hold is in effect — 0x9E (Toggle Spindle
-        // Stop) only takes effect in the Hold state. Off-thread so the command
-        // returns promptly; GRBL auto-restores the spindle on cycle-start (resume).
-        if let (Some(writer), Some(activity)) = (machine.writer(), machine.activity()) {
-            std::thread::spawn(move || {
-                let deadline = std::time::Instant::now() + Duration::from_millis(2000);
-                let mut reached_hold = false;
-                while std::time::Instant::now() < deadline {
-                    if activity.lock().unwrap().hold {
-                        reached_hold = true;
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                // Only toggle if we actually observed Hold — avoids relying on GRBL
-                // ignoring the overlay outside Hold, and avoids a stray toggle if the
-                // user already resumed.
-                if reached_hold {
-                    let _ = writer
-                        .lock()
-                        .unwrap()
-                        .write_realtime(grbl::SPINDLE_STOP_TOGGLE);
-                }
-            });
-        }
+        // The runner detects this flag at the next step boundary (safe Z),
+        // stops the spindle, and waits — no feed-hold needed here.
         let _ = app.emit(
             "drill-run://state",
             StatePayload {
@@ -209,10 +185,8 @@ pub fn drill_run_pause(
 #[tauri::command]
 pub fn drill_run_resume(
     app: AppHandle,
-    machine: State<MachineState>,
     job: State<DrillJob>,
 ) -> Result<(), String> {
-    send_rt(&machine, grbl::CYCLE_START);
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         h.ctrl.paused.store(false, Relaxed);
@@ -236,12 +210,27 @@ pub fn drill_run_confirm_tool_change(job: State<DrillJob>) -> Result<(), String>
     Ok(())
 }
 
+/// Graceful stop: the runner finishes the current hole (bit returns to safe Z)
+/// then stops cleanly — no ALARM, re-runnable.
 #[tauri::command]
-pub fn drill_run_stop(machine: State<MachineState>, job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_stop(job: State<DrillJob>) -> Result<(), String> {
+    let slot = job.0.lock().unwrap();
+    if let Some(h) = slot.as_ref() {
+        h.ctrl.stopping.store(true, Relaxed);
+        // Do NOT send soft-reset — the machine continues until the step boundary.
+    }
+    Ok(())
+}
+
+/// Emergency stop: immediate feed-hold + soft-reset. ALARM is expected and
+/// acceptable; use only when the graceful stop is insufficient.
+#[tauri::command]
+pub fn drill_run_estop(machine: State<MachineState>, job: State<DrillJob>) -> Result<(), String> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         h.ctrl.abort.store(true, Relaxed);
         drop(slot);
+        send_rt(&machine, grbl::FEED_HOLD);
         send_rt(&machine, grbl::SOFT_RESET);
     }
     Ok(())
@@ -281,22 +270,58 @@ fn run_job(
         );
     };
 
+    // Wait until GRBL reports Idle (bit physically at safe Z after a retract).
+    // Times out after 30 s to avoid hanging indefinitely on a lost connection.
+    let wait_idle = |ctrl: &Control, activity: &Arc<Mutex<Activity>>| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            if ctrl.abort.load(Relaxed) || activity.lock().unwrap().idle {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+
     emit_state("running");
 
     let mut holes_completed: u32 = 0;
     let mut aborted_msg: Option<String> = None;
+    // Last M3 command sent — used to restart the spindle after a pause.
+    let mut last_spindle_on: Option<String> = None;
 
     'outer: for (step_index, step) in steps.iter().enumerate() {
         if ctrl.abort.load(Relaxed) {
             break;
         }
 
-        // Pause gate (between steps).
-        while ctrl.paused.load(Relaxed) && !ctrl.abort.load(Relaxed) {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        if ctrl.abort.load(Relaxed) {
+        // Graceful-stop gate: previous step ended at safe Z — clean exit.
+        if ctrl.stopping.load(Relaxed) {
             break;
+        }
+
+        // Pause gate (between steps): bit is at safe Z, spindle can be stopped.
+        if ctrl.paused.load(Relaxed) {
+            // Stop the spindle if it was running, then wait for the bit to
+            // physically reach safe Z before blocking.
+            if last_spindle_on.is_some() {
+                let _ = writer.lock().unwrap().write_line("M5");
+            }
+            wait_idle(&ctrl, &activity);
+            emit_state("paused");
+            while ctrl.paused.load(Relaxed)
+                && !ctrl.abort.load(Relaxed)
+                && !ctrl.stopping.load(Relaxed)
+            {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
+                break;
+            }
+            // Resume: spin the spindle back up before motion resumes.
+            if let Some(s) = &last_spindle_on {
+                let _ = writer.lock().unwrap().write_line(s);
+            }
+            emit_state("running");
         }
 
         // Stream the step's lines FIRST (waiting for ok per line). For a
@@ -306,6 +331,10 @@ fn run_job(
         for line in &step.lines {
             if ctrl.abort.load(Relaxed) {
                 break 'outer;
+            }
+            // Track the last spindle-on command for pause/resume re-engagement.
+            if line.trim_start().starts_with("M3") {
+                last_spindle_on = Some(line.clone());
             }
             if let Err(e) = writer.lock().unwrap().write_line(line) {
                 aborted_msg = Some(format!("write failed: {e}"));
@@ -372,10 +401,13 @@ fn run_job(
                 },
             );
             emit_state("awaitingToolChange");
-            while !ctrl.confirm_tool_change.load(Relaxed) && !ctrl.abort.load(Relaxed) {
+            while !ctrl.confirm_tool_change.load(Relaxed)
+                && !ctrl.abort.load(Relaxed)
+                && !ctrl.stopping.load(Relaxed)
+            {
                 std::thread::sleep(Duration::from_millis(50));
             }
-            if ctrl.abort.load(Relaxed) {
+            if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
                 break;
             }
             emit_state("running");
@@ -404,8 +436,13 @@ fn run_job(
         let _ = app.emit("drill-run://error", ErrorPayload { message: msg });
         emit_state("error");
     } else if ctrl.abort.load(Relaxed) {
+        // Emergency stop: machine may be in ALARM — just stop the spindle best-effort.
         let _ = writer.lock().unwrap().write_line("M5");
-        emit_state("idle"); // stopped by user
+        emit_state("idle");
+    } else if ctrl.stopping.load(Relaxed) {
+        // Graceful stop: bit is at safe Z, no ALARM, machine is re-runnable.
+        let _ = writer.lock().unwrap().write_line("M5");
+        emit_state("idle");
     } else {
         let _ = app.emit("drill-run://done", ());
         emit_state("done");

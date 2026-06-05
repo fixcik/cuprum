@@ -207,7 +207,8 @@ fn main() {
             commands::drill_run::drill_run_pause,
             commands::drill_run::drill_run_resume,
             commands::drill_run::drill_run_confirm_tool_change,
-            commands::drill_run::drill_run_stop
+            commands::drill_run::drill_run_stop,
+            commands::drill_run::drill_run_estop
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");
