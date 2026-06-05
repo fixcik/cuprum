@@ -5,6 +5,7 @@ import { type PanelPreset } from "@/lib/panel";
 import { type NestSettings, DEFAULT_NEST } from "@/lib/nest";
 import { type CncProfile, DEFAULT_CNC_PROFILE } from "@/lib/cncProfile";
 import { type Tool, DEFAULT_TOOLS, newDrillTool } from "@/lib/toolLibrary";
+import { type DatumCorner } from "@/lib/datum";
 
 /** Seed the tool library from a persisted state: existing tools win; else migrate
  *  the legacy `profile.drillBitSetMm` into Drill tools; else defaults. Exported for tests. */
@@ -65,6 +66,10 @@ interface SettingsStore {
   addTool: () => void;
   updateTool: (id: string, patch: Partial<Tool>) => void;
   removeTool: (id: string) => void;
+  /** The panel corner used as the machine work-zero (0,0) in the drill window.
+   *  Drill-window-owned: read and written by the drill window's store instance. */
+  drillDatumCorner: DatumCorner;
+  setDrillDatumCorner: (d: DatumCorner) => void;
 }
 
 export const useSettings = create<SettingsStore>()(
@@ -96,6 +101,8 @@ export const useSettings = create<SettingsStore>()(
       updateTool: (id, patch) =>
         set((s) => ({ tools: s.tools.map((t) => (t.id === id ? { ...t, ...patch } : t)) })),
       removeTool: (id) => set((s) => ({ tools: s.tools.filter((t) => t.id !== id) })),
+      drillDatumCorner: "bottom-left" as DatumCorner,
+      setDrillDatumCorner: (d) => set({ drillDatumCorner: d }),
     }),
     {
       name: "cuprum-settings",
@@ -117,6 +124,7 @@ export const useSettings = create<SettingsStore>()(
           panelInspector: { width: 330, collapsed: false, sizeOpen: true, stackupOpen: true, feasibilityOpen: true, ...(p?.panelInspector ?? {}) },
           cncProfile: { ...DEFAULT_CNC_PROFILE, ...(p?.cncProfile ?? {}) },
           tools,
+          drillDatumCorner: p?.drillDatumCorner ?? "bottom-left",
         };
       },
     },

@@ -186,3 +186,89 @@ describe("emitDrillGcode keepOutZones", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Datum corner: coordinate sign and byte-identical default invariant
+// ---------------------------------------------------------------------------
+
+describe("emitDrillGcode datum corner", () => {
+  const panelW = 100;
+  const panelH = 50;
+  // Interior hole: panel (30, 20)
+  const holeInterior = { xMm: 30, yMm: 20 };
+  // Second hole to check left/right ordering: panel (70, 20)
+  const holeRight = { xMm: 70, yMm: 20 };
+
+  const tl = (id: string, d: number): Tool => ({
+    id, name: `Drill ${d}`, kind: "drill", diameterMm: d, material: "carbide",
+    recommendedRpm: 9000, recommendedFeedMmMin: 100, recommendedPlungeMmMin: 60,
+  });
+  const pp = (): CncProfile => ({
+    name: "t", port: null, baud: 115200, jogFeedMmMin: 500, jogStepsMm: [1],
+    workEnvelopeMm: { x: 300, y: 180, z: 45 }, spindleMaxRpm: 9000,
+    spindleControllable: true, spindleHasPwm: true, gcodeDialect: "grbl_1_1",
+    safeZMm: 5, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+    prependGcode: "", appendGcode: "", workZeroMm: null,
+  });
+  const tp = (holes: { xMm: number; yMm: number }[]): PanelDrillPlan => ({
+    groups: [{ diameterMm: 0.8, class: "pth", toolId: "t1", holes }],
+    totalHoles: holes.length,
+    unmatchedDiametersMm: [],
+    skippedInKeepout: 0,
+    registrationInKeepout: 0,
+  });
+
+  const baseCtx = {
+    panelHeightMm: panelH,
+    panelWidthMm: panelW,
+    profile: pp(),
+    tools: [tl("t1", 0.8)],
+    substrateThicknessMm: 1.6,
+  };
+
+  it("default (no datum) output is byte-identical to explicit bottom-left", () => {
+    const noD  = emitDrillGcode(tp([holeInterior]), { ...baseCtx });
+    const botL = emitDrillGcode(tp([holeInterior]), { ...baseCtx, datumCorner: "bottom-left" });
+    expect(noD.gcode).toBe(botL.gcode);
+  });
+
+  it("default bottom-left matches explicit bottom-left with panelWidthMm=0 (legacy no-width call)", () => {
+    // When panelWidthMm is omitted entirely (legacy callers), bottom-left is unaffected.
+    const legacy  = emitDrillGcode(tp([holeInterior]), { panelHeightMm: panelH, profile: pp(), tools: [tl("t1", 0.8)], substrateThicknessMm: 1.6 });
+    const explicit = emitDrillGcode(tp([holeInterior]), { ...baseCtx, datumCorner: "bottom-left" });
+    expect(legacy.gcode).toBe(explicit.gcode);
+  });
+
+  it("top-left: interior hole has negative machine Y and X unchanged", () => {
+    const { gcode } = emitDrillGcode(tp([holeInterior]), { ...baseCtx, datumCorner: "top-left" });
+    // machineX = 30 - 0 = 30, machineY = 0 - 20 = -20
+    expect(gcode).toContain("G0 X30.000 Y-20.000");
+  });
+
+  it("bottom-right: interior hole has negative machine X and Y unchanged relative to H", () => {
+    const { gcode } = emitDrillGcode(tp([holeInterior]), { ...baseCtx, datumCorner: "bottom-right" });
+    // machineX = 30 - 100 = -70, machineY = 50 - 20 = 30
+    expect(gcode).toContain("G0 X-70.000 Y30.000");
+  });
+
+  it("top-right: interior hole has negative X and negative Y", () => {
+    const { gcode } = emitDrillGcode(tp([holeInterior]), { ...baseCtx, datumCorner: "top-right" });
+    // machineX = 30 - 100 = -70, machineY = 0 - 20 = -20
+    expect(gcode).toContain("G0 X-70.000 Y-20.000");
+  });
+
+  it("no mirroring: machineX(panelX=30) < machineX(panelX=70) for all datums (X never flips)", () => {
+    // machineX = x - (right ? W : 0), which is a pure translation in X.
+    // holeInterior at panel x=30 → machineX = 30 or 30-100 = -70
+    // holeRight    at panel x=70 → machineX = 70 or 70-100 = -30
+    // In both cases machineX(30) < machineX(70) regardless of datum.
+    const datums = ["bottom-left", "bottom-right", "top-left", "top-right"] as const;
+    for (const d of datums) {
+      const { gcode: gcLeft }  = emitDrillGcode(tp([holeInterior]), { ...baseCtx, datumCorner: d });
+      const { gcode: gcRight } = emitDrillGcode(tp([holeRight]),    { ...baseCtx, datumCorner: d });
+      const xLeft  = parseFloat(gcLeft.split("\n").find((l) => /^G0 X/.test(l.trim()))!.match(/X([\d.-]+)/)![1]);
+      const xRight = parseFloat(gcRight.split("\n").find((l) => /^G0 X/.test(l.trim()))!.match(/X([\d.-]+)/)![1]);
+      expect(xLeft).toBeLessThan(xRight);
+    }
+  });
+});

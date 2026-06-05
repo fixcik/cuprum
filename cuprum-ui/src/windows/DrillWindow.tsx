@@ -12,6 +12,9 @@ import { DrillSummary } from "@/components/drill/DrillSummary";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { shouldShowMarker } from "@/lib/machineMarker";
+import { useSettings } from "@/settingsStore";
+import { DATUM_CORNERS } from "@/lib/datum";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 
 /** Root of the separate drill-preview window (label "drill").
  *  Subscribes to project snapshots from the main window, builds the drill plan,
@@ -38,6 +41,10 @@ export function DrillWindow() {
   const substrateThicknessMm =
     snap?.manifest?.stackup?.substrate_thickness_mm ?? DEFAULT_FR4_THICKNESS_MM;
 
+  // Datum corner: drill-window-owned setting.
+  const drillDatumCorner = useSettings((s) => s.drillDatumCorner);
+  const setDrillDatumCorner = useSettings((s) => s.setDrillDatumCorner);
+
   // Build keep-out zones from the panel manifest (panel-space coords).
   const zones = useMemo(
     () =>
@@ -55,12 +62,14 @@ export function DrillWindow() {
     if (!plan || !panel || !cncProfile) return null;
     return emitDrillProgram(plan, {
       panelHeightMm: panel.height_mm,
+      panelWidthMm: panel.width_mm,
+      datumCorner: drillDatumCorner,
       profile: cncProfile,
       tools,
       substrateThicknessMm,
       keepOutZones: zones,
     });
-  }, [plan, panel, cncProfile, tools, substrateThicknessMm, zones]);
+  }, [plan, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner]);
 
   // Live-run hook.
   const run = useDrillRun();
@@ -91,6 +100,16 @@ export function DrillWindow() {
         </div>
       )}
 
+      {/* Datum-corner selector bar */}
+      <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
+        <span className="text-[11px] text-slate-500">{t("datum.label")}</span>
+        <SegmentedControl
+          options={DATUM_CORNERS.map((c) => ({ value: c, label: t(`datum.${c}`) }))}
+          value={drillDatumCorner}
+          onChange={setDrillDatumCorner}
+        />
+      </div>
+
       {/* Main layout: canvas hero + summary sidebar */}
       <div className="flex flex-1 overflow-hidden">
         {/* Drill map (takes all remaining space) */}
@@ -102,6 +121,7 @@ export function DrillWindow() {
               plan={plan}
               route={route}
               zones={zones}
+              datum={drillDatumCorner}
               progress={{
                 holesCompleted: run.state.holesCompleted,
                 currentHoleIndex: run.state.currentHoleIndex,

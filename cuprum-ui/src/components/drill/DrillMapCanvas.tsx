@@ -4,6 +4,7 @@ import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import { MachineMarker } from "./MachineMarker";
 import { workPosToPanel } from "@/lib/machineMarker";
+import { type DatumCorner, datumCornerPanelPoint } from "@/lib/datum";
 
 /** Palette of distinct colours for drill groups, cycling when there are more groups than colours. */
 const GROUP_PALETTE = [
@@ -57,14 +58,15 @@ export interface DrillMapCanvasProps {
   progress?: { holesCompleted: number; currentHoleIndex: number | null };
   /** Live machine WORK position (mm), or null to hide the marker. */
   machineWork?: { x: number; y: number } | null;
+  /** Which panel corner is machine (0,0). Defaults to "bottom-left". */
+  datum?: DatumCorner;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
  *  path, tool-change markers at each group's first hole, and a machine-origin
- *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank), but
- *  the marked work zero (0,0) is the panel's bottom-left corner with Y up — the
- *  CNC convention the G-code uses. */
-export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, progress, machineWork }: DrillMapCanvasProps) {
+ *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
+ *  work-zero marker is placed at the chosen datum corner (default: bottom-left). */
+export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, progress, machineWork, datum = "bottom-left" }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
 
@@ -217,12 +219,13 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, p
           </Group>
 
           {/* Machine-origin indicator (screen-space so labels don't scale).
-              Work zero (0,0) is the panel's BOTTOM-LEFT corner, X→ right, Y↑ up —
-              the CNC convention the G-code emitter uses (machineY = panelHeight − y).
-              This differs from the panel editor (0,0 = top-left), so we mark it. */}
+              The marker is positioned at the chosen datum corner in panel space.
+              Machine axes are fixed (X→ right, Y↑ up) regardless of which corner
+              is the origin — only the translation differs. */}
           {(() => {
-            const ox = offsetX; // panel left edge (data x=0)
-            const oy = offsetY + H * fit; // panel bottom edge (data y=H)
+            const { xMm: dxMm, yMm: dyMm } = datumCornerPanelPoint(datum, W, H);
+            const ox = offsetX + dxMm * fit;
+            const oy = offsetY + dyMm * fit;
             return (
               <Group listening={false}>
                 <Arrow
@@ -251,7 +254,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan: _plan, route, zones, p
 
           {/* Live machine-position marker (screen-space, constant size). */}
           {machineWork && (() => {
-            const p = workPosToPanel(machineWork.x, machineWork.y, H);
+            const p = workPosToPanel(machineWork.x, machineWork.y, H, datum, W);
             return (
               <MachineMarker
                 screenX={offsetX + p.xMm * fit}

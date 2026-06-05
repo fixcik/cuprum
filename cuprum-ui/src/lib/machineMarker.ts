@@ -1,15 +1,24 @@
 import type { DrillRunPhase } from "@/lib/drillRunState";
+import type { DatumCorner } from "@/lib/datum";
 
-/** Convert a machine WORK position (origin = panel bottom-left, Y up — the CNC
- *  convention the drill G-code uses) into panel-space mm (origin = top-left, Y
- *  down — the frame holes and the #232 axes are drawn in). X passes through; Y is
- *  flipped about the panel height. */
+/** Convert a machine WORK position into panel-space mm (origin = top-left, Y down
+ *  — the frame holes and axes are drawn in). Exact inverse of `machinePoint` for
+ *  the active datum: machineX = x − (right?W:0), machineY = (bottom?H:0) − y, so
+ *  x = machineX + (right?W:0), y = (bottom?H:0) − machineY. Default datum
+ *  (bottom-left) → (x, H − machineY). */
 export function workPosToPanel(
   workXMm: number,
   workYMm: number,
   panelHeightMm: number,
+  datum: DatumCorner = "bottom-left",
+  panelWidthMm = 0,
 ): { xMm: number; yMm: number } {
-  return { xMm: workXMm, yMm: panelHeightMm - workYMm };
+  const right = datum === "bottom-right" || datum === "top-right";
+  const bottom = datum === "bottom-left" || datum === "bottom-right";
+  return {
+    xMm: workXMm + (right ? panelWidthMm : 0),
+    yMm: (bottom ? panelHeightMm : 0) - workYMm,
+  };
 }
 
 /** Run phases during which the live marker is shown (machine may be Idle while
