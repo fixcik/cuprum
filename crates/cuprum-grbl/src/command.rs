@@ -7,6 +7,9 @@ pub const CYCLE_START: u8 = b'~';
 pub const SOFT_RESET: u8 = 0x18;
 /// Jog cancel (reserved for continuous jog — not used in Phase 1).
 pub const JOG_CANCEL: u8 = 0x85;
+/// Toggle Spindle Stop (real-time). Valid only in the Hold state: stops the
+/// spindle while paused and is auto-restored on cycle-start (`~`).
+pub const SPINDLE_STOP_TOGGLE: u8 = 0x9E;
 
 /// Relative jog: `$J=G91 X.. Y.. Z.. F..`. Axes with a zero delta are omitted.
 pub fn jog(dx: f32, dy: f32, dz: f32, feed: f32) -> String {
@@ -88,5 +91,6 @@ mod tests {
         assert_eq!(CYCLE_START, b'~');
         assert_eq!(SOFT_RESET, 0x18);
         assert_eq!(JOG_CANCEL, 0x85);
+        assert_eq!(SPINDLE_STOP_TOGGLE, 0x9E);
     }
 }
