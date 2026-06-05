@@ -7,7 +7,6 @@ import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram } from "@/lib/drillGcode";
-import { useSettings } from "@/settingsStore";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillSummary } from "@/components/drill/DrillSummary";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
@@ -32,9 +31,10 @@ export function DrillWindow() {
   const hasProject = !!(snap?.workingDir && snap.manifest);
   const hasHoles = !!(plan && plan.totalHoles > 0 && route);
 
-  // Settings for G-code context.
-  const cncProfile = useSettings((s) => s.cncProfile);
-  const tools = useSettings((s) => s.tools);
+  // Shop settings for the G-code context come from the snapshot (pushed live by
+  // the main window), so profile/tool edits apply without restarting this window.
+  const cncProfile = snap?.cncProfile ?? null;
+  const tools = snap?.tools ?? [];
   const substrateThicknessMm =
     snap?.manifest?.stackup?.substrate_thickness_mm ?? DEFAULT_FR4_THICKNESS_MM;
 
@@ -52,7 +52,7 @@ export function DrillWindow() {
 
   // Build the drill program (G-code + steps) from the plan whenever inputs change.
   const program = useMemo(() => {
-    if (!plan || !panel) return null;
+    if (!plan || !panel || !cncProfile) return null;
     return emitDrillProgram(plan, {
       panelHeightMm: panel.height_mm,
       profile: cncProfile,

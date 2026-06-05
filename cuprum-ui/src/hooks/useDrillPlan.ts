@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type DrillSnapshot } from "@/lib/api";
-import { useSettings } from "@/settingsStore";
 import { collectDesignHoles, buildPanelDrillPlan, type LocalHole } from "@/lib/panelDrill";
 import { planDrillRoute, type DrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
@@ -16,10 +15,6 @@ export interface DrillPlanResult {
  *  into the plan and route. Returns loading=true while async work is in flight.
  *  Guards against stale async results via cancel flag. */
 export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
-  const tools = useSettings((s) => s.tools);
-  const viaMaxDiameterMm = useSettings((s) => s.profile.viaMaxDiameterMm);
-  const drillBitToleranceMm = useSettings((s) => s.profile.drillBitToleranceMm);
-
   const [result, setResult] = useState<DrillPlanResult>({ plan: null, route: null, loading: false });
 
   // Per-design holes cache: avoids re-fetching the same design across snapshots.
@@ -36,7 +31,8 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
       return;
     }
 
-    const { workingDir, manifest, placedSizes } = snapshot;
+    const { workingDir, manifest, placedSizes, tools, viaMaxDiameterMm, drillBitToleranceMm } =
+      snapshot;
     const panel = manifest.panel!;
     let cancelled = false;
 
@@ -139,9 +135,10 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
     return () => {
       cancelled = true;
     };
-  // Re-run when the snapshot identity changes or the tool/profile settings change.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot, tools, viaMaxDiameterMm, drillBitToleranceMm]);
+  // Re-run when the snapshot identity changes. The snapshot now carries tools /
+  // DFM thresholds (pushed live from the main window), so a fresh snapshot on a
+  // settings edit re-runs the plan without a window restart.
+  }, [snapshot]);
 
   return result;
 }
