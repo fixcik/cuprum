@@ -179,7 +179,7 @@ pub fn drill_run_pause(
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 // Safe to send regardless: outside Hold GRBL ignores the overlay.
-                let _ = writer.lock().unwrap().write_realtime(grbl::command::SPINDLE_STOP_TOGGLE);
+                let _ = writer.lock().unwrap().write_realtime(grbl::SPINDLE_STOP_TOGGLE);
             });
         }
         let _ = app.emit(
