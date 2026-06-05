@@ -159,7 +159,6 @@ export interface Stackup {
 export const DEFAULT_FR4_THICKNESS_MM = 1.6;
 
 export type ToolingHoleRole = "registration" | "flip" | "unused";
-export type KeepOutKind = "fixture" | "dead" | "reserved";
 
 export interface KeepOutZone {
   id: string;
@@ -167,7 +166,6 @@ export interface KeepOutZone {
   y_mm: number;
   width_mm: number;
   height_mm: number;
-  kind: KeepOutKind;
 }
 
 export interface BoardInstance {

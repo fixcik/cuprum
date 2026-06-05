@@ -1,5 +1,5 @@
 import type { NestSettings } from "@/lib/nest";
-import type { BoardInstance, KeepOutKind, KeepOutZone, ToolingHole, ToolingHoleRole } from "@/lib/api";
+import type { BoardInstance, KeepOutZone, ToolingHole, ToolingHoleRole } from "@/lib/api";
 
 /** Axis-aligned bounding box (mm). */
 export type Box = { minX: number; minY: number; maxX: number; maxY: number };
@@ -549,21 +549,13 @@ export function panelObstacles(
   const holes = panel.tooling_holes.map((h) =>
     toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm }),
   );
-  // Every keep-out kind forbids boards (zoneForbidsBoard === true), so all zones are
-  // obstacles for the board packer. The tooling-only "dead" rule is a DFM concern,
-  // not a packer one (there is no tooling auto-nester).
+  // All keep-out zones are obstacles for the board packer.
   const zones = (panel.keep_out_zones ?? []).map(keepOutBox);
   const clamps = clampZonesForHoles(panel.tooling_holes, opts?.clampRadiusMm ?? 0).map((c) => c.box);
   return [...boards, ...holes, ...zones, ...clamps];
 }
 
 // --- Keep-out zone helpers ---
-
-/** True when the zone prohibits board placement. All zone kinds block boards. */
-export const zoneForbidsBoard = (_kind: KeepOutKind): boolean => true;
-
-/** True when the zone prohibits tooling holes. Only "dead" zones block tooling. */
-export const zoneForbidsTooling = (kind: KeepOutKind): boolean => kind === "dead";
 
 /** AABB of a keep-out zone (panel mm). */
 export const keepOutBox = (z: Pick<KeepOutZone, "x_mm" | "y_mm" | "width_mm" | "height_mm">): Box => ({

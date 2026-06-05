@@ -29,22 +29,11 @@ pub struct BoardInstance {
     pub rotation_deg: f32,
 }
 
-/// Classification of a keep-out rectangle on the panel.
-///
-/// `fixture` (default) — a clamp or fixture: boards must not enter, but tooling
-/// holes may. `dead` — a machine dead zone: nothing (boards or tooling) may
-/// enter. `reserved` — a fiducial or service area: boards must not enter, but
-/// tooling holes may.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum KeepOutKind {
-    #[default]
-    Fixture,
-    Dead,
-    Reserved,
-}
-
 /// An axis-aligned rectangular keep-out zone in panel space.
+///
+/// Uniform forbidden rectangle: boards AND any tooling holes must not enter;
+/// the machine routes around it during drilling. Legacy documents may carry a
+/// `"kind"` field — it is silently ignored on load (no `deny_unknown_fields`).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct KeepOutZone {
     /// Stable id within the panel, e.g. "koz-1".
@@ -57,8 +46,6 @@ pub struct KeepOutZone {
     pub width_mm: f64,
     /// Height in mm (always positive).
     pub height_mm: f64,
-    #[serde(default)]
-    pub kind: KeepOutKind,
 }
 
 /// A mechanical pin hole in the panel. Depth is always the full FR4 thickness
@@ -216,23 +203,6 @@ mod tests {
     }
 
     #[test]
-    fn keep_out_kind_serializes_lowercase() {
-        assert_eq!(
-            serde_json::to_string(&KeepOutKind::Fixture).unwrap(),
-            "\"fixture\""
-        );
-        assert_eq!(
-            serde_json::to_string(&KeepOutKind::Dead).unwrap(),
-            "\"dead\""
-        );
-        assert_eq!(
-            serde_json::to_string(&KeepOutKind::Reserved).unwrap(),
-            "\"reserved\""
-        );
-        assert_eq!(KeepOutKind::default(), KeepOutKind::Fixture);
-    }
-
-    #[test]
     fn keep_out_zone_round_trips() {
         let z = KeepOutZone {
             id: "koz-1".into(),
@@ -240,17 +210,29 @@ mod tests {
             y_mm: 5.0,
             width_mm: 20.0,
             height_mm: 15.0,
-            kind: KeepOutKind::Dead,
         };
         let json = serde_json::to_string(&z).unwrap();
         assert_eq!(serde_json::from_str::<KeepOutZone>(&json).unwrap(), z);
     }
 
     #[test]
-    fn keep_out_zone_kind_defaults_to_fixture() {
-        let json = r#"{"id":"koz-1","x_mm":0.0,"y_mm":0.0,"width_mm":10.0,"height_mm":5.0}"#;
+    fn keep_out_zone_legacy_kind_field_ignored() {
+        // Legacy documents carry a "kind" field ("fixture"/"dead"/"reserved").
+        // It must be silently ignored on load (struct has no deny_unknown_fields).
+        let json = r#"{"id":"koz-2","x_mm":5.0,"y_mm":3.0,"width_mm":12.0,"height_mm":8.0,"kind":"fixture"}"#;
         let z: KeepOutZone = serde_json::from_str(json).unwrap();
-        assert_eq!(z.kind, KeepOutKind::Fixture);
+        assert_eq!(z.id, "koz-2");
+        assert_eq!(z.x_mm, 5.0);
+        assert_eq!(z.width_mm, 12.0);
+
+        let json_dead =
+            r#"{"id":"koz-3","x_mm":1.0,"y_mm":2.0,"width_mm":3.0,"height_mm":4.0,"kind":"dead"}"#;
+        let z2: KeepOutZone = serde_json::from_str(json_dead).unwrap();
+        assert_eq!(z2.id, "koz-3");
+
+        let json_reserved = r#"{"id":"koz-4","x_mm":2.0,"y_mm":3.0,"width_mm":5.0,"height_mm":6.0,"kind":"reserved"}"#;
+        let z3: KeepOutZone = serde_json::from_str(json_reserved).unwrap();
+        assert_eq!(z3.id, "koz-4");
     }
 
     #[test]

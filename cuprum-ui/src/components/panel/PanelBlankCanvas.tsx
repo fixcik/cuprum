@@ -96,7 +96,6 @@ export function PanelBlankCanvas({
   const addKeepOutZone = useShell((s) => s.addKeepOutZone);
   const moveKeepOutZones = useShell((s) => s.moveKeepOutZones);
   const removeKeepOutZones = useShell((s) => s.removeKeepOutZones);
-  const setKeepOutKind = useShell((s) => s.setKeepOutKind);
   const resizeKeepOutZone = useShell((s) => s.resizeKeepOutZone);
   const selected = usePanelSelection((s) => s.selected);
   const setSelection = usePanelSelection((s) => s.set);
@@ -178,20 +177,17 @@ export function PanelBlankCanvas({
 
   // Live keep-out resize preview → drives real-time DFM tinting of boards/holes.
   const keepOutPreviewBox = keepOutResize ? keepOutBox(keepOutResize) : null;
-  const keepOutPreviewKind = keepOutResize
-    ? zones.find((z) => z.id === keepOutResize.id)?.kind
-    : undefined;
 
-  // During a resize of a DEAD zone, holes inside the preview rect tint live.
+  // During a zone resize, holes inside the preview rect tint live (all zones forbid tooling).
   const liveToolingSeverity = useMemo((): Map<string, Severity> => {
-    if (!keepOutPreviewBox || keepOutPreviewKind !== "dead") return byTooling;
+    if (!keepOutPreviewBox) return byTooling;
     const m = new Map(byTooling);
     for (const h of holes) {
       const hb = toolingHoleBounds({ xMm: h.x_mm, yMm: h.y_mm, diameterMm: h.diameter_mm });
       if (boxesOverlap(hb, keepOutPreviewBox)) m.set(h.id, "block");
     }
     return m;
-  }, [keepOutPreviewBox, keepOutPreviewKind, byTooling, holes]);
+  }, [keepOutPreviewBox, byTooling, holes]);
 
   // O(1) design lookup for the instance render loop + labels.
   const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
@@ -868,7 +864,7 @@ export function PanelBlankCanvas({
       const height_mm = Math.round(Math.abs(d.y1 - d.y0));
       // Minimum 1 mm × 1 mm to avoid accidental tiny zones.
       if (width_mm < 1 || height_mm < 1) return;
-      void addKeepOutZone({ x_mm: Math.round(x_mm), y_mm: Math.round(y_mm), width_mm, height_mm, kind: "fixture" });
+      void addKeepOutZone({ x_mm: Math.round(x_mm), y_mm: Math.round(y_mm), width_mm, height_mm });
       return;
     }
     keepOutDrawStart.current = null;
@@ -1317,16 +1313,6 @@ export function PanelBlankCanvas({
         {keepOutSelected.size > 0 ? (
           // Keep-out zone context menu.
           <>
-            <ContextMenuItem onSelect={() => void setKeepOutKind([...keepOutSelected], "fixture")}>
-              {t("panel.keepout.kind.fixture")}
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => void setKeepOutKind([...keepOutSelected], "dead")}>
-              {t("panel.keepout.kind.dead")}
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => void setKeepOutKind([...keepOutSelected], "reserved")}>
-              {t("panel.keepout.kind.reserved")}
-            </ContextMenuItem>
-            <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => { void removeKeepOutZones([...keepOutSelected]); clearKeepOutSelection(); }}>
               {t("panel.keepout.delete")}
             </ContextMenuItem>

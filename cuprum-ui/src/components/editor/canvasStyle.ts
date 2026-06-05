@@ -42,15 +42,11 @@ export const INSTANCE_WARN_STROKE = "#f59e0b";
 export const RULER_TOP = 16;
 export const RULER_LEFT = 20;
 
-// Keep-out zone palette — muted hues distinct from INSTANCE_OFF (red) and
-// INSTANCE_WARN (amber). Chosen so zones read as annotations, not errors.
-// "fixture" → slate-blue; "dead" → violet-indigo; "reserved" → teal.
-export const KEEPOUT_FIXTURE_FILL = "rgba(99,130,190,0.13)";
-export const KEEPOUT_FIXTURE_STROKE = "rgba(99,130,190,0.7)";
-export const KEEPOUT_DEAD_FILL = "rgba(140,100,200,0.13)";
-export const KEEPOUT_DEAD_STROKE = "rgba(140,100,200,0.7)";
-export const KEEPOUT_RESERVED_FILL = "rgba(60,170,160,0.13)";
-export const KEEPOUT_RESERVED_STROKE = "rgba(60,170,160,0.7)";
+// Keep-out zone palette — a single slate-blue hue distinct from INSTANCE_OFF
+// (red) and INSTANCE_WARN (amber), so zones read as annotations, not errors.
+// Zones are one uniform type (no kind), see #248.
+export const KEEPOUT_FILL = "rgba(99,130,190,0.13)";
+export const KEEPOUT_STROKE = "rgba(99,130,190,0.7)";
 export const KEEPOUT_SELECTED_STROKE = COPPER_STROKE;
 
 // Derived clamp keep-out zone palette — muted ochre, distinct from the manual
