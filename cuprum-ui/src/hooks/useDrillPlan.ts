@@ -1,25 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type DrillSnapshot, type DrillClass } from "@/lib/api";
 import { collectDesignHoles, buildPanelDrillPlan, type LocalHole } from "@/lib/panelDrill";
-import { planDrillRoute, type DrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
-import { useSettings } from "@/settingsStore";
-import { datumCornerPanelPoint } from "@/lib/datum";
-
 export interface DrillPlanResult {
   plan: PanelDrillPlan | null;
-  route: DrillRoute | null;
   loading: boolean;
 }
 
-/** Build the real PanelDrillPlan + DrillRoute from a DrillSnapshot.
+/** Build the full PanelDrillPlan from a DrillSnapshot.
  *  Fetches drill holes and origin metrics per design (cached), then combines
- *  into the plan and route. Returns loading=true while async work is in flight.
+ *  into the plan. Route computation is the caller's responsibility (DrillWindow).
+ *  Returns loading=true while async work is in flight.
  *  Guards against stale async results via cancel flag. */
 export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
-  const [result, setResult] = useState<DrillPlanResult>({ plan: null, route: null, loading: false });
-  // Drill-window-owned datum corner: changing it re-runs the route.
-  const datumCorner = useSettings((s) => s.drillDatumCorner);
+  const [result, setResult] = useState<DrillPlanResult>({ plan: null, loading: false });
 
   // Per-design holes cache: avoids re-fetching the same design across snapshots.
   // Keyed by design_id; stored in a ref (not state) so updates don't retrigger the effect.
@@ -31,7 +25,7 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
 
   useEffect(() => {
     if (!snapshot?.workingDir || !snapshot.manifest?.panel) {
-      setResult({ plan: null, route: null, loading: false });
+      setResult({ plan: null, loading: false });
       return;
     }
 
@@ -126,15 +120,12 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
           drillBitToleranceMm,
         }, zones, overrides);
 
-        const start = datumCornerPanelPoint(datumCorner, panel.width_mm, panel.height_mm);
-        const route = planDrillRoute(plan, start, zones);
-
         if (!cancelled) {
-          setResult({ plan, route, loading: false });
+          setResult({ plan, loading: false });
         }
       } catch {
         if (!cancelled) {
-          setResult({ plan: null, route: null, loading: false });
+          setResult({ plan: null, loading: false });
         }
       }
     })();
@@ -142,10 +133,10 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
     return () => {
       cancelled = true;
     };
-  // Re-run when the snapshot identity changes or the datum corner changes.
-  // The snapshot carries tools/DFM thresholds (pushed live from the main window),
-  // so a fresh snapshot on a settings edit re-runs the plan without a window restart.
-  }, [snapshot, datumCorner]);
+  // Re-run when the snapshot identity changes. The snapshot carries tools/DFM
+  // thresholds (pushed live from the main window), so a fresh snapshot on a
+  // settings edit re-runs the plan without a window restart.
+  }, [snapshot]);
 
   return result;
 }
