@@ -121,9 +121,7 @@ fn main() {
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { .. } = event {
                     for (label, w) in window.app_handle().webview_windows() {
-                        if label.starts_with("inspector-")
-                            || label == "add-design"
-                        {
+                        if label.starts_with("inspector-") || label == "add-design" {
                             let _ = w.close();
                         }
                     }
