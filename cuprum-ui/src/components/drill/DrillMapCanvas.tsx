@@ -11,7 +11,8 @@ import { workPosToPanel } from "@/lib/machineMarker";
 import { type DatumCorner, datumCornerPanelPoint } from "@/lib/datum";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
 import { MIN_SCALE, MAX_SCALE, RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
-import { type Viewport } from "@/components/editor/RulersOverlay";
+import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 // Re-export Viewport so callers (Task 2 rulers) can import it from here directly.
 export type { Viewport };
@@ -95,6 +96,29 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
   const [zoomPct, setZoomPct] = useState(100);
   const [spaceDown, setSpaceDown] = useState(false);
   const panMode = spaceDown;
+  const { fmtLen } = useUnitFormat();
+
+  // RAF-coalesced hover position in screen px (for the rulers crosshair/readout).
+  const [hoverPx, setHoverPx] = useState<{ x: number; y: number } | null>(null);
+  const hoverRaf = useRef<number | null>(null);
+  const pendingHover = useRef<{ x: number; y: number } | null>(null);
+  const queueHover = useCallback((p: { x: number; y: number } | null) => {
+    pendingHover.current = p;
+    if (p === null) {
+      if (hoverRaf.current != null) {
+        cancelAnimationFrame(hoverRaf.current);
+        hoverRaf.current = null;
+      }
+      setHoverPx(null);
+      return;
+    }
+    if (hoverRaf.current != null) return;
+    hoverRaf.current = requestAnimationFrame(() => {
+      hoverRaf.current = null;
+      setHoverPx(pendingHover.current);
+    });
+  }, []);
+  useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
 
   // Track container size.
   useLayoutEffect(() => {
@@ -240,6 +264,14 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
     [route.pathPoints],
   );
 
+  // Datum-derived rulers configuration. The anchor is the datum corner in panel
+  // mm (Y-down). axisFlip mirrors tick labels so the panel always reads 0→W and
+  // 0→H from the datum corner toward the opposite edge.
+  const right = datum === "bottom-right" || datum === "top-right";
+  const bottom = datum === "bottom-left" || datum === "bottom-right";
+  const anchorMm = { x: right ? W : 0, y: bottom ? H : 0 };
+  const axisFlip = { x: right, y: bottom };
+
   return (
     <div
       ref={containerRef}
@@ -254,6 +286,11 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
         onWheel={onWheel}
         onDragMove={syncViewport}
         onDragEnd={syncViewport}
+        onMouseMove={() => {
+          const pos = stageRef.current?.getPointerPosition() ?? null;
+          queueHover(pos ? { x: pos.x, y: pos.y } : null);
+        }}
+        onMouseLeave={() => queueHover(null)}
       >
         <Layer>
           {/* The fit-group maps mm → px at scale 1; the Stage carries pan/zoom. */}
@@ -455,6 +492,18 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
           })()}
         </Layer>
       </Stage>
+
+      {/* Edge-pinned rulers SVG overlay — pointer-events-none, sits above the Stage. */}
+      <RulersOverlay
+        viewport={viewport}
+        size={size}
+        fmt={fmtLen}
+        extentMm={{ x: 0, y: 0, w: W, h: H }}
+        anchorMm={anchorMm}
+        axisFlip={axisFlip}
+        extentVariant="muted"
+        hover={hoverPx}
+      />
 
       {/* Bottom-right zoom bar — mirrors PanelBlankCanvas. */}
       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground [&_button]:cursor-pointer">
