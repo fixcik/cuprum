@@ -29,6 +29,7 @@ function AxisRow({
   size,
   movable,
   safeZMm,
+  workZ,
 }: {
   axis: Axis;
   work: number;
@@ -36,6 +37,8 @@ function AxisRow({
   size: "md" | "lg";
   movable: boolean;
   safeZMm: number;
+  /** Current work-Z, so the goto can skip the safe-Z lift when already clear. */
+  workZ: number;
 }) {
   const { t } = useTranslation("machine");
   const label = AXIS_LABEL[axis];
@@ -79,7 +82,7 @@ function AxisRow({
           type="button"
           title={t("dro.gotoAxis", { axis: label })}
           disabled={!movable}
-          onClick={() => gotoWorkZero([axis], safeZMm)}
+          onClick={() => void gotoWorkZero([axis], safeZMm, workZ)}
           className="grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           <LocateFixed className="size-3.5" />
@@ -138,6 +141,7 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
           size={size}
           movable={movable}
           safeZMm={safeZMm}
+          workZ={status.wpos[2]}
         />
       ))}
 
@@ -150,7 +154,11 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
           <Crosshair className="text-primary" />
           {t("dro.zeroAll")}
         </Button>
-        <Button variant="secondary" disabled={!movable} onClick={() => gotoWorkZero(["x", "y"], safeZMm)}>
+        <Button
+          variant="secondary"
+          disabled={!movable}
+          onClick={() => void gotoWorkZero(["x", "y"], safeZMm, status.wpos[2])}
+        >
           <LocateFixed />
           {t("dro.gotoXY")}
         </Button>

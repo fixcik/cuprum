@@ -2,7 +2,8 @@ import { api } from "@/lib/api";
 
 /** Move to the work zero on the given axes. When XY motion is requested, the tool
  *  first rises to the machine safe-Z so the traverse can't drag through stock —
- *  matching the FieldPanel click-to-move behaviour. Single-axis Z goes straight.
+ *  matching the FieldPanel click-to-move behaviour. The lift is skipped when the
+ *  tool is already at or above safe Z (`currentWorkZ`). Single-axis Z goes straight.
  *
  *  Sends are awaited in order so the safe-Z lift is dispatched before the XY
  *  traverse even if the transport were ever reordered; a failed send is logged
@@ -10,14 +11,15 @@ import { api } from "@/lib/api";
 export async function gotoWorkZero(
   axes: ReadonlyArray<"x" | "y" | "z">,
   safeZMm: number,
+  currentWorkZ: number,
 ): Promise<void> {
   const wantX = axes.includes("x");
   const wantY = axes.includes("y");
   const wantZ = axes.includes("z");
 
   try {
-    // Raise to safe Z before any XY traverse.
-    if (wantX || wantY) {
+    // Raise to safe Z before any XY traverse — unless already at/above it.
+    if ((wantX || wantY) && currentWorkZ < safeZMm) {
       await api.machine.send(`G90 G0 Z${safeZMm}`);
     }
     const words: string[] = [];

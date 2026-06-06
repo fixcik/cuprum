@@ -32,6 +32,7 @@ export function JogPad() {
   const setCnc = useSettings((s) => s.setCncProfile);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
+  const workZ = useMachine((s) => s.status.wpos[2]);
   const enabled = canMove(state, connected);
   // Active jog step — transient UI choice (not persisted); default to the middle
   // step if present, else the first.
@@ -119,7 +120,7 @@ export function JogPad() {
             type="button"
             title={t("jog.gotoXY")}
             disabled={!enabled}
-            onClick={() => gotoWorkZero(["x", "y"], cnc.safeZMm)}
+            onClick={() => void gotoWorkZero(["x", "y"], cnc.safeZMm, workZ)}
             className="grid h-12 place-items-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-30"
           >
             <LocateFixed className="size-5" />
