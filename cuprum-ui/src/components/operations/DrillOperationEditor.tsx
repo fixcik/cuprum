@@ -203,7 +203,7 @@ export function DrillOperationEditor() {
         </div>
 
         {/* Inspector sidebar; always shown once plan is available */}
-        {filteredPlan && route && counts && (
+        {filteredPlan && route && counts && panel && cncProfile && (
           <DrillPlanInspector
             plan={filteredPlan}
             route={route}
@@ -216,6 +216,14 @@ export function DrillOperationEditor() {
             onSetClass={(dMm, klass) =>
               void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
             }
+            selectedHoleId={selectedHoleId}
+            onClearHole={() => setSelectedHoleId(null)}
+            datum={drillDatumCorner}
+            panelWidthMm={panel.width_mm}
+            panelHeightMm={panel.height_mm}
+            tools={tools}
+            cncProfile={cncProfile}
+            substrateThicknessMm={substrateThicknessMm}
           />
         )}
       </div>

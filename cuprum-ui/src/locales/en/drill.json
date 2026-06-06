@@ -60,6 +60,18 @@
     "path": "Path",
     "diameters": "Diameters"
   },
+  "hole": {
+    "clear": "Clear selection",
+    "dia": "⌀",
+    "x": "X",
+    "y": "Y"
+  },
+  "preflight": {
+    "holes": "Holes",
+    "time": "Est. time",
+    "travel": "Jog distance",
+    "changes": "Bit changes"
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",

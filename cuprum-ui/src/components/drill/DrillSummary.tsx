@@ -3,24 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
-
-/** Palette colours mirroring DrillMapCanvas — must stay in sync. */
-const GROUP_PALETTE = [
-  "#4f9cf9",
-  "#f97316",
-  "#22c55e",
-  "#a855f7",
-  "#f43f5e",
-  "#eab308",
-  "#06b6d4",
-  "#84cc16",
-  "#ec4899",
-  "#8b5cf6",
-];
-
-function groupColor(index: number): string {
-  return GROUP_PALETTE[index % GROUP_PALETTE.length];
-}
+import { groupColor } from "@/components/drill/DrillMapCanvas";
 
 const CLASS_LABEL: Record<RouteGroup["class"], string> = {
   registration: "drill:class.registration",

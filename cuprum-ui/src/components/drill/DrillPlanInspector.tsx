@@ -6,9 +6,14 @@ import type { DrillRoute } from "@/lib/drillRoute";
 import type { DrillStep } from "@/lib/drillGcode";
 import type { DrillPass } from "@/lib/drillPasses";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
+import type { DatumCorner } from "@/lib/datum";
+import type { Tool } from "@/lib/toolLibrary";
+import type { CncProfile } from "@/lib/cncProfile";
 import { DrillPassStepper } from "@/components/drill/DrillPassStepper";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
 import { DrillSummary } from "@/components/drill/DrillSummary";
+import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
+import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
 
 export interface DrillPlanInspectorProps {
   plan: PanelDrillPlan;
@@ -22,10 +27,24 @@ export interface DrillPlanInspectorProps {
   onStart: () => void;
   /** Set/clear the class override for a diameter (forwarded to DrillSummary). */
   onSetClass: (diameterMm: number, klass: DrillClass | null) => void;
+  /** Currently selected hole key (`${gi}-${hi}`); null = none. */
+  selectedHoleId: string | null;
+  /** Called when the user clears the hole selection from the card. */
+  onClearHole: () => void;
+  /** Which panel corner is the machine (0,0). */
+  datum: DatumCorner;
+  panelWidthMm: number;
+  panelHeightMm: number;
+  /** Tool library (for preflight time estimate). */
+  tools: Tool[];
+  /** CNC profile (for preflight time estimate). */
+  cncProfile: CncProfile;
+  /** Substrate thickness in mm (for preflight time estimate). */
+  substrateThicknessMm: number;
 }
 
 /** Right-panel inspector for the drill operation.
- *  Header + process stepper + run panel + summary (temporary: will be split into cards later). */
+ *  Header + process stepper + selected-hole card + preflight summary + run panel + summary. */
 export function DrillPlanInspector({
   plan,
   route,
@@ -36,6 +55,14 @@ export function DrillPlanInspector({
   programSteps,
   onStart,
   onSetClass,
+  selectedHoleId,
+  onClearHole,
+  datum,
+  panelWidthMm,
+  panelHeightMm,
+  tools,
+  cncProfile,
+  substrateThicknessMm,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
 
@@ -68,6 +95,33 @@ export function DrillPlanInspector({
         disabled={isRunActive}
         onPassChange={onPassChange}
       />
+
+      {/* Divider */}
+      <div className="h-px bg-border" />
+
+      {/* Selected-hole card (Task 2) — only visible when a hole is selected */}
+      {selectedHoleId && (
+        <div className="pt-3">
+          <DrillHoleCard
+            selectedHoleId={selectedHoleId}
+            route={route}
+            datum={datum}
+            panelWidthMm={panelWidthMm}
+            panelHeightMm={panelHeightMm}
+            onClear={onClearHole}
+          />
+        </div>
+      )}
+
+      {/* Preflight 2×2 summary (Task 4) */}
+      <div className={selectedHoleId ? "" : "pt-3"}>
+        <DrillPreflightSummary
+          route={route}
+          tools={tools}
+          cncProfile={cncProfile}
+          substrateThicknessMm={substrateThicknessMm}
+        />
+      </div>
 
       {/* Divider */}
       <div className="h-px bg-border" />
