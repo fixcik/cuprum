@@ -209,6 +209,24 @@ html.scrolling *::-webkit-scrollbar-thumb {
   }
 }
 
+/* Console drawer entrance: slide in from the right. Honour reduced-motion. */
+.slide-in {
+  animation: cuprum-slide-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes cuprum-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slide-in {
+    animation: none;
+  }
+}
+
 /* E-Stop button glow: a soft red halo that intensifies on hover. */
 .estop-glow {
   box-shadow: 0 0 0 0 hsl(var(--destructive) / 0.4);
