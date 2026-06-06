@@ -6,6 +6,7 @@ import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero } from "@/lib/gotoZero";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
+import { SoftLimitsNotice } from "@/components/machine/SoftLimitsNotice";
 import { Card } from "@/components/machine/Card";
 import { Dro } from "@/components/machine/Dro";
 import { JogPad } from "@/components/machine/JogPad";
@@ -48,6 +49,7 @@ export function MachineControlPanel({
       <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 xl:flex-row xl:overflow-hidden">
         <div className="flex flex-col gap-3 xl:w-[440px] xl:flex-none xl:overflow-auto">
           <AlarmBanner />
+          <SoftLimitsNotice />
           <Card
             title={t("dro.coordinates")}
             icon={Move3d}

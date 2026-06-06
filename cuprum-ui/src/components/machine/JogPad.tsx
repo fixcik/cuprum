@@ -57,13 +57,26 @@ export function JogPad() {
   // second move (multiple pointers / key + pointer) and makes stop idempotent.
   const movingRef = useRef(false);
 
-  // Step jog: one relative move per click/keypress.
+  // Step jog: one relative move per click/keypress. The requested delta is
+  // clamped to the work envelope (X∈[0,x], Y∈[0,y], Z∈[-z,0]) measured from the
+  // live machine position (`mpos`), so a step never crosses the edge — a UX
+  // safeguard layered over GRBL's own soft limits. If the clamped move is a no-op
+  // on every axis (already parked at the edge) nothing is sent.
   const go = useCallback(
     (dx: number, dy: number, dz: number) => {
-      if (enabled && typeof step === "number")
-        void api.machine.jog(dx * step, dy * step, dz * step, cnc.jogFeedMmMin);
+      if (!enabled || typeof step !== "number") return;
+      const mpos = useMachine.getState().status.mpos;
+      const env = cnc.workEnvelopeMm;
+      const clampDelta = (req: number, pos: number, lo: number, hi: number) =>
+        Math.min(hi, Math.max(lo, pos + req)) - pos;
+      const ax = clampDelta(dx * step, mpos[0], 0, env.x);
+      const ay = clampDelta(dy * step, mpos[1], 0, env.y);
+      const az = clampDelta(dz * step, mpos[2], -env.z, 0);
+      if (Math.abs(ax) < MIN_CONT_MM && Math.abs(ay) < MIN_CONT_MM && Math.abs(az) < MIN_CONT_MM)
+        return;
+      void api.machine.jog(ax, ay, az, cnc.jogFeedMmMin);
     },
-    [enabled, step, cnc.jogFeedMmMin],
+    [enabled, step, cnc.jogFeedMmMin, cnc.workEnvelopeMm],
   );
 
   // Continuous jog: send a single jog toward the envelope edge along the chosen

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { Channel } from "@tauri-apps/api/core";
 import { api, type ConsoleLine, type MachineStatus, type Telemetry } from "@/lib/api";
-import { parseHomingEnabled } from "@/lib/workZero";
+import { parseHomingEnabled, parseSoftLimitsEnabled, parseMaxTravel } from "@/lib/workZero";
 
 const MAX_LINES = 500;
 
@@ -21,6 +21,11 @@ interface MachineStore {
   lines: ConsoleLine[];
   /** True once $22=1 is confirmed from a $$ query after connect. */
   homingAvailable: boolean;
+  /** GRBL soft-limits ($20) flag from the last $$ query. null = not yet known. */
+  softLimitsEnabled: boolean | null;
+  /** GRBL max-travel per axis [X,Y,Z] mm ($130/$131/$132). null until the first
+   *  $$ query reports any of them; axes not yet seen stay at 0. */
+  maxTravelMm: [number, number, number] | null;
   /** True once a homing cycle has completed this session (state home → idle).
    *  Cleared on connect, alarm, and disconnect/reset. Gates machine-coordinate
    *  auto-moves (G53 retracts) so they never run against an unreferenced frame. */
@@ -32,12 +37,18 @@ interface MachineStore {
   reset: () => void;
 }
 
+// Partial accumulator for $130/$131/$132 — filled as the $$ lines stream in;
+// reset on connect/disconnect. maxTravelMm is only published once all three are in.
+let travelBuf: [number | null, number | null, number | null] = [null, null, null];
+
 export const useMachine = create<MachineStore>((set, get) => ({
   connected: false,
   port: null,
   status: IDLE_STATUS,
   lines: [],
   homingAvailable: false,
+  softLimitsEnabled: null,
+  maxTravelMm: null,
   homed: false,
   connect: async (port, baud) => {
     const ch = new Channel<Telemetry>();
@@ -50,12 +61,28 @@ export const useMachine = create<MachineStore>((set, get) => ({
         // Scan firmware settings lines for homing-enable ($22).
         const homing = parseHomingEnabled(msg.text);
         if (homing !== null) set({ homingAvailable: homing });
+        // Soft-limits enable ($20).
+        const soft = parseSoftLimitsEnabled(msg.text);
+        if (soft !== null) set({ softLimitsEnabled: soft });
+        // Max travel per axis ($130/$131/$132). Accumulate into a partial buffer
+        // and only publish the [X,Y,Z] tuple once ALL three axes are known, so the
+        // soft-limit mismatch notice can't flash on a half-filled tuple.
+        const travel = parseMaxTravel(msg.text);
+        if (travel !== null)
+          set(() => {
+            travelBuf[travel.axis] = travel.value;
+            const [x, y, z] = travelBuf;
+            if (x !== null && y !== null && z !== null) return { maxTravelMm: [x, y, z] };
+            return {};
+          });
       }
     };
     await api.machine.connect(port, baud, ch);
     // A fresh connection has not been homed yet; require a homing cycle before
-    // machine-coordinate auto-moves are allowed.
-    set({ connected: true, port, homed: false });
+    // machine-coordinate auto-moves are allowed. Soft-limit state is unknown
+    // until the following $$ query reports it.
+    travelBuf = [null, null, null];
+    set({ connected: true, port, homed: false, softLimitsEnabled: null, maxTravelMm: null });
     // Query firmware settings to detect homing support ($22).
     await api.machine.send("$$");
   },
@@ -81,12 +108,16 @@ export const useMachine = create<MachineStore>((set, get) => ({
     }),
   // Keep `lines` so the user still sees why the connection dropped (e.g. the
   // error line pushed just before an unplug). Connection state + DRO reset.
-  reset: () =>
+  reset: () => {
+    travelBuf = [null, null, null];
     set({
       connected: false,
       port: null,
       status: IDLE_STATUS,
       homingAvailable: false,
+      softLimitsEnabled: null,
+      maxTravelMm: null,
       homed: false,
-    }),
+    });
+  },
 }));
