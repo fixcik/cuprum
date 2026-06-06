@@ -90,6 +90,10 @@ export function DrillOperationEditor() {
   // Last work-zero bind error from GRBL (e.g. the command was rejected). Shown to
   // the operator; while set it means the corresponding zero was NOT applied.
   const [zeroError, setZeroError] = useState<string | null>(null);
+  // Guards against a re-entrant bind while a previous one is still awaiting GRBL's
+  // ack (the command blocks up to a few seconds). A double-tap would otherwise hit
+  // "machine busy" and clear a zero the first call had just set.
+  const bindingRef = useRef(false);
 
   // Feed override % sent via UI (100 = nominal). Applied by sending GRBL real-time commands.
   const [feedOverridePct, setFeedOverridePct] = useState(100);
@@ -122,7 +126,8 @@ export function DrillOperationEditor() {
   // a stale coordinate system. Captures MPos AFTER the ack.
   const handleTouchOff = useCallback(async () => {
     const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected)) return;
+    if (!canMove(status.state, connected) || bindingRef.current) return;
+    bindingRef.current = true;
     try {
       await api.machine.setZero(false, false, true); // G10 L20 P1 Z0, awaits ok
       setZeroError(null);
@@ -130,6 +135,8 @@ export function DrillOperationEditor() {
     } catch (e) {
       setWorkZeroMachineZ(null);
       setZeroError(`Z: ${String(e)}`);
+    } finally {
+      bindingRef.current = false;
     }
   }, []);
 
@@ -142,7 +149,8 @@ export function DrillOperationEditor() {
   // rejected command leaves it unset so the start gate stays closed.
   const handleBindXY = useCallback(async () => {
     const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected)) return;
+    if (!canMove(status.state, connected) || bindingRef.current) return;
+    bindingRef.current = true;
     try {
       await api.machine.setZero(true, true, false); // G10 L20 P1 X0 Y0, awaits ok
       setZeroError(null);
@@ -150,6 +158,8 @@ export function DrillOperationEditor() {
     } catch (e) {
       setWorkZeroXYSet(false);
       setZeroError(`X-Y: ${String(e)}`);
+    } finally {
+      bindingRef.current = false;
     }
   }, []);
 
