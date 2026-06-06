@@ -3,7 +3,7 @@ import { Fan, LocateFixed, Move, Move3d, SlidersHorizontal, Zap } from "lucide-r
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
-import { gotoWorkZero } from "@/lib/gotoZero";
+import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
 import { SoftLimitsNotice } from "@/components/machine/SoftLimitsNotice";
@@ -31,15 +31,20 @@ export function MachineControlPanel({
   onCloseConsole?: () => void;
 }) {
   const { t } = useTranslation("machine");
+  const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
   const machineSafeZMm = useSettings((s) => s.cncProfile.machineSafeZMm);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
   const machineZ = useMachine((s) => s.status.mpos[2]);
+  const workZ = useMachine((s) => s.status.wpos[2]);
   const homed = useMachine((s) => s.homed);
   const movable = canMove(state, connected);
   // The header "go to zero" runs a machine-frame (G53) retract, so it requires
   // a homed frame in addition to a movable state.
   const canAutoMove = movable && homed;
+  // Safe retract: a clearance above the work-zero surface, capped at the machine
+  // ceiling. wcoZ = machine Z of work zero (mpos.z − wpos.z).
+  const retractZ = safeRetractMachineZ(machineZ - workZ, safeZMm, machineSafeZMm);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -58,7 +63,7 @@ export function MachineControlPanel({
                 type="button"
                 title={canAutoMove ? t("dro.gotoZero") : t("controls.homeFirst")}
                 disabled={!canAutoMove}
-                onClick={() => void gotoWorkZero(["z", "x", "y"], machineSafeZMm, machineZ, canAutoMove)}
+                onClick={() => void gotoWorkZero(["z", "x", "y"], retractZ, machineZ, canAutoMove)}
                 className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
               >
                 <LocateFixed className="size-3.5" />

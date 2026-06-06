@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { workZeroFromStatus } from "@/lib/workZero";
 import { restoreWorkZero } from "@/lib/restoreWorkZero";
-import { gotoWorkZero } from "@/lib/gotoZero";
+import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { cn } from "@/lib/utils";
 
 type Axis = "x" | "y" | "z";
@@ -29,7 +29,7 @@ function AxisRow({
   size,
   movable,
   canAutoMove,
-  machineSafeZMm,
+  retractZ,
   machineZ,
 }: {
   axis: Axis;
@@ -39,7 +39,8 @@ function AxisRow({
   movable: boolean;
   /** Whether machine-coordinate auto-moves (G53 retract) are allowed (homed). */
   canAutoMove: boolean;
-  machineSafeZMm: number;
+  /** Machine-Z target for the safe retract (clearance above work zero, capped). */
+  retractZ: number;
   /** Current machine-Z, so the goto can skip the safe-Z lift when already clear. */
   machineZ: number;
 }) {
@@ -85,7 +86,7 @@ function AxisRow({
           type="button"
           title={canAutoMove ? t("dro.gotoAxis", { axis: label }) : t("controls.homeFirst")}
           disabled={!movable || !canAutoMove}
-          onClick={() => void gotoWorkZero([axis], machineSafeZMm, machineZ, canAutoMove)}
+          onClick={() => void gotoWorkZero([axis], retractZ, machineZ, canAutoMove)}
           className="grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           <LocateFixed className="size-3.5" />
@@ -114,7 +115,11 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
   // Machine-coordinate auto-moves (G53 retracts) additionally require a homed
   // frame — otherwise the safe-Z target is meaningless.
   const canAutoMove = movable && homed;
-  const { workZeroMm, machineSafeZMm } = cncProfile;
+  const { workZeroMm, safeZMm, machineSafeZMm } = cncProfile;
+  // Safe retract: a clearance above the work-zero surface, capped at the machine
+  // ceiling. wcoZ = machine Z of work zero (mpos.z − wpos.z).
+  const wcoZ = status.mpos[2] - status.wpos[2];
+  const retractZ = safeRetractMachineZ(wcoZ, safeZMm, machineSafeZMm);
 
   function handleSaveZero() {
     setCncProfile({ workZeroMm: workZeroFromStatus(status.mpos, status.wpos) });
@@ -148,7 +153,7 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
           size={size}
           movable={movable}
           canAutoMove={canAutoMove}
-          machineSafeZMm={machineSafeZMm}
+          retractZ={retractZ}
           machineZ={status.mpos[2]}
         />
       ))}
@@ -166,7 +171,7 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
           variant="secondary"
           disabled={!canAutoMove}
           title={canAutoMove ? undefined : t("controls.homeFirst")}
-          onClick={() => void gotoWorkZero(["x", "y"], machineSafeZMm, status.mpos[2], canAutoMove)}
+          onClick={() => void gotoWorkZero(["x", "y"], retractZ, status.mpos[2], canAutoMove)}
         >
           <LocateFixed />
           {t("dro.gotoXY")}

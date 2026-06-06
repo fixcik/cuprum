@@ -1,10 +1,19 @@
 import { api } from "@/lib/api";
 
+/** Machine-Z target for a safe retract: a modest clearance above the work-zero
+ *  surface, capped at the machine ceiling so it never reaches the top limit.
+ *  wcoZ = machine Z of work-zero (mpos.z − wpos.z). All in machine coords (≤0 top=0). */
+export function safeRetractMachineZ(wcoZ: number, clearanceMm: number, ceilingMm: number): number {
+  return Math.min(wcoZ + clearanceMm, ceilingMm);
+}
+
 /** Move to the work zero on the given axes. When XY motion is requested, the tool
- *  first rises to the MACHINE-coordinate safe-Z (`G53 G0 Z{machineSafeZMm}`) so
- *  the traverse can't drag through stock — and so a low work zero can't drive Z
- *  above the top limit switch. The lift is skipped when the tool is already at or
- *  above safe Z (`currentMachineZ`). Single-axis Z goes straight to the work zero.
+ *  first rises to the already-computed machine-frame retract Z
+ *  (`G53 G0 Z{retractMachineZ}`) so the traverse can't drag through stock. Callers
+ *  compute `retractMachineZ` from the live status (clearance above work zero,
+ *  capped at the machine ceiling — see `safeRetractMachineZ`). The lift is skipped
+ *  when the tool is already at or above the retract Z (`currentMachineZ`).
+ *  Single-axis Z goes straight to the work zero.
  *
  *  Sends are awaited in order so the safe-Z lift is dispatched before the XY
  *  traverse even if the transport were ever reordered; a failed send is logged
@@ -15,7 +24,7 @@ import { api } from "@/lib/api";
  *  not just in the callers' disabled-state. */
 export async function gotoWorkZero(
   axes: ReadonlyArray<"x" | "y" | "z">,
-  machineSafeZMm: number,
+  retractMachineZ: number,
   currentMachineZ: number,
   homed: boolean,
 ): Promise<void> {
@@ -25,10 +34,10 @@ export async function gotoWorkZero(
   const wantZ = axes.includes("z");
 
   try {
-    // Raise to the machine-frame safe Z before any XY traverse — unless already
+    // Raise to the machine-frame retract Z before any XY traverse — unless already
     // at/above it. G53 makes the move absolute in machine coordinates for one line.
-    if ((wantX || wantY) && currentMachineZ < machineSafeZMm) {
-      await api.machine.send(`G53 G0 Z${machineSafeZMm}`);
+    if ((wantX || wantY) && currentMachineZ < retractMachineZ) {
+      await api.machine.send(`G53 G0 Z${retractMachineZ}`);
     }
     const words: string[] = [];
     if (wantX) words.push("X0");
