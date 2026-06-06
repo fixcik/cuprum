@@ -342,6 +342,11 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
         }}
         onMouseLeave={() => {
           queueHover(null);
+          // Cancel a pending hover-hole rAF so it can't re-set the key after we clear it.
+          if (hoveredHoleRaf.current != null) {
+            cancelAnimationFrame(hoveredHoleRaf.current);
+            hoveredHoleRaf.current = null;
+          }
           setHoveredHoleKey(null);
         }}
         onClick={() => {
@@ -510,7 +515,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                           x={firstHole.xMm + r + 0.3}
                           y={firstHole.yMm - Math.max(g.diameterMm * 0.3, 0.25)}
                           text={`⌀${g.diameterMm}`}
-                          fontSize={Math.max(g.diameterMm * 0.6, 0.5)}
+                          fontSize={Math.min(Math.max(g.diameterMm * 0.6, 0.5), 2.5)}
                           fill="rgba(203,213,225,0.75)"
                           listening={false}
                         />

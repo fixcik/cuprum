@@ -38,12 +38,11 @@ export interface RulersOverlayProps {
    *  (default) suits the panel blank; `"muted"` is a neutral dark tint for the
    *  busy design preview, where copper fought the PCB colours. */
   extentVariant?: "copper" | "muted";
-  /** When a datum corner is on the right/bottom, the displayed tick label counts
-   *  away from that corner rather than from the world origin. For example, with
-   *  axisFlip.x=true a tick at distance `d` from anchorMm.x displays `extentMm.w - d`
-   *  so the panel always reads 0 → W from the datum corner toward the opposite edge.
+  /** When a datum corner is on the right/bottom, the displayed tick/readout value
+   *  counts away from that corner (negating the signed offset from anchorMm) so the
+   *  panel always reads 0 → W from the datum corner toward the opposite edge.
    *  Crosshair + caret positions are NEVER changed — only the displayed number.
-   *  Default {x:false, y:false}. Ignored when extentMm is null. */
+   *  Default {x:false, y:false}. */
   axisFlip?: { x: boolean; y: boolean };
 }
 
@@ -144,10 +143,12 @@ export function RulersOverlay({
   // flip mirrors it against the extent span so the panel always reads 0→W / 0→H
   // from the datum corner. Only the label/readout value changes — screen position
   // of ticks and crosshair lines are unaffected.
-  const flipX = axisFlip.x && extentMm != null ? extentMm.w : null;
-  const flipY = axisFlip.y && extentMm != null ? extentMm.h : null;
-  const displayX = (d: number) => (flipX != null ? flipX - d : d);
-  const displayY = (d: number) => (flipY != null ? flipY - d : d);
+  // `d` is the SIGNED offset (mm) from the anchor (datum corner). For a flipped
+  // axis the displayed value is the distance from the datum corner toward the
+  // opposite edge, i.e. -d (points into the panel are at negative offset when the
+  // anchor is on the right/bottom). Non-flipped axes display the offset as-is.
+  const displayX = (d: number) => (axisFlip.x ? -d : d);
+  const displayY = (d: number) => (axisFlip.y ? -d : d);
 
   // Readout chip placement: nudge off the cursor, flip near the right/bottom edge.
   let readout: { x: number; y: number; w: number; text: string } | null = null;
