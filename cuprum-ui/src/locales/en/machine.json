@@ -31,6 +31,18 @@
     "zeroSaved": "Zero saved: X{{x}} Y{{y}}",
     "homingUnavailable": "Restore unavailable: enable homing in firmware ($22=1)"
   },
+  "estop": "Stop",
+  "field": {
+    "title": "Work area",
+    "mm": "mm",
+    "clickHint": "click — go here",
+    "goConfirm": {
+      "title": "Move to position?",
+      "message": "Rapid to X{{x}} Y{{y}}. The tool will first rise to the safe height Z{{z}}, then travel.",
+      "confirm": "Move",
+      "cancel": "Cancel"
+    }
+  },
   "jog": {
     "title": "Jog",
     "step": "Step",
