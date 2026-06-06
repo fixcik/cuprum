@@ -40,7 +40,12 @@ export interface CncMachine extends MachineBase {
   spindleHasPwm: boolean;
   // --- emission (consumed by G-code emitter) ---
   gcodeDialect: "grbl_1_1";
+  /** Work-coordinate safe-Z (mm), used by the drilling G-code emitter for retracts. */
   safeZMm: number;
+  /** Machine-coordinate (G53) safe retract height (mm), ≤ 0 (just below the top
+   *  limit). Used for safe traverses during manual control so a low work zero
+   *  can't drive Z above the top limit switch. */
+  machineSafeZMm: number;
   // --- mechanics (DFM / future compensation) ---
   runoutMm: number;
   backlashMm: { x: number; y: number; z: number };
@@ -92,6 +97,7 @@ export const DEFAULT_CNC_MACHINE: CncMachine = {
   spindleHasPwm: true,
   gcodeDialect: "grbl_1_1",
   safeZMm: 5,
+  machineSafeZMm: -1,
   runoutMm: 0.15,
   backlashMm: { x: 0.05, y: 0.1, z: 0.05 },
   prependGcode: "",

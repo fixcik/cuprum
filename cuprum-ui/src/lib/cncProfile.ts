@@ -21,7 +21,11 @@ export interface CncProfile {
   spindleHasPwm: boolean;
   // --- emission (consumed by the Phase 4 G-code emitter) ---
   gcodeDialect: "grbl_1_1";
+  /** Work-coordinate safe-Z (mm), used by the drilling G-code emitter for retracts. */
   safeZMm: number;
+  /** Machine-coordinate (G53) safe retract height (mm), ≤ 0. Used for safe
+   *  traverses during manual control. */
+  machineSafeZMm: number;
   // --- mechanics (DFM / future compensation) ---
   runoutMm: number;
   backlashMm: { x: number; y: number; z: number };
@@ -45,6 +49,7 @@ export const DEFAULT_CNC_PROFILE: CncProfile = {
   spindleHasPwm: true,
   gcodeDialect: "grbl_1_1",
   safeZMm: 5,
+  machineSafeZMm: -1,
   runoutMm: 0.15,
   backlashMm: { x: 0.05, y: 0.1, z: 0.05 },
   prependGcode: "",
