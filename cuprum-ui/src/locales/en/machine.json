@@ -44,10 +44,10 @@
     "mm": "mm",
     "clickHint": "click — go here",
     "goConfirm": {
-      "title": "Move to position?",
-      "message": "Rapid to X{{x}} Y{{y}}.",
-      "raiseNote": "The tool will first rise to the safe height Z{{z}}, then travel.",
-      "confirm": "Move",
+      "title": "Raise Z before moving?",
+      "message": "Rapid to X{{x}} Y{{y}}. The tool is below the safe height Z{{z}}.",
+      "raise": "Raise and move",
+      "direct": "Move without raising",
       "cancel": "Cancel"
     }
   },
