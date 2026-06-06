@@ -8,10 +8,11 @@ import { MachineEditor } from "@/components/settings/MachineEditor";
 export function EquipmentSection() {
   const machines = useSettings((s) => s.machines);
   const activeCncMachineId = useSettings((s) => s.activeCncMachineId);
+  const activeUvMachineId = useSettings((s) => s.activeUvMachineId);
   const setActiveCncMachineId = useSettings((s) => s.setActiveCncMachineId);
   const setActiveUvMachineId = useSettings((s) => s.setActiveUvMachineId);
   const [selectedId, setSelectedId] = useState<string | null>(
-    () => activeCncMachineId ?? machines[0]?.id ?? null,
+    () => activeCncMachineId ?? activeUvMachineId ?? machines[0]?.id ?? null,
   );
 
   // Selecting a machine also records it as the "last selected" per kind, so the
@@ -39,8 +40,10 @@ export function EquipmentSection() {
       <div className="w-56 shrink-0 overflow-auto border-r border-border bg-panel">
         <MachineList selectedId={effectiveSelected?.id ?? null} onSelect={handleSelect} />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-6">
-        <MachineEditor machine={effectiveSelected} />
+      {/* The pane only lays out flex height; scroll + padding live INSIDE each
+       *  editor tab so the control tab (console/jog) can fill the height. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <MachineEditor key={effectiveSelected?.id ?? "none"} machine={effectiveSelected} />
       </div>
     </div>
   );

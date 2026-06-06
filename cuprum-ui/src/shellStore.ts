@@ -45,7 +45,7 @@ function serializePack(fn: () => Promise<void>): Promise<void> {
   return next;
 }
 
-export type View = "home" | "project" | "equipment" | "machine" | "settings";
+export type View = "home" | "project" | "equipment" | "settings";
 
 interface ShellStore {
   view: View;

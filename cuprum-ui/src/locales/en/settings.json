@@ -13,6 +13,10 @@
     "delete": "Remove",
     "cancel": "Cancel",
     "empty": "Select a machine to edit",
+    "tab": {
+      "config": "Configuration",
+      "control": "Control"
+    },
     "screenWidth": "Screen width",
     "screenHeight": "Screen height",
     "type": {

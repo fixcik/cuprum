@@ -7,7 +7,10 @@ import { MachineControls } from "@/components/machine/MachineControls";
 import { Console } from "@/components/machine/Console";
 import { useMachine } from "@/machineStore";
 
-export function MachinePage() {
+/** Live machine control surface: connection bar, alarm banner, the DRO/jog/
+ *  spindle/control stack, and the console. Operates on the single current
+ *  connection. Reusable as a page body or as a tab inside the equipment editor. */
+export function MachineControlPanel() {
   const { t } = useTranslation("machine");
   const state = useMachine((s) => s.status.state);
   const connected = useMachine((s) => s.connected);
