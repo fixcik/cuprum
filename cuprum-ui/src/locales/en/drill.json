@@ -45,6 +45,10 @@
     "top-left": "Top-left",
     "top-right": "Top-right"
   },
+  "tool": {
+    "select": "Select",
+    "pan": "Pan (hold Space)"
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",

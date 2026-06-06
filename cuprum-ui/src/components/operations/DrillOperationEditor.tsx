@@ -62,6 +62,9 @@ export function DrillOperationEditor() {
   // Drill-window-owned, ephemeral selection. Default: the alignment pass.
   const [selected, setSelected] = useState<Set<DrillClass>>(DEFAULT_SELECTED_CLASSES);
 
+  // Selected hole on the drill canvas (key = `${gi}-${hi}`); null = none.
+  const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
+
   // Counts per class over the full (unfiltered) plan; null until plan is ready.
   const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
 
@@ -187,6 +190,8 @@ export function DrillOperationEditor() {
               }}
               machineWork={showMarker ? machineWork : null}
               currentHoleProgress={currentHoleProgress}
+              selectedHoleId={selectedHoleId}
+              onSelectHole={setSelectedHoleId}
             />
           )}
         </div>

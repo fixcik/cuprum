@@ -13,6 +13,8 @@ import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
 import { MIN_SCALE, MAX_SCALE, RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
+import { nearestHole } from "@/lib/drillHitTest";
+import { DrillCanvasToolPalette } from "./DrillCanvasToolPalette";
 
 // Re-export Viewport so callers (Task 2 rulers) can import it from here directly.
 export type { Viewport };
@@ -43,6 +45,13 @@ const PATH_STROKE_PX = 0.8;
 
 /** Tool-change marker outer ring radius offset (mm) added on top of hole radius. */
 const TOOL_CHANGE_RING_OFFSET_MM = 0.6;
+
+/** Selection ring offset above hole radius (mm). */
+const SELECT_RING_OFFSET_MM = 0.6;
+/** Hover ring offset above hole radius (mm). */
+const HOVER_RING_OFFSET_MM = 0.4;
+/** Copper/primary colour for the selection ring — matches COPPER_STROKE from canvasStyle. */
+const SELECT_RING_COLOR = "#b87333";
 
 /** Tool-change marker ring stroke (px, screen-space). */
 const TOOL_CHANGE_RING_PX = 1.8;
@@ -81,6 +90,10 @@ export interface DrillMapCanvasProps {
   /** Called on every viewport change (pan, zoom, animate frame) so Task 2 rulers
    *  can follow the canvas transform without prop drilling into the Stage. */
   onViewportChange?: (v: Viewport) => void;
+  /** Currently selected hole key (`${gi}-${hi}`). Drives the copper selection ring. */
+  selectedHoleId?: string | null;
+  /** Called when the user clicks a hole (or clicks empty space → null). */
+  onSelectHole?: (id: string | null) => void;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
@@ -88,15 +101,24 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, currentHoleProgress, onViewportChange }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, currentHoleProgress, onViewportChange, selectedHoleId, onSelectHole }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
+  // Ref to the fit-group for pointer → mm coordinate conversion.
+  const fitGroupRef = useRef<Konva.Group>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
   const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
   const [zoomPct, setZoomPct] = useState(100);
   const [spaceDown, setSpaceDown] = useState(false);
-  const panMode = spaceDown;
+  // Internal tool: "select" or "pan". Space held → pan regardless.
+  const [tool, setTool] = useState<"select" | "pan">("select");
+  const panMode = tool === "pan" || spaceDown;
   const { fmtLen } = useUnitFormat();
+
+  // RAF-coalesced hovered hole key for the highlight ring.
+  const [hoveredHoleKey, setHoveredHoleKey] = useState<string | null>(null);
+  const hoveredHoleRaf = useRef<number | null>(null);
+  const pendingHoveredKey = useRef<string | null>(null);
 
   // RAF-coalesced hover position in screen px (for the rulers crosshair/readout).
   const [hoverPx, setHoverPx] = useState<{ x: number; y: number } | null>(null);
@@ -119,6 +141,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
     });
   }, []);
   useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
+  useEffect(() => () => { if (hoveredHoleRaf.current != null) cancelAnimationFrame(hoveredHoleRaf.current); }, []);
 
   // Track container size.
   useLayoutEffect(() => {
@@ -289,12 +312,41 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
         onMouseMove={() => {
           const pos = stageRef.current?.getPointerPosition() ?? null;
           queueHover(pos ? { x: pos.x, y: pos.y } : null);
+
+          // Compute hovered hole key via fit-group relative pointer → mm.
+          const fitGroup = fitGroupRef.current;
+          if (fitGroup && viewport.pxPerMm > 0) {
+            const rel = fitGroup.getRelativePointerPosition();
+            if (rel) {
+              const hit = nearestHole({ x: rel.x, y: rel.y }, route, viewport.pxPerMm);
+              const nextKey = hit ? hit.key : null;
+              pendingHoveredKey.current = nextKey;
+              if (hoveredHoleRaf.current == null) {
+                hoveredHoleRaf.current = requestAnimationFrame(() => {
+                  hoveredHoleRaf.current = null;
+                  setHoveredHoleKey(pendingHoveredKey.current);
+                });
+              }
+            }
+          }
         }}
-        onMouseLeave={() => queueHover(null)}
+        onMouseLeave={() => {
+          queueHover(null);
+          setHoveredHoleKey(null);
+        }}
+        onClick={() => {
+          if (tool === "pan" || spaceDown) return;
+          const fitGroup = fitGroupRef.current;
+          if (!fitGroup || viewport.pxPerMm <= 0) return;
+          const rel = fitGroup.getRelativePointerPosition();
+          if (!rel) return;
+          const hit = nearestHole({ x: rel.x, y: rel.y }, route, viewport.pxPerMm);
+          onSelectHole?.(hit ? hit.key : null);
+        }}
       >
         <Layer>
           {/* The fit-group maps mm → px at scale 1; the Stage carries pan/zoom. */}
-          <Group x={0} y={0} scaleX={fit} scaleY={fit}>
+          <Group ref={fitGroupRef} x={0} y={0} scaleX={fit} scaleY={fit}>
             {/* Adaptive mm grid (zoom-aware, only draws visible lines). */}
             <AdaptiveGrid widthMm={W} heightMm={H} />
 
@@ -384,8 +436,36 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                     ? "rgba(34,197,94,0.5)"
                     : "rgba(0,0,0,0.6)";
 
+                  const holeKey = `${gi}-${hi}`;
+                  const isSelected = selectedHoleId === holeKey;
+                  const isHovered = hoveredHoleKey === holeKey && !isSelected;
+
                   return (
-                    <Group key={`${gi}-${hi}`} listening={false}>
+                    <Group key={holeKey} listening={false}>
+                      {/* Selection ring — copper coloured, drawn below other rings. */}
+                      {isSelected && (
+                        <Circle
+                          x={h.xMm}
+                          y={h.yMm}
+                          radius={r + SELECT_RING_OFFSET_MM}
+                          stroke={SELECT_RING_COLOR}
+                          strokeWidth={2}
+                          strokeScaleEnabled={false}
+                          fill={undefined}
+                        />
+                      )}
+                      {/* Hover highlight ring — subtle white, only when not selected. */}
+                      {isHovered && (
+                        <Circle
+                          x={h.xMm}
+                          y={h.yMm}
+                          radius={r + HOVER_RING_OFFSET_MM}
+                          stroke="rgba(255,255,255,0.45)"
+                          strokeWidth={1}
+                          strokeScaleEnabled={false}
+                          fill={undefined}
+                        />
+                      )}
                       {/* Tool-change ring around the first hole in each group. */}
                       {isToolChange && (
                         <Circle
@@ -492,6 +572,9 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
           })()}
         </Layer>
       </Stage>
+
+      {/* Floating left-side tool palette (select / pan). */}
+      <DrillCanvasToolPalette tool={tool} onToolChange={setTool} />
 
       {/* Edge-pinned rulers SVG overlay — pointer-events-none, sits above the Stage. */}
       <RulersOverlay
