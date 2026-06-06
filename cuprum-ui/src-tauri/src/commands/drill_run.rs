@@ -325,6 +325,22 @@ fn run_job(
             emit_state("running");
         }
 
+        // Mark a hole as the one currently being drilled BEFORE its traverse/plunge,
+        // so the UI highlights it and fills the depth-progress ring while it drills.
+        // `holes_completed` is still the pre-drill count here, so the UI sees this
+        // hole as current (not yet completed). The post-drill emit below increments.
+        if step.kind == "hole" {
+            let _ = app.emit(
+                "drill-run://progress",
+                ProgressPayload {
+                    holes_completed,
+                    holes_total,
+                    hole_index: step.hole_index.unwrap_or(0),
+                    step_index: step_index as u32,
+                },
+            );
+        }
+
         // Stream the step's lines FIRST (waiting for ok per line). For a
         // tool-change step this stops the spindle (M5) and retracts to safe Z
         // before we pause for the operator — so the bit is swapped with the
