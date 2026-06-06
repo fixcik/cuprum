@@ -8,10 +8,11 @@ import { MachineEditor } from "@/components/settings/MachineEditor";
 export function EquipmentSection() {
   const machines = useSettings((s) => s.machines);
   const activeCncMachineId = useSettings((s) => s.activeCncMachineId);
+  const activeUvMachineId = useSettings((s) => s.activeUvMachineId);
   const setActiveCncMachineId = useSettings((s) => s.setActiveCncMachineId);
   const setActiveUvMachineId = useSettings((s) => s.setActiveUvMachineId);
   const [selectedId, setSelectedId] = useState<string | null>(
-    () => activeCncMachineId ?? machines[0]?.id ?? null,
+    () => activeCncMachineId ?? activeUvMachineId ?? machines[0]?.id ?? null,
   );
 
   // Selecting a machine also records it as the "last selected" per kind, so the
