@@ -88,7 +88,8 @@
     "reset": "Reset",
     "tooHigh": "Z-zero is too high — the retract will exceed the machine travel; lower the bit to the copper and bind again.",
     "zLabel": "Z",
-    "notZeroed": "Touch off required before starting."
+    "notZeroed": "Touch off required before starting.",
+    "notZeroedHint": "Set Z-zero before starting"
   },
   "run": {
     "start": "Start",
@@ -109,6 +110,7 @@
     "notConnected": "Connect the machine in Equipment → Control tab",
     "errorHint": "Unlock the machine, then start again.",
     "zeroHint": "Work zero (0,0) is the selected datum corner of the panel (marked on the canvas; X right, Y up). Set it by jogging in Equipment → Control tab.",
-    "spindleHint": "If the spindle is on a manual dial (3018 default), turn it on by hand — handy during the tool-change pause."
+    "spindleHint": "If the spindle is on a manual dial (3018 default), turn it on by hand — handy during the tool-change pause.",
+    "noHolesForPass": "No holes in this pass"
   }
 }

@@ -204,10 +204,8 @@ export function DrillOperationEditor() {
         </div>
       )}
 
-      {/* Top toolbar: datum control + visibility chips + view toggles */}
+      {/* Top toolbar: visibility chips + view toggles (datum moved to inspector) */}
       <DrillCanvasTopBar
-        datum={drillDatumCorner}
-        onDatumChange={setDrillDatumCorner}
         counts={counts ?? { registration: 0, pth: 0, npth: 0, mechanical: 0 }}
         visibleClasses={visibleClasses}
         onVisibleClassesChange={setVisibleClasses}
@@ -266,6 +264,7 @@ export function DrillOperationEditor() {
             selectedHoleId={selectedHoleId}
             onClearHole={() => setSelectedHoleId(null)}
             datum={drillDatumCorner}
+            onDatumChange={setDrillDatumCorner}
             panelWidthMm={panel.width_mm}
             panelHeightMm={panel.height_mm}
             tools={tools}
@@ -277,6 +276,9 @@ export function DrillOperationEditor() {
             zGate={zGate}
             machineConnected={machineConnected}
             machineState={machineState}
+            connected={machineConnected}
+            spindleControllable={cncProfile.spindleControllable ?? false}
+            hasHoles={route.totalHoles > 0}
           />
         )}
       </div>
