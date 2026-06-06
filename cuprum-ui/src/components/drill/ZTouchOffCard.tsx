@@ -4,6 +4,7 @@ import { useMachine } from "@/machineStore";
 import { api, type MachineStateName } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { checkZGate } from "@/lib/zGate";
+import { clampJogDelta, MIN_JOG_MM } from "@/lib/jogClamp";
 import { Button } from "@/components/ui/Button";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -12,6 +13,10 @@ export interface ZTouchOffCardProps {
   machineState: MachineStateName;
   workZeroMachineZ: number | null;
   safeZMm: number;
+  /** Z travel (mm, positive) from the machine model. The Z jog is clamped to the
+   *  machine range [−maxTravelZMm, 0] (ceiling MPos Z = 0) so touch-off can't drive
+   *  into a limit — the work zero isn't set yet, so we use machine, not work, Z. */
+  maxTravelZMm: number;
   jogStepsMm: number[];
   jogFeedMmMin: number;
   onTouchOff: () => void;
@@ -25,6 +30,7 @@ export function ZTouchOffCard({
   machineState,
   workZeroMachineZ,
   safeZMm,
+  maxTravelZMm,
   jogStepsMm,
   jogFeedMmMin,
   onTouchOff,
@@ -38,6 +44,16 @@ export function ZTouchOffCard({
 
   // Use the smallest available jog step for fine Z positioning.
   const step = jogStepsMm[0] ?? 0.1;
+
+  // Clamp the Z micro-jog to the machine range [−travel, 0] from the live MPos Z,
+  // so touch-off can't drive into a limit (shared safeguard with the manual jog
+  // pad). Read MPos live at click time, not from the render snapshot.
+  const jogZ = (dir: 1 | -1) => {
+    const liveZ = useMachine.getState().status.mpos[2];
+    const dz = clampJogDelta(dir * step, liveZ, -maxTravelZMm, 0);
+    if (Math.abs(dz) < MIN_JOG_MM) return;
+    void api.machine.jog(0, 0, dz, jogFeedMmMin);
+  };
 
   const gate = checkZGate(workZeroMachineZ, safeZMm);
 
@@ -66,7 +82,7 @@ export function ZTouchOffCard({
           type="button"
           title={`Z+ ${fmtLen(step)}`}
           disabled={!moveable}
-          onClick={() => void api.machine.jog(0, 0, step, jogFeedMmMin)}
+          onClick={() => jogZ(1)}
           className="flex h-8 w-14 items-center justify-center gap-1 rounded-md border border-border bg-background text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground active:bg-primary/10 disabled:pointer-events-none disabled:opacity-30"
         >
           <ChevronUp className="h-3.5 w-3.5 shrink-0" />
@@ -76,7 +92,7 @@ export function ZTouchOffCard({
           type="button"
           title={`Z− ${fmtLen(step)}`}
           disabled={!moveable}
-          onClick={() => void api.machine.jog(0, 0, -step, jogFeedMmMin)}
+          onClick={() => jogZ(-1)}
           className="flex h-8 w-14 items-center justify-center gap-1 rounded-md border border-border bg-background text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground active:bg-primary/10 disabled:pointer-events-none disabled:opacity-30"
         >
           <ChevronDown className="h-3.5 w-3.5 shrink-0" />

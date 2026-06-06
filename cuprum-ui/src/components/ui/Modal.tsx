@@ -43,11 +43,15 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-sm rounded-lg border border-border bg-card shadow-xl"
+        className="w-full max-w-md rounded-lg border border-border bg-card shadow-xl"
       >
         <div className="border-b border-border px-4 py-3 text-[13px] font-semibold text-foreground">{title}</div>
         <div className="px-4 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-border px-4 py-3">{footer}</div>}
+        {footer && (
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3">
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body,
