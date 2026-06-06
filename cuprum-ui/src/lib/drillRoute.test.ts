@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { orderNearest, planDrillRoute } from "@/lib/drillRoute";
+import { orderNearest, planDrillRoute, orderedHoleList, buildHoleToPathIndex, activeGroupForHole } from "@/lib/drillRoute";
+import type { DrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import { segIntersectsRect } from "@/lib/keepoutGeometry";
 import type { Rect } from "@/lib/keepoutGeometry";
@@ -227,5 +228,122 @@ describe("planDrillRoute with keepout zones", () => {
     const route = planDrillRoute(plan, { xMm: 0, yMm: 0 });
     expect(route.pathPoints).toHaveLength(2);
     expect(route.totalHoles).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// orderedHoleList
+// ---------------------------------------------------------------------------
+
+describe("orderedHoleList", () => {
+  it("flattens holes across groups in group order", () => {
+    const route: DrillRoute = {
+      groups: [
+        { diameterMm: 1, class: "registration", toolId: null, orderedHoles: [{ xMm: 1, yMm: 0 }, { xMm: 2, yMm: 0 }] },
+        { diameterMm: 0.8, class: "pth", toolId: "t1", orderedHoles: [{ xMm: 3, yMm: 0 }] },
+      ],
+      pathPoints: [{ xMm: 1, yMm: 0 }, { xMm: 2, yMm: 0 }, { xMm: 3, yMm: 0 }],
+      totalHoles: 3,
+      toolCount: 1,
+    };
+    const holes = orderedHoleList(route);
+    expect(holes).toHaveLength(3);
+    expect(holes.map((h) => h.xMm)).toEqual([1, 2, 3]);
+  });
+
+  it("returns empty array for empty route", () => {
+    const route: DrillRoute = { groups: [], pathPoints: [], totalHoles: 0, toolCount: 0 };
+    expect(orderedHoleList(route)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildHoleToPathIndex
+// ---------------------------------------------------------------------------
+
+describe("buildHoleToPathIndex", () => {
+  it("maps holes to their path indices, skipping waypoints", () => {
+    // pathPoints = [waypoint, holeA, holeB] where waypoint has unique coords
+    const holeA = { xMm: 10, yMm: 5 };
+    const holeB = { xMm: 20, yMm: 5 };
+    const waypoint = { xMm: 15, yMm: 0 }; // detour, not a hole
+    const route: DrillRoute = {
+      groups: [
+        { diameterMm: 0.8, class: "pth", toolId: "t1", orderedHoles: [holeA, holeB] },
+      ],
+      pathPoints: [waypoint, holeA, holeB],
+      totalHoles: 2,
+      toolCount: 1,
+    };
+    const idx = buildHoleToPathIndex(route);
+    expect(idx).toEqual([1, 2]); // holeA at path[1], holeB at path[2]
+  });
+
+  it("handles route without waypoints (indices match hole order)", () => {
+    const h0 = { xMm: 0, yMm: 0 };
+    const h1 = { xMm: 1, yMm: 0 };
+    const route: DrillRoute = {
+      groups: [{ diameterMm: 1, class: "registration", toolId: null, orderedHoles: [h0, h1] }],
+      pathPoints: [h0, h1],
+      totalHoles: 2,
+      toolCount: 0,
+    };
+    expect(buildHoleToPathIndex(route)).toEqual([0, 1]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// activeGroupForHole
+// ---------------------------------------------------------------------------
+
+describe("activeGroupForHole", () => {
+  const g0 = { diameterMm: 1, class: "registration" as const, toolId: null, orderedHoles: [{ xMm: 0, yMm: 0 }, { xMm: 1, yMm: 0 }] };
+  const g1 = { diameterMm: 0.8, class: "pth" as const, toolId: "t1", orderedHoles: [{ xMm: 2, yMm: 0 }, { xMm: 3, yMm: 0 }, { xMm: 4, yMm: 0 }] };
+  const route: DrillRoute = {
+    groups: [g0, g1],
+    pathPoints: [],
+    totalHoles: 5,
+    toolCount: 1,
+  };
+
+  it("returns first group for holeIndex=0 (first hole of g0)", () => {
+    const result = activeGroupForHole(route, 0);
+    expect(result).not.toBeNull();
+    expect(result!.gi).toBe(0);
+    expect(result!.group).toBe(g0);
+  });
+
+  it("returns first group for last hole of g0 (index=1)", () => {
+    const result = activeGroupForHole(route, 1);
+    expect(result!.gi).toBe(0);
+  });
+
+  it("returns second group for first hole of g1 (index=2)", () => {
+    const result = activeGroupForHole(route, 2);
+    expect(result!.gi).toBe(1);
+    expect(result!.group).toBe(g1);
+  });
+
+  it("returns second group for last hole of g1 (index=4)", () => {
+    const result = activeGroupForHole(route, 4);
+    expect(result!.gi).toBe(1);
+  });
+
+  it("returns null for index out of range", () => {
+    expect(activeGroupForHole(route, 5)).toBeNull();
+    expect(activeGroupForHole(route, 100)).toBeNull();
+  });
+
+  it("returns null for negative index", () => {
+    expect(activeGroupForHole(route, -1)).toBeNull();
+  });
+
+  it("returns null for holeIndex=null", () => {
+    expect(activeGroupForHole(route, null)).toBeNull();
+  });
+
+  it("returns null for empty route", () => {
+    const empty: DrillRoute = { groups: [], pathPoints: [], totalHoles: 0, toolCount: 0 };
+    expect(activeGroupForHole(empty, 0)).toBeNull();
   });
 });

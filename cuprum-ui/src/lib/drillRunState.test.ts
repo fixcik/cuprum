@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   drillRunReducer,
   initialDrillRunState,
@@ -276,12 +276,39 @@ describe("drillRunReducer", () => {
       currentHoleIndex: 3,
       toolChange: { toolName: "Сверло 1.2", diameterMm: 1.2 },
       error: "something went wrong",
+      runStartedAt: 1234567890,
     };
     const next = drillRunReducer(messy, { type: "reset" });
     expect(next).toEqual(initialDrillRunState);
   });
 
-  // 8. reducer does not mutate the input state object
+  // 8. runStartedAt is set on start and cleared on reset
+  describe("runStartedAt", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("start: sets runStartedAt to Date.now()", () => {
+      vi.setSystemTime(1_000_000);
+      const next = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+      expect(next.runStartedAt).toBe(1_000_000);
+    });
+
+    it("reset: clears runStartedAt to null", () => {
+      const running: DrillRunState = { ...initialDrillRunState, phase: "running", holesTotal: 5, runStartedAt: 999 };
+      const next = drillRunReducer(running, { type: "reset" });
+      expect(next.runStartedAt).toBeNull();
+    });
+
+    it("initialDrillRunState has runStartedAt=null", () => {
+      expect(initialDrillRunState.runStartedAt).toBeNull();
+    });
+  });
+
+  // 9. reducer does not mutate the input state object
   it("does not mutate the input state", () => {
     const original: DrillRunState = {
       ...initialDrillRunState,
@@ -289,6 +316,7 @@ describe("drillRunReducer", () => {
       holesTotal: 5,
       holesCompleted: 2,
       currentHoleIndex: 1,
+      runStartedAt: 123,
     };
     const snapshot = JSON.stringify(original);
     drillRunReducer(original, { type: "progress", holesCompleted: 3, holeIndex: 2 });

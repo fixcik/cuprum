@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { DrillClass } from "@/lib/api";
 import type { DrillPass } from "@/lib/drillPasses";
@@ -9,6 +10,8 @@ export interface DrillPassStepperProps {
   /** Block pass clicks while a run is in progress. */
   disabled?: boolean;
   onPassChange: (id: DrillPass["id"]) => void;
+  /** Pass ids that have been fully completed; renders a check in the node circle. */
+  donePassIds?: Set<DrillPass["id"]>;
 }
 
 /** Vertical 5-node process stepper: 3 clickable pass nodes + 2 fixed off-machine steps.
@@ -19,6 +22,7 @@ export function DrillPassStepper({
   counts,
   disabled,
   onPassChange,
+  donePassIds,
 }: DrillPassStepperProps) {
   const { t } = useTranslation("drill");
 
@@ -83,6 +87,7 @@ export function DrillPassStepper({
         {nodes.map((node, i) => {
           if (node.kind === "pass") {
             const isActive = node.id === activePassId;
+            const isDone = donePassIds?.has(node.id) ?? false;
             return (
               <li key={node.id}>
                 <button
@@ -101,12 +106,14 @@ export function DrillPassStepper({
                   <span
                     className={
                       "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold " +
-                      (isActive
-                        ? "border-primary bg-primary/20 text-primary"
-                        : "border-border bg-background text-muted-foreground")
+                      (isDone
+                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
+                        : isActive
+                          ? "border-primary bg-primary/20 text-primary"
+                          : "border-border bg-background text-muted-foreground")
                     }
                   >
-                    {i + 1}
+                    {isDone ? <Check className="h-3 w-3" strokeWidth={2.5} /> : i + 1}
                   </span>
 
                   {/* Label */}
