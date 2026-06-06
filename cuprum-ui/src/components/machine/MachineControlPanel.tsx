@@ -1,39 +1,77 @@
 import { useTranslation } from "react-i18next";
-import { ConnectionBar } from "@/components/machine/ConnectionBar";
+import { Fan, LocateFixed, Move, Move3d, Zap } from "lucide-react";
+import { useSettings } from "@/settingsStore";
+import { useMachine } from "@/machineStore";
+import { canMove } from "@/lib/machineControls";
+import { gotoWorkZero } from "@/lib/gotoZero";
+import { MachineToolbar } from "@/components/machine/MachineToolbar";
+import { AlarmBanner } from "@/components/machine/AlarmBanner";
+import { Card } from "@/components/machine/Card";
 import { Dro } from "@/components/machine/Dro";
 import { JogPad } from "@/components/machine/JogPad";
-import { SpindleControl } from "@/components/machine/SpindleControl";
-import { MachineControls } from "@/components/machine/MachineControls";
-import { Console } from "@/components/machine/Console";
-import { useMachine } from "@/machineStore";
+import { SpindlePanel } from "@/components/machine/SpindlePanel";
+import { QuickActions } from "@/components/machine/QuickActions";
+import { FieldPanel } from "@/components/machine/FieldPanel";
+import { ConsoleDrawer } from "@/components/machine/ConsoleDrawer";
 
-/** Live machine control surface: connection bar, alarm banner, the DRO/jog/
- *  spindle/control stack, and the console. Operates on the single current
- *  connection. Reusable as a page body or as a tab inside the equipment editor. */
-export function MachineControlPanel() {
+/** Live machine control surface, "Classic" layout: a status/connection toolbar,
+ *  the alarm banner, a fixed-width control column (coordinates / jog / spindle /
+ *  actions) beside the work-field, and a slide-in console drawer. The console
+ *  toggle lives in the editor's tab row; its state is passed in.
+ *
+ *  Keyboard jog (arrows / PgUp·PgDn / 1·2·3) is handled globally inside JogPad,
+ *  so it works whenever the panel is mounted and focus isn't in a text field. */
+export function MachineControlPanel({
+  consoleOpen = false,
+  onCloseConsole,
+}: {
+  consoleOpen?: boolean;
+  onCloseConsole?: () => void;
+}) {
   const { t } = useTranslation("machine");
-  const state = useMachine((s) => s.status.state);
+  const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
   const connected = useMachine((s) => s.connected);
+  const state = useMachine((s) => s.status.state);
+  const movable = canMove(state, connected);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ConnectionBar />
-      {connected && state === "alarm" && (
-        <div className="bg-destructive/15 px-4 py-1.5 text-xs text-destructive">{t("alarm")}</div>
-      )}
-      {/* Narrow panes (e.g. the equipment editor in a small window) stack the
-       *  controls above the console and scroll vertically; wide panes lay them
-       *  out side by side and fill the height. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:flex-row lg:overflow-hidden">
-        <div className="flex shrink-0 flex-col gap-4">
-          <Dro />
-          <JogPad />
-          <SpindleControl />
-          <MachineControls />
+      <MachineToolbar />
+      {/* relative anchors the console drawer; on narrow widths the column and
+       *  field stack and scroll, on wide (xl) they sit side by side and fill. */}
+      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 xl:flex-row xl:overflow-hidden">
+        <div className="flex flex-col gap-3 xl:w-[440px] xl:flex-none xl:overflow-auto">
+          <AlarmBanner />
+          <Card
+            title={t("dro.coordinates")}
+            icon={Move3d}
+            right={
+              <button
+                type="button"
+                title={t("dro.gotoZero")}
+                disabled={!movable}
+                onClick={() => void gotoWorkZero(["z", "x", "y"], safeZMm)}
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              >
+                <LocateFixed className="size-3.5" />
+                {t("dro.gotoZero")}
+              </button>
+            }
+          >
+            <Dro />
+          </Card>
+          <Card title={t("jog.title")} icon={Move}>
+            <JogPad />
+          </Card>
+          <Card title={t("spindle.title")} icon={Fan}>
+            <SpindlePanel />
+          </Card>
+          <Card title={t("controls.title")} icon={Zap}>
+            <QuickActions />
+          </Card>
         </div>
-        <div className="flex min-h-[16rem] flex-col lg:min-h-0 lg:flex-1">
-          <Console />
-        </div>
+        <FieldPanel className="min-h-[20rem] flex-1 xl:min-h-0" />
+        <ConsoleDrawer open={consoleOpen} onClose={() => onCloseConsole?.()} />
       </div>
     </div>
   );

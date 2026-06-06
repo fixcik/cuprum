@@ -1,20 +1,28 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Cpu, Plus, Printer, Trash2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "@/settingsStore";
 import { EditableText } from "@/components/ui/EditableText";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { newCncMachine, newUvMachine } from "@/lib/machine";
+import type { Machine } from "@/lib/machine";
+
+/** Icon per machine kind, shared by the expanded badges and the collapsed rail. */
+const KIND_ICON: Record<Machine["kind"], LucideIcon> = { cnc: Cpu, uvlcd: Printer };
 
 /** Left master pane of the equipment section: the machine library.
- *  Lists every machine with a type badge, an inline-editable name, and a delete
- *  button; the bottom holds two dashed add-buttons. */
+ *  Expanded — each machine is a row with a type badge, an inline-editable name,
+ *  and a delete button, plus two dashed add-buttons. Collapsed — a centred rail
+ *  of type icons (rename/delete are expanded-only) with a single dashed add. */
 export function MachineList({
   selectedId,
   onSelect,
+  collapsed = false,
 }: {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  collapsed?: boolean;
 }) {
   const { t } = useTranslation("settings");
   const machines = useSettings((s) => s.machines);
@@ -49,6 +57,54 @@ export function MachineList({
     addMachine(mc);
     onSelect(mc.id);
   };
+
+  const deleteDialog = (
+    <ConfirmDialog
+      open={deleteId !== null}
+      onClose={() => setDeleteId(null)}
+      onConfirm={confirmDelete}
+      title={t("equipment.confirmDelete.title")}
+      message={t("equipment.confirmDelete.message")}
+      confirmLabel={t("equipment.delete")}
+      cancelLabel={t("equipment.cancel")}
+    />
+  );
+
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-1.5 p-2">
+        {machines.map((m) => {
+          const Icon = KIND_ICON[m.kind];
+          const active = selectedId === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onSelect(m.id)}
+              title={`${t(`equipment.type.${m.kind}`)} · ${m.name}`}
+              className={`grid size-11 place-items-center rounded-md border transition-colors ${
+                active
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-5" />
+            </button>
+          );
+        })}
+        <div className="my-1 h-px w-7 bg-border" />
+        <button
+          type="button"
+          onClick={addCnc}
+          title={t("equipment.addCnc")}
+          className="grid size-11 place-items-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+        >
+          <Plus className="size-5" />
+        </button>
+        {deleteDialog}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1 p-2">
@@ -106,15 +162,7 @@ export function MachineList({
         <Plus className="size-4" /> {t("equipment.addUv")}
       </button>
 
-      <ConfirmDialog
-        open={deleteId !== null}
-        onClose={() => setDeleteId(null)}
-        onConfirm={confirmDelete}
-        title={t("equipment.confirmDelete.title")}
-        message={t("equipment.confirmDelete.message")}
-        confirmLabel={t("equipment.delete")}
-        cancelLabel={t("equipment.cancel")}
-      />
+      {deleteDialog}
     </div>
   );
 }

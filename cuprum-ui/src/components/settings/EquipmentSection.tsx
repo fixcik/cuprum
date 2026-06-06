@@ -1,11 +1,15 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { MachineList } from "@/components/settings/MachineList";
 import { MachineEditor } from "@/components/settings/MachineEditor";
 
 /** Master-detail equipment settings: the machine library on the left, the
- *  selected machine's editor on the right. */
+ *  selected machine's editor on the right. The library sidebar collapses to a
+ *  rail of type icons; its expanded/collapsed state persists in localStorage. */
 export function EquipmentSection() {
+  const { t } = useTranslation("settings");
   const machines = useSettings((s) => s.machines);
   const activeCncMachineId = useSettings((s) => s.activeCncMachineId);
   const activeUvMachineId = useSettings((s) => s.activeUvMachineId);
@@ -14,6 +18,17 @@ export function EquipmentSection() {
   const [selectedId, setSelectedId] = useState<string | null>(
     () => activeCncMachineId ?? activeUvMachineId ?? machines[0]?.id ?? null,
   );
+  // Sidebar collapse state — persisted, defaults to expanded.
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("cnc.equip") === "0",
+  );
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem("cnc.equip", next ? "0" : "1");
+      return next;
+    });
+  };
 
   // Selecting a machine also records it as the "last selected" per kind, so the
   // cncProfile shim and UV consumers (exposure) follow the user's latest choice.
@@ -37,8 +52,40 @@ export function EquipmentSection() {
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="w-56 shrink-0 overflow-auto border-r border-border bg-panel">
-        <MachineList selectedId={effectiveSelected?.id ?? null} onSelect={handleSelect} />
+      <div
+        className="flex shrink-0 flex-col overflow-hidden border-r border-border bg-panel transition-[width] duration-200 ease-out"
+        style={{ width: collapsed ? 60 : 224 }}
+      >
+        <div
+          className={`flex h-10 shrink-0 items-center border-b border-border ${
+            collapsed ? "justify-center px-1" : "px-3"
+          }`}
+        >
+          {!collapsed && (
+            <span className="text-[13px] font-semibold text-foreground">
+              {t("equipment.title")}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title={collapsed ? t("equipment.expand") : t("equipment.collapse")}
+            className="ml-auto grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-4" />
+            ) : (
+              <PanelLeftClose className="size-4" />
+            )}
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <MachineList
+            selectedId={effectiveSelected?.id ?? null}
+            onSelect={handleSelect}
+            collapsed={collapsed}
+          />
+        </div>
       </div>
       {/* The pane only lays out flex height; scroll + padding live INSIDE each
        *  editor tab so the control tab (console/jog) can fill the height. */}

@@ -22,27 +22,52 @@
     "unknown": "—"
   },
   "dro": {
-    "work": "Work",
+    "coordinates": "Coordinates",
+    "work": "Work · WPos",
     "machine": "Machine",
+    "machineShort": "mach.",
+    "wcs": "G54",
     "zeroAxis": "Zero {{axis}}",
+    "gotoAxis": "Go to work zero {{axis}}",
     "zeroAll": "Zero XYZ",
+    "gotoXY": "Go to XY",
+    "gotoZero": "Go to zero",
     "saveZero": "Save zero",
     "restoreZero": "Home + restore zero",
+    "restoreZeroShort": "Home + restore",
     "zeroSaved": "Zero saved: X{{x}} Y{{y}}",
     "homingUnavailable": "Restore unavailable: enable homing in firmware ($22=1)"
   },
+  "estop": "Stop",
+  "field": {
+    "title": "Work area",
+    "mm": "mm",
+    "clickHint": "click — go here",
+    "goConfirm": {
+      "title": "Move to position?",
+      "message": "Rapid to X{{x}} Y{{y}}. The tool will first rise to the safe height Z{{z}}, then travel.",
+      "confirm": "Move",
+      "cancel": "Cancel"
+    }
+  },
   "jog": {
     "title": "Jog",
-    "step": "Step",
-    "feed": "Feed"
+    "step": "step",
+    "stepMm": "Step, mm",
+    "feed": "Feed",
+    "feedUnit": "mm/min",
+    "gotoXY": "Go to work zero XY"
   },
   "spindle": {
     "title": "Spindle",
     "on": "On",
     "off": "Off",
-    "rpm": "RPM"
+    "rpm": "RPM",
+    "target": "Target",
+    "manual": "Manual spindle — speed not controllable"
   },
   "controls": {
+    "title": "Actions",
     "home": "Home",
     "unlock": "Unlock",
     "feedHold": "Feed hold",
@@ -54,7 +79,8 @@
     "placeholder": "G-code…",
     "send": "Send",
     "copy": "Copy log",
-    "copied": "Copied"
+    "copied": "Copied",
+    "close": "Hide console"
   },
   "alarm": "Machine in alarm — unlock or soft-reset to continue."
 }

@@ -1,44 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, Plug, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api, type SerialPortInfo, type MachineStateName } from "@/lib/api";
+import { api, type SerialPortInfo } from "@/lib/api";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 
-const STATE_TONE: Record<MachineStateName, string> = {
-  idle: "bg-emerald-500/20 text-emerald-300",
-  jog: "bg-emerald-500/20 text-emerald-300",
-  run: "bg-sky-500/20 text-sky-300",
-  hold: "bg-amber-500/20 text-amber-300",
-  home: "bg-sky-500/20 text-sky-300",
-  door: "bg-amber-500/20 text-amber-300",
-  check: "bg-muted text-muted-foreground",
-  sleep: "bg-muted text-muted-foreground",
-  alarm: "bg-destructive/20 text-destructive",
-  unknown: "bg-muted text-muted-foreground",
-};
-
-export function ConnectionBar() {
+/** Connection bar: serial port select + hot-plug refresh + connect/disconnect.
+ *  No status pill here — that lives in the toolbar. Live-refreshes the port list
+ *  while disconnected (2s poll, paused when the tab is hidden), mirroring the
+ *  original ConnectionBar. */
+export function ConnBar() {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
   const setCnc = useSettings((s) => s.setCncProfile);
   const connected = useMachine((s) => s.connected);
-  const state = useMachine((s) => s.status.state);
   const connect = useMachine((s) => s.connect);
   const disconnect = useMachine((s) => s.disconnect);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [busy, setBusy] = useState(false);
 
-  // Stable across renders (api is module-level, setPorts is a stable dispatch),
-  // so the interval/visibility handler below never capture a stale closure.
   const refresh = useCallback(() => {
     void api.machine.listPorts().then(setPorts).catch(() => setPorts([]));
   }, []);
 
-  // Live-refresh the port list on hot-plug while the Machine view is open and
-  // the machine isn't connected: poll `list_ports` (cheap) every 2s, pausing
-  // when the tab is hidden and stopping once connected or unmounted.
+  // Poll list_ports every 2s while disconnected; pause on hidden tab, stop once
+  // connected or unmounted.
   useEffect(() => {
     if (connected) return;
     refresh();
@@ -83,33 +70,40 @@ export function ConnectionBar() {
   };
 
   return (
-    <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-      <select
-        value={selectedPort}
-        disabled={connected}
-        onChange={(e) => setCnc({ port: e.target.value })}
-        className="h-8 rounded-md border border-border bg-card px-2 text-sm disabled:opacity-50"
-      >
-        {ports.length === 0 && <option value="">{t("connection.noPorts")}</option>}
-        {ports.map((p) => (
-          <option key={p.name} value={p.name}>{p.name}</option>
-        ))}
-      </select>
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <select
+          value={selectedPort}
+          disabled={connected}
+          onChange={(e) => setCnc({ port: e.target.value })}
+          className="h-9 w-[230px] appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground outline-none disabled:opacity-50"
+        >
+          {ports.length === 0 && <option value="">{t("connection.noPorts")}</option>}
+          {ports.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+      </div>
       <button
+        type="button"
         title={t("connection.refresh")}
         onClick={refresh}
         disabled={connected}
-        className="grid size-8 place-items-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-50"
+        className="grid size-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-50"
       >
         <RefreshCw className="size-4" />
       </button>
-      <Button onClick={onToggle} disabled={busy || (!connected && !selectedPort)}>
+      <Button
+        variant={connected ? "outline" : "default"}
+        onClick={onToggle}
+        disabled={busy || (!connected && !selectedPort)}
+      >
+        {connected ? <Unplug className="size-4" /> : <Plug className="size-4" />}
         {connected ? t("connection.disconnect") : t("connection.connect")}
       </Button>
-      <div className="flex-1" />
-      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATE_TONE[state]}`}>
-        {connected ? t(`state.${state}`) : t("connection.disconnected")}
-      </span>
     </div>
   );
 }

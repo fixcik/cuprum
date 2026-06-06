@@ -27,6 +27,14 @@
   /* DFM feasibility severities: warn = amber, ok = green (destructive = block). */
   --warning: 38 92% 55%;
   --success: 145 55% 48%;
+  /* Informational tone (blue) — used by CNC status pills (jog/homing). */
+  --info: 205 88% 56%;
+  /* CNC work-field backdrop (slightly darker than the card). */
+  --field: 220 16% 8%;
+  /* Per-axis accent colours for the CNC DRO / work-field (X red, Y green, Z blue). */
+  --axis-x: 6 78% 57%;
+  --axis-y: 145 55% 50%;
+  --axis-z: 205 88% 58%;
   /* Preview backdrop — matches the 3D view background (#1b1f24). */
   --pcb-preview: 213 14% 12%;
   --radius: 0.5rem;
@@ -57,10 +65,16 @@
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-warning: hsl(var(--warning));
   --color-success: hsl(var(--success));
+  --color-info: hsl(var(--info));
+  --color-field: hsl(var(--field));
+  --color-axis-x: hsl(var(--axis-x));
+  --color-axis-y: hsl(var(--axis-y));
+  --color-axis-z: hsl(var(--axis-z));
   --color-pcb-preview: hsl(var(--pcb-preview));
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 * {
@@ -172,4 +186,54 @@ html.scrolling *::-webkit-scrollbar-thumb {
   to {
     transform: scale(1);
   }
+}
+
+/* Pulsing ring for the CNC status-pill indicator dot (run / homing / jog). */
+@keyframes pulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  70% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring {
+    animation: none !important;
+  }
+}
+
+/* Console drawer entrance: slide in from the right. Honour reduced-motion. */
+.slide-in {
+  animation: cuprum-slide-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes cuprum-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slide-in {
+    animation: none;
+  }
+}
+
+/* E-Stop button glow: a soft red halo that intensifies on hover. */
+.estop-glow {
+  box-shadow: 0 0 0 0 hsl(var(--destructive) / 0.4);
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.1s ease;
+}
+.estop-glow:hover {
+  box-shadow: 0 0 22px 2px hsl(var(--destructive) / 0.55);
 }
