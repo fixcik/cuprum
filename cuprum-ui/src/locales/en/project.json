@@ -184,13 +184,20 @@
     }
   },
   "operations": {
+    "heading": "Production steps",
+    "back": "Operations",
     "placeholder": {
       "title": "Operations",
       "desc": "The process-step editor lands later."
     },
     "drill": {
       "title": "Drill panel",
-      "desc": "Preview hole positions by tool, traverse path, and tool-change markers."
+      "desc": "Preview hole positions by tool, traverse path, and tool-change markers.",
+      "status": "ready to run"
+    },
+    "future": {
+      "title": "Mill contour",
+      "badge": "coming later"
     }
   },
   "setup": {
