@@ -8,18 +8,17 @@ import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { filterPlanByClasses, classCounts, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
+import { filterPlanByClasses, classCounts, DEFAULT_SELECTED_CLASSES, DRILL_CLASSES } from "@/lib/drillPasses";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillSummary } from "@/components/drill/DrillSummary";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
 import { DrillPassSelector } from "@/components/drill/DrillPassSelector";
+import { DrillCanvasTopBar } from "@/components/drill/DrillCanvasTopBar";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { useDrillProgressRing } from "@/hooks/useDrillProgressRing";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
 import { useShell } from "@/shellStore";
-import { DATUM_CORNERS } from "@/lib/datum";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 
 /** Drill operation editor — sourceable inline (no IPC).
  *  Builds the drill snapshot directly from stores via useDrillScreenData,
@@ -61,6 +60,15 @@ export function DrillOperationEditor() {
 
   // Drill-window-owned, ephemeral selection. Default: the alignment pass.
   const [selected, setSelected] = useState<Set<DrillClass>>(DEFAULT_SELECTED_CLASSES);
+
+  // Visibility (which classes are shown on the canvas). Independent of run-selection.
+  const [visibleClasses, setVisibleClasses] = useState<Set<DrillClass>>(new Set(DRILL_CLASSES));
+  // Canvas view toggles.
+  const [showPath, setShowPath] = useState(true);
+  const [showDiameters, setShowDiameters] = useState(false);
+
+  // Selected hole on the drill canvas (key = `${gi}-${hi}`); null = none.
+  const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
 
   // Counts per class over the full (unfiltered) plan; null until plan is ready.
   const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
@@ -152,15 +160,18 @@ export function DrillOperationEditor() {
         </div>
       )}
 
-      {/* Datum-corner selector bar */}
-      <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
-        <span className="text-[11px] text-slate-500">{t("datum.label")}</span>
-        <SegmentedControl
-          options={DATUM_CORNERS.map((c) => ({ value: c, label: t(`datum.${c}`) }))}
-          value={drillDatumCorner}
-          onChange={setDrillDatumCorner}
-        />
-      </div>
+      {/* Top toolbar: datum control + visibility chips + view toggles */}
+      <DrillCanvasTopBar
+        datum={drillDatumCorner}
+        onDatumChange={setDrillDatumCorner}
+        counts={counts ?? { registration: 0, pth: 0, npth: 0, mechanical: 0 }}
+        visibleClasses={visibleClasses}
+        onVisibleClassesChange={setVisibleClasses}
+        showPath={showPath}
+        onShowPathChange={setShowPath}
+        showDiameters={showDiameters}
+        onShowDiametersChange={setShowDiameters}
+      />
 
       {/* Pass selector: preset buttons + per-class checkboxes with counts */}
       {counts && (
@@ -179,6 +190,9 @@ export function DrillOperationEditor() {
               plan={plan}
               route={route}
               selectedClasses={selected}
+              visibleClasses={visibleClasses}
+              showPath={showPath}
+              showDiameters={showDiameters}
               zones={zones}
               datum={drillDatumCorner}
               progress={{
@@ -187,6 +201,8 @@ export function DrillOperationEditor() {
               }}
               machineWork={showMarker ? machineWork : null}
               currentHoleProgress={currentHoleProgress}
+              selectedHoleId={selectedHoleId}
+              onSelectHole={setSelectedHoleId}
             />
           )}
         </div>

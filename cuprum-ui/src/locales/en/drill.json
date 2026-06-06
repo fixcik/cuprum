@@ -45,6 +45,15 @@
     "top-left": "Top-left",
     "top-right": "Top-right"
   },
+  "tool": {
+    "select": "Select",
+    "pan": "Pan (hold Space)"
+  },
+  "toolbar": {
+    "show": "Show",
+    "path": "Path",
+    "diameters": "Diameters"
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",

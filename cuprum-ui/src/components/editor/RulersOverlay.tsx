@@ -38,6 +38,12 @@ export interface RulersOverlayProps {
    *  (default) suits the panel blank; `"muted"` is a neutral dark tint for the
    *  busy design preview, where copper fought the PCB colours. */
   extentVariant?: "copper" | "muted";
+  /** When a datum corner is on the right/bottom, the displayed tick/readout value
+   *  counts away from that corner (negating the signed offset from anchorMm) so the
+   *  panel always reads 0 → W from the datum corner toward the opposite edge.
+   *  Crosshair + caret positions are NEVER changed — only the displayed number.
+   *  Default {x:false, y:false}. */
+  axisFlip?: { x: boolean; y: boolean };
 }
 
 // Copper = action/cursor (hover crosshair + ruler cursor arrows) and the blank
@@ -73,6 +79,7 @@ export function RulersOverlay({
   rulerTop = RULER_TOP,
   rulerLeft = RULER_LEFT,
   extentVariant = "copper",
+  axisFlip = { x: false, y: false },
 }: RulersOverlayProps) {
   // Strip the colons React's useId emits — they trip up `url(#…)` fragment refs
   // in some WebKit builds (WKWebView).
@@ -131,11 +138,26 @@ export function RulersOverlay({
 
   const inPlot = hover && hover.x > rulerLeft && hover.y > rulerTop;
 
+  // When a datum is on the right/bottom edge, displayed distances count from that
+  // corner toward the opposite edge. `d` is the raw distance from the anchor; the
+  // flip mirrors it against the extent span so the panel always reads 0→W / 0→H
+  // from the datum corner. Only the label/readout value changes — screen position
+  // of ticks and crosshair lines are unaffected.
+  // `d` is the SIGNED offset (mm) from the anchor (datum corner). For a flipped
+  // axis the displayed value is the distance from the datum corner toward the
+  // opposite edge, i.e. -d (points into the panel are at negative offset when the
+  // anchor is on the right/bottom). Non-flipped axes display the offset as-is.
+  const displayX = (d: number) => (axisFlip.x ? -d : d);
+  const displayY = (d: number) => (axisFlip.y ? -d : d);
+
   // Readout chip placement: nudge off the cursor, flip near the right/bottom edge.
   let readout: { x: number; y: number; w: number; text: string } | null = null;
   if (ready && inPlot && hover) {
-    // Coordinates relative to the ruler anchor, so the readout matches the labels.
-    const text = `X ${fmt(mmFromX(hover.x) - anchorMm.x)} · Y ${fmt(mmFromY(hover.y) - anchorMm.y)}`;
+    // Coordinates relative to the ruler anchor, with optional axis flip, so the
+    // readout matches the tick labels regardless of which datum corner is active.
+    const rawX = mmFromX(hover.x) - anchorMm.x;
+    const rawY = mmFromY(hover.y) - anchorMm.y;
+    const text = `X ${fmt(displayX(rawX))} · Y ${fmt(displayY(rawY))}`;
     const w = text.length * 6.2 + 16; // rough monospace-ish width estimate
     let x = hover.x + 14;
     let y = hover.y + 14;
@@ -229,7 +251,7 @@ export function RulersOverlay({
             />
             {tk.major && x > rulerLeft + 6 && (
               <text x={x + 3} y={9} style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}>
-                {fmtTick(tk.label)}
+                {fmtTick(displayX(tk.label))}
               </text>
             )}
           </g>
@@ -258,7 +280,7 @@ export function RulersOverlay({
                 textAnchor="start"
                 style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
               >
-                {fmtTick(tk.label)}
+                {fmtTick(displayY(tk.label))}
               </text>
             )}
           </g>
