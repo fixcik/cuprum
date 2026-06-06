@@ -218,6 +218,7 @@ export function DrillPlanInspector({
         machineState={machineState}
         workZeroMachineZ={workZeroMachineZ}
         safeZMm={cncProfile.safeZMm}
+        maxTravelZMm={cncProfile.workEnvelopeMm.z}
         jogStepsMm={cncProfile.jogStepsMm}
         jogFeedMmMin={cncProfile.jogFeedMmMin}
         onTouchOff={onTouchOff}

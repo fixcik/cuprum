@@ -20,6 +20,7 @@ import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero } from "@/lib/gotoZero";
+import { clampJogDelta } from "@/lib/jogClamp";
 
 const jogBtn =
   "group relative grid h-12 place-items-center rounded-lg border border-border bg-background text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground active:scale-[0.96] active:bg-primary/10 active:text-primary disabled:opacity-30 disabled:pointer-events-none";
@@ -67,11 +68,9 @@ export function JogPad() {
       if (!enabled || typeof step !== "number") return;
       const mpos = useMachine.getState().status.mpos;
       const env = cnc.workEnvelopeMm;
-      const clampDelta = (req: number, pos: number, lo: number, hi: number) =>
-        Math.min(hi, Math.max(lo, pos + req)) - pos;
-      const ax = clampDelta(dx * step, mpos[0], 0, env.x);
-      const ay = clampDelta(dy * step, mpos[1], 0, env.y);
-      const az = clampDelta(dz * step, mpos[2], -env.z, 0);
+      const ax = clampJogDelta(dx * step, mpos[0], 0, env.x);
+      const ay = clampJogDelta(dy * step, mpos[1], 0, env.y);
+      const az = clampJogDelta(dz * step, mpos[2], -env.z, 0);
       if (Math.abs(ax) < MIN_CONT_MM && Math.abs(ay) < MIN_CONT_MM && Math.abs(az) < MIN_CONT_MM)
         return;
       void api.machine.jog(ax, ay, az, cnc.jogFeedMmMin);
