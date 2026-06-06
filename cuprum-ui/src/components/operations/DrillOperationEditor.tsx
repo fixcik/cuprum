@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
@@ -87,6 +87,8 @@ export function DrillOperationEditor() {
 
   // Completed pass ids for this session (used by the stepper checkmarks).
   const [passDone, setPassDone] = useState<Set<DrillPass["id"]>>(new Set());
+  // Monotonic token to cancel a superseded feed-override step sequence.
+  const feedSeqRef = useRef(0);
 
   // Machine connection state for touch-off guards.
   const machineConnected = useMachine((s) => s.connected);
@@ -198,17 +200,25 @@ export function DrillOperationEditor() {
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
   // Apply a feed override % by resetting to 100 then nudging in ±10/±1 steps.
+  // A sequence token cancels an in-flight series if the slider is released again,
+  // so two rapid changes can't interleave into a wrong final GRBL state.
   const handleFeedChange = useCallback(async (targetPct: number) => {
     setFeedOverridePct(targetPct);
-    await api.machine.override("feed", "100");
+    const seq = ++feedSeqRef.current;
+    const step = async (action: "100" | "+10" | "-10" | "+1" | "-1") => {
+      await api.machine.override("feed", action);
+      return feedSeqRef.current === seq; // false → superseded
+    };
+    if (!(await step("100"))) return;
     let diff = targetPct - 100;
-    while (diff >= 10) { await api.machine.override("feed", "+10"); diff -= 10; }
-    while (diff <= -10) { await api.machine.override("feed", "-10"); diff += 10; }
-    while (diff >= 1) { await api.machine.override("feed", "+1"); diff -= 1; }
-    while (diff <= -1) { await api.machine.override("feed", "-1"); diff += 1; }
+    while (diff >= 10) { if (!(await step("+10"))) return; diff -= 10; }
+    while (diff <= -10) { if (!(await step("-10"))) return; diff += 10; }
+    while (diff >= 1) { if (!(await step("+1"))) return; diff -= 1; }
+    while (diff <= -1) { if (!(await step("-1"))) return; diff += 1; }
   }, []);
 
-  // Called when the operator finishes a pass: mark it done, reset Z touch-off, advance pass.
+  // Called when the operator finishes a pass: mark it done, reset Z touch-off,
+  // advance pass, and return the run to idle (so the inspector leaves RUN mode).
   const handlePassDone = useCallback(() => {
     setPassDone((prev) => new Set([...prev, activePassId]));
     setWorkZeroMachineZ(null);
@@ -217,7 +227,8 @@ export function DrillOperationEditor() {
       (p) => p.id !== activePassId && !passDone.has(p.id),
     );
     if (nextPass) setActivePassId(nextPass.id);
-  }, [activePassId, passDone]);
+    run.reset();
+  }, [activePassId, passDone, run]);
 
   // Depth-progress ring for the currently-drilling hole.
   const targetDepthMm = substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM;

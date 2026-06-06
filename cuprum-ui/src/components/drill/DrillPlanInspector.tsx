@@ -163,6 +163,25 @@ export function DrillPlanInspector({
         </span>
       </div>
 
+      {/* Run-error banner (PLAN mode): surfaces why the last run stopped. */}
+      {run.state.phase === "error" && run.state.error && (
+        <div className="flex items-start gap-2 border-b border-rose-500/40 bg-rose-500/10 px-4 py-2 text-[11px] text-rose-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <div>{run.state.error}</div>
+            <div className="text-rose-300/70">{t("run.errorHint")}</div>
+          </div>
+          <button
+            type="button"
+            aria-label={t("hole.clear")}
+            onClick={() => run.reset()}
+            className="shrink-0 text-rose-300/70 hover:text-rose-200"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {mode === "run" ? (
         /* ── RUN mode ── */
         <DrillRunInspector
