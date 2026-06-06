@@ -57,8 +57,9 @@ export interface DrillMapCanvasProps {
   /** Optional live-run progress for highlight overlay. When absent the canvas
    *  renders exactly as it did before (no visual change). */
   progress?: { holesCompleted: number; currentHoleIndex: number | null };
-  /** Live machine WORK position (mm), or null to hide the marker. */
-  machineWork?: { x: number; y: number } | null;
+  /** Live machine WORK position (mm), or null to hide the marker. Optional z is
+   *  shown in the marker readout. */
+  machineWork?: { x: number; y: number; z?: number } | null;
   /** Which panel corner is machine (0,0). Defaults to "bottom-left". */
   datum?: DatumCorner;
   /** Set of drill classes selected for this run. Holes whose class is NOT in this
@@ -304,6 +305,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                 screenY={offsetY + p.yMm * fit}
                 workX={machineWork.x}
                 workY={machineWork.y}
+                workZ={machineWork.z}
               />
             );
           })()}
