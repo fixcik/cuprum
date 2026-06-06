@@ -15,7 +15,7 @@ import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
 import { DrillCanvasTopBar } from "@/components/drill/DrillCanvasTopBar";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
-import { useDrillProgressRing } from "@/hooks/useDrillProgressRing";
+import { useDrillPhaseProgress } from "@/hooks/useDrillPhaseProgress";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
 import { useShell } from "@/shellStore";
@@ -253,13 +253,15 @@ export function DrillOperationEditor() {
     run.reset();
   }, [activePassId, passDone, run]);
 
-  // Depth-progress ring for the currently-drilling hole.
+  // Three-phase progress ring (descent / drilling / retract) for the
+  // currently-drilling hole.
   const targetDepthMm = substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM;
-  const currentHoleProgress = useDrillProgressRing({
+  const currentHolePhase = useDrillPhaseProgress({
     active: run.state.phase === "running" && run.state.currentHoleIndex !== null,
     currentHoleIndex: run.state.currentHoleIndex,
     zMm: machineWork?.z ?? null,
-    targetDepthMm,
+    depthMm: targetDepthMm,
+    safeZMm: cncProfile?.safeZMm ?? 5,
   });
 
   // hasAnyHoles: whether the FULL plan has any holes (independent of selection).
@@ -324,7 +326,7 @@ export function DrillOperationEditor() {
                 currentHoleIndex: run.state.currentHoleIndex,
               }}
               machineWork={showMarker ? machineWork : null}
-              currentHoleProgress={currentHoleProgress}
+              currentHolePhase={currentHolePhase}
               selectedHoleId={selectedHoleId}
               onSelectHole={setSelectedHoleId}
             />

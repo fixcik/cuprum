@@ -6,10 +6,3 @@ export function holeDepthFraction(zMm: number, targetDepthMm: number): number {
   const f = -zMm / targetDepthMm;
   return f <= 0 ? 0 : f > 1 ? 1 : f;
 }
-
-/** Monotonic per-hole progress: the deepest fraction reached so far. Keeps the
- *  ring from emptying on retract (G0 Z safe) or between peck passes. */
-export function nextMaxFraction(prevMax: number, zMm: number, targetDepthMm: number): number {
-  const f = holeDepthFraction(zMm, targetDepthMm);
-  return f > prevMax ? f : prevMax;
-}

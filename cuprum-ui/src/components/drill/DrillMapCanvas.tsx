@@ -7,6 +7,8 @@ import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import { buildHoleToPathIndex } from "@/lib/drillRoute";
 import type { DrillClass } from "@/lib/api";
+import type { PhaseProgress } from "@/lib/drillPhaseProgress";
+import { PHASE_COLORS } from "@/lib/drillPhaseProgress";
 import { MachineMarker } from "./MachineMarker";
 import { workPosToPanel } from "@/lib/machineMarker";
 import { type DatumCorner, datumCornerPanelPoint } from "@/lib/datum";
@@ -95,9 +97,9 @@ export interface DrillMapCanvasProps {
   /** Whether to render a diameter label near the first hole of each visible group.
    *  Defaults to false. */
   showDiameters?: boolean;
-  /** Smoothed 0..1 depth-progress fraction for the currently-drilling hole.
-   *  Drives the filling Arc rendered around that hole. */
-  currentHoleProgress?: number;
+  /** Smoothed three-phase progress (descent / drilling / retract) for the
+   *  currently-drilling hole. Drives the three coloured ring segments around it. */
+  currentHolePhase?: PhaseProgress;
   /** Called on every viewport change (pan, zoom, animate frame) so Task 2 rulers
    *  can follow the canvas transform without prop drilling into the Stage. */
   onViewportChange?: (v: Viewport) => void;
@@ -112,7 +114,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, visibleClasses, showPath = true, showDiameters = false, currentHoleProgress, onViewportChange, selectedHoleId, onSelectHole }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, visibleClasses, showPath = true, showDiameters = false, currentHolePhase, onViewportChange, selectedHoleId, onSelectHole }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   // Ref to the fit-group for pointer → mm coordinate conversion.
@@ -579,34 +581,49 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                           listening={false}
                         />
                       )}
-                      {/* Faint full-circle track + depth-progress arc for the currently-drilling hole.
-                          Both live in mm-space with strokeScaleEnabled=false so they scale correctly
-                          under zoom (no screen-space conversion needed). */}
-                      {showCurrent && (
-                        <>
-                          <Circle
-                            x={h.xMm}
-                            y={h.yMm}
-                            radius={r + 0.6}
-                            stroke="#22c55e"
-                            strokeWidth={2}
-                            strokeScaleEnabled={false}
-                            opacity={0.25}
-                            fill={undefined}
-                            listening={false}
-                          />
-                          <Arc
-                            x={h.xMm}
-                            y={h.yMm}
-                            innerRadius={r + 0.45}
-                            outerRadius={r + 0.75}
-                            angle={360 * Math.max(0, Math.min(1, currentHoleProgress ?? 0))}
-                            rotation={-90}
-                            fill="#22c55e"
-                            listening={false}
-                          />
-                        </>
-                      )}
+                      {/* Three-phase progress ring for the currently-drilling hole:
+                          descent / drilling / retract, each a 120° segment with a
+                          faint track and a fill proportional to that phase. All in
+                          mm-space with strokeScaleEnabled=false so they scale under
+                          zoom (no screen-space conversion needed). */}
+                      {showCurrent &&
+                        (["descent", "drilling", "retract"] as const).map((ph, si) => {
+                          const frac = Math.max(
+                            0,
+                            Math.min(1, currentHolePhase?.[ph] ?? 0),
+                          );
+                          // Segment si occupies [−90 + si·120, +120). Clockwise fill.
+                          const segStart = -90 + si * 120;
+                          return (
+                            <Group key={ph} listening={false}>
+                              {/* Faint full-segment track */}
+                              <Arc
+                                x={h.xMm}
+                                y={h.yMm}
+                                innerRadius={r + 0.45}
+                                outerRadius={r + 0.75}
+                                angle={120}
+                                rotation={segStart}
+                                fill={PHASE_COLORS[ph]}
+                                opacity={0.18}
+                                listening={false}
+                              />
+                              {/* Fill proportional to the phase fraction */}
+                              {frac > 0 && (
+                                <Arc
+                                  x={h.xMm}
+                                  y={h.yMm}
+                                  innerRadius={r + 0.45}
+                                  outerRadius={r + 0.75}
+                                  angle={120 * frac}
+                                  rotation={segStart}
+                                  fill={PHASE_COLORS[ph]}
+                                  listening={false}
+                                />
+                              )}
+                            </Group>
+                          );
+                        })}
                       {/* Hole circle */}
                       <Circle
                         x={h.xMm}
