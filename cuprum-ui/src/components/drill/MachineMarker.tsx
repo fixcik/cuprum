@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Group, Line, Circle, Text } from "react-konva";
 import Konva from "konva";
 
@@ -31,7 +31,10 @@ export function MachineMarker({ xMm, yMm, pxPerMm, workX, workY, workZ, color = 
   const ref = useRef<Konva.Group>(null);
   const seeded = useRef(false);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): seed the position synchronously before the
+  // browser paints, so the marker never flashes at the group origin (0,0) on first
+  // mount before snapping to its real spot.
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
     if (!seeded.current) {
