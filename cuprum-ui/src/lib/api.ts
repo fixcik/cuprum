@@ -40,6 +40,8 @@ export interface MachineStatus {
   wpos: [number, number, number];
   feed: number;
   spindle: number;
+  /** Override percentages [feed, rapid, spindle]; defaults to 100 % each. */
+  overrides?: [number, number, number];
 }
 
 /** Payload of the global `machine://status` event (machine.rs `MachinePos`). */
@@ -593,6 +595,10 @@ export const api = {
     softReset: () => invoke<void>("machine_soft_reset"),
     feedHold: () => invoke<void>("machine_feed_hold"),
     cycleStart: () => invoke<void>("machine_cycle_start"),
+    override: (
+      kind: "feed" | "rapid" | "spindle",
+      action: "100" | "+10" | "-10" | "+1" | "-1" | "stop",
+    ) => invoke<void>("machine_override", { kind, action }),
     spindle: (on: boolean, rpm: number) => invoke<void>("machine_spindle", { on, rpm }),
     send: (line: string) => invoke<void>("machine_send", { line }),
     onConnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://connected", () => cb()),

@@ -11,6 +11,7 @@ const IDLE_STATUS: MachineStatus = {
   wpos: [0, 0, 0],
   feed: 0,
   spindle: 0,
+  overrides: [100, 100, 100],
 };
 
 interface MachineStore {
@@ -37,8 +38,8 @@ export const useMachine = create<MachineStore>((set, get) => ({
     const ch = new Channel<Telemetry>();
     ch.onmessage = (msg) => {
       if (msg.type === "status") {
-        const { state, mpos, wpos, feed, spindle } = msg;
-        get().setStatus({ state, mpos, wpos, feed, spindle });
+        const { state, mpos, wpos, feed, spindle, overrides = [100, 100, 100] } = msg;
+        get().setStatus({ state, mpos, wpos, feed, spindle, overrides });
       } else {
         get().pushLine({ dir: msg.dir, text: msg.text });
         // Scan firmware settings lines for homing-enable ($22).
