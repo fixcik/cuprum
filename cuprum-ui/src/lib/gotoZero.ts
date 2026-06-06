@@ -8,12 +8,18 @@ import { api } from "@/lib/api";
  *
  *  Sends are awaited in order so the safe-Z lift is dispatched before the XY
  *  traverse even if the transport were ever reordered; a failed send is logged
- *  rather than left as an unhandled rejection. Callers may fire-and-forget. */
+ *  rather than left as an unhandled rejection. Callers may fire-and-forget.
+ *
+ *  Requires a homed machine: G53 references the machine frame, which is only
+ *  meaningful after `$H`. The `homed` guard makes that contract enforceable here,
+ *  not just in the callers' disabled-state. */
 export async function gotoWorkZero(
   axes: ReadonlyArray<"x" | "y" | "z">,
   machineSafeZMm: number,
   currentMachineZ: number,
+  homed: boolean,
 ): Promise<void> {
+  if (!homed) return;
   const wantX = axes.includes("x");
   const wantY = axes.includes("y");
   const wantZ = axes.includes("z");

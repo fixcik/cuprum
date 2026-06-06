@@ -56,7 +56,7 @@ export function MachineControlPanel({
                 type="button"
                 title={canAutoMove ? t("dro.gotoZero") : t("controls.homeFirst")}
                 disabled={!canAutoMove}
-                onClick={() => void gotoWorkZero(["z", "x", "y"], machineSafeZMm, machineZ)}
+                onClick={() => void gotoWorkZero(["z", "x", "y"], machineSafeZMm, machineZ, canAutoMove)}
                 className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
               >
                 <LocateFixed className="size-3.5" />

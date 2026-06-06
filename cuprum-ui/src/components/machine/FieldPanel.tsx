@@ -37,10 +37,19 @@ export function FieldPanel({ className }: { className?: string }) {
   const [pending, setPending] = useState<PendingMove | null>(null);
 
   async function move(x: number, y: number, raiseFirst: boolean) {
-    // Retract in MACHINE coordinates (G53) so a low work zero can't drive Z
-    // above the top limit switch.
-    if (raiseFirst) await api.machine.send(`G53 G0 Z${machineSafeZMm}`);
-    await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
+    // Re-validate live state: the machine may have disconnected / alarmed / lost
+    // homing between the click and the confirm. Bail rather than send into an
+    // unsafe state.
+    const m = useMachine.getState();
+    if (!m.connected || !m.homed || !canMove(m.status.state, m.connected)) return;
+    try {
+      // Retract in MACHINE coordinates (G53) so a low work zero can't drive Z
+      // above the top limit switch.
+      if (raiseFirst) await api.machine.send(`G53 G0 Z${machineSafeZMm}`);
+      await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
+    } catch (e) {
+      console.error("field move failed", e);
+    }
   }
 
   /** Field click: move straight away when already clear of stock (machine

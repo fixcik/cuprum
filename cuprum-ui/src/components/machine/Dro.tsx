@@ -85,7 +85,7 @@ function AxisRow({
           type="button"
           title={canAutoMove ? t("dro.gotoAxis", { axis: label }) : t("controls.homeFirst")}
           disabled={!movable || !canAutoMove}
-          onClick={() => void gotoWorkZero([axis], machineSafeZMm, machineZ)}
+          onClick={() => void gotoWorkZero([axis], machineSafeZMm, machineZ, canAutoMove)}
           className="grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           <LocateFixed className="size-3.5" />
@@ -166,7 +166,7 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
           variant="secondary"
           disabled={!canAutoMove}
           title={canAutoMove ? undefined : t("controls.homeFirst")}
-          onClick={() => void gotoWorkZero(["x", "y"], machineSafeZMm, status.mpos[2])}
+          onClick={() => void gotoWorkZero(["x", "y"], machineSafeZMm, status.mpos[2], canAutoMove)}
         >
           <LocateFixed />
           {t("dro.gotoXY")}

@@ -238,7 +238,7 @@ export function JogPad() {
             type="button"
             title={canAutoMove ? t("jog.gotoXY") : t("controls.homeFirst")}
             disabled={!canAutoMove}
-            onClick={() => void gotoWorkZero(["x", "y"], cnc.machineSafeZMm, machineZ)}
+            onClick={() => void gotoWorkZero(["x", "y"], cnc.machineSafeZMm, machineZ, canAutoMove)}
             className="grid h-12 place-items-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-30"
           >
             <LocateFixed className="size-5" />
