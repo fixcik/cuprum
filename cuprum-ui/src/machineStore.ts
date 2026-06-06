@@ -37,6 +37,10 @@ interface MachineStore {
   reset: () => void;
 }
 
+// Partial accumulator for $130/$131/$132 — filled as the $$ lines stream in;
+// reset on connect/disconnect. maxTravelMm is only published once all three are in.
+let travelBuf: [number | null, number | null, number | null] = [null, null, null];
+
 export const useMachine = create<MachineStore>((set, get) => ({
   connected: false,
   port: null,
@@ -60,15 +64,16 @@ export const useMachine = create<MachineStore>((set, get) => ({
         // Soft-limits enable ($20).
         const soft = parseSoftLimitsEnabled(msg.text);
         if (soft !== null) set({ softLimitsEnabled: soft });
-        // Max travel per axis ($130/$131/$132) — accumulate into the [X,Y,Z] tuple.
+        // Max travel per axis ($130/$131/$132). Accumulate into a partial buffer
+        // and only publish the [X,Y,Z] tuple once ALL three axes are known, so the
+        // soft-limit mismatch notice can't flash on a half-filled tuple.
         const travel = parseMaxTravel(msg.text);
         if (travel !== null)
-          set((s) => {
-            const next: [number, number, number] = s.maxTravelMm
-              ? [...s.maxTravelMm]
-              : [0, 0, 0];
-            next[travel.axis] = travel.value;
-            return { maxTravelMm: next };
+          set(() => {
+            travelBuf[travel.axis] = travel.value;
+            const [x, y, z] = travelBuf;
+            if (x !== null && y !== null && z !== null) return { maxTravelMm: [x, y, z] };
+            return {};
           });
       }
     };
@@ -76,6 +81,7 @@ export const useMachine = create<MachineStore>((set, get) => ({
     // A fresh connection has not been homed yet; require a homing cycle before
     // machine-coordinate auto-moves are allowed. Soft-limit state is unknown
     // until the following $$ query reports it.
+    travelBuf = [null, null, null];
     set({ connected: true, port, homed: false, softLimitsEnabled: null, maxTravelMm: null });
     // Query firmware settings to detect homing support ($22).
     await api.machine.send("$$");
@@ -102,7 +108,8 @@ export const useMachine = create<MachineStore>((set, get) => ({
     }),
   // Keep `lines` so the user still sees why the connection dropped (e.g. the
   // error line pushed just before an unplug). Connection state + DRO reset.
-  reset: () =>
+  reset: () => {
+    travelBuf = [null, null, null];
     set({
       connected: false,
       port: null,
@@ -111,5 +118,6 @@ export const useMachine = create<MachineStore>((set, get) => ({
       softLimitsEnabled: null,
       maxTravelMm: null,
       homed: false,
-    }),
+    });
+  },
 }));
