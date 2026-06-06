@@ -11,7 +11,8 @@ import type { Tool } from "@/lib/toolLibrary";
 import type { CncProfile } from "@/lib/cncProfile";
 import { DrillPassStepper } from "@/components/drill/DrillPassStepper";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
-import { DrillSummary } from "@/components/drill/DrillSummary";
+import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
+import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
 
@@ -25,8 +26,10 @@ export interface DrillPlanInspectorProps {
   /** Steps for the DrillRunPanel (from the emitted program). */
   programSteps: DrillStep[];
   onStart: () => void;
-  /** Set/clear the class override for a diameter (forwarded to DrillSummary). */
+  /** Set/clear the class override for a diameter (forwarded to DrillToolsOrder). */
   onSetClass: (diameterMm: number, klass: DrillClass | null) => void;
+  /** Override the drill bit (toolId) for a diameter key (forwarded to DrillToolsOrder). */
+  onSetBitOverride: (diameterKey: string, toolId: string) => void;
   /** Currently selected hole key (`${gi}-${hi}`); null = none. */
   selectedHoleId: string | null;
   /** Called when the user clears the hole selection from the card. */
@@ -55,6 +58,7 @@ export function DrillPlanInspector({
   programSteps,
   onStart,
   onSetClass,
+  onSetBitOverride,
   selectedHoleId,
   onClearHole,
   datum,
@@ -129,8 +133,16 @@ export function DrillPlanInspector({
       {/* Run panel (temporary — will become its own card in a later task) */}
       <DrillRunPanel steps={programSteps} run={run} onStart={onStart} />
 
-      {/* Summary (temporary — will become its own card in a later task) */}
-      <DrillSummary plan={plan} route={route} onSetClass={onSetClass} />
+      {/* Tools order list with class + bit override */}
+      <DrillToolsOrder
+        route={route}
+        tools={tools}
+        onSetClass={onSetClass}
+        onSetBitOverride={onSetBitOverride}
+      />
+
+      {/* Warnings: unmatched diameters, keepout-skipped, registration-in-keepout */}
+      <DrillWarnings plan={plan} />
     </aside>
   );
 }

@@ -31,6 +31,10 @@ export function DrillOperationEditor() {
   // after filtering by the selected class set).
   const { plan, loading } = useDrillPlan(snap);
 
+  // Ephemeral bit overrides: diameterKey (String(Math.round(d*1000))) → toolId.
+  // These patch the filteredPlan so both route and program use the override.
+  const [bitOverrides, setBitOverrides] = useState<Map<string, string>>(new Map());
+
   const panel = snap?.manifest?.panel ?? null;
   const hasProject = !!(snap?.workingDir && snap.manifest);
 
@@ -79,20 +83,34 @@ export function DrillOperationEditor() {
     [plan, selected],
   );
 
-  // Route computed from the filtered plan; null while plan/panel unavailable.
+  // Apply bit overrides: patch toolId on each group whose diameterKey has an override.
+  const filteredPlanWithOverrides = useMemo(() => {
+    if (!filteredPlan) return null;
+    if (bitOverrides.size === 0) return filteredPlan;
+    return {
+      ...filteredPlan,
+      groups: filteredPlan.groups.map((g) => {
+        const key = String(Math.round(g.diameterMm * 1000));
+        const overrideToolId = bitOverrides.get(key);
+        return overrideToolId ? { ...g, toolId: overrideToolId } : g;
+      }),
+    };
+  }, [filteredPlan, bitOverrides]);
+
+  // Route computed from the filtered plan (with overrides); null while plan/panel unavailable.
   const route = useMemo(() => {
-    if (!filteredPlan || !panel) return null;
+    if (!filteredPlanWithOverrides || !panel) return null;
     const start = datumCornerPanelPoint(drillDatumCorner, panel.width_mm, panel.height_mm);
-    return planDrillRoute(filteredPlan, start, zones);
-  }, [filteredPlan, panel, drillDatumCorner, zones]);
+    return planDrillRoute(filteredPlanWithOverrides, start, zones);
+  }, [filteredPlanWithOverrides, panel, drillDatumCorner, zones]);
 
   // Build the drill program (G-code + steps) from the filtered plan. `startMachineXY`
   // (omitted for the preview) makes the first traverse avoid keep-out zones from the
   // bit's real position at run start.
   const buildProgram = useCallback(
     (startMachineXY?: { x: number; y: number }) => {
-      if (!filteredPlan || !panel || !cncProfile) return null;
-      return emitDrillProgram(filteredPlan, {
+      if (!filteredPlanWithOverrides || !panel || !cncProfile) return null;
+      return emitDrillProgram(filteredPlanWithOverrides, {
         panelHeightMm: panel.height_mm,
         panelWidthMm: panel.width_mm,
         datumCorner: drillDatumCorner,
@@ -103,7 +121,7 @@ export function DrillOperationEditor() {
         startMachineXY,
       });
     },
-    [filteredPlan, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
+    [filteredPlanWithOverrides, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
   );
 
   // Preview program (steps for display + canvas); ordered from the datum corner.
@@ -203,9 +221,9 @@ export function DrillOperationEditor() {
         </div>
 
         {/* Inspector sidebar; always shown once plan is available */}
-        {filteredPlan && route && counts && panel && cncProfile && (
+        {filteredPlanWithOverrides && route && counts && panel && cncProfile && (
           <DrillPlanInspector
-            plan={filteredPlan}
+            plan={filteredPlanWithOverrides}
             route={route}
             counts={counts}
             activePassId={activePassId}
@@ -215,6 +233,9 @@ export function DrillOperationEditor() {
             onStart={handleStart}
             onSetClass={(dMm, klass) =>
               void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
+            }
+            onSetBitOverride={(diameterKey, toolId) =>
+              setBitOverrides((m) => new Map(m).set(diameterKey, toolId))
             }
             selectedHoleId={selectedHoleId}
             onClearHole={() => setSelectedHoleId(null)}

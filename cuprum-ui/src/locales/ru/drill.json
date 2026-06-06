@@ -72,6 +72,15 @@
     "travel": "Холостой ход",
     "changes": "Смен сверла"
   },
+  "toolsOrder": {
+    "title": "Инструменты · порядок",
+    "bitChanges_one": "{{count}} смена сверла",
+    "bitChanges_few": "{{count}} смены свёрл",
+    "bitChanges_many": "{{count}} смен свёрл",
+    "bitChanges_other": "{{count}} смен свёрл",
+    "noBit": "Нет сверла {{diameter}}",
+    "takeBit": "взять {{diameter}}"
+  },
   "run": {
     "start": "Пуск",
     "pause": "Пауза",

@@ -72,6 +72,15 @@
     "travel": "Jog distance",
     "changes": "Bit changes"
   },
+  "toolsOrder": {
+    "title": "Tools · order",
+    "bitChanges_one": "{{count}} bit change",
+    "bitChanges_few": "{{count}} bit changes",
+    "bitChanges_many": "{{count}} bit changes",
+    "bitChanges_other": "{{count}} bit changes",
+    "noBit": "No bit for {{diameter}}",
+    "takeBit": "use {{diameter}}"
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",
