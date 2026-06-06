@@ -96,6 +96,32 @@
     "notZeroed": "Touch off required before starting.",
     "notZeroedHint": "Set Z-zero before starting"
   },
+  "runHeader": {
+    "drilling": "Drilling…",
+    "paused": "Paused",
+    "toolChange": "Tool change",
+    "done": "Done",
+    "elapsed": "{{elapsed}} · ~{{remaining}}"
+  },
+  "toolChange": {
+    "title": "Insert next drill bit",
+    "install": "Install Ø{{diameter}}",
+    "step1": "Retract the collet and remove the current bit",
+    "step2": "Insert the new bit and tighten the collet",
+    "step3": "Resume — the machine will re-probe Z",
+    "confirm": "Confirm & continue"
+  },
+  "finish": {
+    "title_one": "Done · {{count}} hole · {{time}}",
+    "title_few": "Done · {{count}} holes · {{time}}",
+    "title_many": "Done · {{count}} holes · {{time}}",
+    "title_other": "Done · {{count}} holes · {{time}}",
+    "dismiss": "Dismiss"
+  },
+  "feed": {
+    "label": "Feed override",
+    "grbl": "GRBL: {{pct}}%"
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",
