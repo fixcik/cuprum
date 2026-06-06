@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -30,9 +30,11 @@ export function ConnectionBar() {
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const refresh = () => {
+  // Stable across renders (api is module-level, setPorts is a stable dispatch),
+  // so the interval/visibility handler below never capture a stale closure.
+  const refresh = useCallback(() => {
     void api.machine.listPorts().then(setPorts).catch(() => setPorts([]));
-  };
+  }, []);
 
   // Live-refresh the port list on hot-plug while the Machine view is open and
   // the machine isn't connected: poll `list_ports` (cheap) every 2s, pausing
@@ -63,7 +65,7 @@ export function ConnectionBar() {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [connected]);
+  }, [connected, refresh]);
 
   const selectedPort = cnc.port ?? ports[0]?.name ?? "";
 
