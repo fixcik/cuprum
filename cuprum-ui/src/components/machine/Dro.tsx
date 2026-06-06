@@ -28,17 +28,20 @@ function AxisRow({
   machine,
   size,
   movable,
-  safeZMm,
-  workZ,
+  canAutoMove,
+  machineSafeZMm,
+  machineZ,
 }: {
   axis: Axis;
   work: number;
   machine: number;
   size: "md" | "lg";
   movable: boolean;
-  safeZMm: number;
-  /** Current work-Z, so the goto can skip the safe-Z lift when already clear. */
-  workZ: number;
+  /** Whether machine-coordinate auto-moves (G53 retract) are allowed (homed). */
+  canAutoMove: boolean;
+  machineSafeZMm: number;
+  /** Current machine-Z, so the goto can skip the safe-Z lift when already clear. */
+  machineZ: number;
 }) {
   const { t } = useTranslation("machine");
   const label = AXIS_LABEL[axis];
@@ -80,9 +83,9 @@ function AxisRow({
         </button>
         <button
           type="button"
-          title={t("dro.gotoAxis", { axis: label })}
-          disabled={!movable}
-          onClick={() => void gotoWorkZero([axis], safeZMm, workZ)}
+          title={canAutoMove ? t("dro.gotoAxis", { axis: label }) : t("controls.homeFirst")}
+          disabled={!movable || !canAutoMove}
+          onClick={() => void gotoWorkZero([axis], machineSafeZMm, machineZ, canAutoMove)}
           className="grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           <LocateFixed className="size-3.5" />
@@ -102,12 +105,16 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
   const homingAvailable = useMachine((s) => s.homingAvailable);
+  const homed = useMachine((s) => s.homed);
   const cncProfile = useSettings((s) => s.cncProfile);
   const setCncProfile = useSettings((s) => s.setCncProfile);
   // Zeroing sets the WCS — GRBL rejects it outside Idle/Jog, so gate it with the
   // same canMove() used for jog/home/spindle rather than just `connected`.
   const movable = canMove(state, connected);
-  const { workZeroMm, safeZMm } = cncProfile;
+  // Machine-coordinate auto-moves (G53 retracts) additionally require a homed
+  // frame — otherwise the safe-Z target is meaningless.
+  const canAutoMove = movable && homed;
+  const { workZeroMm, machineSafeZMm } = cncProfile;
 
   function handleSaveZero() {
     setCncProfile({ workZeroMm: workZeroFromStatus(status.mpos, status.wpos) });
@@ -140,8 +147,9 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
           machine={status.mpos[AXIS_INDEX[axis]]}
           size={size}
           movable={movable}
-          safeZMm={safeZMm}
-          workZ={status.wpos[2]}
+          canAutoMove={canAutoMove}
+          machineSafeZMm={machineSafeZMm}
+          machineZ={status.mpos[2]}
         />
       ))}
 
@@ -156,8 +164,9 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
         </Button>
         <Button
           variant="secondary"
-          disabled={!movable}
-          onClick={() => void gotoWorkZero(["x", "y"], safeZMm, status.wpos[2])}
+          disabled={!canAutoMove}
+          title={canAutoMove ? undefined : t("controls.homeFirst")}
+          onClick={() => void gotoWorkZero(["x", "y"], machineSafeZMm, status.mpos[2], canAutoMove)}
         >
           <LocateFixed />
           {t("dro.gotoXY")}
@@ -181,6 +190,10 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
 
       {connected && !homingAvailable && workZeroMm && (
         <div className="mt-1 px-2 text-[11px] text-muted-foreground">{t("dro.homingUnavailable")}</div>
+      )}
+
+      {connected && !homed && (
+        <div className="mt-1 px-2 text-[11px] text-amber-500">{t("dro.notHomed")}</div>
       )}
     </div>
   );

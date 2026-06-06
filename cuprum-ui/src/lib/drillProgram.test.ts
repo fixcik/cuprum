@@ -15,7 +15,7 @@ const profile = (over: Partial<CncProfile> = {}): CncProfile => ({
   name: "t", port: null, baud: 115200, jogFeedMmMin: 500, jogStepsMm: [1],
   workEnvelopeMm: { x: 300, y: 180, z: 45 }, spindleMaxRpm: 9000,
   spindleControllable: true, spindleHasPwm: true, gcodeDialect: "grbl_1_1",
-  safeZMm: 5, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+  safeZMm: 5, machineSafeZMm: -1, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
   prependGcode: "", appendGcode: "", workZeroMm: null, ...over,
 });
 const plan = (groups: PanelDrillPlan["groups"]): PanelDrillPlan => ({
@@ -107,7 +107,7 @@ describe("emitDrillGcode keepOutZones", () => {
     name: "t", port: null, baud: 115200, jogFeedMmMin: 500, jogStepsMm: [1],
     workEnvelopeMm: { x: 300, y: 180, z: 45 }, spindleMaxRpm: 9000,
     spindleControllable: true, spindleHasPwm: true, gcodeDialect: "grbl_1_1",
-    safeZMm: 5, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+    safeZMm: 5, machineSafeZMm: -1, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
     prependGcode: "", appendGcode: "", workZeroMm: null, ...over,
   });
 
@@ -207,7 +207,7 @@ describe("emitDrillGcode datum corner", () => {
     name: "t", port: null, baud: 115200, jogFeedMmMin: 500, jogStepsMm: [1],
     workEnvelopeMm: { x: 300, y: 180, z: 45 }, spindleMaxRpm: 9000,
     spindleControllable: true, spindleHasPwm: true, gcodeDialect: "grbl_1_1",
-    safeZMm: 5, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+    safeZMm: 5, machineSafeZMm: -1, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
     prependGcode: "", appendGcode: "", workZeroMm: null,
   });
   const tp = (holes: { xMm: number; yMm: number }[]): PanelDrillPlan => ({
