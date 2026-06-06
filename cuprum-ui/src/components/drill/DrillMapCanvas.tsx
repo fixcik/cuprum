@@ -84,6 +84,16 @@ export interface DrillMapCanvasProps {
   /** Set of drill classes selected for this run. Holes whose class is NOT in this
    *  set are drawn as a dim base layer so the operator can see what is excluded. */
   selectedClasses?: Set<DrillClass>;
+  /** Set of drill classes that are VISIBLE on the canvas. Holes whose class is NOT
+   *  in this set are skipped entirely (not rendered). Defaults to all classes visible.
+   *  Independent of selectedClasses: a class can be visible-but-dimmed (in visibleClasses
+   *  but not in selectedClasses) or hidden entirely (not in visibleClasses). */
+  visibleClasses?: Set<DrillClass>;
+  /** Whether to render the traverse path line. Defaults to true. */
+  showPath?: boolean;
+  /** Whether to render a diameter label near the first hole of each visible group.
+   *  Defaults to false. */
+  showDiameters?: boolean;
   /** Smoothed 0..1 depth-progress fraction for the currently-drilling hole.
    *  Drives the filling Arc rendered around that hole. */
   currentHoleProgress?: number;
@@ -101,7 +111,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, currentHoleProgress, onViewportChange, selectedHoleId, onSelectHole }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, visibleClasses, showPath = true, showDiameters = false, currentHoleProgress, onViewportChange, selectedHoleId, onSelectHole }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   // Ref to the fit-group for pointer → mm coordinate conversion.
@@ -379,8 +389,8 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
               />
             ))}
 
-            {/* Traverse path drawn UNDER the holes. */}
-            {pathFlat.length >= 4 && (
+            {/* Traverse path drawn UNDER the holes. Hidden when showPath is false. */}
+            {showPath && pathFlat.length >= 4 && (
               <Line
                 points={pathFlat}
                 stroke="rgba(255,255,255,0.12)"
@@ -392,10 +402,16 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
               />
             )}
 
-            {/* Dim base layer: holes excluded from the current selection. */}
+            {/* Dim base layer: holes in visibleClasses but NOT in selectedClasses.
+                Holes not in visibleClasses are skipped entirely (not rendered at all). */}
             {selectedClasses &&
               plan.groups
-                .filter((g) => !selectedClasses.has(g.class))
+                .filter((g) => {
+                  // Skip entirely if the class is hidden via visibleClasses.
+                  if (visibleClasses && !visibleClasses.has(g.class)) return false;
+                  // Only render dimmed holes that are NOT in the run selection.
+                  return !selectedClasses.has(g.class);
+                })
                 .flatMap((g) =>
                   g.holes.map((h, hi) => (
                     <Circle
@@ -414,11 +430,18 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
 
             {/* Holes per group with distinct colour; first hole of each group gets a
                 tool-change ring. The depth-progress Arc lives here too (mm-space with
-                strokeScaleEnabled=false) so it scales correctly with zoom. */}
+                strokeScaleEnabled=false) so it scales correctly with zoom.
+                Groups whose class is hidden via visibleClasses are skipped entirely. */}
             {(() => {
               let gIdx = 0;
               return route.groups.map((g: RouteGroup, gi: number) => {
+                // Skip this group entirely if its class is hidden.
+                if (visibleClasses && !visibleClasses.has(g.class)) {
+                  gIdx += g.orderedHoles.length;
+                  return null;
+                }
                 const color = groupColor(gi);
+                const firstHole = g.orderedHoles[0];
                 return g.orderedHoles.map((h, hi) => {
                   const currentGIdx = gIdx++;
                   const r = g.diameterMm / 2;
@@ -477,6 +500,19 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                           strokeScaleEnabled={false}
                           fill={undefined}
                           opacity={0.6}
+                        />
+                      )}
+                      {/* Diameter label near the first hole of the group. Rendered in
+                          mm-space so it scales naturally with zoom. Only shown when
+                          showDiameters is true and this is the group's first hole. */}
+                      {showDiameters && isToolChange && firstHole && (
+                        <Text
+                          x={firstHole.xMm + r + 0.3}
+                          y={firstHole.yMm - Math.max(g.diameterMm * 0.3, 0.25)}
+                          text={`⌀${g.diameterMm}`}
+                          fontSize={Math.max(g.diameterMm * 0.6, 0.5)}
+                          fill="rgba(203,213,225,0.75)"
+                          listening={false}
                         />
                       )}
                       {/* Faint full-circle track + depth-progress arc for the currently-drilling hole.
