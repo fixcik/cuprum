@@ -33,6 +33,12 @@
     "preplating": "Before plating",
     "postplating": "After plating"
   },
+  "step": {
+    "plating": "Plating",
+    "platingSub": "off-machine",
+    "flip": "Flip & re-align",
+    "flipSub": "planned"
+  },
   "empty": {
     "noProject": "No project open",
     "noHoles": "No drill holes found",
@@ -54,6 +60,42 @@
     "path": "Path",
     "diameters": "Diameters"
   },
+  "hole": {
+    "clear": "Clear selection",
+    "dia": "⌀",
+    "x": "X",
+    "y": "Y"
+  },
+  "preflight": {
+    "holes": "Holes",
+    "time": "Est. time",
+    "travel": "Jog distance",
+    "changes": "Bit changes",
+    "minAbbr": "m",
+    "secAbbr": "s"
+  },
+  "toolsOrder": {
+    "title": "Tools · order",
+    "bitChanges_one": "{{count}} bit change",
+    "bitChanges_few": "{{count}} bit changes",
+    "bitChanges_many": "{{count}} bit changes",
+    "bitChanges_other": "{{count}} bit changes",
+    "noBit": "No bit for {{diameter}}",
+    "takeBit": "use {{diameter}}"
+  },
+  "ztouch": {
+    "title": "Z Touch-off",
+    "hint": "Lower the bit to the copper surface, then press Bind.",
+    "touchOff": "Bind",
+    "reset": "Reset",
+    "tooHigh": "Z-zero is too high — the retract will exceed the machine travel; lower the bit to the copper and bind again.",
+    "zLabel": "Z",
+    "perStep": "/step",
+    "zMachine": "Z-zero (machine)",
+    "retract": "Retract",
+    "notZeroed": "Touch off required before starting.",
+    "notZeroedHint": "Set Z-zero before starting"
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",
@@ -73,6 +115,7 @@
     "notConnected": "Connect the machine in Equipment → Control tab",
     "errorHint": "Unlock the machine, then start again.",
     "zeroHint": "Work zero (0,0) is the selected datum corner of the panel (marked on the canvas; X right, Y up). Set it by jogging in Equipment → Control tab.",
-    "spindleHint": "If the spindle is on a manual dial (3018 default), turn it on by hand — handy during the tool-change pause."
+    "spindleHint": "If the spindle is on a manual dial (3018 default), turn it on by hand — handy during the tool-change pause.",
+    "noHolesForPass": "No holes in this pass"
   }
 }

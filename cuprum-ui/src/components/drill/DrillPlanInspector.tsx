@@ -1,0 +1,278 @@
+import { useTranslation } from "react-i18next";
+import { AlertTriangle, ListChecks } from "lucide-react";
+import type { DrillClass, MachineStateName } from "@/lib/api";
+import type { PanelDrillPlan } from "@/lib/panelDrill";
+import type { DrillRoute } from "@/lib/drillRoute";
+import type { DrillStep } from "@/lib/drillGcode";
+import type { DrillPass } from "@/lib/drillPasses";
+import type { UseDrillRun } from "@/hooks/useDrillRun";
+import type { DatumCorner } from "@/lib/datum";
+import type { Tool } from "@/lib/toolLibrary";
+import type { CncProfile } from "@/lib/cncProfile";
+import type { ZGateResult } from "@/lib/zGate";
+import { Button } from "@/components/ui/Button";
+import { DrillPassStepper } from "@/components/drill/DrillPassStepper";
+import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
+import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
+import { DrillWarnings } from "@/components/drill/DrillWarnings";
+import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
+import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
+import { ZTouchOffCard } from "@/components/drill/ZTouchOffCard";
+
+export interface DrillPlanInspectorProps {
+  plan: PanelDrillPlan;
+  route: DrillRoute;
+  counts: Record<DrillClass, number>;
+  activePassId: DrillPass["id"];
+  onPassChange: (id: DrillPass["id"]) => void;
+  run: UseDrillRun;
+  /** Steps for the DrillRunPanel (from the emitted program). */
+  programSteps: DrillStep[];
+  onStart: () => void;
+  /** Set/clear the class override for a diameter (forwarded to DrillToolsOrder). */
+  onSetClass: (diameterMm: number, klass: DrillClass | null) => void;
+  /** Override the drill bit (toolId) for a diameter key (forwarded to DrillToolsOrder). */
+  onSetBitOverride: (diameterKey: string, toolId: string) => void;
+  /** Currently selected hole key (`${gi}-${hi}`); null = none. */
+  selectedHoleId: string | null;
+  /** Called when the user clears the hole selection from the card. */
+  onClearHole: () => void;
+  /** Which panel corner is the machine (0,0). */
+  datum: DatumCorner;
+  /** Called when the user changes the datum corner (now lives in inspector). */
+  onDatumChange: (d: DatumCorner) => void;
+  panelWidthMm: number;
+  panelHeightMm: number;
+  /** Tool library (for preflight time estimate). */
+  tools: Tool[];
+  /** CNC profile (for preflight time estimate). */
+  cncProfile: CncProfile;
+  /** Substrate thickness in mm (for preflight time estimate). */
+  substrateThicknessMm: number;
+  /** MPos Z captured at touch-off (null = not yet done). */
+  workZeroMachineZ: number | null;
+  /** Called when operator presses "Bind" on the Z touch-off card. */
+  onTouchOff: () => void;
+  /** Called when operator resets the captured Z. */
+  onClearTouchOff: () => void;
+  /** Pre-computed gate result for the start button. */
+  zGate: ZGateResult;
+  /** Machine connection state (forwarded to ZTouchOffCard). */
+  machineConnected: boolean;
+  machineState: MachineStateName;
+  /** Whether the machine is connected (for footer start gate). */
+  connected: boolean;
+  /** Whether the spindle is software-controllable (false = 3018 manual dial). */
+  spindleControllable: boolean;
+  /** Whether the current pass has any holes to drill. */
+  hasHoles: boolean;
+}
+
+/** Right-panel inspector for the drill operation.
+ *  Header + process stepper + selected-hole card + preflight summary +
+ *  datum grid + Z touch-off + run panel (only when active) + tools order +
+ *  warnings + sticky start footer. */
+export function DrillPlanInspector({
+  plan,
+  route,
+  counts,
+  activePassId,
+  onPassChange,
+  run,
+  programSteps,
+  onStart,
+  onSetClass,
+  onSetBitOverride,
+  selectedHoleId,
+  onClearHole,
+  datum,
+  onDatumChange,
+  panelWidthMm,
+  panelHeightMm,
+  tools,
+  cncProfile,
+  substrateThicknessMm,
+  workZeroMachineZ,
+  onTouchOff,
+  onClearTouchOff,
+  zGate,
+  machineConnected,
+  machineState,
+  connected,
+  spindleControllable,
+  hasHoles,
+}: DrillPlanInspectorProps) {
+  const { t } = useTranslation("drill");
+
+  // A run is "active" while any of these phases is live — block pass switching
+  // and hide the idle start button (footer takes over).
+  const isRunActive =
+    run.state.phase === "running" ||
+    run.state.phase === "pausing" ||
+    run.state.phase === "paused" ||
+    run.state.phase === "stopping" ||
+    run.state.phase === "awaitingToolChange";
+
+  // Gate: the footer start button is disabled when any of these conditions hold.
+  const startDisabled =
+    !connected || !hasHoles || zGate.valid === false || isRunActive;
+
+  // Hint shown below the start button when a gate condition blocks the run.
+  let startHint: string | null = null;
+  if (!connected) {
+    startHint = t("run.notConnected");
+  } else if (!hasHoles) {
+    startHint = t("run.noHolesForPass");
+  } else if (zGate.valid === false) {
+    if (zGate.reason === "not-zeroed") {
+      startHint = t("ztouch.notZeroedHint");
+    } else {
+      startHint = t("ztouch.tooHigh");
+    }
+  }
+
+  // Datum corner layout: 2×2 grid (top row: top-left / top-right; bottom row: bottom-left / bottom-right).
+  const datumGrid: [DatumCorner, DatumCorner][] = [
+    ["top-left", "top-right"],
+    ["bottom-left", "bottom-right"],
+  ];
+
+  return (
+    <aside className="flex h-full w-[368px] shrink-0 flex-col overflow-y-auto border-l border-border bg-panel">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="flex-1 text-sm font-semibold text-foreground">{t("window.title")}</span>
+        {/* Compact holes + tools badge */}
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {t("summary.holes", { count: route.totalHoles })}
+          {" · "}
+          {t("summary.tools", { count: route.toolCount })}
+        </span>
+      </div>
+
+      {/* Process stepper */}
+      <DrillPassStepper
+        activePassId={activePassId}
+        counts={counts}
+        disabled={isRunActive}
+        onPassChange={onPassChange}
+      />
+
+      {/* Divider */}
+      <div className="h-px bg-border" />
+
+      {/* Selected-hole card (Task 2) — only visible when a hole is selected */}
+      {selectedHoleId && (
+        <div className="pt-3">
+          <DrillHoleCard
+            selectedHoleId={selectedHoleId}
+            route={route}
+            datum={datum}
+            panelWidthMm={panelWidthMm}
+            panelHeightMm={panelHeightMm}
+            onClear={onClearHole}
+          />
+        </div>
+      )}
+
+      {/* Preflight 2×2 summary (Task 4) */}
+      <div className={selectedHoleId ? "" : "pt-3"}>
+        <DrillPreflightSummary
+          route={route}
+          tools={tools}
+          cncProfile={cncProfile}
+          substrateThicknessMm={substrateThicknessMm}
+        />
+      </div>
+
+      {/* Datum corner — "Рабочий ноль" 2×2 grid */}
+      <div className="border-t border-border px-4 py-3">
+        <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {t("datum.label")}
+        </p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {datumGrid.map((row) =>
+            row.map((corner) => (
+              <button
+                key={corner}
+                type="button"
+                onClick={() => onDatumChange(corner)}
+                className={
+                  "rounded-md border px-2 py-1.5 text-[12px] transition-colors cursor-pointer " +
+                  (datum === corner
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border text-muted-foreground hover:border-slate-500 hover:text-foreground")
+                }
+              >
+                {t(`datum.${corner}`)}
+              </button>
+            )),
+          )}
+        </div>
+      </div>
+
+      {/* Z touch-off card (Task 3) */}
+      <ZTouchOffCard
+        connected={machineConnected}
+        machineState={machineState}
+        workZeroMachineZ={workZeroMachineZ}
+        safeZMm={cncProfile.safeZMm}
+        jogStepsMm={cncProfile.jogStepsMm}
+        jogFeedMmMin={cncProfile.jogFeedMmMin}
+        onTouchOff={onTouchOff}
+        onClear={onClearTouchOff}
+      />
+
+      {/* Divider */}
+      <div className="h-px bg-border" />
+
+      {/* Run panel — only rendered when a run is active (idle → footer start button handles start) */}
+      {isRunActive && (
+        <DrillRunPanel steps={programSteps} run={run} onStart={onStart} />
+      )}
+
+      {/* Tools order list with class + bit override */}
+      <DrillToolsOrder
+        route={route}
+        tools={tools}
+        onSetClass={onSetClass}
+        onSetBitOverride={onSetBitOverride}
+      />
+
+      {/* Warnings: unmatched diameters, keepout-skipped, registration-in-keepout */}
+      <DrillWarnings plan={plan} />
+
+      {/* Spacer to push footer to bottom when content is short */}
+      <div className="flex-1" />
+
+      {/* Sticky footer: spindle note + start button */}
+      <div className="sticky bottom-0 mt-auto border-t border-border bg-panel p-3 flex flex-col gap-2">
+        {/* Manual spindle note for 3018 (spindleControllable=false) */}
+        {!spindleControllable && (
+          <p className="text-[11px] italic text-muted-foreground">
+            {t("run.spindleHint")}
+          </p>
+        )}
+
+        {/* Start button */}
+        <Button
+          size="sm"
+          disabled={startDisabled}
+          onClick={onStart}
+          className="w-full"
+        >
+          {t("run.start")} · {t(`pass.${activePassId}`)}
+        </Button>
+
+        {/* Gate hint below the button */}
+        {startHint && (
+          <div className="flex items-start gap-1.5">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+            <p className="text-[11px] text-amber-400">{startHint}</p>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}

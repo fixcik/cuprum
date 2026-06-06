@@ -1,10 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Spline, Tag } from "lucide-react";
 import type { DrillClass } from "@/lib/api";
-import type { DatumCorner } from "@/lib/datum";
-import { DATUM_CORNERS } from "@/lib/datum";
 import { DRILL_CLASSES } from "@/lib/drillPasses";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 
 /** Stable per-class colour dots — distinct from the group palette,
  *  chosen to be visually recognisable across all 4 classes. */
@@ -16,8 +13,6 @@ export const CLASS_COLORS: Record<DrillClass, string> = {
 };
 
 export interface DrillCanvasTopBarProps {
-  datum: DatumCorner;
-  onDatumChange: (d: DatumCorner) => void;
   counts: Record<DrillClass, number>;
   visibleClasses: Set<DrillClass>;
   onVisibleClassesChange: (s: Set<DrillClass>) => void;
@@ -27,12 +22,10 @@ export interface DrillCanvasTopBarProps {
   onShowDiametersChange: (v: boolean) => void;
 }
 
-/** Top toolbar for the drill canvas: datum control, per-class visibility chips,
- *  and view toggles for the traverse path and diameter labels.
+/** Top toolbar for the drill canvas: per-class visibility chips and view toggles
+ *  for the traverse path and diameter labels. Datum control has moved to the inspector.
  *  Visibility (visibleClasses) is separate from run-selection (selectedClasses). */
 export function DrillCanvasTopBar({
-  datum,
-  onDatumChange,
   counts,
   visibleClasses,
   onVisibleClassesChange,
@@ -52,16 +45,6 @@ export function DrillCanvasTopBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-3 py-1.5">
-      {/* Datum corner */}
-      <span className="text-[11px] text-slate-500">{t("datum.label")}</span>
-      <SegmentedControl
-        options={DATUM_CORNERS.map((c) => ({ value: c, label: t(`datum.${c}`) }))}
-        value={datum}
-        onChange={onDatumChange}
-      />
-
-      {/* Divider */}
-      <div className="w-px h-5 bg-border" />
 
       {/* Visibility chips */}
       <span className="text-[11px] text-slate-500">{t("toolbar.show")}</span>

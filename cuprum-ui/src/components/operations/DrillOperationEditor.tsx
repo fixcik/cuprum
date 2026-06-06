@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
@@ -8,17 +8,20 @@ import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { filterPlanByClasses, classCounts, DEFAULT_SELECTED_CLASSES, DRILL_CLASSES } from "@/lib/drillPasses";
+import { filterPlanByClasses, classCounts, passToClasses, DRILL_CLASSES } from "@/lib/drillPasses";
+import type { DrillPass } from "@/lib/drillPasses";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
-import { DrillSummary } from "@/components/drill/DrillSummary";
-import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
-import { DrillPassSelector } from "@/components/drill/DrillPassSelector";
+import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
 import { DrillCanvasTopBar } from "@/components/drill/DrillCanvasTopBar";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { useDrillProgressRing } from "@/hooks/useDrillProgressRing";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
 import { useShell } from "@/shellStore";
+import { useMachine } from "@/machineStore";
+import { api } from "@/lib/api";
+import { canMove } from "@/lib/machineControls";
+import { checkZGate } from "@/lib/zGate";
 
 /** Drill operation editor — sourceable inline (no IPC).
  *  Builds the drill snapshot directly from stores via useDrillScreenData,
@@ -31,6 +34,10 @@ export function DrillOperationEditor() {
   // useDrillPlan now returns only the full plan (no route — route is computed here
   // after filtering by the selected class set).
   const { plan, loading } = useDrillPlan(snap);
+
+  // Ephemeral bit overrides: diameterKey (String(Math.round(d*1000))) → toolId.
+  // These patch the filteredPlan so both route and program use the override.
+  const [bitOverrides, setBitOverrides] = useState<Map<string, string>>(new Map());
 
   const panel = snap?.manifest?.panel ?? null;
   const hasProject = !!(snap?.workingDir && snap.manifest);
@@ -58,8 +65,9 @@ export function DrillOperationEditor() {
     [snap?.manifest?.panel?.keep_out_zones],
   );
 
-  // Drill-window-owned, ephemeral selection. Default: the alignment pass.
-  const [selected, setSelected] = useState<Set<DrillClass>>(DEFAULT_SELECTED_CLASSES);
+  // Drill-window-owned active pass; selected class set is derived from it.
+  const [activePassId, setActivePassId] = useState<DrillPass["id"]>("alignment");
+  const selected = useMemo(() => passToClasses(activePassId), [activePassId]);
 
   // Visibility (which classes are shown on the canvas). Independent of run-selection.
   const [visibleClasses, setVisibleClasses] = useState<Set<DrillClass>>(new Set(DRILL_CLASSES));
@@ -70,6 +78,36 @@ export function DrillOperationEditor() {
   // Selected hole on the drill canvas (key = `${gi}-${hi}`); null = none.
   const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
 
+  // Z touch-off: MPos Z captured at the copper surface (null = not yet touched off).
+  const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
+
+  // Machine connection state for touch-off guards.
+  const machineConnected = useMachine((s) => s.connected);
+  const machineState = useMachine((s) => s.status.state);
+  const machineHomed = useMachine((s) => s.homed);
+
+  // A homing cycle (or alarm/disconnect that voids `homed`) invalidates the Z
+  // touch-off: the captured machine Z no longer maps to the copper surface. Force
+  // a re-touch-off so the start gate can't pass on a stale reference.
+  useEffect(() => {
+    if (!machineHomed || machineState === "home") setWorkZeroMachineZ(null);
+  }, [machineHomed, machineState]);
+
+  // Send G10 L20 P1 Z0 (set current position as Z-zero in G54) and capture MPos Z.
+  const handleTouchOff = useCallback(() => {
+    const { status, connected } = useMachine.getState();
+    if (!canMove(status.state, connected)) return;
+    // Use explicit P1 (G54) rather than the generic machine_set_zero which sends P0.
+    void api.machine.send("G10 L20 P1 Z0");
+    setWorkZeroMachineZ(status.mpos[2]);
+  }, []);
+
+  const handleClearTouchOff = useCallback(() => {
+    setWorkZeroMachineZ(null);
+  }, []);
+
+  const zGate = checkZGate(workZeroMachineZ, cncProfile?.safeZMm ?? 5);
+
   // Counts per class over the full (unfiltered) plan; null until plan is ready.
   const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
 
@@ -79,20 +117,45 @@ export function DrillOperationEditor() {
     [plan, selected],
   );
 
-  // Route computed from the filtered plan; null while plan/panel unavailable.
+  // Apply bit overrides: patch toolId on each group whose diameterKey has an override.
+  const filteredPlanWithOverrides = useMemo(() => {
+    if (!filteredPlan) return null;
+    if (bitOverrides.size === 0) return filteredPlan;
+    const groups = filteredPlan.groups.map((g) => {
+      const key = String(Math.round(g.diameterMm * 1000));
+      const overrideToolId = bitOverrides.get(key);
+      return overrideToolId ? { ...g, toolId: overrideToolId } : g;
+    });
+    // Recompute unmatched diameters from the patched groups so an applied override
+    // clears its "no matching bit" warning.
+    const unmatchedDiametersMm = groups
+      .filter((g) => !g.toolId)
+      .map((g) => g.diameterMm)
+      .sort((a, b) => a - b);
+    return { ...filteredPlan, groups, unmatchedDiametersMm };
+  }, [filteredPlan, bitOverrides]);
+
+  // Route computed from the filtered plan (with overrides); null while plan/panel unavailable.
   const route = useMemo(() => {
-    if (!filteredPlan || !panel) return null;
+    if (!filteredPlanWithOverrides || !panel) return null;
     const start = datumCornerPanelPoint(drillDatumCorner, panel.width_mm, panel.height_mm);
-    return planDrillRoute(filteredPlan, start, zones);
-  }, [filteredPlan, panel, drillDatumCorner, zones]);
+    return planDrillRoute(filteredPlanWithOverrides, start, zones);
+  }, [filteredPlanWithOverrides, panel, drillDatumCorner, zones]);
+
+  // The selected-hole key (`${gi}-${hi}`) indexes the current route; clear it when
+  // the route changes (pass switch, override, datum) so the hole card can't show a
+  // different hole at the same index.
+  useEffect(() => {
+    setSelectedHoleId(null);
+  }, [route]);
 
   // Build the drill program (G-code + steps) from the filtered plan. `startMachineXY`
   // (omitted for the preview) makes the first traverse avoid keep-out zones from the
   // bit's real position at run start.
   const buildProgram = useCallback(
     (startMachineXY?: { x: number; y: number }) => {
-      if (!filteredPlan || !panel || !cncProfile) return null;
-      return emitDrillProgram(filteredPlan, {
+      if (!filteredPlanWithOverrides || !panel || !cncProfile) return null;
+      return emitDrillProgram(filteredPlanWithOverrides, {
         panelHeightMm: panel.height_mm,
         panelWidthMm: panel.width_mm,
         datumCorner: drillDatumCorner,
@@ -103,7 +166,7 @@ export function DrillOperationEditor() {
         startMachineXY,
       });
     },
-    [filteredPlan, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
+    [filteredPlanWithOverrides, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
   );
 
   // Preview program (steps for display + canvas); ordered from the datum corner.
@@ -160,10 +223,8 @@ export function DrillOperationEditor() {
         </div>
       )}
 
-      {/* Top toolbar: datum control + visibility chips + view toggles */}
+      {/* Top toolbar: visibility chips + view toggles (datum moved to inspector) */}
       <DrillCanvasTopBar
-        datum={drillDatumCorner}
-        onDatumChange={setDrillDatumCorner}
         counts={counts ?? { registration: 0, pth: 0, npth: 0, mechanical: 0 }}
         visibleClasses={visibleClasses}
         onVisibleClassesChange={setVisibleClasses}
@@ -173,12 +234,7 @@ export function DrillOperationEditor() {
         onShowDiametersChange={setShowDiameters}
       />
 
-      {/* Pass selector: preset buttons + per-class checkboxes with counts */}
-      {counts && (
-        <DrillPassSelector selected={selected} counts={counts} onChange={setSelected} />
-      )}
-
-      {/* Main layout: canvas hero + summary sidebar */}
+      {/* Main layout: canvas hero + inspector sidebar */}
       <div className="flex flex-1 overflow-hidden">
         {/* Drill map (takes all remaining space); renders even when selection is empty
             so unselected holes appear dimmed and the user knows what was excluded. */}
@@ -207,18 +263,42 @@ export function DrillOperationEditor() {
           )}
         </div>
 
-        {/* Summary sidebar; always shown once plan is available */}
-        {filteredPlan && route && (
-          <div className="w-72 shrink-0 border-l border-slate-800 overflow-y-auto">
-            <DrillRunPanel steps={program?.steps ?? []} run={run} onStart={handleStart} />
-            <DrillSummary
-              plan={filteredPlan}
-              route={route}
-              onSetClass={(dMm, klass) =>
-                void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
-              }
-            />
-          </div>
+        {/* Inspector sidebar; always shown once plan is available */}
+        {filteredPlanWithOverrides && route && counts && panel && cncProfile && (
+          <DrillPlanInspector
+            plan={filteredPlanWithOverrides}
+            route={route}
+            counts={counts}
+            activePassId={activePassId}
+            onPassChange={setActivePassId}
+            run={run}
+            programSteps={program?.steps ?? []}
+            onStart={handleStart}
+            onSetClass={(dMm, klass) =>
+              void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
+            }
+            onSetBitOverride={(diameterKey, toolId) =>
+              setBitOverrides((m) => new Map(m).set(diameterKey, toolId))
+            }
+            selectedHoleId={selectedHoleId}
+            onClearHole={() => setSelectedHoleId(null)}
+            datum={drillDatumCorner}
+            onDatumChange={setDrillDatumCorner}
+            panelWidthMm={panel.width_mm}
+            panelHeightMm={panel.height_mm}
+            tools={tools}
+            cncProfile={cncProfile}
+            substrateThicknessMm={substrateThicknessMm}
+            workZeroMachineZ={workZeroMachineZ}
+            onTouchOff={handleTouchOff}
+            onClearTouchOff={handleClearTouchOff}
+            zGate={zGate}
+            machineConnected={machineConnected}
+            machineState={machineState}
+            connected={machineConnected}
+            spindleControllable={cncProfile.spindleControllable ?? false}
+            hasHoles={route.totalHoles > 0}
+          />
         )}
       </div>
     </div>

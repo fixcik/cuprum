@@ -20,7 +20,7 @@ import { DrillCanvasToolPalette } from "./DrillCanvasToolPalette";
 export type { Viewport };
 
 /** Palette of distinct colours for drill groups, cycling when there are more groups than colours. */
-const GROUP_PALETTE = [
+export const GROUP_PALETTE = [
   "#4f9cf9", // blue
   "#f97316", // orange
   "#22c55e", // green
@@ -33,7 +33,7 @@ const GROUP_PALETTE = [
   "#8b5cf6", // violet
 ];
 
-function groupColor(index: number): string {
+export function groupColor(index: number): string {
   return GROUP_PALETTE[index % GROUP_PALETTE.length];
 }
 
