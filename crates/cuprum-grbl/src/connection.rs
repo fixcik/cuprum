@@ -25,6 +25,7 @@ pub struct PortInfo {
 /// - drop `pci`/`bluetooth` kinds (virtual / non-machine);
 /// - drop names that obviously aren't machines (`debug-console`, `bluetooth`),
 ///   as a guard in case a platform classifies them differently.
+///
 /// `usb`/`unknown` ports are kept (a genuine adapter may report `unknown`).
 pub fn is_machine_port(name: &str, kind: &str) -> bool {
     if name.starts_with("/dev/tty.") {
