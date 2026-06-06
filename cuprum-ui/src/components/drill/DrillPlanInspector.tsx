@@ -16,6 +16,7 @@ import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
 import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
+import { XYZeroCard } from "@/components/drill/XYZeroCard";
 import { ZTouchOffCard } from "@/components/drill/ZTouchOffCard";
 
 export interface DrillPlanInspectorProps {
@@ -52,6 +53,12 @@ export interface DrillPlanInspectorProps {
   onTouchOff: () => void;
   /** Called when operator resets the captured Z. */
   onClearTouchOff: () => void;
+  /** Whether the work X-Y zero has been bound this session. */
+  workZeroXYSet: boolean;
+  /** Called when operator presses "Bind X-Y" on the X-Y zero card. */
+  onBindXY: () => void;
+  /** Called when operator resets the X-Y zero. */
+  onClearXY: () => void;
   /** Pre-computed gate result for the start button. */
   zGate: ZGateResult;
   /** Machine connection state (forwarded to ZTouchOffCard). */
@@ -103,6 +110,9 @@ export function DrillPlanInspector({
   workZeroMachineZ,
   onTouchOff,
   onClearTouchOff,
+  workZeroXYSet,
+  onBindXY,
+  onClearXY,
   zGate,
   machineConnected,
   machineState,
@@ -127,7 +137,7 @@ export function DrillPlanInspector({
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
-    !connected || !hasHoles || zGate.valid === false || isRunActive;
+    !connected || !hasHoles || !workZeroXYSet || zGate.valid === false || isRunActive;
 
   // Hint shown below the start button when a gate condition blocks the run.
   let startHint: string | null = null;
@@ -135,6 +145,8 @@ export function DrillPlanInspector({
     startHint = t("run.notConnected");
   } else if (!hasHoles) {
     startHint = t("run.noHolesForPass");
+  } else if (!workZeroXYSet) {
+    startHint = t("xyzero.notSetHint");
   } else if (zGate.valid === false) {
     if (zGate.reason === "not-zeroed") {
       startHint = t("ztouch.notZeroedHint");
@@ -262,6 +274,19 @@ export function DrillPlanInspector({
                 )}
               </div>
             </div>
+
+            {/* Work X-Y zero card */}
+            <XYZeroCard
+              connected={machineConnected}
+              machineState={machineState}
+              xySet={workZeroXYSet}
+              maxXMm={cncProfile.workEnvelopeMm.x}
+              maxYMm={cncProfile.workEnvelopeMm.y}
+              jogStepsMm={cncProfile.jogStepsMm}
+              jogFeedMmMin={cncProfile.jogFeedMmMin}
+              onBind={onBindXY}
+              onClear={onClearXY}
+            />
 
             {/* Z touch-off card */}
             <ZTouchOffCard
