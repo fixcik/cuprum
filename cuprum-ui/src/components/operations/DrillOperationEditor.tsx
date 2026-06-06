@@ -43,7 +43,7 @@ export function DrillOperationEditor() {
   const substrateThicknessMm =
     snap?.manifest?.stackup?.substrate_thickness_mm ?? DEFAULT_FR4_THICKNESS_MM;
 
-  // Datum corner: drill-window-owned setting.
+  // Datum corner: drill-screen-owned setting (persisted in settings).
   const drillDatumCorner = useSettings((s) => s.drillDatumCorner);
   const setDrillDatumCorner = useSettings((s) => s.setDrillDatumCorner);
 

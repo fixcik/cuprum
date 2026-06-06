@@ -250,11 +250,9 @@ export interface AddDesignResult {
   params?: Record<string, unknown>;
 }
 
-/** Snapshot pushed from the main window to the drill-preview window.
- *  Contains the data needed to build the drill plan. Shop settings (CNC profile,
- *  tools, DFM thresholds) are pushed live from the main window so the drill
- *  window reflects edits without a restart (it has its own persisted store
- *  that only rehydrates on load). */
+/** Data needed to build the drill plan plus the shop settings (CNC profile,
+ *  tools, DFM thresholds). Built inline from the stores by useDrillScreenData and
+ *  consumed by the drill operation editor. */
 export interface DrillSnapshot {
   workingDir: string | null;
   manifest: Manifest | null;
