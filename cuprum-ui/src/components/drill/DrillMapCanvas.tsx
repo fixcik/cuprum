@@ -639,54 +639,58 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                 });
               });
             })()}
+            {/* Machine-origin indicator — INSIDE the fit-group (mm space) so it
+                shares the holes' stage∘fit transform exactly (no double-applied
+                stage transform). Pixel sizes are divided by pxPerMm to stay
+                constant on screen. */}
+            {viewport.pxPerMm > 0 && (() => {
+              const { xMm: dxMm, yMm: dyMm } = datumCornerPanelPoint(datum, W, H);
+              const k = 1 / viewport.pxPerMm;
+              const axis = AXIS_PX * k;
+              return (
+                <Group x={dxMm} y={dyMm} listening={false}>
+                  <Arrow
+                    points={[0, 0, axis, 0]}
+                    stroke={AXIS_COLOR}
+                    fill={AXIS_COLOR}
+                    strokeWidth={1.2}
+                    strokeScaleEnabled={false}
+                    pointerLength={5 * k}
+                    pointerWidth={5 * k}
+                  />
+                  <Arrow
+                    points={[0, 0, 0, -axis]}
+                    stroke={AXIS_COLOR}
+                    fill={AXIS_COLOR}
+                    strokeWidth={1.2}
+                    strokeScaleEnabled={false}
+                    pointerLength={5 * k}
+                    pointerWidth={5 * k}
+                  />
+                  <Circle x={0} y={0} radius={2.5 * k} fill="#f59e0b" />
+                  <Text x={axis + 3 * k} y={-6 * k} text="X" fontSize={11 * k} fill={AXIS_COLOR} />
+                  <Text x={-11 * k} y={-axis - 5 * k} text="Y" fontSize={11 * k} fill={AXIS_COLOR} />
+                  <Text x={5 * k} y={4 * k} text="0,0" fontSize={10 * k} fill={AXIS_COLOR} />
+                </Group>
+              );
+            })()}
+
+            {/* Live machine-position marker — INSIDE the fit-group (mm space), same
+                transform as the holes; constant on-screen size via pxPerMm. */}
+            {machineWork && viewport.pxPerMm > 0 && (() => {
+              const p = workPosToPanel(machineWork.x, machineWork.y, H, datum, W);
+              return (
+                <MachineMarker
+                  xMm={p.xMm}
+                  yMm={p.yMm}
+                  pxPerMm={viewport.pxPerMm}
+                  workX={machineWork.x}
+                  workY={machineWork.y}
+                  workZ={machineWork.z}
+                />
+              );
+            })()}
           </Group>
-
-          {/* Machine-origin indicator — screen-space so axis arrows stay constant-size.
-              Screen position is computed from the live viewport so it tracks pan/zoom. */}
-          {(() => {
-            const { xMm: dxMm, yMm: dyMm } = datumCornerPanelPoint(datum, W, H);
-            const ox = viewport.originX + dxMm * viewport.pxPerMm;
-            const oy = viewport.originY + dyMm * viewport.pxPerMm;
-            return (
-              <Group listening={false}>
-                <Arrow
-                  points={[ox, oy, ox + AXIS_PX, oy]}
-                  stroke={AXIS_COLOR}
-                  fill={AXIS_COLOR}
-                  strokeWidth={1.2}
-                  pointerLength={5}
-                  pointerWidth={5}
-                />
-                <Arrow
-                  points={[ox, oy, ox, oy - AXIS_PX]}
-                  stroke={AXIS_COLOR}
-                  fill={AXIS_COLOR}
-                  strokeWidth={1.2}
-                  pointerLength={5}
-                  pointerWidth={5}
-                />
-                <Circle x={ox} y={oy} radius={2.5} fill="#f59e0b" />
-                <Text x={ox + AXIS_PX + 3} y={oy - 6} text="X" fontSize={11} fill={AXIS_COLOR} />
-                <Text x={ox - 11} y={oy - AXIS_PX - 5} text="Y" fontSize={11} fill={AXIS_COLOR} />
-                <Text x={ox + 5} y={oy + 4} text="0,0" fontSize={10} fill={AXIS_COLOR} />
-              </Group>
-            );
-          })()}
-
-          {/* Live machine-position marker — screen-space, constant visual size.
-              Panel mm coords are converted to screen px via the live viewport. */}
-          {machineWork && (() => {
-            const p = workPosToPanel(machineWork.x, machineWork.y, H, datum, W);
-            return (
-              <MachineMarker
-                screenX={viewport.originX + p.xMm * viewport.pxPerMm}
-                screenY={viewport.originY + p.yMm * viewport.pxPerMm}
-                workX={machineWork.x}
-                workY={machineWork.y}
-                workZ={machineWork.z}
-              />
-            );
-          })()}
         </Layer>
       </Stage>
 
