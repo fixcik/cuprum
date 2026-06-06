@@ -49,6 +49,9 @@ export interface DrillProgramResult {
   skippedDiametersMm: number[];
 }
 
+/** Default breakthrough (mm) past the bottom of the substrate to ensure clean perforation. */
+export const DEFAULT_BREAKTHROUGH_MM = 0.3;
+
 /** Drill registration holes first (they set the datum), then ascending diameter. */
 const CLASS_ORDER: Record<DrillGroup["class"], number> = {
   registration: 0,
@@ -65,7 +68,7 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
   const { panelHeightMm, profile, tools, substrateThicknessMm } = ctx;
   const datum: DatumCorner = ctx.datumCorner ?? "bottom-left";
   const wMm = ctx.panelWidthMm ?? 0;
-  const breakthrough = ctx.opts?.breakthroughMm ?? 0.3;
+  const breakthrough = ctx.opts?.breakthroughMm ?? DEFAULT_BREAKTHROUGH_MM;
   const peck = ctx.opts?.peckDepthMm ?? 0;
   const safeZ = profile.safeZMm;
   const depth = substrateThicknessMm + breakthrough; // positive magnitude; drill to -depth

@@ -5,13 +5,13 @@ import { api } from "@/lib/api";
  *  Subscribes to the global `machine://status` event and auto-clears the
  *  position after `staleMs` of silence (e.g. the poller stopped on unplug), so
  *  the marker can hide instead of freezing. */
-export function useMachinePosition(staleMs = 1000): { x: number; y: number } | null {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+export function useMachinePosition(staleMs = 1000): { x: number; y: number; z: number } | null {
+  const [pos, setPos] = useState<{ x: number; y: number; z: number } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const sub = api.machine.onStatus((s) => {
-      setPos({ x: s.wpos[0], y: s.wpos[1] });
+      setPos({ x: s.wpos[0], y: s.wpos[1], z: s.wpos[2] });
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => setPos(null), staleMs);
     });

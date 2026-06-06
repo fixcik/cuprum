@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Arc } from "react-konva";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import type { DrillClass } from "@/lib/api";
@@ -64,13 +64,16 @@ export interface DrillMapCanvasProps {
   /** Set of drill classes selected for this run. Holes whose class is NOT in this
    *  set are drawn as a dim base layer so the operator can see what is excluded. */
   selectedClasses?: Set<DrillClass>;
+  /** Smoothed 0..1 depth-progress fraction for the currently-drilling hole.
+   *  Drives the filling Arc rendered around that hole. */
+  currentHoleProgress?: number;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
  *  path, tool-change markers at each group's first hole, and a machine-origin
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left). */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, currentHoleProgress }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
 
@@ -215,17 +218,31 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                           opacity={0.6}
                         />
                       )}
-                      {/* Highlight ring for the currently-drilling hole. */}
+                      {/* Faint full-circle track + depth-progress arc for the currently-drilling hole. */}
                       {showCurrent && (
-                        <Circle
-                          x={h.xMm}
-                          y={h.yMm}
-                          radius={r + 0.6}
-                          stroke="#22c55e"
-                          strokeWidth={2}
-                          strokeScaleEnabled={false}
-                          fill={undefined}
-                        />
+                        <>
+                          <Circle
+                            x={h.xMm}
+                            y={h.yMm}
+                            radius={r + 0.6}
+                            stroke="#22c55e"
+                            strokeWidth={2}
+                            strokeScaleEnabled={false}
+                            opacity={0.25}
+                            fill={undefined}
+                            listening={false}
+                          />
+                          <Arc
+                            x={h.xMm}
+                            y={h.yMm}
+                            innerRadius={r + 0.45}
+                            outerRadius={r + 0.75}
+                            angle={360 * Math.max(0, Math.min(1, currentHoleProgress ?? 0))}
+                            rotation={-90}
+                            fill="#22c55e"
+                            listening={false}
+                          />
+                        </>
                       )}
                       {/* Hole circle */}
                       <Circle
