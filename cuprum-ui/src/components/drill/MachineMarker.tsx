@@ -11,6 +11,8 @@ export interface MachineMarkerProps {
   /** Work coordinates (mm) for the readout label. */
   workX: number;
   workY: number;
+  /** Work Z (mm) for the readout label; omitted → not shown. */
+  workZ?: number;
   color?: string;
 }
 
@@ -18,7 +20,7 @@ const ARM_PX = 9;
 const DOT_PX = 2.5;
 const TWEEN_S = 0.18;
 
-export function MachineMarker({ screenX, screenY, workX, workY, color = "#22d3ee" }: MachineMarkerProps) {
+export function MachineMarker({ screenX, screenY, workX, workY, workZ, color = "#22d3ee" }: MachineMarkerProps) {
   const ref = useRef<Konva.Group>(null);
   const seeded = useRef(false);
 
@@ -53,7 +55,10 @@ export function MachineMarker({ screenX, screenY, workX, workY, color = "#22d3ee
       <Text
         x={ARM_PX + 3}
         y={-ARM_PX - 2}
-        text={`X ${workX.toFixed(1)}  Y ${workY.toFixed(1)}`}
+        text={
+          `X ${workX.toFixed(1)}  Y ${workY.toFixed(1)}` +
+          (workZ !== undefined ? `  Z ${workZ.toFixed(1)}` : "")
+        }
         fontSize={10}
         fill={color}
       />
