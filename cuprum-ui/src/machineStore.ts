@@ -21,6 +21,10 @@ interface MachineStore {
   lines: ConsoleLine[];
   /** True once $22=1 is confirmed from a $$ query after connect. */
   homingAvailable: boolean;
+  /** True once a homing cycle has completed this session (state home → idle).
+   *  Cleared on connect, alarm, and disconnect/reset. Gates machine-coordinate
+   *  auto-moves (G53 retracts) so they never run against an unreferenced frame. */
+  homed: boolean;
   connect: (port: string, baud: number) => Promise<void>;
   disconnect: () => Promise<void>;
   pushLine: (line: Omit<ConsoleLine, "ts">) => void;
@@ -34,6 +38,7 @@ export const useMachine = create<MachineStore>((set, get) => ({
   status: IDLE_STATUS,
   lines: [],
   homingAvailable: false,
+  homed: false,
   connect: async (port, baud) => {
     const ch = new Channel<Telemetry>();
     ch.onmessage = (msg) => {
@@ -48,7 +53,9 @@ export const useMachine = create<MachineStore>((set, get) => ({
       }
     };
     await api.machine.connect(port, baud, ch);
-    set({ connected: true, port });
+    // A fresh connection has not been homed yet; require a homing cycle before
+    // machine-coordinate auto-moves are allowed.
+    set({ connected: true, port, homed: false });
     // Query firmware settings to detect homing support ($22).
     await api.machine.send("$$");
   },
@@ -61,8 +68,25 @@ export const useMachine = create<MachineStore>((set, get) => ({
   // timings (e.g. how long an `ok` took).
   pushLine: (line) =>
     set((s) => ({ lines: [...s.lines.slice(-(MAX_LINES - 1)), { ...line, ts: Date.now() }] })),
-  setStatus: (status) => set({ status }),
+  // Track the homing cycle via the status stream: a transition out of the `home`
+  // state into `idle` means the cycle completed, so the frame is referenced
+  // (homed). Entering `alarm` clears it — an alarm voids the known position.
+  setStatus: (status) =>
+    set((s) => {
+      const prev = s.status.state;
+      let homed = s.homed;
+      if (prev === "home" && status.state === "idle") homed = true;
+      else if (status.state === "alarm") homed = false;
+      return homed === s.homed ? { status } : { status, homed };
+    }),
   // Keep `lines` so the user still sees why the connection dropped (e.g. the
   // error line pushed just before an unplug). Connection state + DRO reset.
-  reset: () => set({ connected: false, port: null, status: IDLE_STATUS, homingAvailable: false }),
+  reset: () =>
+    set({
+      connected: false,
+      port: null,
+      status: IDLE_STATUS,
+      homingAvailable: false,
+      homed: false,
+    }),
 }));

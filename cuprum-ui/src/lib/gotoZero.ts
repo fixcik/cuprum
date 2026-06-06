@@ -1,26 +1,34 @@
 import { api } from "@/lib/api";
 
 /** Move to the work zero on the given axes. When XY motion is requested, the tool
- *  first rises to the machine safe-Z so the traverse can't drag through stock —
- *  matching the FieldPanel click-to-move behaviour. The lift is skipped when the
- *  tool is already at or above safe Z (`currentWorkZ`). Single-axis Z goes straight.
+ *  first rises to the MACHINE-coordinate safe-Z (`G53 G0 Z{machineSafeZMm}`) so
+ *  the traverse can't drag through stock — and so a low work zero can't drive Z
+ *  above the top limit switch. The lift is skipped when the tool is already at or
+ *  above safe Z (`currentMachineZ`). Single-axis Z goes straight to the work zero.
  *
  *  Sends are awaited in order so the safe-Z lift is dispatched before the XY
  *  traverse even if the transport were ever reordered; a failed send is logged
- *  rather than left as an unhandled rejection. Callers may fire-and-forget. */
+ *  rather than left as an unhandled rejection. Callers may fire-and-forget.
+ *
+ *  Requires a homed machine: G53 references the machine frame, which is only
+ *  meaningful after `$H`. The `homed` guard makes that contract enforceable here,
+ *  not just in the callers' disabled-state. */
 export async function gotoWorkZero(
   axes: ReadonlyArray<"x" | "y" | "z">,
-  safeZMm: number,
-  currentWorkZ: number,
+  machineSafeZMm: number,
+  currentMachineZ: number,
+  homed: boolean,
 ): Promise<void> {
+  if (!homed) return;
   const wantX = axes.includes("x");
   const wantY = axes.includes("y");
   const wantZ = axes.includes("z");
 
   try {
-    // Raise to safe Z before any XY traverse — unless already at/above it.
-    if ((wantX || wantY) && currentWorkZ < safeZMm) {
-      await api.machine.send(`G90 G0 Z${safeZMm}`);
+    // Raise to the machine-frame safe Z before any XY traverse — unless already
+    // at/above it. G53 makes the move absolute in machine coordinates for one line.
+    if ((wantX || wantY) && currentMachineZ < machineSafeZMm) {
+      await api.machine.send(`G53 G0 Z${machineSafeZMm}`);
     }
     const words: string[] = [];
     if (wantX) words.push("X0");

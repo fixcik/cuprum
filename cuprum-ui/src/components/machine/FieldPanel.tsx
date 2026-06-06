@@ -23,25 +23,41 @@ interface PendingMove {
 export function FieldPanel({ className }: { className?: string }) {
   const { t } = useTranslation("machine");
   const env = useSettings((s) => s.cncProfile.workEnvelopeMm);
-  const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
+  const machineSafeZMm = useSettings((s) => s.cncProfile.machineSafeZMm);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
   const wpos = useMachine((s) => s.status.wpos);
+  const homed = useMachine((s) => s.homed);
   const movable = canMove(state, connected);
+  // The click-to-move traverse does a machine-frame (G53) safe-Z retract, so it
+  // requires a homed frame in addition to a movable state.
+  const canAutoMove = movable && homed;
 
   // A move awaiting the raise-or-not choice (only set when Z is below safe-Z).
   const [pending, setPending] = useState<PendingMove | null>(null);
 
   async function move(x: number, y: number, raiseFirst: boolean) {
-    if (raiseFirst) await api.machine.send(`G90 G0 Z${safeZMm}`);
-    await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
+    // Re-validate live state: the machine may have disconnected / alarmed / lost
+    // homing between the click and the confirm. Bail rather than send into an
+    // unsafe state.
+    const m = useMachine.getState();
+    if (!m.connected || !m.homed || !canMove(m.status.state, m.connected)) return;
+    try {
+      // Retract in MACHINE coordinates (G53) so a low work zero can't drive Z
+      // above the top limit switch.
+      if (raiseFirst) await api.machine.send(`G53 G0 Z${machineSafeZMm}`);
+      await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
+    } catch (e) {
+      console.error("field move failed", e);
+    }
   }
 
-  /** Field click: move straight away when already clear of stock (Z ≥ safe-Z),
-   *  otherwise ask whether to lift Z first. Z is read live at click time. */
+  /** Field click: move straight away when already clear of stock (machine
+   *  Z ≥ machine safe-Z), otherwise ask whether to lift Z first. Z is read live
+   *  at click time. */
   function requestMove(x: number, y: number) {
-    const currentZ = useMachine.getState().status.wpos[2];
-    if (currentZ >= safeZMm) {
+    const currentMachineZ = useMachine.getState().status.mpos[2];
+    if (currentMachineZ >= machineSafeZMm) {
       void move(x, y, false);
     } else {
       setPending({ x, y });
@@ -65,6 +81,11 @@ export function FieldPanel({ className }: { className?: string }) {
         <span className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground">
           {env.x} × {env.y} {t("field.mm")}
         </span>
+        {connected && !homed && (
+          <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-500">
+            {t("controls.homeFirst")}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-3 text-[12px] text-foreground">
           {axisLabel("X", "text-axis-x", wpos[0])}
           {axisLabel("Y", "text-axis-y", wpos[1])}
@@ -73,7 +94,7 @@ export function FieldPanel({ className }: { className?: string }) {
       </header>
 
       <div className="flex flex-1 gap-3 p-4">
-        <WorkField className="flex-1" disabled={!movable} onPick={requestMove} />
+        <WorkField className="flex-1" disabled={!canAutoMove} onPick={requestMove} />
         <ZBar className="py-1" />
       </div>
 
@@ -112,7 +133,7 @@ export function FieldPanel({ className }: { className?: string }) {
             ? t("field.goConfirm.message", {
                 x: pending.x.toFixed(1),
                 y: pending.y.toFixed(1),
-                z: safeZMm,
+                z: machineSafeZMm,
               })
             : ""}
         </p>

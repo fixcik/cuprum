@@ -50,7 +50,15 @@ export function CncMachineFields({ machine }: { machine: CncMachine }) {
         label={t("cnc.safeZ")}
         value={machine.safeZMm}
         dim="coarse"
+        help={t("cnc.safeZHelp")}
         onChange={(safeZMm) => update(machine.id, { safeZMm })}
+      />
+      <NumberField
+        label={t("cnc.machineSafeZ")}
+        value={machine.machineSafeZMm}
+        dim="coarse"
+        help={t("cnc.machineSafeZHelp")}
+        onChange={(machineSafeZMm) => update(machine.id, { machineSafeZMm })}
       />
       <NumberField
         label={t("cnc.runout")}

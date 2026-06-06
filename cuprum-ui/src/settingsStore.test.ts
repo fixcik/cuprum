@@ -119,8 +119,27 @@ describe("machinesFromPersisted (settings migration)", () => {
     if (cnc!.kind === "cnc") {
       expect(cnc!.port).toBe("/dev/tty.usbserial");
       expect(cnc!.safeZMm).toBe(5);
+      // Legacy cncProfile had no machineSafeZMm — it defaults.
+      expect(cnc!.machineSafeZMm).toBe(DEFAULT_CNC_MACHINE.machineSafeZMm);
     }
     expect(result.activeCncMachineId).toBe(cnc!.id);
+  });
+
+  it("defaults machineSafeZMm on an already-migrated CNC machine that predates the field", () => {
+    // A machines[] persisted before machineSafeZMm landed: the cnc machine has
+    // no such field, so it must be defaulted on load.
+    const legacyCnc = { ...DEFAULT_CNC_MACHINE } as Partial<CncMachine> & CncMachine;
+    delete (legacyCnc as { machineSafeZMm?: number }).machineSafeZMm;
+    const result = machinesFromPersisted({
+      machines: [legacyCnc, DEFAULT_UV_MACHINE],
+      activeCncMachineId: "machine-1",
+      activeUvMachineId: "machine-2",
+    });
+    const cnc = result.machines.find((m) => m.kind === "cnc");
+    expect(cnc!.kind).toBe("cnc");
+    if (cnc!.kind === "cnc") {
+      expect(cnc!.machineSafeZMm).toBe(DEFAULT_CNC_MACHINE.machineSafeZMm);
+    }
   });
 
   it("migrates UV profile (with screenWidthMm/screenHeightMm) into uvlcd machine", () => {

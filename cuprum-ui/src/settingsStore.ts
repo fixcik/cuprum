@@ -62,10 +62,21 @@ export interface MachinesResult {
  *  - A default uvlcd Machine is always present if no uvlcd machine exists.
  *  Exported for tests. */
 export function machinesFromPersisted(p: PersistedLegacy): MachinesResult {
-  // Already migrated — return as-is (preserve identity for equality checks in tests)
+  // Already migrated — default any fields added to CncMachine after the machines[]
+  // array first landed (e.g. machineSafeZMm), so older persisted machines don't
+  // carry `undefined`. Returns the same array identity when no machine needs a
+  // patch (preserves equality checks in tests).
   if (p.machines && p.machines.length > 0) {
+    let patched = false;
+    const machines = p.machines.map((m) => {
+      if (m.kind === "cnc" && (m as CncMachine).machineSafeZMm === undefined) {
+        patched = true;
+        return { ...m, machineSafeZMm: DEFAULT_CNC_MACHINE.machineSafeZMm } as CncMachine;
+      }
+      return m;
+    });
     return {
-      machines: p.machines,
+      machines: patched ? machines : p.machines,
       activeCncMachineId: p.activeCncMachineId ?? null,
       activeUvMachineId: p.activeUvMachineId ?? null,
     };
@@ -98,6 +109,7 @@ export function machinesFromPersisted(p: PersistedLegacy): MachinesResult {
           : DEFAULT_CNC_MACHINE.spindleHasPwm,
       gcodeDialect: legacy.gcodeDialect ?? DEFAULT_CNC_MACHINE.gcodeDialect,
       safeZMm: legacy.safeZMm ?? DEFAULT_CNC_MACHINE.safeZMm,
+      machineSafeZMm: legacy.machineSafeZMm ?? DEFAULT_CNC_MACHINE.machineSafeZMm,
       runoutMm: legacy.runoutMm ?? DEFAULT_CNC_MACHINE.runoutMm,
       backlashMm: legacy.backlashMm ?? DEFAULT_CNC_MACHINE.backlashMm,
       prependGcode: legacy.prependGcode ?? DEFAULT_CNC_MACHINE.prependGcode,
@@ -349,7 +361,7 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: "cuprum-settings",
-      version: 7,
+      version: 8,
       migrate: (persisted) => persisted, // merge handles field defaulting across versions
       // Merge persisted values onto current defaults so fields added in later
       // versions get their default values.

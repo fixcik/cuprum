@@ -40,8 +40,12 @@ export function JogPad() {
   const setCnc = useSettings((s) => s.setCncProfile);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
-  const workZ = useMachine((s) => s.status.wpos[2]);
+  const machineZ = useMachine((s) => s.status.mpos[2]);
+  const homed = useMachine((s) => s.homed);
   const enabled = canMove(state, connected);
+  // The centre go-to-work-zero does a machine-frame (G53) safe-Z retract, so it
+  // additionally requires a homed frame. Manual jog stays ungated.
+  const canAutoMove = enabled && homed;
   // Active jog step — transient UI choice (not persisted); default to the middle
   // step if present, else the first.
   const [step, setStep] = useState<Step>(
@@ -232,9 +236,9 @@ export function JogPad() {
           {dirBtn(-1, 0, 0, "X− (←)", <ArrowLeft className="size-5" />)}
           <button
             type="button"
-            title={t("jog.gotoXY")}
-            disabled={!enabled}
-            onClick={() => void gotoWorkZero(["x", "y"], cnc.safeZMm, workZ)}
+            title={canAutoMove ? t("jog.gotoXY") : t("controls.homeFirst")}
+            disabled={!canAutoMove}
+            onClick={() => void gotoWorkZero(["x", "y"], cnc.machineSafeZMm, machineZ, canAutoMove)}
             className="grid h-12 place-items-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-30"
           >
             <LocateFixed className="size-5" />
