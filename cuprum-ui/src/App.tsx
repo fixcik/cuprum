@@ -4,7 +4,6 @@ import { NavRail } from "@/components/nav/NavRail";
 import { HomePage } from "@/pages/HomePage";
 import { ProjectPage } from "@/pages/ProjectPage";
 import { EquipmentPage } from "@/pages/EquipmentPage";
-import { MachinePage } from "@/pages/MachinePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
@@ -103,7 +102,6 @@ export default function App() {
         {view === "home" && <HomePage />}
         {view === "project" && <ProjectPage />}
         {view === "equipment" && <EquipmentPage />}
-        {view === "machine" && <MachinePage />}
         {view === "settings" && <SettingsPage />}
       </div>
       <UpdateBanner />
