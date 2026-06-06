@@ -1,11 +1,20 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Arc } from "react-konva";
+import Konva from "konva";
+import type { KonvaEventObject } from "konva/lib/Node";
+import { Maximize, Plus, Minus } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import type { DrillClass } from "@/lib/api";
 import { MachineMarker } from "./MachineMarker";
 import { workPosToPanel } from "@/lib/machineMarker";
 import { type DatumCorner, datumCornerPanelPoint } from "@/lib/datum";
+import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
+import { MIN_SCALE, MAX_SCALE, RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
+import { type Viewport } from "@/components/editor/RulersOverlay";
+
+// Re-export Viewport so callers (Task 2 rulers) can import it from here directly.
+export type { Viewport };
 
 /** Palette of distinct colours for drill groups, cycling when there are more groups than colours. */
 const GROUP_PALETTE = [
@@ -25,9 +34,6 @@ function groupColor(index: number): string {
   return GROUP_PALETTE[index % GROUP_PALETTE.length];
 }
 
-/** Minimum margin (px) around the panel inside the canvas. */
-const MARGIN_PX = 24;
-
 /** Circle stroke width (px, screen-space). */
 const HOLE_STROKE_PX = 1.2;
 
@@ -44,6 +50,9 @@ const TOOL_CHANGE_RING_PX = 1.8;
 const AXIS_PX = 30;
 /** Colour of the origin marker + axis arrows. */
 const AXIS_COLOR = "#94a3b8";
+
+/** How many px of the panel must remain visible while panning. */
+const EDGE_KEEP = 64;
 
 export interface DrillMapCanvasProps {
   /** Panel width in mm. */
@@ -68,17 +77,26 @@ export interface DrillMapCanvasProps {
   /** Smoothed 0..1 depth-progress fraction for the currently-drilling hole.
    *  Drives the filling Arc rendered around that hole. */
   currentHoleProgress?: number;
+  /** Called on every viewport change (pan, zoom, animate frame) so Task 2 rulers
+   *  can follow the canvas transform without prop drilling into the Stage. */
+  onViewportChange?: (v: Viewport) => void;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
  *  path, tool-change markers at each group's first hole, and a machine-origin
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
- *  work-zero marker is placed at the chosen datum corner (default: bottom-left). */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, currentHoleProgress }: DrillMapCanvasProps) {
+ *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
+ *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, currentHoleProgress, onViewportChange }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<Konva.Stage>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
+  const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
+  const [zoomPct, setZoomPct] = useState(100);
+  const [spaceDown, setSpaceDown] = useState(false);
+  const panMode = spaceDown;
 
-  // Track container size for the fit calculation.
+  // Track container size.
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -88,31 +106,161 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
     return () => ro.disconnect();
   }, []);
 
+  // Space-bar = pan mode (mirrors PanelBlankCanvas).
+  useEffect(() => {
+    const onKey = (down: boolean) => (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      e.preventDefault();
+      setSpaceDown(down);
+    };
+    const kd = onKey(true);
+    const ku = onKey(false);
+    window.addEventListener("keydown", kd);
+    window.addEventListener("keyup", ku);
+    return () => {
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
+    };
+  }, []);
+
   const W = Math.max(widthMm, 1);
   const H = Math.max(heightMm, 1);
 
-  // Scale to fit the panel in the canvas with a margin on all sides.
+  // Fit scale: how many px one mm occupies at scale=1 so the panel fills the
+  // canvas minus the ruler margins (reserved for Task 2 rulers) with 10% breathing room.
   const fit = useMemo(
-    () => Math.min((size.w - MARGIN_PX * 2) / W, (size.h - MARGIN_PX * 2) / H),
+    () => Math.min((size.w - RULER_LEFT) / W, (size.h - RULER_TOP) / H) * 0.9,
     [size.w, size.h, W, H],
   );
 
-  // Offset so the panel is centered in the canvas.
-  const offsetX = (size.w - W * fit) / 2;
-  const offsetY = (size.h - H * fit) / 2;
+  // Mirror the imperative Konva stage transform into React state so screen-space
+  // overlays (datum axes, MachineMarker) always know the current viewport.
+  const syncViewport = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const v: Viewport = { pxPerMm: stage.scaleX() * fit, originX: stage.x(), originY: stage.y() };
+    setViewport(v);
+    onViewportChange?.(v);
+  }, [fit, onViewportChange]);
 
-  // Flat path array for the Konva Line (panel mm coords, flattened x0,y0,x1,y1,…).
+  // Clamp the stage position so at least EDGE_KEEP px of the panel remain visible.
+  const clampPos = useCallback(
+    (x: number, y: number, scale: number) => {
+      const sw = W * fit * scale;
+      const sh = H * fit * scale;
+      return {
+        x: Math.min(size.w - EDGE_KEEP, Math.max(EDGE_KEEP - sw, x)),
+        y: Math.min(size.h - EDGE_KEEP, Math.max(EDGE_KEEP - sh, y)),
+      };
+    },
+    [fit, size.w, size.h, W, H],
+  );
+
+  // Centre the panel at a given stage scale, optionally animated.
+  const centerAt = useCallback(
+    (scale: number, animate: boolean) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+      const pos = clampPos(
+        RULER_LEFT + (size.w - RULER_LEFT - W * fit * s) / 2,
+        RULER_TOP + (size.h - RULER_TOP - H * fit * s) / 2,
+        s,
+      );
+      if (animate) {
+        stage.to({ x: pos.x, y: pos.y, scaleX: s, scaleY: s, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
+      } else {
+        stage.scale({ x: s, y: s });
+        stage.position(pos);
+        stage.batchDraw();
+        syncViewport();
+      }
+      setZoomPct(Math.round(s * 100));
+    },
+    [clampPos, fit, size.w, size.h, W, H, syncViewport],
+  );
+
+  const fitView = useCallback(() => centerAt(1, true), [centerAt]);
+
+  // Auto-fit on first layout and whenever the panel dimensions or container size
+  // change. A ref guard prevents re-fitting on every re-render.
+  const framed = useRef("");
+  useEffect(() => {
+    const key = `${W}:${H}:${size.w}:${size.h}`;
+    if (size.w === 0 || framed.current === key) return;
+    framed.current = key;
+    centerAt(1, false);
+  }, [W, H, size.w, size.h, centerAt]);
+
+  // Zoom toward an arbitrary screen-space pointer (scroll wheel or zoom buttons).
+  const zoomAt = useCallback(
+    (pointer: { x: number; y: number }, factor: number, animate = false) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const oldScale = stage.scaleX();
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * factor));
+      if (newScale === oldScale) return;
+      const wx = (pointer.x - stage.x()) / oldScale;
+      const wy = (pointer.y - stage.y()) / oldScale;
+      const pos = clampPos(pointer.x - wx * newScale, pointer.y - wy * newScale, newScale);
+      if (animate) {
+        stage.to({ x: pos.x, y: pos.y, scaleX: newScale, scaleY: newScale, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
+      } else {
+        stage.scale({ x: newScale, y: newScale });
+        stage.position(pos);
+        stage.batchDraw();
+        syncViewport();
+      }
+      setZoomPct(Math.round(newScale * 100));
+    },
+    [clampPos, syncViewport],
+  );
+
+  const onWheel = (e: KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+    zoomAt(pointer, Math.exp(-e.evt.deltaY * 0.0015));
+  };
+
+  const zoomButton = (factor: number) => zoomAt({ x: size.w / 2, y: size.h / 2 }, factor, true);
+
+  const dragBoundFunc = (pos: { x: number; y: number }) => {
+    const stage = stageRef.current;
+    return clampPos(pos.x, pos.y, stage ? stage.scaleX() : 1);
+  };
+
+  // Flat path array for Konva Line (panel mm coords).
   const pathFlat = useMemo(
     () => route.pathPoints.flatMap((h) => [h.xMm, h.yMm]),
     [route.pathPoints],
   );
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-[#0a0c10]">
-      <Stage width={size.w} height={size.h}>
+    <div
+      ref={containerRef}
+      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : ""}`}
+    >
+      <Stage
+        ref={stageRef}
+        width={size.w}
+        height={size.h}
+        draggable={panMode}
+        dragBoundFunc={dragBoundFunc}
+        onWheel={onWheel}
+        onDragMove={syncViewport}
+        onDragEnd={syncViewport}
+      >
         <Layer>
-          {/* The fit-group maps mm directly to screen pixels via the fit scale. */}
-          <Group x={offsetX} y={offsetY} scaleX={fit} scaleY={fit}>
+          {/* The fit-group maps mm → px at scale 1; the Stage carries pan/zoom. */}
+          <Group x={0} y={0} scaleX={fit} scaleY={fit}>
+            {/* Adaptive mm grid (zoom-aware, only draws visible lines). */}
+            <AdaptiveGrid widthMm={W} heightMm={H} />
+
             {/* Panel outline */}
             <Rect
               x={0}
@@ -126,8 +274,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
               listening={false}
             />
 
-            {/* Keep-out zones: semi-transparent red fill, thin red border, above
-                the panel background but below the path and holes. */}
+            {/* Keep-out zones: semi-transparent red fill, thin red border. */}
             {(zones ?? []).map((z, zi) => (
               <Rect
                 key={`zone-${zi}`}
@@ -156,9 +303,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
               />
             )}
 
-            {/* Dim base layer: holes excluded from the current selection.
-                Coordinates and radius use the same mm-direct mapping as the route-hole
-                layer below (within this scaled Group: x=xMm, y=yMm, radius=diameterMm/2). */}
+            {/* Dim base layer: holes excluded from the current selection. */}
             {selectedClasses &&
               plan.groups
                 .filter((g) => !selectedClasses.has(g.class))
@@ -179,9 +324,8 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                 )}
 
             {/* Holes per group with distinct colour; first hole of each group gets a
-                tool-change ring marker. A running global index gIdx tracks position
-                across groups (same flattening order as route.pathPoints) to apply
-                progress highlights when the `progress` prop is present. */}
+                tool-change ring. The depth-progress Arc lives here too (mm-space with
+                strokeScaleEnabled=false) so it scales correctly with zoom. */}
             {(() => {
               let gIdx = 0;
               return route.groups.map((g: RouteGroup, gi: number) => {
@@ -191,7 +335,6 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                   const r = g.diameterMm / 2;
                   const isToolChange = hi === 0;
 
-                  // Determine per-hole highlight state (only when progress is provided).
                   const isDrilled =
                     progress !== undefined && currentGIdx < progress.holesCompleted;
                   const isCurrent =
@@ -201,8 +344,8 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                   const showCurrent = isCurrent && !isDrilled;
 
                   const holeFill = isDrilled
-                    ? "rgba(34,197,94,0.5)"   // green, reduced opacity
-                    : "rgba(0,0,0,0.6)";       // default
+                    ? "rgba(34,197,94,0.5)"
+                    : "rgba(0,0,0,0.6)";
 
                   return (
                     <Group key={`${gi}-${hi}`} listening={false}>
@@ -219,7 +362,9 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                           opacity={0.6}
                         />
                       )}
-                      {/* Faint full-circle track + depth-progress arc for the currently-drilling hole. */}
+                      {/* Faint full-circle track + depth-progress arc for the currently-drilling hole.
+                          Both live in mm-space with strokeScaleEnabled=false so they scale correctly
+                          under zoom (no screen-space conversion needed). */}
                       {showCurrent && (
                         <>
                           <Circle
@@ -262,14 +407,12 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
             })()}
           </Group>
 
-          {/* Machine-origin indicator (screen-space so labels don't scale).
-              The marker is positioned at the chosen datum corner in panel space.
-              Machine axes are fixed (X→ right, Y↑ up) regardless of which corner
-              is the origin — only the translation differs. */}
+          {/* Machine-origin indicator — screen-space so axis arrows stay constant-size.
+              Screen position is computed from the live viewport so it tracks pan/zoom. */}
           {(() => {
             const { xMm: dxMm, yMm: dyMm } = datumCornerPanelPoint(datum, W, H);
-            const ox = offsetX + dxMm * fit;
-            const oy = offsetY + dyMm * fit;
+            const ox = viewport.originX + dxMm * viewport.pxPerMm;
+            const oy = viewport.originY + dyMm * viewport.pxPerMm;
             return (
               <Group listening={false}>
                 <Arrow
@@ -296,13 +439,14 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
             );
           })()}
 
-          {/* Live machine-position marker (screen-space, constant size). */}
+          {/* Live machine-position marker — screen-space, constant visual size.
+              Panel mm coords are converted to screen px via the live viewport. */}
           {machineWork && (() => {
             const p = workPosToPanel(machineWork.x, machineWork.y, H, datum, W);
             return (
               <MachineMarker
-                screenX={offsetX + p.xMm * fit}
-                screenY={offsetY + p.yMm * fit}
+                screenX={viewport.originX + p.xMm * viewport.pxPerMm}
+                screenY={viewport.originY + p.yMm * viewport.pxPerMm}
                 workX={machineWork.x}
                 workY={machineWork.y}
                 workZ={machineWork.z}
@@ -311,6 +455,42 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
           })()}
         </Layer>
       </Stage>
+
+      {/* Bottom-right zoom bar — mirrors PanelBlankCanvas. */}
+      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground [&_button]:cursor-pointer">
+        <button
+          className="rounded p-1 hover:bg-muted/60"
+          aria-label="Zoom out"
+          title="Zoom out"
+          onClick={() => zoomButton(1 / 1.2)}
+        >
+          <Minus className="size-4" />
+        </button>
+        <button
+          className="min-w-12 rounded px-1.5 py-1 text-center text-[11px] tabular-nums hover:bg-muted/60"
+          aria-label="Fit view"
+          title="Fit view"
+          onClick={fitView}
+        >
+          {zoomPct}%
+        </button>
+        <button
+          className="rounded p-1 hover:bg-muted/60"
+          aria-label="Zoom in"
+          title="Zoom in"
+          onClick={() => zoomButton(1.2)}
+        >
+          <Plus className="size-4" />
+        </button>
+        <button
+          className="rounded p-1 hover:bg-muted/60"
+          aria-label="Fit all"
+          title="Fit all"
+          onClick={fitView}
+        >
+          <Maximize className="size-4" />
+        </button>
+      </div>
     </div>
   );
 }
