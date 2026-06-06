@@ -23,6 +23,14 @@ export interface DrillGcodeCtx {
   substrateThicknessMm: number;
   opts?: { breakthroughMm?: number; peckDepthMm?: number };
   keepOutZones?: Rect[];
+  /** Actual machine WORK position (mm) when the run starts. Used ONLY as the
+   *  origin for the first traverse's keep-out avoidance — the bit may not be
+   *  parked at work zero (0,0) when the operator hits Start (after homing, a jog,
+   *  or a previous pass), so planning the first move from (0,0) would route it
+   *  straight through a clamp. Hole ORDER is unaffected (still ordered from the
+   *  datum corner so the preview route and progress highlights stay in sync).
+   *  Defaults to (0,0) — byte-identical output when omitted. */
+  startMachineXY?: { x: number; y: number };
 }
 
 export interface DrillGcodeResult {
@@ -102,8 +110,15 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
   for (const l of preambleLines) allLines.push(l);
   steps.push({ kind: "preamble", lines: preambleLines });
 
+  // Ordering cursor: starts at the datum corner (machine 0,0) so hole order
+  // matches the preview route and the progress highlights stay in sync.
   let curX = 0;
   let curY = 0;
+  // Travel cursor for keep-out avoidance: starts at the real machine position
+  // (the bit may not be at work zero when the run starts) so the FIRST traverse
+  // routes around clamps. After the first hole it tracks the bit like curX/curY.
+  let travelX = ctx.startMachineXY?.x ?? 0;
+  let travelY = ctx.startMachineXY?.y ?? 0;
   let firstGroup = true;
   let holeCounter = 0;
 
@@ -177,7 +192,7 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
       // Emit detour waypoints (XY-only rapids at safe Z) before the hole rapid.
       if (zonesMachine.length > 0) {
         const waypoints = avoidZones(
-          { x: curX, y: curY },
+          { x: travelX, y: travelY },
           { x: mx, y: my },
           zonesMachine,
           KEEPOUT_TRAVERSE_MARGIN_MM,
@@ -213,6 +228,8 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
 
       curX = mx;
       curY = my;
+      travelX = mx;
+      travelY = my;
     }
   }
 

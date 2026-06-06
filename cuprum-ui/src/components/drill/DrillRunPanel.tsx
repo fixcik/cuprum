@@ -8,11 +8,15 @@ import type { UseDrillRun } from "@/hooks/useDrillRun";
 export interface DrillRunPanelProps {
   steps: DrillStep[];
   run: UseDrillRun;
+  /** Start handler. When provided it replaces the default `run.start(steps)` —
+   *  the drill window uses it to start from a program whose first traverse avoids
+   *  keep-out zones from the bit's real position. */
+  onStart?: () => void;
 }
 
 /** Live-run control panel: connection gate, start/pause/resume/stop, progress,
  *  tool-change prompt, and error banner. Rendered in the drill window sidebar. */
-export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
+export function DrillRunPanel({ steps, run, onStart }: DrillRunPanelProps) {
   const { t } = useTranslation("drill");
   const { state, connected, start, pause, resume, stop, estop, confirmToolChange } = run;
   const { phase } = state;
@@ -40,7 +44,7 @@ export function DrillRunPanel({ steps, run }: DrillRunPanelProps) {
           <Button
             size="sm"
             disabled={!canStart}
-            onClick={() => void start(steps)}
+            onClick={() => (onStart ? onStart() : void start(steps))}
           >
             {t("run.start")}
           </Button>
