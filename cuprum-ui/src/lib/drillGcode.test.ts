@@ -115,4 +115,29 @@ describe("emitDrillGcode", () => {
       }
     });
   });
+
+  it("routes the first traverse around a keep-out zone from the real start position", () => {
+    // One hole at panel (90,10) → machine (90,90) on a 100mm-tall panel.
+    // A keep-out zone (panel {85,60,10,20} → machine x[85,95] y[20,40]) sits below it.
+    const p = plan([{ diameterMm: 0.8, class: "pth", toolId: "t1", holes: [{ xMm: 90, yMm: 10 }] }]);
+    const ctx = {
+      panelHeightMm: 100,
+      profile: profile(),
+      tools: [tool("t1", 0.8)],
+      substrateThicknessMm: 1.6,
+      keepOutZones: [{ x: 85, y: 60, w: 10, h: 20 }],
+    };
+    const countXY = (g: string) => g.split("\n").filter((l) => /^G0 X/.test(l.trim())).length;
+
+    // Default start (0,0): the straight line to (90,90) clears the zone — no detour.
+    const flat = emitDrillGcode(p, ctx).gcode;
+    expect(flat).toContain("G0 X90.000 Y90.000");
+    expect(countXY(flat)).toBe(1);
+
+    // Real start at machine (90,0): the straight line up to (90,90) crosses the
+    // zone, so a detour waypoint must be inserted before the hole.
+    const detoured = emitDrillGcode(p, { ...ctx, startMachineXY: { x: 90, y: 0 } }).gcode;
+    expect(detoured).toContain("G0 X90.000 Y90.000");
+    expect(countXY(detoured)).toBeGreaterThan(1);
+  });
 });

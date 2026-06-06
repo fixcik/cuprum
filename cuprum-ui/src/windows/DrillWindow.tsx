@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
@@ -83,23 +83,40 @@ export function DrillWindow() {
     return planDrillRoute(filteredPlan, start, zones);
   }, [filteredPlan, panel, drillDatumCorner, zones]);
 
-  // Build the drill program (G-code + steps) from the filtered plan whenever inputs change.
-  const program = useMemo(() => {
-    if (!filteredPlan || !panel || !cncProfile) return null;
-    return emitDrillProgram(filteredPlan, {
-      panelHeightMm: panel.height_mm,
-      panelWidthMm: panel.width_mm,
-      datumCorner: drillDatumCorner,
-      profile: cncProfile,
-      tools,
-      substrateThicknessMm,
-      keepOutZones: zones,
-    });
-  }, [filteredPlan, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner]);
+  // Build the drill program (G-code + steps) from the filtered plan. `startMachineXY`
+  // (omitted for the preview) makes the first traverse avoid keep-out zones from the
+  // bit's real position at run start.
+  const buildProgram = useCallback(
+    (startMachineXY?: { x: number; y: number }) => {
+      if (!filteredPlan || !panel || !cncProfile) return null;
+      return emitDrillProgram(filteredPlan, {
+        panelHeightMm: panel.height_mm,
+        panelWidthMm: panel.width_mm,
+        datumCorner: drillDatumCorner,
+        profile: cncProfile,
+        tools,
+        substrateThicknessMm,
+        keepOutZones: zones,
+        startMachineXY,
+      });
+    },
+    [filteredPlan, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
+  );
+
+  // Preview program (steps for display + canvas); ordered from the datum corner.
+  const program = useMemo(() => buildProgram(), [buildProgram]);
 
   // Live-run hook.
   const run = useDrillRun();
   const machineWork = useMachinePosition();
+
+  // Start the run from a program whose first traverse avoids keep-out zones from
+  // the bit's ACTUAL position (it may not be parked at work zero). Falls back to
+  // (0,0) when the position is unknown.
+  const handleStart = useCallback(() => {
+    const exec = buildProgram(machineWork ? { x: machineWork.x, y: machineWork.y } : undefined);
+    if (exec) void run.start(exec.steps);
+  }, [buildProgram, machineWork, run]);
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
   // Depth-progress ring for the currently-drilling hole.
@@ -182,7 +199,7 @@ export function DrillWindow() {
         {/* Summary sidebar; always shown once plan is available */}
         {filteredPlan && route && (
           <div className="w-72 shrink-0 border-l border-slate-800 overflow-y-auto">
-            <DrillRunPanel steps={program?.steps ?? []} run={run} />
+            <DrillRunPanel steps={program?.steps ?? []} run={run} onStart={handleStart} />
             <DrillSummary
               plan={filteredPlan}
               route={route}
