@@ -122,7 +122,6 @@ fn main() {
                 if let WindowEvent::CloseRequested { .. } = event {
                     for (label, w) in window.app_handle().webview_windows() {
                         if label.starts_with("inspector-")
-                            || label == "drill"
                             || label == "add-design"
                         {
                             let _ = w.close();
@@ -187,7 +186,6 @@ fn main() {
             commands::windows::display_px_per_mm,
             commands::windows::take_pending_open,
             commands::windows::open_add_design_window,
-            commands::windows::open_drill_window,
             commands::windows::open_inspector_window,
             set_app_menu,
             commands::machine::list_serial_ports,
