@@ -22,12 +22,17 @@
     "unknown": "—"
   },
   "dro": {
-    "work": "Work",
+    "work": "Work · WPos",
     "machine": "Machine",
+    "machineShort": "mach.",
+    "wcs": "G54",
     "zeroAxis": "Zero {{axis}}",
+    "gotoAxis": "Go to work zero {{axis}}",
     "zeroAll": "Zero XYZ",
+    "gotoXY": "Go to XY",
     "saveZero": "Save zero",
     "restoreZero": "Home + restore zero",
+    "restoreZeroShort": "Home + restore",
     "zeroSaved": "Zero saved: X{{x}} Y{{y}}",
     "homingUnavailable": "Restore unavailable: enable homing in firmware ($22=1)"
   },
@@ -45,14 +50,19 @@
   },
   "jog": {
     "title": "Jog",
-    "step": "Step",
-    "feed": "Feed"
+    "step": "step",
+    "stepMm": "Step, mm",
+    "feed": "Feed",
+    "feedUnit": "mm/min",
+    "gotoXY": "Go to work zero XY"
   },
   "spindle": {
     "title": "Spindle",
     "on": "On",
     "off": "Off",
-    "rpm": "RPM"
+    "rpm": "RPM",
+    "target": "Target",
+    "manual": "Manual spindle — speed not controllable"
   },
   "controls": {
     "home": "Home",
@@ -66,7 +76,8 @@
     "placeholder": "G-code…",
     "send": "Send",
     "copy": "Copy log",
-    "copied": "Copied"
+    "copied": "Copied",
+    "close": "Hide console"
   },
   "alarm": "Machine in alarm — unlock or soft-reset to continue."
 }
