@@ -5,6 +5,7 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
+import { safeRetractMachineZ } from "@/lib/gotoZero";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { WorkField } from "@/components/machine/WorkField";
@@ -13,6 +14,8 @@ import { ZBar } from "@/components/machine/ZBar";
 interface PendingMove {
   x: number;
   y: number;
+  /** Computed safe retract target (machine Z) shown in the confirm dialog. */
+  retractZ: number;
 }
 
 /** Work-area card: header (envelope size + live work XYZ) over the WorkField +
@@ -23,6 +26,7 @@ interface PendingMove {
 export function FieldPanel({ className }: { className?: string }) {
   const { t } = useTranslation("machine");
   const env = useSettings((s) => s.cncProfile.workEnvelopeMm);
+  const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
   const machineSafeZMm = useSettings((s) => s.cncProfile.machineSafeZMm);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
@@ -43,9 +47,16 @@ export function FieldPanel({ className }: { className?: string }) {
     const m = useMachine.getState();
     if (!m.connected || !m.homed || !canMove(m.status.state, m.connected)) return;
     try {
-      // Retract in MACHINE coordinates (G53) so a low work zero can't drive Z
-      // above the top limit switch.
-      if (raiseFirst) await api.machine.send(`G53 G0 Z${machineSafeZMm}`);
+      // Retract in MACHINE coordinates (G53) to a clearance above the work zero,
+      // capped at the machine ceiling. Computed from the LIVE status at send time.
+      if (raiseFirst) {
+        const retractZ = safeRetractMachineZ(
+          m.status.mpos[2] - m.status.wpos[2],
+          safeZMm,
+          machineSafeZMm,
+        );
+        await api.machine.send(`G53 G0 Z${retractZ}`);
+      }
       await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
     } catch (e) {
       console.error("field move failed", e);
@@ -53,14 +64,20 @@ export function FieldPanel({ className }: { className?: string }) {
   }
 
   /** Field click: move straight away when already clear of stock (machine
-   *  Z ≥ machine safe-Z), otherwise ask whether to lift Z first. Z is read live
-   *  at click time. */
+   *  Z ≥ the safe retract target), otherwise ask whether to lift Z first. Z is
+   *  read live at click time. */
   function requestMove(x: number, y: number) {
-    const currentMachineZ = useMachine.getState().status.mpos[2];
-    if (currentMachineZ >= machineSafeZMm) {
+    const m = useMachine.getState();
+    const currentMachineZ = m.status.mpos[2];
+    const retractZ = safeRetractMachineZ(
+      m.status.mpos[2] - m.status.wpos[2],
+      safeZMm,
+      machineSafeZMm,
+    );
+    if (currentMachineZ >= retractZ) {
       void move(x, y, false);
     } else {
-      setPending({ x, y });
+      setPending({ x, y, retractZ });
     }
   }
 
@@ -133,7 +150,7 @@ export function FieldPanel({ className }: { className?: string }) {
             ? t("field.goConfirm.message", {
                 x: pending.x.toFixed(1),
                 y: pending.y.toFixed(1),
-                z: machineSafeZMm,
+                z: pending.retractZ.toFixed(1),
               })
             : ""}
         </p>

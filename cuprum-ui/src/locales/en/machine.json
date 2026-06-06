@@ -46,7 +46,7 @@
     "clickHint": "click — go here",
     "goConfirm": {
       "title": "Raise Z before moving?",
-      "message": "Rapid to X{{x}} Y{{y}}. The tool is below the machine safe height Z{{z}} (machine coords).",
+      "message": "Rapid to X{{x}} Y{{y}}. The tool is below the safe height — raise to Z{{z}} (machine coords: clearance above the work zero, capped at the ceiling).",
       "raise": "Raise and move",
       "direct": "Move without raising",
       "cancel": "Cancel"
