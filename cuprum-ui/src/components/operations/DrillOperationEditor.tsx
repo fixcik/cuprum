@@ -8,11 +8,10 @@ import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { filterPlanByClasses, classCounts, DEFAULT_SELECTED_CLASSES, DRILL_CLASSES } from "@/lib/drillPasses";
+import { filterPlanByClasses, classCounts, passToClasses, DRILL_CLASSES } from "@/lib/drillPasses";
+import type { DrillPass } from "@/lib/drillPasses";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
-import { DrillSummary } from "@/components/drill/DrillSummary";
-import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
-import { DrillPassSelector } from "@/components/drill/DrillPassSelector";
+import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
 import { DrillCanvasTopBar } from "@/components/drill/DrillCanvasTopBar";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { useDrillProgressRing } from "@/hooks/useDrillProgressRing";
@@ -58,8 +57,9 @@ export function DrillOperationEditor() {
     [snap?.manifest?.panel?.keep_out_zones],
   );
 
-  // Drill-window-owned, ephemeral selection. Default: the alignment pass.
-  const [selected, setSelected] = useState<Set<DrillClass>>(DEFAULT_SELECTED_CLASSES);
+  // Drill-window-owned active pass; selected class set is derived from it.
+  const [activePassId, setActivePassId] = useState<DrillPass["id"]>("alignment");
+  const selected = useMemo(() => passToClasses(activePassId), [activePassId]);
 
   // Visibility (which classes are shown on the canvas). Independent of run-selection.
   const [visibleClasses, setVisibleClasses] = useState<Set<DrillClass>>(new Set(DRILL_CLASSES));
@@ -173,12 +173,7 @@ export function DrillOperationEditor() {
         onShowDiametersChange={setShowDiameters}
       />
 
-      {/* Pass selector: preset buttons + per-class checkboxes with counts */}
-      {counts && (
-        <DrillPassSelector selected={selected} counts={counts} onChange={setSelected} />
-      )}
-
-      {/* Main layout: canvas hero + summary sidebar */}
+      {/* Main layout: canvas hero + inspector sidebar */}
       <div className="flex flex-1 overflow-hidden">
         {/* Drill map (takes all remaining space); renders even when selection is empty
             so unselected holes appear dimmed and the user knows what was excluded. */}
@@ -207,18 +202,21 @@ export function DrillOperationEditor() {
           )}
         </div>
 
-        {/* Summary sidebar; always shown once plan is available */}
-        {filteredPlan && route && (
-          <div className="w-72 shrink-0 border-l border-slate-800 overflow-y-auto">
-            <DrillRunPanel steps={program?.steps ?? []} run={run} onStart={handleStart} />
-            <DrillSummary
-              plan={filteredPlan}
-              route={route}
-              onSetClass={(dMm, klass) =>
-                void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
-              }
-            />
-          </div>
+        {/* Inspector sidebar; always shown once plan is available */}
+        {filteredPlan && route && counts && (
+          <DrillPlanInspector
+            plan={filteredPlan}
+            route={route}
+            counts={counts}
+            activePassId={activePassId}
+            onPassChange={setActivePassId}
+            run={run}
+            programSteps={program?.steps ?? []}
+            onStart={handleStart}
+            onSetClass={(dMm, klass) =>
+              void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
+            }
+          />
         )}
       </div>
     </div>

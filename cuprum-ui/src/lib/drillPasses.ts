@@ -57,3 +57,9 @@ export function activePresetId(selected: Set<DrillClass>): DrillPass["id"] | nul
   }
   return null;
 }
+
+/** Return the class set for a given pass id. Empty set if the id is unknown. */
+export function passToClasses(id: DrillPass["id"]): Set<DrillClass> {
+  const p = DRILL_PASSES.find((x) => x.id === id);
+  return new Set(p ? p.classes : []);
+}

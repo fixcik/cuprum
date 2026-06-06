@@ -33,6 +33,12 @@
     "preplating": "Before plating",
     "postplating": "After plating"
   },
+  "step": {
+    "plating": "Plating",
+    "platingSub": "off-machine",
+    "flip": "Flip & re-align",
+    "flipSub": "planned"
+  },
   "empty": {
     "noProject": "No project open",
     "noHoles": "No drill holes found",
