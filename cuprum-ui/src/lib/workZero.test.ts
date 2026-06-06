@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { workZeroFromStatus, parseHomingEnabled, restoreZeroGcode } from "@/lib/workZero";
+import {
+  workZeroFromStatus,
+  parseHomingEnabled,
+  parseSoftLimitsEnabled,
+  parseMaxTravel,
+  restoreZeroGcode,
+} from "@/lib/workZero";
 
 describe("workZeroFromStatus", () => {
   it("returns machine origin when wpos is all zeros", () => {
@@ -45,6 +51,53 @@ describe("parseHomingEnabled", () => {
 
   it("returns true for non-zero values other than 1", () => {
     expect(parseHomingEnabled("$22=2")).toBe(true);
+  });
+});
+
+describe("parseSoftLimitsEnabled", () => {
+  it("returns true for $20=1", () => {
+    expect(parseSoftLimitsEnabled("$20=1")).toBe(true);
+  });
+
+  it("returns false for $20=0", () => {
+    expect(parseSoftLimitsEnabled("$20=0")).toBe(false);
+  });
+
+  it("returns null for a different setting line ($22=1)", () => {
+    expect(parseSoftLimitsEnabled("$22=1")).toBeNull();
+  });
+
+  it("returns null for junk input", () => {
+    expect(parseSoftLimitsEnabled("ok")).toBeNull();
+    expect(parseSoftLimitsEnabled("")).toBeNull();
+  });
+
+  it("handles leading whitespace", () => {
+    expect(parseSoftLimitsEnabled("  $20=1")).toBe(true);
+  });
+});
+
+describe("parseMaxTravel", () => {
+  it("parses $130 as the X axis", () => {
+    expect(parseMaxTravel("$130=300.000")).toEqual({ axis: 0, value: 300 });
+  });
+
+  it("parses $131 as the Y axis", () => {
+    expect(parseMaxTravel("$131=180.5")).toEqual({ axis: 1, value: 180.5 });
+  });
+
+  it("parses $132 as the Z axis", () => {
+    expect(parseMaxTravel("$132=45")).toEqual({ axis: 2, value: 45 });
+  });
+
+  it("returns null for non-travel settings", () => {
+    expect(parseMaxTravel("$20=1")).toBeNull();
+    expect(parseMaxTravel("$133=10")).toBeNull();
+    expect(parseMaxTravel("ok")).toBeNull();
+  });
+
+  it("handles leading whitespace", () => {
+    expect(parseMaxTravel("  $130=300.000")).toEqual({ axis: 0, value: 300 });
   });
 });
 

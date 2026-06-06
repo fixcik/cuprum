@@ -14,6 +14,22 @@ export function parseHomingEnabled(line: string): boolean | null {
   return m ? m[1] !== "0" : null;
 }
 
+/** Parse a GRBL `$$` settings line for the soft-limits-enable flag ($20).
+ *  Returns true/false if the line is `$20=<n>`, else null (not that line). */
+export function parseSoftLimitsEnabled(line: string): boolean | null {
+  const m = line.trim().match(/^\$20=(\d+)/);
+  return m ? m[1] !== "0" : null;
+}
+
+/** Parse a GRBL `$$` max-travel line ($130/$131/$132 → X/Y/Z) into the axis
+ *  index (0=X, 1=Y, 2=Z) and its value in mm. Returns null for any other line. */
+export function parseMaxTravel(line: string): { axis: 0 | 1 | 2; value: number } | null {
+  const m = line.trim().match(/^\$(130|131|132)=([\d.]+)/);
+  if (!m) return null;
+  const axis = (Number(m[1]) - 130) as 0 | 1 | 2;
+  return { axis, value: Number(m[2]) };
+}
+
 /** G-code to set the G54 work offset so work XY-zero = the saved machine point. */
 export function restoreZeroGcode(z: { x: number; y: number }): string {
   return `G10 L2 P1 X${z.x.toFixed(3)} Y${z.y.toFixed(3)}`;

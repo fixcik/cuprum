@@ -93,5 +93,11 @@
     "copied": "Copied",
     "close": "Hide console"
   },
-  "alarm": "Machine in alarm — unlock or soft-reset to continue."
+  "alarm": "Machine in alarm — unlock or soft-reset to continue.",
+  "softLimits": {
+    "title": "Soft limits",
+    "disabled": "GRBL soft limits are off — manual jog can hit a limit switch.",
+    "mismatch": "GRBL soft limits don't match the work area — manual jog can hit a limit switch.",
+    "configure": "Configure soft limits"
+  }
 }
