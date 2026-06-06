@@ -22,6 +22,7 @@
     "unknown": "—"
   },
   "dro": {
+    "coordinates": "Coordinates",
     "work": "Work · WPos",
     "machine": "Machine",
     "machineShort": "mach.",
@@ -30,6 +31,7 @@
     "gotoAxis": "Go to work zero {{axis}}",
     "zeroAll": "Zero XYZ",
     "gotoXY": "Go to XY",
+    "gotoZero": "Go to zero",
     "saveZero": "Save zero",
     "restoreZero": "Home + restore zero",
     "restoreZeroShort": "Home + restore",
@@ -65,6 +67,7 @@
     "manual": "Manual spindle — speed not controllable"
   },
   "controls": {
+    "title": "Actions",
     "home": "Home",
     "unlock": "Unlock",
     "feedHold": "Feed hold",

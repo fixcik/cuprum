@@ -22,6 +22,7 @@
     "unknown": "—"
   },
   "dro": {
+    "coordinates": "Координаты",
     "work": "Рабочие · WPos",
     "machine": "Машинные",
     "machineShort": "маш.",
@@ -30,6 +31,7 @@
     "gotoAxis": "На рабочий ноль {{axis}}",
     "zeroAll": "Ноль XYZ",
     "gotoXY": "На ноль XY",
+    "gotoZero": "На ноль",
     "saveZero": "Сохранить ноль",
     "restoreZero": "Базирование + восстановить ноль",
     "restoreZeroShort": "Базир.+восст.",
@@ -65,6 +67,7 @@
     "manual": "Ручной шпиндель — скорость не управляется"
   },
   "controls": {
+    "title": "Действия",
     "home": "Базирование",
     "unlock": "Снять блокировку",
     "feedHold": "Пауза",

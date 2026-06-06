@@ -8,6 +8,10 @@
     "tools": "Tools"
   },
   "equipment": {
+    "title": "Equipment",
+    "console": "Console",
+    "expand": "Expand sidebar",
+    "collapse": "Collapse sidebar",
     "addCnc": "Add CNC",
     "addUv": "Add UV LCD",
     "delete": "Remove",

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Terminal } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { NumberField } from "@/components/settings/fields";
 import { CncMachineFields } from "@/components/settings/CncMachineFields";
@@ -16,6 +17,18 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
   // Sub-tabs only apply to CNC machines; reset implicitly when the selected
   // machine changes via the keyed remount in EquipmentSection.
   const [tab, setTab] = useState<CncTab>("config");
+  // Console drawer visibility — toggled from the tab row, rendered inside the
+  // control panel. Persisted so it survives remounts/tab switches.
+  const [consoleOpen, setConsoleOpen] = useState(
+    () => localStorage.getItem("cnc.console") === "1",
+  );
+  const toggleConsole = () => {
+    setConsoleOpen((open) => {
+      const next = !open;
+      localStorage.setItem("cnc.console", next ? "1" : "0");
+      return next;
+    });
+  };
 
   if (machine === null) {
     return (
@@ -48,6 +61,20 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
               </button>
             ))}
           </div>
+          {tab === "control" && (
+            <button
+              type="button"
+              onClick={toggleConsole}
+              className={`ml-auto mb-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] transition-colors ${
+                consoleOpen
+                  ? "border-border bg-muted text-foreground"
+                  : "border-transparent text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+              }`}
+            >
+              <Terminal className="size-3.5" />
+              {t("equipment.console")}
+            </button>
+          )}
         </div>
         {tab === "config" ? (
           <div className="min-h-0 flex-1 overflow-auto p-6">
@@ -55,7 +82,10 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
           </div>
         ) : (
           <div className="flex min-h-0 flex-1">
-            <MachineControlPanel />
+            <MachineControlPanel
+              consoleOpen={consoleOpen}
+              onCloseConsole={toggleConsole}
+            />
           </div>
         )}
       </div>
