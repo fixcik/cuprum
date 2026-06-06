@@ -44,6 +44,8 @@ pub struct StatusReport {
     pub wco: Option<[f32; 3]>,
     pub feed: f32,
     pub spindle: f32,
+    /// Override percentages `[feed, rapid, spindle]` from the `Ov:` field, if present.
+    pub overrides: Option<[u8; 3]>,
 }
 
 /// One line from GRBL, classified.
@@ -67,6 +69,14 @@ fn parse_triple(s: &str) -> Option<[f32; 3]> {
     Some([x, y, z])
 }
 
+fn parse_overrides(s: &str) -> Option<[u8; 3]> {
+    let mut it = s.split(',').map(|p| p.trim().parse::<u8>());
+    let feed = it.next()?.ok()?;
+    let rapid = it.next()?.ok()?;
+    let spindle = it.next()?.ok()?;
+    Some([feed, rapid, spindle])
+}
+
 fn parse_status(body: &str) -> StatusReport {
     let mut fields = body.split('|');
     let state = MachineState::parse(fields.next().unwrap_or(""));
@@ -77,6 +87,7 @@ fn parse_status(body: &str) -> StatusReport {
         wco: None,
         feed: 0.0,
         spindle: 0.0,
+        overrides: None,
     };
     for f in fields {
         if let Some(v) = f.strip_prefix("MPos:") {
@@ -91,6 +102,8 @@ fn parse_status(body: &str) -> StatusReport {
             report.spindle = it.next().and_then(|p| p.parse().ok()).unwrap_or(0.0);
         } else if let Some(v) = f.strip_prefix("F:") {
             report.feed = v.parse().unwrap_or(0.0);
+        } else if let Some(v) = f.strip_prefix("Ov:") {
+            report.overrides = parse_overrides(v);
         }
     }
     report
@@ -128,6 +141,8 @@ pub struct ResolvedStatus {
     pub wpos: [f32; 3],
     pub feed: f32,
     pub spindle: f32,
+    /// Override percentages `[feed, rapid, spindle]`; defaults to 100 % each.
+    pub overrides: [u8; 3],
 }
 
 /// Caches the last-seen work-coordinate offset so every report yields both
@@ -155,6 +170,7 @@ impl StatusTracker {
             wpos,
             feed: r.feed,
             spindle: r.spindle,
+            overrides: r.overrides.unwrap_or([100, 100, 100]),
         }
     }
 }
@@ -201,8 +217,36 @@ mod tests {
                 assert_eq!(s.wco, Some([2.0, 3.0, 0.0]));
                 assert_eq!(s.feed, 500.0);
                 assert_eq!(s.spindle, 1000.0);
+                // No Ov: field → overrides stay unset (resolved to 100 % later).
+                assert_eq!(s.overrides, None);
             }
             other => panic!("expected Status, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_status_with_overrides() {
+        match parse_line("<Run|WPos:5.000,0.000,0.000|FS:500,1000|Ov:100,50,75>") {
+            Line::Status(s) => {
+                assert_eq!(s.state, MachineState::Run);
+                assert_eq!(s.overrides, Some([100, 50, 75]));
+            }
+            other => panic!("expected Status, got {other:?}"),
+        }
+
+        // Resolved status fills in the parsed overrides verbatim.
+        let mut t = StatusTracker::default();
+        if let Line::Status(rep) = parse_line("<Run|MPos:0,0,0|Ov:120,100,80>") {
+            assert_eq!(t.resolve(&rep).overrides, [120, 100, 80]);
+        } else {
+            panic!("expected Status");
+        }
+
+        // Missing Ov: → resolved overrides default to 100 %.
+        if let Line::Status(rep) = parse_line("<Idle|MPos:0,0,0|FS:0,0>") {
+            assert_eq!(t.resolve(&rep).overrides, [100, 100, 100]);
+        } else {
+            panic!("expected Status");
         }
     }
 
@@ -239,6 +283,7 @@ mod tests {
             wco: Some([2.0, 3.0, 0.0]),
             feed: 0.0,
             spindle: 0.0,
+            overrides: None,
         };
         let s1 = t.resolve(&r1);
         assert_eq!(s1.mpos, [10.0, 10.0, 0.0]);
@@ -252,6 +297,7 @@ mod tests {
             wco: None,
             feed: 0.0,
             spindle: 0.0,
+            overrides: None,
         };
         let s2 = t.resolve(&r2);
         assert_eq!(s2.wpos, [10.0, 7.0, 0.0]);
@@ -264,6 +310,7 @@ mod tests {
             wco: None,
             feed: 0.0,
             spindle: 0.0,
+            overrides: None,
         };
         let s3 = t.resolve(&r3);
         assert_eq!(s3.mpos, [7.0, 3.0, 0.0]);

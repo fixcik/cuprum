@@ -67,6 +67,12 @@
     "target": "Target",
     "manual": "Manual spindle — speed not controllable"
   },
+  "overrides": {
+    "title": "Overrides",
+    "feed": "Feed",
+    "spindle": "Spindle",
+    "reset": "Reset to 100%"
+  },
   "controls": {
     "title": "Actions",
     "home": "Home",

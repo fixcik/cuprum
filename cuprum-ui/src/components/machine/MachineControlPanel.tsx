@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Fan, LocateFixed, Move, Move3d, Zap } from "lucide-react";
+import { Fan, LocateFixed, Move, Move3d, SlidersHorizontal, Zap } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
@@ -10,6 +10,7 @@ import { Card } from "@/components/machine/Card";
 import { Dro } from "@/components/machine/Dro";
 import { JogPad } from "@/components/machine/JogPad";
 import { SpindlePanel } from "@/components/machine/SpindlePanel";
+import { Overrides } from "@/components/machine/Overrides";
 import { QuickActions } from "@/components/machine/QuickActions";
 import { FieldPanel } from "@/components/machine/FieldPanel";
 import { ConsoleDrawer } from "@/components/machine/ConsoleDrawer";
@@ -66,6 +67,9 @@ export function MachineControlPanel({
           </Card>
           <Card title={t("spindle.title")} icon={Fan}>
             <SpindlePanel />
+          </Card>
+          <Card title={t("overrides.title")} icon={SlidersHorizontal}>
+            <Overrides />
           </Card>
           <Card title={t("controls.title")} icon={Zap}>
             <QuickActions />

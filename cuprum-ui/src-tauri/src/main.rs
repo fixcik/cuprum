@@ -198,6 +198,7 @@ fn main() {
             commands::machine::machine_soft_reset,
             commands::machine::machine_feed_hold,
             commands::machine::machine_cycle_start,
+            commands::machine::machine_override,
             commands::machine::machine_is_connected,
             commands::drill_run::drill_run_start,
             commands::drill_run::drill_run_pause,

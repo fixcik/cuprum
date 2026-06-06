@@ -7,9 +7,41 @@ pub const CYCLE_START: u8 = b'~';
 pub const SOFT_RESET: u8 = 0x18;
 /// Jog cancel (reserved for continuous jog — not used in Phase 1).
 pub const JOG_CANCEL: u8 = 0x85;
+
+// Real-time override bytes (GRBL 1.1). Feed/spindle ratios are clamped by GRBL to
+// 10..=200 %; rapid takes only the three fixed steps below.
+/// Feed override: reset to 100 %.
+pub const FEED_OVERRIDE_100: u8 = 0x90;
+/// Feed override: +10 %.
+pub const FEED_OVERRIDE_PLUS_10: u8 = 0x91;
+/// Feed override: -10 %.
+pub const FEED_OVERRIDE_MINUS_10: u8 = 0x92;
+/// Feed override: +1 %.
+pub const FEED_OVERRIDE_PLUS_1: u8 = 0x93;
+/// Feed override: -1 %.
+pub const FEED_OVERRIDE_MINUS_1: u8 = 0x94;
+/// Rapid override: 100 % (full rapid).
+pub const RAPID_OVERRIDE_100: u8 = 0x95;
+/// Rapid override: 50 %.
+pub const RAPID_OVERRIDE_50: u8 = 0x96;
+/// Rapid override: 25 %.
+pub const RAPID_OVERRIDE_25: u8 = 0x97;
+/// Spindle-speed override: reset to 100 %.
+pub const SPINDLE_OVERRIDE_100: u8 = 0x99;
+/// Spindle-speed override: +10 %.
+pub const SPINDLE_OVERRIDE_PLUS_10: u8 = 0x9A;
+/// Spindle-speed override: -10 %.
+pub const SPINDLE_OVERRIDE_MINUS_10: u8 = 0x9B;
+/// Spindle-speed override: +1 %.
+pub const SPINDLE_OVERRIDE_PLUS_1: u8 = 0x9C;
+/// Spindle-speed override: -1 %.
+pub const SPINDLE_OVERRIDE_MINUS_1: u8 = 0x9D;
 /// Toggle Spindle Stop (real-time). Valid only in the Hold state: stops the
-/// spindle while paused and is auto-restored on cycle-start (`~`).
-pub const SPINDLE_STOP_TOGGLE: u8 = 0x9E;
+/// spindle while paused and is auto-restored on cycle-start (`~`). Also the
+/// GRBL "spindle override stop" toggle, hence the alias below.
+pub const SPINDLE_OVERRIDE_STOP: u8 = 0x9E;
+/// Backwards-compatible alias kept for the Hold-state pause path.
+pub const SPINDLE_STOP_TOGGLE: u8 = SPINDLE_OVERRIDE_STOP;
 
 /// Relative jog: `$J=G91 X.. Y.. Z.. F..`. Axes with a zero delta are omitted.
 pub fn jog(dx: f32, dy: f32, dz: f32, feed: f32) -> String {
@@ -92,5 +124,20 @@ mod tests {
         assert_eq!(SOFT_RESET, 0x18);
         assert_eq!(JOG_CANCEL, 0x85);
         assert_eq!(SPINDLE_STOP_TOGGLE, 0x9E);
+        // Override bytes (GRBL 1.1).
+        assert_eq!(FEED_OVERRIDE_100, 0x90);
+        assert_eq!(FEED_OVERRIDE_PLUS_10, 0x91);
+        assert_eq!(FEED_OVERRIDE_MINUS_10, 0x92);
+        assert_eq!(FEED_OVERRIDE_PLUS_1, 0x93);
+        assert_eq!(FEED_OVERRIDE_MINUS_1, 0x94);
+        assert_eq!(RAPID_OVERRIDE_100, 0x95);
+        assert_eq!(RAPID_OVERRIDE_50, 0x96);
+        assert_eq!(RAPID_OVERRIDE_25, 0x97);
+        assert_eq!(SPINDLE_OVERRIDE_100, 0x99);
+        assert_eq!(SPINDLE_OVERRIDE_PLUS_10, 0x9A);
+        assert_eq!(SPINDLE_OVERRIDE_MINUS_10, 0x9B);
+        assert_eq!(SPINDLE_OVERRIDE_PLUS_1, 0x9C);
+        assert_eq!(SPINDLE_OVERRIDE_MINUS_1, 0x9D);
+        assert_eq!(SPINDLE_OVERRIDE_STOP, 0x9E);
     }
 }

@@ -19,6 +19,8 @@ pub enum Telemetry {
         wpos: [f32; 3],
         feed: f32,
         spindle: f32,
+        /// Override percentages `[feed, rapid, spindle]`.
+        overrides: [u8; 3],
     },
     Line {
         /// "rx" (from GRBL) | "tx" (sent by us).
@@ -166,6 +168,7 @@ pub fn machine_connect(
                             wpos: s.wpos,
                             feed: s.feed,
                             spindle: s.spindle,
+                            overrides: s.overrides,
                         });
                         // Global broadcast for other windows (drill webview).
                         let _ = r_app.emit(
@@ -324,6 +327,36 @@ pub fn machine_feed_hold(state: State<MachineState>) -> Result<(), String> {
 #[tauri::command]
 pub fn machine_cycle_start(state: State<MachineState>) -> Result<(), String> {
     send_realtime(&state, grbl::CYCLE_START, "~")
+}
+
+/// Adjust a real-time override. `kind` ∈ {feed, rapid, spindle};
+/// `action` ∈ {"100", "+10", "-10", "+1", "-1", "stop"}. "stop" is spindle-only.
+#[tauri::command]
+pub fn machine_override(
+    state: State<MachineState>,
+    kind: String,
+    action: String,
+) -> Result<(), String> {
+    let byte = match (kind.as_str(), action.as_str()) {
+        ("feed", "100") => grbl::FEED_OVERRIDE_100,
+        ("feed", "+10") => grbl::FEED_OVERRIDE_PLUS_10,
+        ("feed", "-10") => grbl::FEED_OVERRIDE_MINUS_10,
+        ("feed", "+1") => grbl::FEED_OVERRIDE_PLUS_1,
+        ("feed", "-1") => grbl::FEED_OVERRIDE_MINUS_1,
+        ("rapid", "100") => grbl::RAPID_OVERRIDE_100,
+        // GRBL rapid override has only fixed 100/50/25 % steps; map -10 → 50 %,
+        // -1 → 25 % so the same +/- action vocabulary works for every kind.
+        ("rapid", "-10") => grbl::RAPID_OVERRIDE_50,
+        ("rapid", "-1") => grbl::RAPID_OVERRIDE_25,
+        ("spindle", "100") => grbl::SPINDLE_OVERRIDE_100,
+        ("spindle", "+10") => grbl::SPINDLE_OVERRIDE_PLUS_10,
+        ("spindle", "-10") => grbl::SPINDLE_OVERRIDE_MINUS_10,
+        ("spindle", "+1") => grbl::SPINDLE_OVERRIDE_PLUS_1,
+        ("spindle", "-1") => grbl::SPINDLE_OVERRIDE_MINUS_1,
+        ("spindle", "stop") => grbl::SPINDLE_OVERRIDE_STOP,
+        _ => return Err(format!("unknown override: {kind}/{action}")),
+    };
+    send_realtime(&state, byte, &format!("ov:{kind}{action}"))
 }
 
 impl MachineState {

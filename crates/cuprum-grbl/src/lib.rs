@@ -7,8 +7,12 @@ pub mod connection;
 pub mod parse;
 
 pub use command::{
-    home, jog, set_work_zero, spindle_off, spindle_on, unlock, CYCLE_START, FEED_HOLD, JOG_CANCEL,
-    SOFT_RESET, SPINDLE_STOP_TOGGLE, STATUS_QUERY,
+    home, jog, set_work_zero, spindle_off, spindle_on, unlock, CYCLE_START, FEED_HOLD,
+    FEED_OVERRIDE_100, FEED_OVERRIDE_MINUS_1, FEED_OVERRIDE_MINUS_10, FEED_OVERRIDE_PLUS_1,
+    FEED_OVERRIDE_PLUS_10, JOG_CANCEL, RAPID_OVERRIDE_100, RAPID_OVERRIDE_25, RAPID_OVERRIDE_50,
+    SOFT_RESET, SPINDLE_OVERRIDE_100, SPINDLE_OVERRIDE_MINUS_1, SPINDLE_OVERRIDE_MINUS_10,
+    SPINDLE_OVERRIDE_PLUS_1, SPINDLE_OVERRIDE_PLUS_10, SPINDLE_OVERRIDE_STOP, SPINDLE_STOP_TOGGLE,
+    STATUS_QUERY,
 };
 pub use connection::{list_ports, open, GrblReader, GrblWriter, PortInfo};
 pub use parse::{parse_line, Line, MachineState, ResolvedStatus, StatusReport, StatusTracker};
