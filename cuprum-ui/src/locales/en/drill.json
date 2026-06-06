@@ -96,6 +96,17 @@
     "notZeroed": "Touch off required before starting.",
     "notZeroedHint": "Set Z-zero before starting"
   },
+  "xyzero": {
+    "title": "Work X-Y Zero",
+    "hint": "Move the bit to the panel datum corner, then press Bind X-Y.",
+    "bind": "Bind X-Y",
+    "reset": "Reset",
+    "xLabel": "X",
+    "yLabel": "Y",
+    "set": "X-Y bound",
+    "notSet": "Bind X-Y before starting.",
+    "notSetHint": "Bind X-Y before starting"
+  },
   "runHeader": {
     "drilling": "Drilling…",
     "paused": "Paused",

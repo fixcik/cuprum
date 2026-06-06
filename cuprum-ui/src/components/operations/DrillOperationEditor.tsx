@@ -82,6 +82,11 @@ export function DrillOperationEditor() {
   // Z touch-off: MPos Z captured at the copper surface (null = not yet touched off).
   const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
 
+  // Work X-Y zero bound at the datum corner this session (ephemeral). The run's
+  // G-code is in work coords (origin = datum corner), so this must be set or the
+  // run lands off the panel.
+  const [workZeroXYSet, setWorkZeroXYSet] = useState(false);
+
   // Feed override % sent via UI (100 = nominal). Applied by sending GRBL real-time commands.
   const [feedOverridePct, setFeedOverridePct] = useState(100);
 
@@ -97,11 +102,14 @@ export function DrillOperationEditor() {
   // Live feed override % reported by GRBL (overrides[0]), may be undefined until first status.
   const grblFeedPct = useMachine((s) => s.status.overrides?.[0]);
 
-  // A homing cycle (or alarm/disconnect that voids `homed`) invalidates the Z
-  // touch-off: the captured machine Z no longer maps to the copper surface. Force
-  // a re-touch-off so the start gate can't pass on a stale reference.
+  // A homing cycle (or alarm/disconnect that voids `homed`) invalidates BOTH the Z
+  // touch-off and the X-Y zero: the captured machine references no longer map to
+  // the panel. Force a re-bind so the start gate can't pass on a stale reference.
   useEffect(() => {
-    if (!machineHomed || machineState === "home") setWorkZeroMachineZ(null);
+    if (!machineHomed || machineState === "home") {
+      setWorkZeroMachineZ(null);
+      setWorkZeroXYSet(false);
+    }
   }, [machineHomed, machineState]);
 
   // Send G10 L20 P1 Z0 (set current position as Z-zero in G54) and capture MPos Z.
@@ -115,6 +123,20 @@ export function DrillOperationEditor() {
 
   const handleClearTouchOff = useCallback(() => {
     setWorkZeroMachineZ(null);
+  }, []);
+
+  // Bind work X-Y zero at the current position (the datum corner): G10 L20 P1 X0 Y0
+  // in G54. Records the bind fact (ephemeral); the marker reads live wpos so it
+  // lands on the panel once this is set.
+  const handleBindXY = useCallback(() => {
+    const { status, connected } = useMachine.getState();
+    if (!canMove(status.state, connected)) return;
+    void api.machine.send("G10 L20 P1 X0 Y0");
+    setWorkZeroXYSet(true);
+  }, []);
+
+  const handleClearXY = useCallback(() => {
+    setWorkZeroXYSet(false);
   }, []);
 
   const zGate = checkZGate(workZeroMachineZ, cncProfile?.safeZMm ?? 5);
@@ -222,6 +244,7 @@ export function DrillOperationEditor() {
   const handlePassDone = useCallback(() => {
     setPassDone((prev) => new Set([...prev, activePassId]));
     setWorkZeroMachineZ(null);
+    setWorkZeroXYSet(false);
     // Advance to the next pass in DRILL_PASSES order that has not been completed yet.
     const nextPass = DRILL_PASSES.find(
       (p) => p.id !== activePassId && !passDone.has(p.id),
@@ -336,6 +359,9 @@ export function DrillOperationEditor() {
             workZeroMachineZ={workZeroMachineZ}
             onTouchOff={handleTouchOff}
             onClearTouchOff={handleClearTouchOff}
+            workZeroXYSet={workZeroXYSet}
+            onBindXY={handleBindXY}
+            onClearXY={handleClearXY}
             zGate={zGate}
             machineConnected={machineConnected}
             machineState={machineState}
