@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, type LucideIcon } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ChevronLeft, ChevronRight, ArrowRight, Scissors, type LucideIcon } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
+import { DrillOperationEditor } from "@/components/operations/DrillOperationEditor";
 import { useShell } from "@/shellStore";
 import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
-import { api } from "@/lib/api";
 
 type ProjectTab = "panel" | "designs" | "operations";
+type OpenOp = null | "drill";
 
 export function ProjectPage() {
   const { t, i18n } = useTranslation("project");
@@ -29,6 +30,8 @@ export function ProjectPage() {
   const historyBusy = useShell((s) => s.historyBusy);
   const saving = useShell((s) => s.saving);
   const [pointsOpen, setPointsOpen] = useState(false);
+  // Which operation card is open inline (null = list view).
+  const [openOp, setOpenOp] = useState<OpenOp>(null);
 
   const artifactProgress = useShell((s) => s.artifactProgress);
   const pruneArtifactProgress = useShell((s) => s.pruneArtifactProgress);
@@ -195,24 +198,88 @@ export function ProjectPage() {
       <div className="min-h-0 flex-1">
         {tab === "panel" && <PanelEditor />}
         {tab === "designs" && <DesignsGallery />}
-        {tab === "operations" && (
-          <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
-            {/* Drill-panel operation card */}
-            <button
-              type="button"
-              onClick={() => void api.openDrillWindow()}
-              className="flex w-full max-w-md items-start gap-4 rounded-xl border border-border bg-card px-5 py-4 text-left transition-colors hover:border-primary/50 hover:bg-card/80"
-            >
-              <div className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-lg border border-border bg-background text-primary">
-                <Drill className="size-5" />
+        {tab === "operations" && openOp === null && (
+          /* Operations list view */
+          <div className="flex h-full flex-col overflow-y-auto p-6">
+            {/* Section heading */}
+            <div className="mb-5 flex items-center gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                {t("operations.heading")}
+              </span>
+              {manifest.name && (
+                <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {manifest.name}
+                </span>
+              )}
+            </div>
+
+            {/* Operation cards */}
+            <div className="flex max-w-2xl flex-col gap-3">
+              {/* Drill card — active */}
+              <button
+                type="button"
+                onClick={() => setOpenOp("drill")}
+                className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
+              >
+                <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
+                  <Drill className="size-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[16px] font-semibold text-foreground">
+                      {t("operations.drill.title")}
+                    </span>
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+                      {t("operations.drill.status")}
+                    </span>
+                  </div>
+                  {/* TODO: add hole counts once cheaply available from the store */}
+                  <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                    {t("operations.drill.desc")}
+                  </p>
+                </div>
+                <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+              </button>
+
+              {/* Milling card — placeholder */}
+              <div className="flex items-start gap-4 rounded-xl border border-dashed border-border/70 bg-card/25 p-4 opacity-70">
+                <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+                  <Scissors className="size-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[16px] font-semibold text-foreground">
+                      {t("operations.future.title")}
+                    </span>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {t("operations.future.badge")}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="min-w-0">
-                <div className="text-[14px] font-semibold text-foreground">{t("operations.drill.title")}</div>
-                <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{t("operations.drill.desc")}</p>
-              </div>
-            </button>
-            {/* Full process-step editor (#201) lands later */}
-            <p className="text-[12px] text-muted-foreground">{t("operations.placeholder.desc")}</p>
+            </div>
+          </div>
+        )}
+        {tab === "operations" && openOp === "drill" && (
+          /* Drill editor inline view */
+          <div className="flex h-full flex-col">
+            {/* Breadcrumb bar */}
+            <div className="flex shrink-0 items-center gap-1 border-b border-border bg-panel/40 px-3 py-1.5 text-[12px]">
+              <button
+                type="button"
+                onClick={() => setOpenOp(null)}
+                className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ChevronLeft className="size-3.5" />
+                {t("operations.back")}
+              </button>
+              <ChevronRight className="size-3 text-muted-foreground/50" />
+              <span className="text-foreground">{t("operations.drill.title")}</span>
+            </div>
+            {/* Editor fills remaining height */}
+            <div className="flex-1 min-h-0">
+              <DrillOperationEditor />
+            </div>
           </div>
         )}
       </div>

@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { api, type DrillSnapshot, type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
-import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
+import { type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
+import { useDrillScreenData } from "@/hooks/useDrillScreenData";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
@@ -18,25 +17,21 @@ import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { useDrillProgressRing } from "@/hooks/useDrillProgressRing";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
+import { useShell } from "@/shellStore";
 import { DATUM_CORNERS } from "@/lib/datum";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 
-/** Root of the separate drill-preview window (label "drill").
- *  Subscribes to project snapshots from the main window, builds the drill plan,
- *  and renders a 2D hole map + summary. */
-export function DrillWindow() {
+/** Drill operation editor — sourceable inline (no IPC).
+ *  Builds the drill snapshot directly from stores via useDrillScreenData,
+ *  then renders the hole map, pass selector, summary, and run panel. */
+export function DrillOperationEditor() {
   const { t } = useTranslation("drill");
 
-  const snap = useSnapshotSubscription<DrillSnapshot>(api.onDrillSnapshot, api.emitDrillReady);
+  const snap = useDrillScreenData();
 
   // useDrillPlan now returns only the full plan (no route — route is computed here
   // after filtering by the selected class set).
   const { plan, loading } = useDrillPlan(snap);
-
-  // Keep the window title localised.
-  useEffect(() => {
-    getCurrentWindow().setTitle(t("window.title")).catch(() => {});
-  }, [t]);
 
   const panel = snap?.manifest?.panel ?? null;
   const hasProject = !!(snap?.workingDir && snap.manifest);
@@ -48,7 +43,7 @@ export function DrillWindow() {
   const substrateThicknessMm =
     snap?.manifest?.stackup?.substrate_thickness_mm ?? DEFAULT_FR4_THICKNESS_MM;
 
-  // Datum corner: drill-window-owned setting.
+  // Datum corner: drill-screen-owned setting (persisted in settings).
   const drillDatumCorner = useSettings((s) => s.drillDatumCorner);
   const setDrillDatumCorner = useSettings((s) => s.setDrillDatumCorner);
 
@@ -204,7 +199,7 @@ export function DrillWindow() {
               plan={filteredPlan}
               route={route}
               onSetClass={(dMm, klass) =>
-                api.emitDrillSetClassOverride(String(Math.round(dMm * 1000)), klass)
+                void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
               }
             />
           </div>
