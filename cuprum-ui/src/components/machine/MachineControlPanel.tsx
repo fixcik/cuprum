@@ -21,14 +21,19 @@ export function MachineControlPanel() {
       {connected && state === "alarm" && (
         <div className="bg-destructive/15 px-4 py-1.5 text-xs text-destructive">{t("alarm")}</div>
       )}
-      <div className="flex min-h-0 flex-1 gap-4 p-4">
-        <div className="flex flex-col gap-4">
+      {/* Narrow panes (e.g. the equipment editor in a small window) stack the
+       *  controls above the console and scroll vertically; wide panes lay them
+       *  out side by side and fill the height. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:flex-row lg:overflow-hidden">
+        <div className="flex shrink-0 flex-col gap-4">
           <Dro />
           <JogPad />
           <SpindleControl />
           <MachineControls />
         </div>
-        <Console />
+        <div className="flex min-h-[16rem] flex-col lg:min-h-0 lg:flex-1">
+          <Console />
+        </div>
       </div>
     </div>
   );
