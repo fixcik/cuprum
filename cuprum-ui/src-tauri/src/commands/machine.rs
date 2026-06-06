@@ -280,6 +280,11 @@ pub fn machine_jog(
 }
 
 #[tauri::command]
+pub fn machine_jog_cancel(state: State<MachineState>) -> Result<(), String> {
+    send_realtime(&state, grbl::JOG_CANCEL, "jog-cancel")
+}
+
+#[tauri::command]
 pub fn machine_set_zero(
     state: State<MachineState>,
     x: bool,

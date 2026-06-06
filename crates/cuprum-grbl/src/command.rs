@@ -5,7 +5,7 @@ pub const STATUS_QUERY: u8 = b'?';
 pub const FEED_HOLD: u8 = b'!';
 pub const CYCLE_START: u8 = b'~';
 pub const SOFT_RESET: u8 = 0x18;
-/// Jog cancel (reserved for continuous jog — not used in Phase 1).
+/// Jog cancel: smoothly decelerates and aborts an in-progress jog (continuous jog).
 pub const JOG_CANCEL: u8 = 0x85;
 
 // Real-time override bytes (GRBL 1.1). Feed/spindle ratios are clamped by GRBL to

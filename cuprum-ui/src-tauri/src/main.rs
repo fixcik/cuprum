@@ -190,6 +190,7 @@ fn main() {
             commands::machine::machine_connect,
             commands::machine::machine_disconnect,
             commands::machine::machine_jog,
+            commands::machine::machine_jog_cancel,
             commands::machine::machine_set_zero,
             commands::machine::machine_home,
             commands::machine::machine_unlock,
