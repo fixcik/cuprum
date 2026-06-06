@@ -45,7 +45,8 @@
     "clickHint": "click — go here",
     "goConfirm": {
       "title": "Move to position?",
-      "message": "Rapid to X{{x}} Y{{y}}. The tool will first rise to the safe height Z{{z}}, then travel.",
+      "message": "Rapid to X{{x}} Y{{y}}.",
+      "raiseNote": "The tool will first rise to the safe height Z{{z}}, then travel.",
       "confirm": "Move",
       "cancel": "Cancel"
     }

@@ -32,6 +32,7 @@ export function MachineControlPanel({
   const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
+  const workZ = useMachine((s) => s.status.wpos[2]);
   const movable = canMove(state, connected);
 
   return (
@@ -50,7 +51,7 @@ export function MachineControlPanel({
                 type="button"
                 title={t("dro.gotoZero")}
                 disabled={!movable}
-                onClick={() => void gotoWorkZero(["z", "x", "y"], safeZMm)}
+                onClick={() => void gotoWorkZero(["z", "x", "y"], safeZMm, workZ)}
                 className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
               >
                 <LocateFixed className="size-3.5" />

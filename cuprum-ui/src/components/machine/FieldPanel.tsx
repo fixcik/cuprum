@@ -29,12 +29,18 @@ export function FieldPanel({ className }: { className?: string }) {
 
   const [pending, setPending] = useState<PendingMove | null>(null);
 
-  function confirmMove() {
+  // Already at/above safe Z → the lift is unnecessary (used for the dialog text).
+  const alreadySafe = wpos[2] >= safeZMm;
+
+  async function confirmMove() {
     if (!pending) return;
     const { x, y } = pending;
-    // Raise to safe Z first, then rapid to the target in work coordinates.
-    void api.machine.send(`G90 G0 Z${safeZMm}`);
-    void api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
+    // Re-read the live work-Z at confirm time (the dialog may have been open
+    // while Z moved). Raise to safe Z first (unless already clear) and await it
+    // so the XY traverse can't reach the controller before the lift.
+    const currentZ = useMachine.getState().status.wpos[2];
+    if (currentZ < safeZMm) await api.machine.send(`G90 G0 Z${safeZMm}`);
+    await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
   }
 
   const axisLabel = (label: string, tone: string, value: number) => (
@@ -81,8 +87,7 @@ export function FieldPanel({ className }: { className?: string }) {
             ? t("field.goConfirm.message", {
                 x: pending.x.toFixed(1),
                 y: pending.y.toFixed(1),
-                z: safeZMm,
-              })
+              }) + (alreadySafe ? "" : ` ${t("field.goConfirm.raiseNote", { z: safeZMm })}`)
             : ""
         }
         confirmLabel={t("field.goConfirm.confirm")}
