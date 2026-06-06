@@ -6,7 +6,7 @@ import { api, type DrillSnapshot, type DrillClass, DEFAULT_FR4_THICKNESS_MM } fr
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
-import { emitDrillProgram } from "@/lib/drillGcode";
+import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
 import { filterPlanByClasses, classCounts, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
@@ -15,6 +15,7 @@ import { DrillSummary } from "@/components/drill/DrillSummary";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
 import { DrillPassSelector } from "@/components/drill/DrillPassSelector";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
+import { useDrillProgressRing } from "@/hooks/useDrillProgressRing";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
 import { DATUM_CORNERS } from "@/lib/datum";
@@ -101,6 +102,15 @@ export function DrillWindow() {
   const machineWork = useMachinePosition();
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
+  // Depth-progress ring for the currently-drilling hole.
+  const targetDepthMm = substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM;
+  const currentHoleProgress = useDrillProgressRing({
+    active: run.state.phase === "running" && run.state.currentHoleIndex !== null,
+    currentHoleIndex: run.state.currentHoleIndex,
+    zMm: machineWork?.z ?? null,
+    targetDepthMm,
+  });
+
   // hasAnyHoles: whether the FULL plan has any holes (independent of selection).
   // Used to gate the "no holes" empty-screen (not the "nothing selected" case).
   const hasAnyHoles = !!(plan && plan.totalHoles > 0);
@@ -164,6 +174,7 @@ export function DrillWindow() {
                 currentHoleIndex: run.state.currentHoleIndex,
               }}
               machineWork={showMarker ? machineWork : null}
+              currentHoleProgress={currentHoleProgress}
             />
           )}
         </div>
