@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
@@ -84,6 +84,14 @@ export function DrillOperationEditor() {
   // Machine connection state for touch-off guards.
   const machineConnected = useMachine((s) => s.connected);
   const machineState = useMachine((s) => s.status.state);
+  const machineHomed = useMachine((s) => s.homed);
+
+  // A homing cycle (or alarm/disconnect that voids `homed`) invalidates the Z
+  // touch-off: the captured machine Z no longer maps to the copper surface. Force
+  // a re-touch-off so the start gate can't pass on a stale reference.
+  useEffect(() => {
+    if (!machineHomed || machineState === "home") setWorkZeroMachineZ(null);
+  }, [machineHomed, machineState]);
 
   // Send G10 L20 P1 Z0 (set current position as Z-zero in G54) and capture MPos Z.
   const handleTouchOff = useCallback(() => {
@@ -113,14 +121,18 @@ export function DrillOperationEditor() {
   const filteredPlanWithOverrides = useMemo(() => {
     if (!filteredPlan) return null;
     if (bitOverrides.size === 0) return filteredPlan;
-    return {
-      ...filteredPlan,
-      groups: filteredPlan.groups.map((g) => {
-        const key = String(Math.round(g.diameterMm * 1000));
-        const overrideToolId = bitOverrides.get(key);
-        return overrideToolId ? { ...g, toolId: overrideToolId } : g;
-      }),
-    };
+    const groups = filteredPlan.groups.map((g) => {
+      const key = String(Math.round(g.diameterMm * 1000));
+      const overrideToolId = bitOverrides.get(key);
+      return overrideToolId ? { ...g, toolId: overrideToolId } : g;
+    });
+    // Recompute unmatched diameters from the patched groups so an applied override
+    // clears its "no matching bit" warning.
+    const unmatchedDiametersMm = groups
+      .filter((g) => !g.toolId)
+      .map((g) => g.diameterMm)
+      .sort((a, b) => a - b);
+    return { ...filteredPlan, groups, unmatchedDiametersMm };
   }, [filteredPlan, bitOverrides]);
 
   // Route computed from the filtered plan (with overrides); null while plan/panel unavailable.
@@ -129,6 +141,13 @@ export function DrillOperationEditor() {
     const start = datumCornerPanelPoint(drillDatumCorner, panel.width_mm, panel.height_mm);
     return planDrillRoute(filteredPlanWithOverrides, start, zones);
   }, [filteredPlanWithOverrides, panel, drillDatumCorner, zones]);
+
+  // The selected-hole key (`${gi}-${hi}`) indexes the current route; clear it when
+  // the route changes (pass switch, override, datum) so the hole card can't show a
+  // different hole at the same index.
+  useEffect(() => {
+    setSelectedHoleId(null);
+  }, [route]);
 
   // Build the drill program (G-code + steps) from the filtered plan. `startMachineXY`
   // (omitted for the preview) makes the first traverse avoid keep-out zones from the

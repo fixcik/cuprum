@@ -4,6 +4,7 @@ import type { DrillRoute } from "@/lib/drillRoute";
 import type { Tool } from "@/lib/toolLibrary";
 import type { CncProfile } from "@/lib/cncProfile";
 import { estimateDrill } from "@/lib/drillEstimate";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export interface DrillPreflightSummaryProps {
   route: DrillRoute;
@@ -20,17 +21,19 @@ export function DrillPreflightSummary({
   substrateThicknessMm,
 }: DrillPreflightSummaryProps) {
   const { t } = useTranslation("drill");
+  const { fmtLen } = useUnitFormat();
 
   const est = useMemo(
     () => estimateDrill(route, tools, cncProfile, substrateThicknessMm),
     [route, tools, cncProfile, substrateThicknessMm],
   );
 
-  // Format timeSec as "Xм Yс" / "Yс"
+  // Format timeSec as "Xm Ys" / "Ys" using localised minute/second abbreviations.
   const timeFmt = (() => {
     const m = Math.floor(est.timeSec / 60);
     const s = est.timeSec % 60;
-    return m > 0 ? `${m}м ${s}с` : `${s}с`;
+    const sec = `${s}${t("preflight.secAbbr")}`;
+    return m > 0 ? `${m}${t("preflight.minAbbr")} ${sec}` : sec;
   })();
 
   const cells: { label: string; value: string }[] = [
@@ -44,7 +47,7 @@ export function DrillPreflightSummary({
     },
     {
       label: t("preflight.travel"),
-      value: `${est.travelMm.toFixed(0)} мм`,
+      value: fmtLen(est.travelMm),
     },
     {
       label: t("preflight.changes"),

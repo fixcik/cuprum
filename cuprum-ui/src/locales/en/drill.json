@@ -70,7 +70,9 @@
     "holes": "Holes",
     "time": "Est. time",
     "travel": "Jog distance",
-    "changes": "Bit changes"
+    "changes": "Bit changes",
+    "minAbbr": "m",
+    "secAbbr": "s"
   },
   "toolsOrder": {
     "title": "Tools · order",
@@ -88,6 +90,9 @@
     "reset": "Reset",
     "tooHigh": "Z-zero is too high — the retract will exceed the machine travel; lower the bit to the copper and bind again.",
     "zLabel": "Z",
+    "perStep": "/step",
+    "zMachine": "Z-zero (machine)",
+    "retract": "Retract",
     "notZeroed": "Touch off required before starting.",
     "notZeroedHint": "Set Z-zero before starting"
   },
