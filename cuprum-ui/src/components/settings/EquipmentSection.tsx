@@ -39,8 +39,10 @@ export function EquipmentSection() {
       <div className="w-56 shrink-0 overflow-auto border-r border-border bg-panel">
         <MachineList selectedId={effectiveSelected?.id ?? null} onSelect={handleSelect} />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-6">
-        <MachineEditor machine={effectiveSelected} />
+      {/* The pane only lays out flex height; scroll + padding live INSIDE each
+       *  editor tab so the control tab (console/jog) can fill the height. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <MachineEditor key={effectiveSelected?.id ?? "none"} machine={effectiveSelected} />
       </div>
     </div>
   );
