@@ -55,6 +55,8 @@
     "title": "Jog",
     "step": "step",
     "stepMm": "Step, mm",
+    "continuous": "Cont.",
+    "continuousHint": "Hold a button or key — the machine moves, release to stop",
     "feed": "Feed",
     "feedUnit": "mm/min",
     "gotoXY": "Go to work zero XY"
