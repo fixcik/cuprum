@@ -81,6 +81,15 @@
     "noBit": "No bit for {{diameter}}",
     "takeBit": "use {{diameter}}"
   },
+  "ztouch": {
+    "title": "Z Touch-off",
+    "hint": "Lower the bit to the copper surface, then press Bind.",
+    "touchOff": "Bind",
+    "reset": "Reset",
+    "tooHigh": "Z-zero is too high — the retract will exceed the machine travel; lower the bit to the copper and bind again.",
+    "zLabel": "Z",
+    "notZeroed": "Touch off required before starting."
+  },
   "run": {
     "start": "Start",
     "pause": "Pause",

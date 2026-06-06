@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { ListChecks } from "lucide-react";
-import type { DrillClass } from "@/lib/api";
+import type { DrillClass, MachineStateName } from "@/lib/api";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { DrillStep } from "@/lib/drillGcode";
@@ -9,12 +9,14 @@ import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
 import type { Tool } from "@/lib/toolLibrary";
 import type { CncProfile } from "@/lib/cncProfile";
+import type { ZGateResult } from "@/lib/zGate";
 import { DrillPassStepper } from "@/components/drill/DrillPassStepper";
 import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
 import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
 import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
+import { ZTouchOffCard } from "@/components/drill/ZTouchOffCard";
 
 export interface DrillPlanInspectorProps {
   plan: PanelDrillPlan;
@@ -44,6 +46,17 @@ export interface DrillPlanInspectorProps {
   cncProfile: CncProfile;
   /** Substrate thickness in mm (for preflight time estimate). */
   substrateThicknessMm: number;
+  /** MPos Z captured at touch-off (null = not yet done). */
+  workZeroMachineZ: number | null;
+  /** Called when operator presses "Bind" on the Z touch-off card. */
+  onTouchOff: () => void;
+  /** Called when operator resets the captured Z. */
+  onClearTouchOff: () => void;
+  /** Pre-computed gate result (for exposing to the start button in a later task). */
+  zGate: ZGateResult;
+  /** Machine connection state (forwarded to ZTouchOffCard). */
+  machineConnected: boolean;
+  machineState: MachineStateName;
 }
 
 /** Right-panel inspector for the drill operation.
@@ -67,6 +80,12 @@ export function DrillPlanInspector({
   tools,
   cncProfile,
   substrateThicknessMm,
+  workZeroMachineZ,
+  onTouchOff,
+  onClearTouchOff,
+  zGate: _zGate,
+  machineConnected,
+  machineState,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
 
@@ -126,6 +145,18 @@ export function DrillPlanInspector({
           substrateThicknessMm={substrateThicknessMm}
         />
       </div>
+
+      {/* Z touch-off card (Task 3) */}
+      <ZTouchOffCard
+        connected={machineConnected}
+        machineState={machineState}
+        workZeroMachineZ={workZeroMachineZ}
+        safeZMm={cncProfile.safeZMm}
+        jogStepsMm={cncProfile.jogStepsMm}
+        jogFeedMmMin={cncProfile.jogFeedMmMin}
+        onTouchOff={onTouchOff}
+        onClear={onClearTouchOff}
+      />
 
       {/* Divider */}
       <div className="h-px bg-border" />

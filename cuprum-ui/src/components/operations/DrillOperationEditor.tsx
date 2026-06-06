@@ -18,6 +18,10 @@ import { useDrillProgressRing } from "@/hooks/useDrillProgressRing";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
 import { useShell } from "@/shellStore";
+import { useMachine } from "@/machineStore";
+import { api } from "@/lib/api";
+import { canMove } from "@/lib/machineControls";
+import { checkZGate } from "@/lib/zGate";
 
 /** Drill operation editor — sourceable inline (no IPC).
  *  Builds the drill snapshot directly from stores via useDrillScreenData,
@@ -73,6 +77,28 @@ export function DrillOperationEditor() {
 
   // Selected hole on the drill canvas (key = `${gi}-${hi}`); null = none.
   const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
+
+  // Z touch-off: MPos Z captured at the copper surface (null = not yet touched off).
+  const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
+
+  // Machine connection state for touch-off guards.
+  const machineConnected = useMachine((s) => s.connected);
+  const machineState = useMachine((s) => s.status.state);
+
+  // Send G10 L20 P1 Z0 (set current position as Z-zero in G54) and capture MPos Z.
+  const handleTouchOff = useCallback(() => {
+    const { status, connected } = useMachine.getState();
+    if (!canMove(status.state, connected)) return;
+    // Use explicit P1 (G54) rather than the generic machine_set_zero which sends P0.
+    void api.machine.send("G10 L20 P1 Z0");
+    setWorkZeroMachineZ(status.mpos[2]);
+  }, []);
+
+  const handleClearTouchOff = useCallback(() => {
+    setWorkZeroMachineZ(null);
+  }, []);
+
+  const zGate = checkZGate(workZeroMachineZ, cncProfile?.safeZMm ?? 5);
 
   // Counts per class over the full (unfiltered) plan; null until plan is ready.
   const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
@@ -245,6 +271,12 @@ export function DrillOperationEditor() {
             tools={tools}
             cncProfile={cncProfile}
             substrateThicknessMm={substrateThicknessMm}
+            workZeroMachineZ={workZeroMachineZ}
+            onTouchOff={handleTouchOff}
+            onClearTouchOff={handleClearTouchOff}
+            zGate={zGate}
+            machineConnected={machineConnected}
+            machineState={machineState}
           />
         )}
       </div>
