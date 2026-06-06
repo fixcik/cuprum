@@ -261,6 +261,9 @@ export function WorkField({
       const padB = 22;
       const aw = W - padL - padR;
       const ah = H - padT - padB;
+      // Guard against a degenerate (zero) work envelope so a click never yields
+      // NaN coordinates that would be sent to the machine.
+      if (ew <= 0 || eh <= 0) return { x: E.x[0], y: E.y[0] };
       const sc = Math.min(aw / ew, ah / eh);
       const ox = padL + (aw - ew * sc) / 2;
       const oy = padT + (ah - eh * sc) / 2;

@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { Fan, LocateFixed, Move, Move3d, Zap } from "lucide-react";
 import { useSettings } from "@/settingsStore";
+import { useMachine } from "@/machineStore";
+import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero } from "@/lib/gotoZero";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
@@ -28,6 +30,9 @@ export function MachineControlPanel({
 }) {
   const { t } = useTranslation("machine");
   const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
+  const connected = useMachine((s) => s.connected);
+  const state = useMachine((s) => s.status.state);
+  const movable = canMove(state, connected);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -44,8 +49,9 @@ export function MachineControlPanel({
               <button
                 type="button"
                 title={t("dro.gotoZero")}
-                onClick={() => gotoWorkZero(["z", "x", "y"], safeZMm)}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+                disabled={!movable}
+                onClick={() => void gotoWorkZero(["z", "x", "y"], safeZMm)}
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
               >
                 <LocateFixed className="size-3.5" />
                 {t("dro.gotoZero")}

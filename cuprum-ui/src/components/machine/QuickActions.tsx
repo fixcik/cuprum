@@ -15,6 +15,8 @@ export function QuickActions({ className }: { className?: string }) {
   const homingAvailable = useMachine((s) => s.homingAvailable);
   const movable = canMove(state, connected);
   const isHold = state === "hold";
+  // Feed-hold only makes sense while the machine is actively moving.
+  const canHold = state === "run" || state === "jog" || state === "home";
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
@@ -32,7 +34,7 @@ export function QuickActions({ className }: { className?: string }) {
       </Button>
       <Button
         variant="outline"
-        disabled={!connected || isHold}
+        disabled={!connected || !canHold}
         onClick={() => void api.machine.feedHold()}
       >
         <Pause />
