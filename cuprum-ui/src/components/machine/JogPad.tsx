@@ -69,12 +69,14 @@ export function JogPad() {
   // axis to the smallest available room so motion stays on a true 45° line and
   // never leaves the envelope.
   const startContinuous = useCallback(
-    (sx: number, sy: number, sz: number) => {
+    async (sx: number, sy: number, sz: number) => {
       if (!enabled) return;
       if (movingRef.current) {
         // Another direction is already in flight (e.g. a second key/pointer):
-        // cancel it first so directions don't stack inside GRBL's planner.
-        void api.machine.jogCancel();
+        // cancel it and AWAIT it so the new jog can't reach GRBL's planner
+        // before the cancel (which would stack the two moves).
+        movingRef.current = false;
+        await api.machine.jogCancel();
       }
       const mpos = useMachine.getState().status.mpos;
       const env = cnc.workEnvelopeMm;
@@ -149,7 +151,7 @@ export function JogPad() {
         if (continuous) {
           // Ignore the OS key-repeat: hold = one continuous move.
           if (e.repeat) return;
-          startContinuous(dir[0], dir[1], dir[2]);
+          void startContinuous(dir[0], dir[1], dir[2]);
         } else {
           go(dir[0], dir[1], dir[2]);
         }
@@ -161,6 +163,7 @@ export function JogPad() {
         const s = cnc.jogStepsMm[Number(e.key) - 1];
         if (s !== undefined) {
           e.preventDefault();
+          stopContinuous(); // leaving continuous mode must halt any in-flight move
           setStep(s);
         }
       }
@@ -188,7 +191,7 @@ export function JogPad() {
       ? {
           onPointerDown: (e: React.PointerEvent) => {
             e.preventDefault();
-            startContinuous(dx, dy, dz);
+            void startContinuous(dx, dy, dz);
           },
           onPointerUp: () => stopContinuous(),
           onPointerLeave: () => stopContinuous(),
@@ -209,7 +212,7 @@ export function JogPad() {
       ? {
           onPointerDown: (e: React.PointerEvent) => {
             e.preventDefault();
-            startContinuous(0, 0, dz);
+            void startContinuous(0, 0, dz);
           },
           onPointerUp: () => stopContinuous(),
           onPointerLeave: () => stopContinuous(),
@@ -285,7 +288,10 @@ export function JogPad() {
                 <button
                   key={s}
                   type="button"
-                  onClick={() => setStep(s)}
+                  onClick={() => {
+                    stopContinuous(); // halt any in-flight continuous move first
+                    setStep(s);
+                  }}
                   className={`px-2.5 py-1 text-[12px] tabular-nums transition-colors ${
                     on
                       ? "bg-primary font-semibold text-primary-foreground"
