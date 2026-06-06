@@ -5,6 +5,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
+import { buildHoleToPathIndex } from "@/lib/drillRoute";
 import type { DrillClass } from "@/lib/api";
 import { MachineMarker } from "./MachineMarker";
 import { workPosToPanel } from "@/lib/machineMarker";
@@ -297,6 +298,20 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
     [route.pathPoints],
   );
 
+  // Map ordered hole N → index in route.pathPoints (by coord match).
+  const holeToPathIdx = useMemo(() => buildHoleToPathIndex(route), [route]);
+
+  // Index in pathPoints where the drilled portion ends and the remaining begins.
+  // Everything before this index has been traversed. When progress is absent or
+  // holesCompleted is 0, splitPathIdx = 0 (nothing traversed yet).
+  // Note: a detour waypoint that exactly coincides with a hole coord could mis-split
+  // one segment — acceptable corner case, non-crashing.
+  const splitPathIdx = useMemo(() => {
+    if (!progress || progress.holesCompleted <= 0) return 0;
+    const i = holeToPathIdx[progress.holesCompleted];
+    return i != null && i >= 0 ? i : route.pathPoints.length;
+  }, [progress, holeToPathIdx, route.pathPoints.length]);
+
   // Datum-derived rulers configuration. The anchor is the datum corner in panel
   // mm (Y-down). axisFlip mirrors tick labels so the panel always reads 0→W and
   // 0→H from the datum corner toward the opposite edge.
@@ -394,18 +409,62 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
               />
             ))}
 
-            {/* Traverse path drawn UNDER the holes. Hidden when showPath is false. */}
-            {showPath && pathFlat.length >= 4 && (
-              <Line
-                points={pathFlat}
-                stroke="rgba(255,255,255,0.12)"
-                strokeWidth={PATH_STROKE_PX}
-                strokeScaleEnabled={false}
-                lineJoin="round"
-                lineCap="round"
-                listening={false}
-              />
-            )}
+            {/* Traverse path drawn UNDER the holes. Hidden when showPath is false.
+                During a live run (progress provided) the path is split into two
+                segments: the already-traversed portion (copper, ~55% opacity) and
+                the remaining portion (dim white, ~18% opacity). */}
+            {showPath && pathFlat.length >= 4 && (() => {
+              if (!progress) {
+                // No active run — render exactly as before.
+                return (
+                  <Line
+                    points={pathFlat}
+                    stroke="rgba(255,255,255,0.12)"
+                    strokeWidth={PATH_STROKE_PX}
+                    strokeScaleEnabled={false}
+                    lineJoin="round"
+                    lineCap="round"
+                    listening={false}
+                  />
+                );
+              }
+              // Active run: split at splitPathIdx.
+              // Include the split point in both slices so segments connect seamlessly.
+              const traversedPts = route.pathPoints
+                .slice(0, splitPathIdx + 1)
+                .flatMap((h) => [h.xMm, h.yMm]);
+              const remainingPts = route.pathPoints
+                .slice(splitPathIdx)
+                .flatMap((h) => [h.xMm, h.yMm]);
+              return (
+                <>
+                  {traversedPts.length >= 4 && (
+                    <Line
+                      points={traversedPts}
+                      stroke="#b87333"
+                      opacity={0.55}
+                      strokeWidth={PATH_STROKE_PX}
+                      strokeScaleEnabled={false}
+                      lineJoin="round"
+                      lineCap="round"
+                      listening={false}
+                    />
+                  )}
+                  {remainingPts.length >= 4 && (
+                    <Line
+                      points={remainingPts}
+                      stroke="#ffffff"
+                      opacity={0.18}
+                      strokeWidth={PATH_STROKE_PX}
+                      strokeScaleEnabled={false}
+                      lineJoin="round"
+                      lineCap="round"
+                      listening={false}
+                    />
+                  )}
+                </>
+              );
+            })()}
 
             {/* Dim base layer: holes in visibleClasses but NOT in selectedClasses.
                 Holes not in visibleClasses are skipped entirely (not rendered at all). */}

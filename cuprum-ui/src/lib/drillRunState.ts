@@ -15,6 +15,7 @@ export interface DrillRunState {
   currentHoleIndex: number | null;
   toolChange: { toolName: string; diameterMm: number } | null;
   error: string | null;
+  runStartedAt: number | null;
 }
 
 export type DrillRunEvent =
@@ -33,6 +34,7 @@ export const initialDrillRunState: DrillRunState = {
   currentHoleIndex: null,
   toolChange: null,
   error: null,
+  runStartedAt: null,
 };
 
 export function drillRunReducer(
@@ -41,13 +43,14 @@ export function drillRunReducer(
 ): DrillRunState {
   switch (e.type) {
     case "reset":
-      return initialDrillRunState;
+      return { ...initialDrillRunState, runStartedAt: null };
 
     case "start":
       return {
         ...initialDrillRunState,
         phase: "running",
         holesTotal: e.holesTotal,
+        runStartedAt: Date.now(),
       };
 
     case "progress":

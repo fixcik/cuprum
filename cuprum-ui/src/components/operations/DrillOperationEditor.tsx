@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
@@ -8,8 +8,9 @@ import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { filterPlanByClasses, classCounts, passToClasses, DRILL_CLASSES } from "@/lib/drillPasses";
+import { filterPlanByClasses, classCounts, passToClasses, DRILL_CLASSES, DRILL_PASSES } from "@/lib/drillPasses";
 import type { DrillPass } from "@/lib/drillPasses";
+import { estimateDrill } from "@/lib/drillEstimate";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
 import { DrillCanvasTopBar } from "@/components/drill/DrillCanvasTopBar";
@@ -81,10 +82,20 @@ export function DrillOperationEditor() {
   // Z touch-off: MPos Z captured at the copper surface (null = not yet touched off).
   const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
 
+  // Feed override % sent via UI (100 = nominal). Applied by sending GRBL real-time commands.
+  const [feedOverridePct, setFeedOverridePct] = useState(100);
+
+  // Completed pass ids for this session (used by the stepper checkmarks).
+  const [passDone, setPassDone] = useState<Set<DrillPass["id"]>>(new Set());
+  // Monotonic token to cancel a superseded feed-override step sequence.
+  const feedSeqRef = useRef(0);
+
   // Machine connection state for touch-off guards.
   const machineConnected = useMachine((s) => s.connected);
   const machineState = useMachine((s) => s.status.state);
   const machineHomed = useMachine((s) => s.homed);
+  // Live feed override % reported by GRBL (overrides[0]), may be undefined until first status.
+  const grblFeedPct = useMachine((s) => s.status.overrides?.[0]);
 
   // A homing cycle (or alarm/disconnect that voids `homed`) invalidates the Z
   // touch-off: the captured machine Z no longer maps to the copper surface. Force
@@ -169,8 +180,11 @@ export function DrillOperationEditor() {
     [filteredPlanWithOverrides, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
   );
 
-  // Preview program (steps for display + canvas); ordered from the datum corner.
-  const program = useMemo(() => buildProgram(), [buildProgram]);
+  // Total estimated run time for the current pass route (passed to RunHeader for ETA).
+  const totalEstimateSec = useMemo(() => {
+    if (!route || !cncProfile) return 0;
+    return estimateDrill(route, tools, cncProfile, substrateThicknessMm).timeSec;
+  }, [route, tools, cncProfile, substrateThicknessMm]);
 
   // Live-run hook.
   const run = useDrillRun();
@@ -184,6 +198,37 @@ export function DrillOperationEditor() {
     if (exec) void run.start(exec.steps);
   }, [buildProgram, machineWork, run]);
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
+
+  // Apply a feed override % by resetting to 100 then nudging in ±10/±1 steps.
+  // A sequence token cancels an in-flight series if the slider is released again,
+  // so two rapid changes can't interleave into a wrong final GRBL state.
+  const handleFeedChange = useCallback(async (targetPct: number) => {
+    setFeedOverridePct(targetPct);
+    const seq = ++feedSeqRef.current;
+    const step = async (action: "100" | "+10" | "-10" | "+1" | "-1") => {
+      await api.machine.override("feed", action);
+      return feedSeqRef.current === seq; // false → superseded
+    };
+    if (!(await step("100"))) return;
+    let diff = targetPct - 100;
+    while (diff >= 10) { if (!(await step("+10"))) return; diff -= 10; }
+    while (diff <= -10) { if (!(await step("-10"))) return; diff += 10; }
+    while (diff >= 1) { if (!(await step("+1"))) return; diff -= 1; }
+    while (diff <= -1) { if (!(await step("-1"))) return; diff += 1; }
+  }, []);
+
+  // Called when the operator finishes a pass: mark it done, reset Z touch-off,
+  // advance pass, and return the run to idle (so the inspector leaves RUN mode).
+  const handlePassDone = useCallback(() => {
+    setPassDone((prev) => new Set([...prev, activePassId]));
+    setWorkZeroMachineZ(null);
+    // Advance to the next pass in DRILL_PASSES order that has not been completed yet.
+    const nextPass = DRILL_PASSES.find(
+      (p) => p.id !== activePassId && !passDone.has(p.id),
+    );
+    if (nextPass) setActivePassId(nextPass.id);
+    run.reset();
+  }, [activePassId, passDone, run]);
 
   // Depth-progress ring for the currently-drilling hole.
   const targetDepthMm = substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM;
@@ -272,7 +317,6 @@ export function DrillOperationEditor() {
             activePassId={activePassId}
             onPassChange={setActivePassId}
             run={run}
-            programSteps={program?.steps ?? []}
             onStart={handleStart}
             onSetClass={(dMm, klass) =>
               void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
@@ -298,6 +342,12 @@ export function DrillOperationEditor() {
             connected={machineConnected}
             spindleControllable={cncProfile.spindleControllable ?? false}
             hasHoles={route.totalHoles > 0}
+            feedOverridePct={feedOverridePct}
+            grblFeedPct={grblFeedPct}
+            onFeedChange={handleFeedChange}
+            onPassDone={handlePassDone}
+            totalEstimateSec={totalEstimateSec}
+            passDone={passDone}
           />
         )}
       </div>

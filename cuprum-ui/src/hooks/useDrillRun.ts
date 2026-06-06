@@ -17,6 +17,7 @@ export interface UseDrillRun {
   stop: () => void;
   estop: () => void;
   confirmToolChange: () => void;
+  reset: () => void;
 }
 
 export function useDrillRun(): UseDrillRun {
@@ -83,5 +84,11 @@ export function useDrillRun(): UseDrillRun {
     void api.drillRun.confirmToolChange();
   }, []);
 
-  return { state, connected, start, pause, resume, stop, estop, confirmToolChange };
+  // Return to idle (PLAN mode) after a finished/error run without starting a new
+  // one — e.g. "finish pass". Local state only; no machine command.
+  const reset = useCallback(() => {
+    dispatch({ type: "reset" });
+  }, []);
+
+  return { state, connected, start, pause, resume, stop, estop, confirmToolChange, reset };
 }

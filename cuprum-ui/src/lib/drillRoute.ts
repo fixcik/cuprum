@@ -112,3 +112,31 @@ export function planDrillRoute(
     toolCount: toolIds.size,
   };
 }
+
+/** Holes in travel order across all groups (no waypoints). */
+export function orderedHoleList(route: DrillRoute): PlanHole[] {
+  return route.groups.flatMap((g) => g.orderedHoles);
+}
+
+/** For each ordered hole, its index in route.pathPoints (matched by coords).
+ *  pathPoints contains keep-out detour waypoints too, so this maps hole N → path index. */
+export function buildHoleToPathIndex(route: DrillRoute): number[] {
+  const holes = orderedHoleList(route);
+  return holes.map((h) => route.pathPoints.findIndex((p) => p.xMm === h.xMm && p.yMm === h.yMm));
+}
+
+/** Map a flat hole index (sequential across all groups' orderedHoles) to its route group.
+ *  Returns null when holeIndex is null, negative, or out of range. */
+export function activeGroupForHole(
+  route: DrillRoute,
+  holeIndex: number | null,
+): { gi: number; group: RouteGroup } | null {
+  if (holeIndex == null || holeIndex < 0) return null;
+  let acc = 0;
+  for (let gi = 0; gi < route.groups.length; gi++) {
+    const n = route.groups[gi].orderedHoles.length;
+    if (holeIndex < acc + n) return { gi, group: route.groups[gi] };
+    acc += n;
+  }
+  return null;
+}

@@ -3,7 +3,6 @@ import { AlertTriangle, ListChecks } from "lucide-react";
 import type { DrillClass, MachineStateName } from "@/lib/api";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute } from "@/lib/drillRoute";
-import type { DrillStep } from "@/lib/drillGcode";
 import type { DrillPass } from "@/lib/drillPasses";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
@@ -12,7 +11,7 @@ import type { CncProfile } from "@/lib/cncProfile";
 import type { ZGateResult } from "@/lib/zGate";
 import { Button } from "@/components/ui/Button";
 import { DrillPassStepper } from "@/components/drill/DrillPassStepper";
-import { DrillRunPanel } from "@/components/drill/DrillRunPanel";
+import { DrillRunInspector } from "@/components/drill/DrillRunInspector";
 import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
 import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
@@ -26,8 +25,6 @@ export interface DrillPlanInspectorProps {
   activePassId: DrillPass["id"];
   onPassChange: (id: DrillPass["id"]) => void;
   run: UseDrillRun;
-  /** Steps for the DrillRunPanel (from the emitted program). */
-  programSteps: DrillStep[];
   onStart: () => void;
   /** Set/clear the class override for a diameter (forwarded to DrillToolsOrder). */
   onSetClass: (diameterMm: number, klass: DrillClass | null) => void;
@@ -66,6 +63,18 @@ export interface DrillPlanInspectorProps {
   spindleControllable: boolean;
   /** Whether the current pass has any holes to drill. */
   hasHoles: boolean;
+  /** Feed override % sent to the machine (100 = nominal). */
+  feedOverridePct: number;
+  /** Live feed override % reported by GRBL. */
+  grblFeedPct: number | undefined;
+  /** Called when the operator moves the feed slider. */
+  onFeedChange: (pct: number) => void;
+  /** Called when the current run pass is completed. */
+  onPassDone: () => void;
+  /** Total estimated run time in seconds (for the run header). */
+  totalEstimateSec: number;
+  /** Pass ids already completed this session (rendered as checks in the stepper). */
+  passDone: Set<DrillPass["id"]>;
 }
 
 /** Right-panel inspector for the drill operation.
@@ -79,7 +88,6 @@ export function DrillPlanInspector({
   activePassId,
   onPassChange,
   run,
-  programSteps,
   onStart,
   onSetClass,
   onSetBitOverride,
@@ -101,17 +109,21 @@ export function DrillPlanInspector({
   connected,
   spindleControllable,
   hasHoles,
+  feedOverridePct,
+  grblFeedPct,
+  onFeedChange,
+  onPassDone,
+  totalEstimateSec,
+  passDone,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
 
-  // A run is "active" while any of these phases is live — block pass switching
-  // and hide the idle start button (footer takes over).
-  const isRunActive =
-    run.state.phase === "running" ||
-    run.state.phase === "pausing" ||
-    run.state.phase === "paused" ||
-    run.state.phase === "stopping" ||
-    run.state.phase === "awaitingToolChange";
+  // mode: "run" when a run is live (any non-idle, non-error phase); "plan" otherwise.
+  const mode =
+    run.state.phase !== "idle" && run.state.phase !== "error" ? "run" : "plan";
+
+  // Whether pass switching and plan editing are blocked.
+  const isRunActive = mode === "run";
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
@@ -138,9 +150,9 @@ export function DrillPlanInspector({
   ];
 
   return (
-    <aside className="flex h-full w-[368px] shrink-0 flex-col overflow-y-auto border-l border-border bg-panel">
-      {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+    <aside className="flex h-full w-[368px] shrink-0 flex-col overflow-hidden border-l border-border bg-panel">
+      {/* Header — always visible in both modes */}
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3 shrink-0">
         <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="flex-1 text-sm font-semibold text-foreground">{t("window.title")}</span>
         {/* Compact holes + tools badge */}
@@ -151,129 +163,166 @@ export function DrillPlanInspector({
         </span>
       </div>
 
-      {/* Process stepper */}
-      <DrillPassStepper
-        activePassId={activePassId}
-        counts={counts}
-        disabled={isRunActive}
-        onPassChange={onPassChange}
-      />
-
-      {/* Divider */}
-      <div className="h-px bg-border" />
-
-      {/* Selected-hole card (Task 2) — only visible when a hole is selected */}
-      {selectedHoleId && (
-        <div className="pt-3">
-          <DrillHoleCard
-            selectedHoleId={selectedHoleId}
-            route={route}
-            datum={datum}
-            panelWidthMm={panelWidthMm}
-            panelHeightMm={panelHeightMm}
-            onClear={onClearHole}
-          />
-        </div>
-      )}
-
-      {/* Preflight 2×2 summary (Task 4) */}
-      <div className={selectedHoleId ? "" : "pt-3"}>
-        <DrillPreflightSummary
-          route={route}
-          tools={tools}
-          cncProfile={cncProfile}
-          substrateThicknessMm={substrateThicknessMm}
-        />
-      </div>
-
-      {/* Datum corner — "Рабочий ноль" 2×2 grid */}
-      <div className="border-t border-border px-4 py-3">
-        <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {t("datum.label")}
-        </p>
-        <div className="grid grid-cols-2 gap-1.5">
-          {datumGrid.map((row) =>
-            row.map((corner) => (
-              <button
-                key={corner}
-                type="button"
-                onClick={() => onDatumChange(corner)}
-                className={
-                  "rounded-md border px-2 py-1.5 text-[12px] transition-colors cursor-pointer " +
-                  (datum === corner
-                    ? "border-primary bg-primary/10 text-foreground"
-                    : "border-border text-muted-foreground hover:border-slate-500 hover:text-foreground")
-                }
-              >
-                {t(`datum.${corner}`)}
-              </button>
-            )),
-          )}
-        </div>
-      </div>
-
-      {/* Z touch-off card (Task 3) */}
-      <ZTouchOffCard
-        connected={machineConnected}
-        machineState={machineState}
-        workZeroMachineZ={workZeroMachineZ}
-        safeZMm={cncProfile.safeZMm}
-        maxTravelZMm={cncProfile.workEnvelopeMm.z}
-        jogStepsMm={cncProfile.jogStepsMm}
-        jogFeedMmMin={cncProfile.jogFeedMmMin}
-        onTouchOff={onTouchOff}
-        onClear={onClearTouchOff}
-      />
-
-      {/* Divider */}
-      <div className="h-px bg-border" />
-
-      {/* Run panel — only rendered when a run is active (idle → footer start button handles start) */}
-      {isRunActive && (
-        <DrillRunPanel steps={programSteps} run={run} onStart={onStart} />
-      )}
-
-      {/* Tools order list with class + bit override */}
-      <DrillToolsOrder
-        route={route}
-        tools={tools}
-        onSetClass={onSetClass}
-        onSetBitOverride={onSetBitOverride}
-      />
-
-      {/* Warnings: unmatched diameters, keepout-skipped, registration-in-keepout */}
-      <DrillWarnings plan={plan} />
-
-      {/* Spacer to push footer to bottom when content is short */}
-      <div className="flex-1" />
-
-      {/* Sticky footer: spindle note + start button */}
-      <div className="sticky bottom-0 mt-auto border-t border-border bg-panel p-3 flex flex-col gap-2">
-        {/* Manual spindle note for 3018 (spindleControllable=false) */}
-        {!spindleControllable && (
-          <p className="text-[11px] italic text-muted-foreground">
-            {t("run.spindleHint")}
-          </p>
-        )}
-
-        {/* Start button */}
-        <Button
-          size="sm"
-          disabled={startDisabled}
-          onClick={onStart}
-          className="w-full"
-        >
-          {t("run.start")} · {t(`pass.${activePassId}`)}
-        </Button>
-
-        {/* Gate hint below the button */}
-        {startHint && (
-          <div className="flex items-start gap-1.5">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
-            <p className="text-[11px] text-amber-400">{startHint}</p>
+      {/* Run-error banner (PLAN mode): surfaces why the last run stopped. */}
+      {run.state.phase === "error" && run.state.error && (
+        <div className="flex items-start gap-2 border-b border-rose-500/40 bg-rose-500/10 px-4 py-2 text-[11px] text-rose-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <div>{run.state.error}</div>
+            <div className="text-rose-300/70">{t("run.errorHint")}</div>
           </div>
-        )}
-      </div>
+          <button
+            type="button"
+            aria-label={t("hole.clear")}
+            onClick={() => run.reset()}
+            className="shrink-0 text-rose-300/70 hover:text-rose-200"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {mode === "run" ? (
+        /* ── RUN mode ── */
+        <DrillRunInspector
+          run={run}
+          route={route}
+          datum={datum}
+          panelWidthMm={panelWidthMm}
+          panelHeightMm={panelHeightMm}
+          totalEstimateSec={totalEstimateSec}
+          feedOverridePct={feedOverridePct}
+          grblFeedPct={grblFeedPct}
+          onFeedChange={onFeedChange}
+          onPassDone={onPassDone}
+        />
+      ) : (
+        /* ── PLAN mode ── */
+        <>
+          {/* Process stepper */}
+          <DrillPassStepper
+            activePassId={activePassId}
+            counts={counts}
+            disabled={isRunActive}
+            onPassChange={onPassChange}
+            donePassIds={passDone}
+          />
+
+          {/* Divider */}
+          <div className="h-px bg-border" />
+
+          {/* Scrollable plan content */}
+          <div className="flex flex-col flex-1 overflow-y-auto">
+            {/* Selected-hole card — only visible when a hole is selected */}
+            {selectedHoleId && (
+              <div className="pt-3">
+                <DrillHoleCard
+                  selectedHoleId={selectedHoleId}
+                  route={route}
+                  datum={datum}
+                  panelWidthMm={panelWidthMm}
+                  panelHeightMm={panelHeightMm}
+                  onClear={onClearHole}
+                />
+              </div>
+            )}
+
+            {/* Preflight 2×2 summary */}
+            <div className={selectedHoleId ? "" : "pt-3"}>
+              <DrillPreflightSummary
+                route={route}
+                tools={tools}
+                cncProfile={cncProfile}
+                substrateThicknessMm={substrateThicknessMm}
+              />
+            </div>
+
+            {/* Datum corner — 2×2 grid */}
+            <div className="border-t border-border px-4 py-3">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("datum.label")}
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {datumGrid.map((row) =>
+                  row.map((corner) => (
+                    <button
+                      key={corner}
+                      type="button"
+                      onClick={() => onDatumChange(corner)}
+                      className={
+                        "rounded-md border px-2 py-1.5 text-[12px] transition-colors cursor-pointer " +
+                        (datum === corner
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:border-slate-500 hover:text-foreground")
+                      }
+                    >
+                      {t(`datum.${corner}`)}
+                    </button>
+                  )),
+                )}
+              </div>
+            </div>
+
+            {/* Z touch-off card */}
+            <ZTouchOffCard
+              connected={machineConnected}
+              machineState={machineState}
+              workZeroMachineZ={workZeroMachineZ}
+              safeZMm={cncProfile.safeZMm}
+              maxTravelZMm={cncProfile.workEnvelopeMm.z}
+              jogStepsMm={cncProfile.jogStepsMm}
+              jogFeedMmMin={cncProfile.jogFeedMmMin}
+              onTouchOff={onTouchOff}
+              onClear={onClearTouchOff}
+            />
+
+            {/* Divider */}
+            <div className="h-px bg-border" />
+
+            {/* Tools order list with class + bit override */}
+            <DrillToolsOrder
+              route={route}
+              tools={tools}
+              onSetClass={onSetClass}
+              onSetBitOverride={onSetBitOverride}
+            />
+
+            {/* Warnings: unmatched diameters, keepout-skipped, registration-in-keepout */}
+            <DrillWarnings plan={plan} />
+
+            {/* Spacer to push footer to bottom when content is short */}
+            <div className="flex-1" />
+          </div>
+
+          {/* Sticky footer: spindle note + start button */}
+          <div className="sticky bottom-0 mt-auto border-t border-border bg-panel p-3 flex flex-col gap-2 shrink-0">
+            {/* Manual spindle note for 3018 (spindleControllable=false) */}
+            {!spindleControllable && (
+              <p className="text-[11px] italic text-muted-foreground">
+                {t("run.spindleHint")}
+              </p>
+            )}
+
+            {/* Start button */}
+            <Button
+              size="sm"
+              disabled={startDisabled}
+              onClick={onStart}
+              className="w-full"
+            >
+              {t("run.start")} · {t(`pass.${activePassId}`)}
+            </Button>
+
+            {/* Gate hint below the button */}
+            {startHint && (
+              <div className="flex items-start gap-1.5">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+                <p className="text-[11px] text-amber-400">{startHint}</p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </aside>
   );
 }
