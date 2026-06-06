@@ -107,6 +107,9 @@
     "notSet": "Bind X-Y before starting.",
     "notSetHint": "Bind X-Y before starting"
   },
+  "zero": {
+    "bindRejected": "Zero rejected by the machine ({{error}}) — not set. Re-position and bind again."
+  },
   "runHeader": {
     "drilling": "Drilling…",
     "paused": "Paused",

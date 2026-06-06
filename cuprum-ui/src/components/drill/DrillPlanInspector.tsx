@@ -59,6 +59,8 @@ export interface DrillPlanInspectorProps {
   onBindXY: () => void;
   /** Called when operator resets the X-Y zero. */
   onClearXY: () => void;
+  /** Last work-zero bind error from GRBL (null = none). Shown as a banner. */
+  zeroError: string | null;
   /** Pre-computed gate result for the start button. */
   zGate: ZGateResult;
   /** Machine connection state (forwarded to ZTouchOffCard). */
@@ -113,6 +115,7 @@ export function DrillPlanInspector({
   workZeroXYSet,
   onBindXY,
   onClearXY,
+  zeroError,
   zGate,
   machineConnected,
   machineState,
@@ -300,6 +303,14 @@ export function DrillPlanInspector({
               onTouchOff={onTouchOff}
               onClear={onClearTouchOff}
             />
+
+            {/* Work-zero bind error from GRBL (command rejected → zero NOT set). */}
+            {zeroError && (
+              <div className="mx-4 mb-3 flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{t("zero.bindRejected", { error: zeroError })}</span>
+              </div>
+            )}
 
             {/* Divider */}
             <div className="h-px bg-border" />
