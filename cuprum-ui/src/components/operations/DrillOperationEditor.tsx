@@ -87,6 +87,14 @@ export function DrillOperationEditor() {
   // run lands off the panel.
   const [workZeroXYSet, setWorkZeroXYSet] = useState(false);
 
+  // Last work-zero bind error from GRBL (e.g. the command was rejected). Shown to
+  // the operator; while set it means the corresponding zero was NOT applied.
+  const [zeroError, setZeroError] = useState<string | null>(null);
+  // Guards against a re-entrant bind while a previous one is still awaiting GRBL's
+  // ack (the command blocks up to a few seconds). A double-tap would otherwise hit
+  // "machine busy" and clear a zero the first call had just set.
+  const bindingRef = useRef(false);
+
   // Feed override % sent via UI (100 = nominal). Applied by sending GRBL real-time commands.
   const [feedOverridePct, setFeedOverridePct] = useState(100);
 
@@ -112,27 +120,47 @@ export function DrillOperationEditor() {
     }
   }, [machineHomed, machineState]);
 
-  // Send G10 L20 P1 Z0 (set current position as Z-zero in G54) and capture MPos Z.
-  const handleTouchOff = useCallback(() => {
+  // Set the Z work zero (G54) at the copper surface, waiting for GRBL to accept it.
+  // Only on a confirmed `ok` do we capture MPos Z and pass the gate — a rejected
+  // command leaves Z un-zeroed (gate stays closed) instead of crashing the run in
+  // a stale coordinate system. Captures MPos AFTER the ack.
+  const handleTouchOff = useCallback(async () => {
     const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected)) return;
-    // Use explicit P1 (G54) rather than the generic machine_set_zero which sends P0.
-    void api.machine.send("G10 L20 P1 Z0");
-    setWorkZeroMachineZ(status.mpos[2]);
+    if (!canMove(status.state, connected) || bindingRef.current) return;
+    bindingRef.current = true;
+    try {
+      await api.machine.setZero(false, false, true); // G10 L20 P1 Z0, awaits ok
+      setZeroError(null);
+      setWorkZeroMachineZ(useMachine.getState().status.mpos[2]);
+    } catch (e) {
+      setWorkZeroMachineZ(null);
+      setZeroError(`Z: ${String(e)}`);
+    } finally {
+      bindingRef.current = false;
+    }
   }, []);
 
   const handleClearTouchOff = useCallback(() => {
     setWorkZeroMachineZ(null);
   }, []);
 
-  // Bind work X-Y zero at the current position (the datum corner): G10 L20 P1 X0 Y0
-  // in G54. Records the bind fact (ephemeral); the marker reads live wpos so it
-  // lands on the panel once this is set.
-  const handleBindXY = useCallback(() => {
+  // Bind the work X-Y zero (G54) at the current position (the datum corner),
+  // waiting for GRBL to accept it. Only a confirmed `ok` marks X-Y bound; a
+  // rejected command leaves it unset so the start gate stays closed.
+  const handleBindXY = useCallback(async () => {
     const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected)) return;
-    void api.machine.send("G10 L20 P1 X0 Y0");
-    setWorkZeroXYSet(true);
+    if (!canMove(status.state, connected) || bindingRef.current) return;
+    bindingRef.current = true;
+    try {
+      await api.machine.setZero(true, true, false); // G10 L20 P1 X0 Y0, awaits ok
+      setZeroError(null);
+      setWorkZeroXYSet(true);
+    } catch (e) {
+      setWorkZeroXYSet(false);
+      setZeroError(`X-Y: ${String(e)}`);
+    } finally {
+      bindingRef.current = false;
+    }
   }, []);
 
   const handleClearXY = useCallback(() => {
@@ -364,6 +392,7 @@ export function DrillOperationEditor() {
             workZeroXYSet={workZeroXYSet}
             onBindXY={handleBindXY}
             onClearXY={handleClearXY}
+            zeroError={zeroError}
             zGate={zGate}
             machineConnected={machineConnected}
             machineState={machineState}

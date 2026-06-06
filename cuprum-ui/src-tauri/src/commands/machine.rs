@@ -252,6 +252,76 @@ fn send_line(state: &State<MachineState>, line: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Abort the ok-wait if GRBL goes fully silent this long (link dead / unplugged).
+const SYNC_STALL_SILENCE: Duration = Duration::from_secs(4);
+/// Abort if GRBL is Idle but no ok arrived this long after the write (lost ok).
+const SYNC_IDLE_NO_ACK: Duration = Duration::from_secs(3);
+
+/// Write a line and BLOCK until GRBL acknowledges it with `ok` (success) or
+/// rejects it with `error`/`ALARM` (failure). Used for commands whose acceptance
+/// the UI must trust before acting on it — notably setting the work zero: a blind
+/// fire-and-forget send would let a rejected `G10` pass the run's start gate and
+/// drive the bit in a stale coordinate system. Reuses the same reader→`ack_tx`
+/// channel as the drill runner; refuses if a run already holds it ("busy").
+fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), String> {
+    let writer = state.writer().ok_or("not connected")?;
+    let ack_slot = state.ack_slot().ok_or("not connected")?;
+    let activity = state.activity().ok_or("not connected")?;
+    let telemetry = state.telemetry();
+
+    // Claim the ack channel. If a drill run already holds it, don't interfere.
+    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
+    {
+        let mut slot = ack_slot.lock().unwrap();
+        if slot.is_some() {
+            return Err("machine busy".into());
+        }
+        *slot = Some(tx);
+    }
+
+    // Always release the ack slot, whatever the outcome.
+    let result = (|| {
+        writer
+            .lock()
+            .unwrap()
+            .write_line(line)
+            .map_err(|e| e.to_string())?;
+        if let Some(t) = &telemetry {
+            let _ = t.send(Telemetry::Line {
+                dir: "tx".into(),
+                text: line.to_string(),
+            });
+        }
+        let sent = std::time::Instant::now();
+        loop {
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(grbl::Line::Ok) => return Ok(()),
+                Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
+                Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
+                Ok(_) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let (silent, idle) = {
+                        let a = activity.lock().unwrap();
+                        (a.last.elapsed(), a.idle)
+                    };
+                    if silent > SYNC_STALL_SILENCE {
+                        return Err("no response from machine".into());
+                    }
+                    if idle && sent.elapsed() > SYNC_IDLE_NO_ACK {
+                        return Err("machine idle, no ack (lost ok)".into());
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("connection lost".into());
+                }
+            }
+        }
+    })();
+
+    *ack_slot.lock().unwrap() = None;
+    result
+}
+
 /// Write a real-time byte via the live connection, echoing `label` as "tx".
 fn send_realtime(state: &State<MachineState>, byte: u8, label: &str) -> Result<(), String> {
     let guard = state.0.lock().unwrap();
@@ -284,6 +354,9 @@ pub fn machine_jog_cancel(state: State<MachineState>) -> Result<(), String> {
     send_realtime(&state, grbl::JOG_CANCEL, "jog-cancel")
 }
 
+/// Set the G54 work zero on the selected axes and wait for GRBL to accept it.
+/// Returns Err if GRBL rejects the command (e.g. `error:N`) so the UI never
+/// trusts a zero the machine didn't actually apply.
 #[tauri::command]
 pub fn machine_set_zero(
     state: State<MachineState>,
@@ -291,7 +364,7 @@ pub fn machine_set_zero(
     y: bool,
     z: bool,
 ) -> Result<(), String> {
-    send_line(&state, &grbl::set_work_zero(x, y, z))
+    send_line_await_ok(&state, &grbl::set_work_zero(x, y, z))
 }
 
 #[tauri::command]
@@ -377,6 +450,10 @@ impl MachineState {
 
     pub(crate) fn activity(&self) -> Option<Arc<Mutex<Activity>>> {
         self.0.lock().unwrap().as_ref().map(|c| c.activity.clone())
+    }
+
+    pub(crate) fn telemetry(&self) -> Option<Channel<Telemetry>> {
+        self.0.lock().unwrap().as_ref().map(|c| c.telemetry.clone())
     }
 
     pub(crate) fn is_connected(&self) -> bool {

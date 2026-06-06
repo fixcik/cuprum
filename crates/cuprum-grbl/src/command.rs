@@ -59,9 +59,12 @@ pub fn jog(dx: f32, dy: f32, dz: f32, feed: f32) -> String {
     s
 }
 
-/// Zero the current work coordinate system on the selected axes: `G10 L20 P0 ...`.
+/// Zero the G54 work coordinate system on the selected axes: `G10 L20 P1 ...`.
+/// Always targets G54 (P1) — the single work system Cuprum uses everywhere
+/// (the drill run's G-code and the restore-after-homing offset are both G54),
+/// so manual zeroing can't diverge into a different active WCS.
 pub fn set_work_zero(x: bool, y: bool, z: bool) -> String {
-    let mut s = String::from("G10 L20 P0");
+    let mut s = String::from("G10 L20 P1");
     if x {
         s.push_str(" X0");
     }
@@ -103,9 +106,9 @@ mod tests {
 
     #[test]
     fn set_work_zero_selects_axes() {
-        assert_eq!(set_work_zero(true, true, true), "G10 L20 P0 X0 Y0 Z0");
-        assert_eq!(set_work_zero(true, false, true), "G10 L20 P0 X0 Z0");
-        assert_eq!(set_work_zero(false, false, false), "G10 L20 P0");
+        assert_eq!(set_work_zero(true, true, true), "G10 L20 P1 X0 Y0 Z0");
+        assert_eq!(set_work_zero(true, false, true), "G10 L20 P1 X0 Z0");
+        assert_eq!(set_work_zero(false, false, false), "G10 L20 P1");
     }
 
     #[test]
