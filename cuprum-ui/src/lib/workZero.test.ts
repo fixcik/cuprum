@@ -4,6 +4,7 @@ import {
   parseHomingEnabled,
   parseSoftLimitsEnabled,
   parseMaxTravel,
+  parseMaxSpindle,
   restoreZeroGcode,
 } from "@/lib/workZero";
 
@@ -98,6 +99,26 @@ describe("parseMaxTravel", () => {
 
   it("handles leading whitespace", () => {
     expect(parseMaxTravel("  $130=300.000")).toEqual({ axis: 0, value: 300 });
+  });
+});
+
+describe("parseMaxSpindle", () => {
+  it("parses $30 as the max spindle speed", () => {
+    expect(parseMaxSpindle("$30=1000")).toBe(1000);
+  });
+
+  it("parses a fractional value", () => {
+    expect(parseMaxSpindle("$30=12000.0")).toBe(12000);
+  });
+
+  it("returns null for non-spindle settings", () => {
+    expect(parseMaxSpindle("$31=0")).toBeNull();
+    expect(parseMaxSpindle("$130=300")).toBeNull();
+    expect(parseMaxSpindle("ok")).toBeNull();
+  });
+
+  it("handles leading whitespace", () => {
+    expect(parseMaxSpindle("  $30=1000")).toBe(1000);
   });
 });
 

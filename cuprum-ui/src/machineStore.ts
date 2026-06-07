@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import { Channel } from "@tauri-apps/api/core";
 import { api, type ConsoleLine, type MachineStatus, type Telemetry } from "@/lib/api";
-import { parseHomingEnabled, parseSoftLimitsEnabled, parseMaxTravel } from "@/lib/workZero";
+import {
+  parseHomingEnabled,
+  parseSoftLimitsEnabled,
+  parseMaxTravel,
+  parseMaxSpindle,
+} from "@/lib/workZero";
 import { shouldInferHomed } from "@/lib/homing";
 
 const MAX_LINES = 500;
@@ -35,6 +40,10 @@ interface MachineStore {
   /** GRBL max-travel per axis [X,Y,Z] mm ($130/$131/$132). null until the first
    *  $$ query reports any of them; axes not yet seen stay at 0. */
   maxTravelMm: [number, number, number] | null;
+  /** GRBL max spindle speed ($30, RPM) — the firmware ceiling the S word maps to
+   *  100 % PWM. null until the $$ query reports it; the spindle gauge falls back
+   *  to the profile's spindleMaxRpm meanwhile. */
+  maxSpindleRpm: number | null;
   /** True once a homing cycle has completed this session (state home → idle).
    *  Cleared on connect, alarm, and disconnect/reset. Gates machine-coordinate
    *  auto-moves (G53 retracts) so they never run against an unreferenced frame. */
@@ -93,6 +102,9 @@ export const useMachine = create<MachineStore>((set, get) => {
         // Soft-limits enable ($20).
         const soft = parseSoftLimitsEnabled(msg.text);
         if (soft !== null) set({ softLimitsEnabled: soft });
+        // Max spindle speed ($30) — the real scale for the spindle gauge.
+        const maxSpindle = parseMaxSpindle(msg.text);
+        if (maxSpindle !== null) set({ maxSpindleRpm: maxSpindle });
         // Max travel per axis ($130/$131/$132). Accumulate into a partial buffer
         // and only publish the [X,Y,Z] tuple once ALL three axes are known, so the
         // soft-limit mismatch notice can't flash on a half-filled tuple.
@@ -117,7 +129,15 @@ export const useMachine = create<MachineStore>((set, get) => {
     // following $$ query reports it.
     travelBuf = [null, null, null];
     seenAlarmAfterConnect = false;
-    set({ connected: true, port, homed: false, homing: false, softLimitsEnabled: null, maxTravelMm: null });
+    set({
+      connected: true,
+      port,
+      homed: false,
+      homing: false,
+      softLimitsEnabled: null,
+      maxTravelMm: null,
+      maxSpindleRpm: null,
+    });
     // Query firmware settings to detect homing support ($22).
     await api.machine.send("$$");
     // Re-reference detection: a power-retained reconnect (just re-opening the USB
@@ -148,6 +168,7 @@ export const useMachine = create<MachineStore>((set, get) => {
     homingAvailable: false,
     softLimitsEnabled: null,
     maxTravelMm: null,
+    maxSpindleRpm: null,
     homed: false,
     homing: false,
     connect: async (port, baud) => {
@@ -225,6 +246,7 @@ export const useMachine = create<MachineStore>((set, get) => {
         homingAvailable: false,
         softLimitsEnabled: null,
         maxTravelMm: null,
+        maxSpindleRpm: null,
         homed: false,
         homing: false,
       });
