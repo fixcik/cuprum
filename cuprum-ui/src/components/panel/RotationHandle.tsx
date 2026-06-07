@@ -55,6 +55,15 @@ export function RotationHandle({
 }) {
   // Pointer bearing (deg) about the selection centre at the moment the drag began.
   const startAngle = useRef<number | null>(null);
+  // True while a rotation drag is in flight — keeps the rotate cursor pinned even as
+  // the pointer leaves the knob's tiny hit area (the knob is pinned back each move,
+  // so a mouseleave fires mid-drag and would otherwise reset the cursor).
+  const dragging = useRef(false);
+
+  const setCursor = (e: KonvaEventObject<unknown>, value: string) => {
+    const stage = e.target.getStage();
+    if (stage) stage.container().style.cursor = value;
+  };
 
   const bearing = (): number | null => {
     const p = pointerMm();
@@ -64,6 +73,8 @@ export function RotationHandle({
 
   const onDragStart = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
+    dragging.current = true;
+    setCursor(e, ROTATE_CURSOR);
     startAngle.current = bearing();
   };
 
@@ -86,6 +97,10 @@ export function RotationHandle({
     node.x(knobX);
     node.y(knobY);
     startAngle.current = null;
+    dragging.current = false;
+    // Drag released: the pointer is wherever the rotation ended (usually off the
+    // knob), so drop back to the default cursor; re-hovering re-arms it.
+    setCursor(e, "");
     onCommit();
   };
 
@@ -110,13 +125,11 @@ export function RotationHandle({
         onDragStart={onDragStart}
         onDragMove={onDragMove}
         onDragEnd={onDragEnd}
-        onMouseEnter={(e) => {
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = ROTATE_CURSOR;
-        }}
+        onMouseEnter={(e) => setCursor(e, ROTATE_CURSOR)}
         onMouseLeave={(e) => {
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = "";
+          // Keep the rotate cursor through an active drag (the pointer leaves the
+          // pinned knob's hit area each move); only clear it on a genuine hover-out.
+          if (!dragging.current) setCursor(e, "");
         }}
       />
     </Group>
