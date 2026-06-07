@@ -84,10 +84,12 @@ fn union_bbox(layers: &[(String, LayerGeometry)]) -> Option<BBox> {
 /// Coordinates are mm; the root flips Y (gerber Y-up → SVG Y-down) via a
 /// translate+scale transform so fragments' absolute-mm geometry renders upright.
 ///
-/// `board_clip`, when present, is an SVG path `d` (gerber mm) of the real board
-/// outline — the substrate, soldermask and tinted layers are clipped to it so they
-/// follow the rounded edge instead of spilling to the rectangular bbox. Edge cuts
-/// stay unclipped (they ARE the outline). Mirrors the frontend `LayerStack` clip.
+/// `board_outline`, when present, is the real board outline as an SVG path `d`
+/// (gerber mm) plus its bbox. The path clips the substrate, soldermask and tinted
+/// layers so they follow the rounded edge instead of spilling to the rectangular
+/// bbox (edge cuts stay unclipped — they ARE the outline; mirrors the frontend
+/// `LayerStack` clip), and the bbox frames the view so the rasterized extent equals
+/// the board bbox. Absent → union-of-layers bbox framing and no clipping.
 pub fn compose_svg(
     layers: &[(String, LayerGeometry)],
     overrides: &HashMap<String, String>,
@@ -96,7 +98,9 @@ pub fn compose_svg(
     // Frame the view to the board outline when available, so the rasterized PNG's
     // extent equals the board bbox the panel uses for instance placement; otherwise
     // fall back to the union bbox over ALL layers (silk overhang included).
-    let frame = board_outline.map(|(_, bb)| bb).or_else(|| union_bbox(layers));
+    let frame = board_outline
+        .map(|(_, bb)| bb)
+        .or_else(|| union_bbox(layers));
     let Some(bb) = frame else {
         return r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>"#.to_string();
     };
@@ -224,7 +228,13 @@ fn board_outline(edge_bytes: &[u8]) -> Option<(String, BBox)> {
             min_y = min_y.min(y);
             max_x = max_x.max(x);
             max_y = max_y.max(y);
-            let _ = write!(d, "{}{} {} ", if i == 0 { "M" } else { "L" }, trim(x), trim(y));
+            let _ = write!(
+                d,
+                "{}{} {} ",
+                if i == 0 { "M" } else { "L" },
+                trim(x),
+                trim(y)
+            );
         }
         d.push_str("Z ");
     }
@@ -454,7 +464,10 @@ mod tests {
             "y spans 0..10: {bb:?}"
         );
         // Empty/garbage edge bytes → no outline (graceful).
-        assert!(board_outline(b"M02*\n").is_none(), "no segments → no outline");
+        assert!(
+            board_outline(b"M02*\n").is_none(),
+            "no segments → no outline"
+        );
         // Open/partial perimeter → no outline (don't clip to a bogus auto-closed shape).
         assert!(
             board_outline(EDGE_OPEN).is_none(),
@@ -467,8 +480,14 @@ mod tests {
         // Silk overhangs the 10×10 board; framing must follow the outline bbox, not
         // the union of layer bboxes, so the PNG extent equals the board placement size.
         let layers = vec![
-            ("edgeCuts".to_string(), geom("<rect/>", 0.0, 0.0, 10.0, 10.0)),
-            ("topSilk".to_string(), geom("<text/>", -2.0, -1.0, 15.0, 12.0)),
+            (
+                "edgeCuts".to_string(),
+                geom("<rect/>", 0.0, 0.0, 10.0, 10.0),
+            ),
+            (
+                "topSilk".to_string(),
+                geom("<text/>", -2.0, -1.0, 15.0, 12.0),
+            ),
         ];
         let o = std::collections::HashMap::new();
         let (d, bb) = board_outline(EDGE_SQUARE).unwrap();
