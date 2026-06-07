@@ -2,8 +2,14 @@ import { create } from "zustand";
 import { Channel } from "@tauri-apps/api/core";
 import { api, type ConsoleLine, type MachineStatus, type Telemetry } from "@/lib/api";
 import { parseHomingEnabled, parseSoftLimitsEnabled, parseMaxTravel } from "@/lib/workZero";
+import { shouldInferHomed } from "@/lib/homing";
 
 const MAX_LINES = 500;
+
+/** Grace after connect before judging whether the machine is already referenced.
+ *  $$ replies within ~100 ms and status streams every 200 ms, so by now both the
+ *  $22 flag and a fresh state are in. */
+const HOME_DETECT_DELAY_MS = 600;
 
 const IDLE_STATUS: MachineStatus = {
   state: "unknown",
@@ -88,13 +94,30 @@ export const useMachine = create<MachineStore>((set, get) => ({
       }
     };
     await api.machine.connect(port, baud, ch);
-    // A fresh connection has not been homed yet; require a homing cycle before
-    // machine-coordinate auto-moves are allowed. Soft-limit state is unknown
-    // until the following $$ query reports it.
+    // Start unhomed; the detection below may upgrade this if the controller kept
+    // its reference across the reconnect. Soft-limit state is unknown until the
+    // following $$ query reports it.
     travelBuf = [null, null, null];
     set({ connected: true, port, homed: false, homing: false, softLimitsEnabled: null, maxTravelMm: null });
     // Query firmware settings to detect homing support ($22).
     await api.machine.send("$$");
+    // Re-reference detection: a power-retained reconnect (just re-opening the USB
+    // port) doesn't need a fresh homing cycle — GRBL still knows where it is. With
+    // homing enabled it would boot into ALARM if it had lost the reference, so a
+    // plain `idle` shortly after connect means it's still homed. A true cold boot
+    // shows ALARM and stays unhomed (the user is prompted to home).
+    setTimeout(() => {
+      const s = get();
+      if (!s.connected || s.port !== port) return;
+      if (
+        shouldInferHomed({
+          homingAvailable: s.homingAvailable,
+          state: s.status.state,
+          alreadyHomed: s.homed,
+        })
+      )
+        set({ homed: true });
+    }, HOME_DETECT_DELAY_MS);
   },
   disconnect: async () => {
     if (!get().connected) return;
