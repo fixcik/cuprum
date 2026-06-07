@@ -21,7 +21,7 @@ export function ZBar({ className }: { className?: string }) {
   const mz = status.mpos[2];
   const wz = status.wpos[2];
   const wcoZ = mz - wz;
-  const { enabled, continuous, go, startContinuous, stopContinuous, jogZBy } = useJog();
+  const { enabled, continuous, go, startContinuous, stopContinuous, jogTo } = useJog();
 
   const zMin = -env.z;
   const range = env.z || 1;
@@ -44,7 +44,8 @@ export function ZBar({ className }: { className?: string }) {
   const onTrackClick = (e: React.MouseEvent) => {
     if (!enabled) return;
     const targetMachineZ = machineZFromFraction(fracFromBottom(e.clientY), env.z);
-    jogZBy(targetMachineZ - useMachine.getState().status.mpos[2]);
+    // jogTo takes WORK coordinates; convert from the machine Z the bar maps.
+    void jogTo({ z: targetMachineZ - wcoZ });
   };
 
   const onTrackMove = (e: React.MouseEvent) => {

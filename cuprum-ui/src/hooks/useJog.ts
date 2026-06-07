@@ -12,6 +12,11 @@ export type JogStep = number | "cont";
  *  parked at the edge). */
 const MIN_JOG_MM = 0.01;
 
+/** Feed (mm/min) for a "rapid-like" click-to-move jog: deliberately huge so GRBL
+ *  clamps it to each axis' max rate — i.e. as fast as the old G0 traverse, but as
+ *  a (cancellable) jog. */
+export const RAPID_JOG_FEED = 100_000;
+
 /** Active jog step — a shared transient UI choice (not persisted) so the jog pad
  *  and the Z-bar Z± buttons always move by the same step. */
 interface JogStepStore {
@@ -32,12 +37,11 @@ export const useJogStep = create<JogStepStore>((set) => ({
 // at a time. Plain (non-reactive) on purpose: it gates sends, it isn't rendered.
 let moving = false;
 
-/** Shared jog controller used by both the jog pad and the Z bar: the shared step
- *  state, a one-shot step jog (`go`), a continuous hold jog
- *  (`startContinuous`/`stopContinuous`), and an arbitrary clamped Z move
- *  (`jogZBy`) for the Z-bar click-to-level. Every move is clamped to the work
- *  envelope (X∈[0,x], Y∈[0,y], Z∈[-z,0]) from the live machine position and runs
- *  at the jog feed (never a rapid). */
+/** Shared jog controller used by the jog pad, the Z bar and the work field: the
+ *  shared step state, a one-shot step jog (`go`), a continuous hold jog
+ *  (`startContinuous`/`stopContinuous`), and an absolute cancel-then-retarget
+ *  click-to-move (`jogTo`). Every move is clamped to the work envelope
+ *  (X∈[0,x], Y∈[0,y], Z∈[-z,0]) from the live machine position. */
 export function useJog() {
   const cnc = useSettings((s) => s.cncProfile);
   const connected = useMachine((s) => s.connected);
@@ -100,16 +104,39 @@ export function useJog() {
     void api.machine.jogCancel();
   }, []);
 
-  // Move Z by an arbitrary delta (mm) toward a target level, clamped to the
-  // envelope from the live mpos, at the jog feed (feed-limited, never a rapid).
-  // Backs the Z-bar click-to-level.
-  const jogZBy = useCallback(
-    (dz: number) => {
+  // Absolute click-to-move jog: drive the given axes (work coordinates) to their
+  // targets, each clamped to the work envelope. Cancels any in-flight jog first
+  // so a fresh click RETARGETS instead of queuing behind the old move (GRBL
+  // buffers jogs) — and because a jog keeps the machine in the `jog` state (still
+  // `canMove`), the click surface stays live, so re-clicks aren't blocked. Uses
+  // an absolute target ($J=G90) so it's robust to where the cancel decelerated.
+  // `feed` defaults to the jog feed; pass RAPID_JOG_FEED for rapid-like traverse.
+  const jogTo = useCallback(
+    async (target: { x?: number; y?: number; z?: number }, feed = cnc.jogFeedMmMin) => {
       if (!enabled) return;
-      const mpos = useMachine.getState().status.mpos;
-      const az = clampJogDelta(dz, mpos[2], -cnc.workEnvelopeMm.z, 0);
-      if (Math.abs(az) < MIN_JOG_MM) return;
-      void api.machine.jog(0, 0, az, cnc.jogFeedMmMin);
+      const { mpos, wpos } = useMachine.getState().status;
+      const env = cnc.workEnvelopeMm;
+      // Clamp each work-space target to the envelope via the live work offset
+      // (wco = machine − work), so a target can never leave [0,x]/[0,y]/[-z,0].
+      const clampWork = (work: number, axis: 0 | 1 | 2, lo: number, hi: number): number => {
+        const wco = mpos[axis] - wpos[axis];
+        return Math.min(hi, Math.max(lo, work + wco)) - wco;
+      };
+      const tx = target.x !== undefined ? clampWork(target.x, 0, 0, env.x) : undefined;
+      const ty = target.y !== undefined ? clampWork(target.y, 1, 0, env.y) : undefined;
+      const tz = target.z !== undefined ? clampWork(target.z, 2, -env.z, 0) : undefined;
+      // Skip a no-op jog (target already at the current position) — GRBL rejects a
+      // zero-distance $J with an error, which would just be console noise.
+      const atTarget = (t: number | undefined, axis: 0 | 1 | 2) =>
+        t === undefined || Math.abs(t - wpos[axis]) < MIN_JOG_MM;
+      if (atTarget(tx, 0) && atTarget(ty, 1) && atTarget(tz, 2)) return;
+      // Retarget: stop the current jog (continuous or a prior click-to-move) so
+      // the new absolute jog replaces it rather than running after it.
+      if (moving || useMachine.getState().status.state === "jog") {
+        moving = false;
+        await api.machine.jogCancel();
+      }
+      void api.machine.jogTo({ x: tx, y: ty, z: tz }, feed);
     },
     [enabled, cnc.workEnvelopeMm, cnc.jogFeedMmMin],
   );
@@ -121,5 +148,5 @@ export function useJog() {
     if (!enabled && moving) stopContinuous();
   }, [enabled, stopContinuous]);
 
-  return { enabled, step, setStep, continuous, go, startContinuous, stopContinuous, jogZBy };
+  return { enabled, step, setStep, continuous, go, startContinuous, stopContinuous, jogTo };
 }

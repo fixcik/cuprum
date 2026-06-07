@@ -6,6 +6,7 @@ import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { safeRetractMachineZ } from "@/lib/gotoZero";
+import { useJog, RAPID_JOG_FEED } from "@/hooks/useJog";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { WorkField } from "@/components/machine/WorkField";
@@ -19,10 +20,11 @@ interface PendingMove {
 }
 
 /** Work-area card: header (envelope size + live work XYZ) over the WorkField +
- *  ZBar. Clicking the field rapids to the picked WORK X/Y. If the tool is already
- *  at/above the machine safe-Z it moves straight away; otherwise it asks whether
- *  to raise Z to the safe height first (raise-then-move) or travel as-is. The
- *  field is inert unless the machine is connected and in a movable state. */
+ *  ZBar. Clicking the field moves to the picked WORK X/Y. If the tool is already
+ *  at/above the machine safe-Z it traverses straight away (as a rapid-like jog,
+ *  so a fresh click cancels-and-retargets instead of blocking); otherwise it asks
+ *  whether to raise Z to the safe height first (raise-then-move) or travel as-is.
+ *  The field is inert unless the machine is connected and in a movable state. */
 export function FieldPanel({ className }: { className?: string }) {
   const { t } = useTranslation("machine");
   const env = useSettings((s) => s.cncProfile.workEnvelopeMm);
@@ -36,6 +38,7 @@ export function FieldPanel({ className }: { className?: string }) {
   // The click-to-move traverse does a machine-frame (G53) safe-Z retract, so it
   // requires a homed frame in addition to a movable state.
   const canAutoMove = movable && homed;
+  const { jogTo } = useJog();
 
   // A move awaiting the raise-or-not choice (only set when Z is below safe-Z).
   const [pending, setPending] = useState<PendingMove | null>(null);
@@ -47,17 +50,23 @@ export function FieldPanel({ className }: { className?: string }) {
     const m = useMachine.getState();
     if (!m.connected || !m.homed || !canMove(m.status.state, m.connected)) return;
     try {
-      // Retract in MACHINE coordinates (G53) to a clearance above the work zero,
-      // capped at the machine ceiling. Computed from the LIVE status at send time.
       if (raiseFirst) {
+        // Lift Z to a clearance above the work zero (MACHINE frame, G53) BEFORE
+        // traversing, so the tool can't drag through stock. This ordered pair must
+        // stay rapids — a single jog can't sequence "raise fully, then move".
         const retractZ = safeRetractMachineZ(
           m.status.mpos[2] - m.status.wpos[2],
           safeZMm,
           machineSafeZMm,
         );
         await api.machine.send(`G53 G0 Z${retractZ}`);
+        await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
+      } else {
+        // Already clear of stock: traverse XY as a rapid-like JOG (not a G0 rapid)
+        // so it stays in the `jog` state — the field stays live and a fresh click
+        // cancels-and-retargets via jogTo instead of being blocked or queued.
+        await jogTo({ x, y }, RAPID_JOG_FEED);
       }
-      await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
     } catch (e) {
       console.error("field move failed", e);
     }

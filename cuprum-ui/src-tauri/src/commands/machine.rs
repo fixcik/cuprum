@@ -427,6 +427,20 @@ pub fn machine_jog(
     send_line(&state, &grbl::jog(dx, dy, dz, feed))
 }
 
+/// Absolute jog (work coords): drive the given axes to their targets. Used by the
+/// click-to-move surfaces (work field, Z bar), which cancel any in-flight jog
+/// before re-issuing so a new click retargets instead of queuing behind it.
+#[tauri::command]
+pub fn machine_jog_to(
+    state: State<MachineState>,
+    x: Option<f32>,
+    y: Option<f32>,
+    z: Option<f32>,
+    feed: f32,
+) -> Result<(), String> {
+    send_line(&state, &grbl::jog_to(x, y, z, feed))
+}
+
 #[tauri::command]
 pub fn machine_jog_cancel(state: State<MachineState>) -> Result<(), String> {
     send_realtime(&state, grbl::JOG_CANCEL, "jog-cancel")
