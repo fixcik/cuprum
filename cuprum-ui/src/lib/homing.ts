@@ -11,12 +11,19 @@ import type { MachineStateName } from "@/lib/api";
  *
  *  Gated on `homingAvailable` because without homing there is no absolute frame
  *  to trust; only `idle` qualifies (mid-cycle `home`/`run`/`jog` are handled by
- *  the normal home→idle transition). */
+ *  the normal home→idle transition).
+ *
+ *  `seenAlarmSinceConnect` is the critical guard: if the machine was EVER in
+ *  ALARM since connecting, it cold-booted unreferenced — a later `idle` only
+ *  means the user cleared the alarm with `$X` (unlock without homing), which does
+ *  NOT establish a machine frame. Only a machine that was never in alarm is
+ *  trustworthy as already-homed. */
 export function shouldInferHomed(args: {
   homingAvailable: boolean;
   state: MachineStateName;
   alreadyHomed: boolean;
+  seenAlarmSinceConnect: boolean;
 }): boolean {
-  const { homingAvailable, state, alreadyHomed } = args;
-  return !alreadyHomed && homingAvailable && state === "idle";
+  const { homingAvailable, state, alreadyHomed, seenAlarmSinceConnect } = args;
+  return !alreadyHomed && !seenAlarmSinceConnect && homingAvailable && state === "idle";
 }
