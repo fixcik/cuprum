@@ -140,3 +140,19 @@ export function activeGroupForHole(
   }
   return null;
 }
+
+/** The drill class of the hole at a given run-order index (flattened group
+ *  order). Returns null if the index is out of range. Used to colour the active
+ *  hole's progress ring by its bit. */
+export function classAtRunIndex(
+  route: DrillRoute,
+  index: number,
+): RouteGroup["class"] | null {
+  if (index < 0) return null;
+  let acc = 0;
+  for (const g of route.groups) {
+    if (index < acc + g.orderedHoles.length) return g.class;
+    acc += g.orderedHoles.length;
+  }
+  return null;
+}
