@@ -59,6 +59,25 @@ pub fn jog(dx: f32, dy: f32, dz: f32, feed: f32) -> String {
     s
 }
 
+/// Absolute jog: `$J=G90 [X..] [Y..] [Z..] F..` in the current work coordinate
+/// system. Axes left as `None` are omitted, so a single axis can be jogged
+/// without disturbing the others. Absolute (G90) so a re-issued click-to-move
+/// targets a fixed point regardless of where a prior jog-cancel decelerated.
+pub fn jog_to(x: Option<f32>, y: Option<f32>, z: Option<f32>, feed: f32) -> String {
+    let mut s = String::from("$J=G90");
+    if let Some(x) = x {
+        s.push_str(&format!(" X{x}"));
+    }
+    if let Some(y) = y {
+        s.push_str(&format!(" Y{y}"));
+    }
+    if let Some(z) = z {
+        s.push_str(&format!(" Z{z}"));
+    }
+    s.push_str(&format!(" F{feed}"));
+    s
+}
+
 /// Zero the G54 work coordinate system on the selected axes: `G10 L20 P1 ...`.
 /// Always targets G54 (P1) — the single work system Cuprum uses everywhere
 /// (the drill run's G-code and the restore-after-homing offset are both G54),
@@ -102,6 +121,19 @@ mod tests {
         assert_eq!(jog(1.0, 0.0, 0.0, 500.0), "$J=G91 X1 F500");
         assert_eq!(jog(0.0, 0.0, -0.1, 200.0), "$J=G91 Z-0.1 F200");
         assert_eq!(jog(1.0, -2.0, 3.0, 800.0), "$J=G91 X1 Y-2 Z3 F800");
+    }
+
+    #[test]
+    fn jog_to_is_absolute_and_omits_none_axes() {
+        assert_eq!(jog_to(None, None, Some(-5.0), 300.0), "$J=G90 Z-5 F300");
+        assert_eq!(
+            jog_to(Some(10.0), Some(20.0), None, 100000.0),
+            "$J=G90 X10 Y20 F100000"
+        );
+        assert_eq!(
+            jog_to(Some(1.5), Some(-2.0), Some(3.0), 800.0),
+            "$J=G90 X1.5 Y-2 Z3 F800"
+        );
     }
 
     #[test]

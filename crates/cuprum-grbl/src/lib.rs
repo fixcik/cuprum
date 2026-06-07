@@ -7,7 +7,7 @@ pub mod connection;
 pub mod parse;
 
 pub use command::{
-    home, jog, set_work_zero, spindle_off, spindle_on, unlock, CYCLE_START, FEED_HOLD,
+    home, jog, jog_to, set_work_zero, spindle_off, spindle_on, unlock, CYCLE_START, FEED_HOLD,
     FEED_OVERRIDE_100, FEED_OVERRIDE_MINUS_1, FEED_OVERRIDE_MINUS_10, FEED_OVERRIDE_PLUS_1,
     FEED_OVERRIDE_PLUS_10, JOG_CANCEL, RAPID_OVERRIDE_100, RAPID_OVERRIDE_25, RAPID_OVERRIDE_50,
     SOFT_RESET, SPINDLE_OVERRIDE_100, SPINDLE_OVERRIDE_MINUS_1, SPINDLE_OVERRIDE_MINUS_10,

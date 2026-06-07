@@ -589,6 +589,14 @@ export const api = {
     disconnect: () => invoke<void>("machine_disconnect"),
     jog: (dx: number, dy: number, dz: number, feed: number) =>
       invoke<void>("machine_jog", { dx, dy, dz, feed }),
+    /** Absolute jog (work coords) to the given axis targets; omitted axes hold. */
+    jogTo: (target: { x?: number; y?: number; z?: number }, feed: number) =>
+      invoke<void>("machine_jog_to", {
+        x: target.x ?? null,
+        y: target.y ?? null,
+        z: target.z ?? null,
+        feed,
+      }),
     jogCancel: () => invoke<void>("machine_jog_cancel"),
     setZero: (x: boolean, y: boolean, z: boolean) => invoke<void>("machine_set_zero", { x, y, z }),
     home: () => invoke<void>("machine_home"),
