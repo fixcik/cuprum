@@ -154,9 +154,15 @@ pub fn machine_connect(
                             text: line.clone(),
                         });
                     }
+                    // Route terminal replies to a pending ok-wait. Welcome is
+                    // included so a soft-reset (e.g. aborting a homing cycle)
+                    // unblocks the waiter instead of letting it hang to timeout.
                     if matches!(
                         parsed,
-                        grbl::Line::Ok | grbl::Line::Error(_) | grbl::Line::Alarm(_)
+                        grbl::Line::Ok
+                            | grbl::Line::Error(_)
+                            | grbl::Line::Alarm(_)
+                            | grbl::Line::Welcome(_)
                     ) {
                         if let Some(tx) = r_ack.lock().unwrap().as_ref() {
                             let _ = tx.send(parsed.clone());
@@ -305,6 +311,8 @@ fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), Str
                 Ok(grbl::Line::Ok) => return Ok(()),
                 Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
                 Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
+                // A reset (welcome banner) mid-command means the line was aborted.
+                Ok(grbl::Line::Welcome(_)) => return Err("reset".into()),
                 Ok(_) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     let (silent, idle) = {
@@ -316,6 +324,69 @@ fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), Str
                     }
                     if idle && sent.elapsed() > SYNC_IDLE_NO_ACK {
                         return Err("machine idle, no ack (lost ok)".into());
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("connection lost".into());
+                }
+            }
+        }
+    })();
+
+    *ack_slot.lock().unwrap() = None;
+    result
+}
+
+/// Overall ceiling for a homing cycle. GRBL stays silent for the whole cycle and
+/// then answers `ok` (done) or `ALARM` (switch not found within max travel), so
+/// the usual silence/idle aborts of `send_line_await_ok` don't apply — only a
+/// generous ceiling guards against a dead link that never answers.
+const HOMING_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Send `$H` and BLOCK until the homing cycle resolves: `ok` (homed),
+/// `error`/`ALARM` (rejected/failed), or a `Welcome` banner (a soft-reset aborted
+/// it). Unlike `send_line_await_ok`, it tolerates the long mid-cycle silence GRBL
+/// produces while homing — status reports stop until the cycle ends, so liveness
+/// can't be judged from silence here. Reuses the reader→`ack_tx` channel; refuses
+/// if a run already holds it.
+fn home_await(state: &State<MachineState>) -> Result<(), String> {
+    let writer = state.writer().ok_or("not connected")?;
+    let ack_slot = state.ack_slot().ok_or("not connected")?;
+    let telemetry = state.telemetry();
+
+    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
+    {
+        let mut slot = ack_slot.lock().unwrap();
+        if slot.is_some() {
+            return Err("machine busy".into());
+        }
+        *slot = Some(tx);
+    }
+
+    let result = (|| {
+        let line = grbl::home();
+        writer
+            .lock()
+            .unwrap()
+            .write_line(line)
+            .map_err(|e| e.to_string())?;
+        if let Some(t) = &telemetry {
+            let _ = t.send(Telemetry::Line {
+                dir: "tx".into(),
+                text: line.to_string(),
+            });
+        }
+        let sent = std::time::Instant::now();
+        loop {
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(grbl::Line::Ok) => return Ok(()),
+                Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
+                Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
+                Ok(grbl::Line::Welcome(_)) => return Err("aborted".into()),
+                Ok(_) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if sent.elapsed() > HOMING_TIMEOUT {
+                        return Err("homing timeout".into());
                     }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -377,6 +448,14 @@ pub fn machine_set_zero(
 #[tauri::command]
 pub fn machine_home(state: State<MachineState>) -> Result<(), String> {
     send_line(&state, grbl::home())
+}
+
+/// Home ($H) and block until the cycle resolves, so the UI can show progress and
+/// only mark the frame homed once GRBL actually confirms it (Err on
+/// failure/abort/timeout).
+#[tauri::command]
+pub fn machine_home_await(state: State<MachineState>) -> Result<(), String> {
+    home_await(&state)
 }
 
 #[tauri::command]

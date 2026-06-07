@@ -1,5 +1,10 @@
 {
   "title": "Machine",
+  "homing": {
+    "inProgress": "Homing in progress…",
+    "elapsed": "{{seconds}} s",
+    "abort": "Stop (abort)"
+  },
   "connection": {
     "port": "Port",
     "refresh": "Refresh",

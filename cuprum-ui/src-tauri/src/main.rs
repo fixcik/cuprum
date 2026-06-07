@@ -193,6 +193,7 @@ fn main() {
             commands::machine::machine_jog_cancel,
             commands::machine::machine_set_zero,
             commands::machine::machine_home,
+            commands::machine::machine_home_await,
             commands::machine::machine_unlock,
             commands::machine::machine_spindle,
             commands::machine::machine_send,

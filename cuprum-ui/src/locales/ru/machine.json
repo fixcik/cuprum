@@ -1,5 +1,10 @@
 {
   "title": "Станок",
+  "homing": {
+    "inProgress": "Базирование идёт…",
+    "elapsed": "{{seconds}} с",
+    "abort": "Стоп (прервать)"
+  },
   "connection": {
     "port": "Порт",
     "refresh": "Обновить",

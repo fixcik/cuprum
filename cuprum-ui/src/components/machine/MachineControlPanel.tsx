@@ -15,6 +15,7 @@ import { Overrides } from "@/components/machine/Overrides";
 import { QuickActions } from "@/components/machine/QuickActions";
 import { FieldPanel } from "@/components/machine/FieldPanel";
 import { ConsoleDrawer } from "@/components/machine/ConsoleDrawer";
+import { HomingOverlay } from "@/components/machine/HomingOverlay";
 
 /** Live machine control surface, "Classic" layout: a status/connection toolbar,
  *  the alarm banner, a fixed-width control column (coordinates / jog / spindle /
@@ -38,6 +39,7 @@ export function MachineControlPanel({
   const machineZ = useMachine((s) => s.status.mpos[2]);
   const workZ = useMachine((s) => s.status.wpos[2]);
   const homed = useMachine((s) => s.homed);
+  const homing = useMachine((s) => s.homing);
   const movable = canMove(state, connected);
   // The header "go to zero" runs a machine-frame (G53) retract, so it requires
   // a homed frame in addition to a movable state.
@@ -52,6 +54,7 @@ export function MachineControlPanel({
       {/* relative anchors the console drawer; on narrow widths the column and
        *  field stack and scroll, on wide (xl) they sit side by side and fill. */}
       <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 xl:flex-row xl:overflow-hidden">
+        {homing && <HomingOverlay />}
         <div className="flex flex-col gap-3 xl:w-[440px] xl:flex-none xl:overflow-auto">
           <AlarmBanner />
           <SoftLimitsNotice />

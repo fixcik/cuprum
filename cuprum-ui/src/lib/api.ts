@@ -592,6 +592,9 @@ export const api = {
     jogCancel: () => invoke<void>("machine_jog_cancel"),
     setZero: (x: boolean, y: boolean, z: boolean) => invoke<void>("machine_set_zero", { x, y, z }),
     home: () => invoke<void>("machine_home"),
+    /** Home and resolve only when the cycle completes (ok) or rejects
+     *  (error/ALARM/abort) — lets the UI show progress through silent homing. */
+    homeAwait: () => invoke<void>("machine_home_await"),
     unlock: () => invoke<void>("machine_unlock"),
     softReset: () => invoke<void>("machine_soft_reset"),
     feedHold: () => invoke<void>("machine_feed_hold"),
