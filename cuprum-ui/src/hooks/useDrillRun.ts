@@ -29,6 +29,14 @@ export function useDrillRun(): UseDrillRun {
 
   useEffect(() => {
     api.drillRun.isConnected().then(setConnected).catch(() => {});
+    // Re-attach: if a run is already live (window opened/reopened mid-run), reflect
+    // its phase immediately. Progress (holesCompleted) fills in from the next event.
+    api.drillRun
+      .status()
+      .then((st) => {
+        if (st.active) dispatch({ type: "state", phase: st.phase as DrillRunPhase });
+      })
+      .catch(() => {});
 
     const subState = api.drillRun.onState((phase) =>
       dispatch({ type: "state", phase: phase as DrillRunPhase }),

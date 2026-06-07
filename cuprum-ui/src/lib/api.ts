@@ -55,11 +55,19 @@ export interface MachineStatus {
   pins?: Pins;
 }
 
-/** Payload of the global `machine://status` event (machine.rs `MachinePos`). */
+/** Payload of the global `machine://status` event (machine.rs `MachinePos`).
+ *  Full status (not just position) so a follower window (drill) has parity with
+ *  the main window's per-connection Channel. */
 export interface MachineStatusEvent {
   state: MachineStateName;
   mpos: [number, number, number];
   wpos: [number, number, number];
+  feed: number;
+  spindle: number;
+  /** Override percentages [feed, rapid, spindle]. */
+  overrides: [number, number, number];
+  /** Active limit/probe pins. */
+  pins: Pins;
 }
 
 /** A console line as stored in the UI: direction, text, and the local arrival
@@ -264,8 +272,8 @@ export interface AddDesignResult {
 }
 
 /** Data needed to build the drill plan plus the shop settings (CNC profile,
- *  tools, DFM thresholds). Built inline from the stores by useDrillScreenData and
- *  consumed by the drill operation editor. */
+ *  tools, DFM thresholds). Built from the main-window stores by useDrillScreenData
+ *  (in the drill bridge) and pushed over IPC to the drill window. */
 export interface DrillSnapshot {
   workingDir: string | null;
   manifest: Manifest | null;
@@ -529,6 +537,8 @@ export const api = {
   openAddDesignWindow: () => invoke<void>("open_add_design_window"),
   /** Open (or focus) the inspector window for a design (label `inspector-<id>`). */
   openInspectorWindow: (designId: string) => invoke<void>("open_inspector_window", { designId }),
+  /** Open (or focus) the drilling-operation window (label `drill`). */
+  openDrillWindow: () => invoke<void>("open_drill_window"),
 
   // Dialogs for the project flows.
   pickZips: () =>
@@ -590,6 +600,32 @@ export const api = {
   onInspectorArtifactsFresh: (cb: (p: { fresh: boolean }) => void): Promise<UnlistenFn> =>
     listen<{ fresh: boolean }>("inspector:artifacts-fresh", (e) => cb(e.payload)),
 
+  // Drill window bridge events (main → drill window). The drill window is a remote
+  // control: it gets the project as a snapshot, follows the machine via the global
+  // `machine://status` broadcast (it does NOT take the telemetry Channel), and sends
+  // machine/run commands directly via invoke. The only JS-derived machine field not
+  // in the backend broadcast — `homed` — is relayed here.
+  emitDrillReady: () => emit("drill:ready"),
+  onDrillReady: (cb: () => void): Promise<UnlistenFn> =>
+    listen("drill:ready", () => cb()),
+  emitDrillSnapshot: (s: DrillSnapshot) => emit("drill:snapshot", s),
+  onDrillSnapshot: (cb: (s: DrillSnapshot) => void): Promise<UnlistenFn> =>
+    listen<DrillSnapshot>("drill:snapshot", (e) => cb(e.payload)),
+  /** Relay the main window's JS-derived machine flags (homed) to the drill window. */
+  emitMachineDerived: (d: { homed: boolean }) => emit("machine://derived", d),
+  onMachineDerived: (cb: (d: { homed: boolean }) => void): Promise<UnlistenFn> =>
+    listen<{ homed: boolean }>("machine://derived", (e) => cb(e.payload)),
+  /** Drill window → main: reclassify a drill diameter (project mutation). */
+  emitDrillSetClassOverride: (diameterKey: string, klass: DrillClass | null) =>
+    emit("drill:set-class-override", { diameterKey, klass }),
+  onDrillSetClassOverride: (
+    cb: (p: { diameterKey: string; klass: DrillClass | null }) => void,
+  ): Promise<UnlistenFn> =>
+    listen<{ diameterKey: string; klass: DrillClass | null }>(
+      "drill:set-class-override",
+      (e) => cb(e.payload),
+    ),
+
   /** Apply localised native-menu labels (called on mount and on language change). */
   setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),
 
@@ -646,6 +682,9 @@ export const api = {
 
   drillRun: {
     start: (steps: DrillStep[]) => invoke<void>("drill_run_start", { steps }),
+    /** Current run status, for a window opening/reopening mid-run (re-attach).
+     *  `active` false when no run is live; `phase` is derived from control flags. */
+    status: () => invoke<{ active: boolean; phase: string }>("drill_run_status"),
     pause: () => invoke<void>("drill_run_pause"),
     resume: () => invoke<void>("drill_run_resume"),
     stop: () => invoke<void>("drill_run_stop"),

@@ -121,7 +121,10 @@ fn main() {
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { .. } = event {
                     for (label, w) in window.app_handle().webview_windows() {
-                        if label.starts_with("inspector-") || label == "add-design" {
+                        if label.starts_with("inspector-")
+                            || label == "add-design"
+                            || label == "drill"
+                        {
                             let _ = w.close();
                         }
                     }
@@ -185,6 +188,7 @@ fn main() {
             commands::windows::take_pending_open,
             commands::windows::open_add_design_window,
             commands::windows::open_inspector_window,
+            commands::windows::open_drill_window,
             set_app_menu,
             commands::machine::list_serial_ports,
             commands::machine::machine_connect,
@@ -211,7 +215,8 @@ fn main() {
             commands::drill_run::drill_run_resume,
             commands::drill_run::drill_run_confirm_tool_change,
             commands::drill_run::drill_run_stop,
-            commands::drill_run::drill_run_estop
+            commands::drill_run::drill_run_estop,
+            commands::drill_run::drill_run_status
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");

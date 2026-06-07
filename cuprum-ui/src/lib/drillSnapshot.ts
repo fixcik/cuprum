@@ -3,9 +3,9 @@ import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
 
 /** Bundle the project data needed to reconstruct the drill plan PLUS the shop
- *  settings (CNC profile, tools, DFM thresholds). Built inline from the stores by
- *  useDrillScreenData and consumed by the drill operation editor. (Historically
- *  this was pushed over IPC to a separate drill window; the screen is now inline.) */
+ *  settings (CNC profile, tools, DFM thresholds). Built from the main-window stores
+ *  by useDrillScreenData (in the drill bridge) and pushed over IPC to the separate
+ *  drill window, which renders the drill operation editor from it. */
 export function buildDrillSnapshot(args: {
   workingDir: string | null;
   manifest: Manifest | null;

@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
+import { useDrillBridge } from "@/hooks/useDrillBridge";
 import { useMachineBridge } from "@/hooks/useMachineBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -21,6 +22,7 @@ export default function App() {
 
   useAddDesignBridge();
   useInspectorBridge();
+  useDrillBridge();
   useMachineBridge();
 
   useEffect(() => {

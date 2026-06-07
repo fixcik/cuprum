@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
-import { useDrillScreenData } from "@/hooks/useDrillScreenData";
+import { DEFAULT_FR4_THICKNESS_MM, type DrillSnapshot } from "@/lib/api";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
@@ -23,19 +22,19 @@ import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { useDrillPhaseProgress } from "@/hooks/useDrillPhaseProgress";
 import { shouldShowMarker } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
-import { useShell } from "@/shellStore";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
 
-/** Drill operation editor — sourceable inline (no IPC).
- *  Builds the drill snapshot directly from stores via useDrillScreenData,
- *  then renders the hole map, pass selector, summary, and run panel. */
-export function DrillOperationEditor() {
+/** Drill operation editor. Renders the hole map, pass selector, summary, and run
+ *  panel from a pushed `DrillSnapshot` (the editor lives in the separate drill
+ *  window, so project data arrives via IPC, not the store). Machine state comes
+ *  from the window's follower store; project mutations go back as IPC intents. */
+export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) {
   const { t } = useTranslation("drill");
 
-  const snap = useDrillScreenData();
+  const snap = snapshot;
 
   // useDrillPlan returns the full plan (no route — route is computed here
   // after filtering by the selected hole id set).
@@ -370,7 +369,9 @@ export function DrillOperationEditor() {
             run={run}
             onStart={handleStart}
             onSetClass={(dMm, klass) =>
-              void useShell.getState().setDrillClassOverride(String(Math.round(dMm * 1000)), klass)
+              // Project mutation — relayed to the main window (the single writer),
+              // which applies it and re-pushes the snapshot.
+              void api.emitDrillSetClassOverride(String(Math.round(dMm * 1000)), klass)
             }
             onSetBitOverride={(diameterKey, toolId) =>
               setBitOverrides((m) => new Map(m).set(diameterKey, toolId))
