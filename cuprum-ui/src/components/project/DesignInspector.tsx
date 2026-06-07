@@ -24,6 +24,9 @@ interface DesignInspectorProps {
   onRenameDesign: (name: string) => void;
   onSetLayerType: (path: string, type: LayerType) => void;
   onArtifactsFresh: (fresh: boolean) => void;
+  /** Fired once the preview has real content to show (first 2D layer painted, or
+   *  the missing-layers panel). Lets the host window defer reveal until ready. */
+  onReady?: () => void;
 }
 
 // Identity is the gerber REL-PATH (g.path), matching project_board_mesh /
@@ -37,6 +40,7 @@ export function DesignInspector({
   onRenameDesign,
   onSetLayerType,
   onArtifactsFresh,
+  onReady,
 }: DesignInspectorProps) {
   const design = manifest.designs.find((d) => d.id === designId) ?? null;
   const gerbers = useMemo(() => design?.gerbers ?? [], [design]);
@@ -108,6 +112,15 @@ export function DesignInspector({
     focusNonce,
     hiddenTypes,
   });
+
+  // Signal "ready to view" to the host window: the preview pane has real content —
+  // either the first 2D layer has painted, or the design is missing required layers
+  // (so the missing-layers panel is what we show). Until then the window stays
+  // hidden so it doesn't flash an empty/loading preview that then pops in.
+  const previewReady = !pv.hasRequired || pv.layers.length > 0;
+  useEffect(() => {
+    if (previewReady) onReady?.();
+  }, [previewReady, onReady]);
 
   const onFocus = useCallback(
     (fid: string, hi: number) => {

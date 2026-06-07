@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Loader2 } from "lucide-react";
@@ -15,9 +15,14 @@ export function InspectorWindow({ designId }: { designId: string }) {
   // Subscribe first, then announce readiness so the main window's reply can't beat
   // the listener (same ordering as the add-design window).
   const snap = useSnapshotSubscription<InspectorSnapshot>(api.onInspectorSnapshot, api.emitInspectorReady);
-  // Window is created hidden; reveal it once the first snapshot has rendered so it
-  // never flashes the blank webview + boot spinner.
-  useShowWindowWhenReady(snap !== null);
+  // Window is created hidden; reveal it once the preview has real content (not just
+  // the manifest snapshot — the design preview streams in after), so it never
+  // flashes the blank webview + boot spinner or an empty/loading preview.
+  const [contentReady, setContentReady] = useState(false);
+  useShowWindowWhenReady(contentReady);
+  // Stable identity so DesignInspector's ready-effect doesn't re-fire on every
+  // re-render (snapshots arrive repeatedly); setContentReady(true) is idempotent.
+  const onReady = useCallback(() => setContentReady(true), []);
 
   const manifest = snap?.manifest ?? null;
   const workingDir = snap?.workingDir ?? null;
@@ -56,6 +61,7 @@ export function InspectorWindow({ designId }: { designId: string }) {
         onRenameDesign={(name) => api.emitInspectorRename(designId, name)}
         onSetLayerType={(path, type) => api.emitInspectorSetLayerType(designId, path, type)}
         onArtifactsFresh={(fresh) => api.emitInspectorArtifactsFresh(fresh)}
+        onReady={onReady}
       />
     </div>
   );
