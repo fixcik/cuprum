@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Loader2, ShieldCheck, ChevronLeft, ChevronRight, FlipHorizontal2, ListFilter } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
@@ -16,7 +16,11 @@ import {
 } from "@/components/ui/ContextMenu";
 import { LayerStack, type StackLayer, type FocusTarget } from "@/components/import/LayerStack";
 import type { DrcMarkerInput } from "@/components/preview/DrcMarkers";
-import { Board3D } from "@/components/board3d/Board3D";
+// Lazy-loaded: Board3D pulls three.js + react-three-fiber/drei (~1 MB). Keeping it
+// out of the startup bundle means those only load when the 3D view is opened.
+const Board3D = lazy(() =>
+  import("@/components/board3d/Board3D").then((m) => ({ default: m.Board3D })),
+);
 import { MetricsTab } from "@/components/preview/MetricsTab";
 import { FeasibilityTab } from "@/components/preview/FeasibilityTab";
 import type { Hole, BoardMetrics } from "@/lib/api";
@@ -195,15 +199,23 @@ export function PreviewPane({
             )}
           </ContextMenu>
         ) : (
-          <Board3D
-            mesh={mesh ?? null}
-            visibleKeys={visibleKeys}
-            layerColors={layerColors}
-            initialZoom={scale2d}
-            side={side}
-            onFacingChange={onFacingChange}
-            snapNonce={snapNonce}
-          />
+          <Suspense
+            fallback={
+              <div className="flex h-full w-full items-center justify-center bg-[#0a0c10]">
+                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+              </div>
+            }
+          >
+            <Board3D
+              mesh={mesh ?? null}
+              visibleKeys={visibleKeys}
+              layerColors={layerColors}
+              initialZoom={scale2d}
+              side={side}
+              onFacingChange={onFacingChange}
+              snapNonce={snapNonce}
+            />
+          </Suspense>
         )
       ) : tab === "metrics" ? (
         <MetricsTab metrics={metrics ?? null} loading={metricsLoading} />

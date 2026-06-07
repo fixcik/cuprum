@@ -14,6 +14,19 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy, independently-loaded vendors into their own chunks so the
+        // startup graph stays lean and they cache separately. three lands in the
+        // lazy Board3D chunk (loaded only when the 3D view opens); konva powers
+        // the 2D canvas.
+        manualChunks: {
+          konva: ["konva", "react-konva"],
+        },
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     include: ["src/**/*.test.ts"],
