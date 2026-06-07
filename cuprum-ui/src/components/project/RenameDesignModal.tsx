@@ -5,8 +5,9 @@ import { LabeledTextInput } from "@/components/ui/LabeledTextInput";
 import { useShell } from "@/shellStore";
 import type { ProjectDesign } from "@/lib/api";
 
-/** Rename a design from the gallery card (gear → dialog). The inspector renames
- *  in place via EditableText; this is the card's equivalent. */
+/** Rename a design from the gallery card (gear → dialog), committing via the shell
+ *  store. In the inspector window the same action uses DesignSettingsModal, which
+ *  commits via an emit callback instead (the inspector is a remote view). */
 export function RenameDesignModal({
   open,
   onClose,
