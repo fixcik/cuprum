@@ -124,6 +124,7 @@ fn main() {
                         if label.starts_with("inspector-")
                             || label == "add-design"
                             || label == "drill"
+                            || label == "console"
                         {
                             let _ = w.close();
                         }
@@ -187,6 +188,7 @@ fn main() {
             commands::windows::display_px_per_mm,
             commands::windows::take_pending_open,
             commands::windows::open_add_design_window,
+            commands::windows::open_console_window,
             commands::windows::open_inspector_window,
             commands::windows::open_drill_window,
             set_app_menu,

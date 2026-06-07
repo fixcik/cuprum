@@ -152,6 +152,41 @@ pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Open (or focus) the machine console window (fixed label "console"). The SPA
+/// branches on the label and mounts <ConsoleWindow>. Created hidden so the JS side
+/// can reveal it only once content has rendered (show-on-ready recipe).
+#[tauri::command]
+pub(crate) fn open_console_window(app: AppHandle) -> Result<(), String> {
+    use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+    if let Some(w) = app.get_webview_window("console") {
+        // May still be hidden (first snapshot pending) — show before focusing.
+        let _ = w.show();
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    let win = WebviewWindowBuilder::new(&app, "console", WebviewUrl::App("index.html".into()))
+        .title("Cuprum")
+        .inner_size(720.0, 560.0)
+        .min_inner_size(420.0, 320.0)
+        .resizable(true)
+        .center()
+        .focused(true)
+        // Created hidden; the SPA reveals it once content has rendered (show-on-ready).
+        .visible(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    // Center over the main window so it opens on the screen the user is on.
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(main_size), Ok(child_size)) =
+            (main.outer_position(), main.outer_size(), win.outer_size())
+        {
+            let x = pos.x + (main_size.width as i32 - child_size.width as i32) / 2;
+            let y = pos.y + (main_size.height as i32 - child_size.height as i32) / 2;
+            let _ = win.set_position(PhysicalPosition::new(x, y));
+        }
+    }
+    Ok(())
+}
+
 /// Open (or focus) a per-design inspector window. Label `inspector-<design_id>`,
 /// so several designs can be inspected at once; reopening the same design focuses
 /// the existing window. Same bundle as the main window; the SPA branches on the
