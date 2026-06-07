@@ -10,7 +10,7 @@ export function Card({
   icon: Icon,
   right,
   className,
-  bodyClassName = "p-4",
+  bodyClassName = "p-3",
   children,
 }: {
   title?: ReactNode;
@@ -23,7 +23,7 @@ export function Card({
   return (
     <section className={cn("rounded-xl border border-border bg-card", className)}>
       {title != null && (
-        <header className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        <header className="flex items-center gap-2 border-b border-border px-3 py-2">
           {Icon && <Icon className="size-4 text-muted-foreground" />}
           <span className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
             {title}

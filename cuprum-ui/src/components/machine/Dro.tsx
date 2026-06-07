@@ -44,12 +44,12 @@ function AxisRow({
 }) {
   const { t } = useTranslation("machine");
   const label = AXIS_LABEL[axis];
-  const numCls = size === "lg" ? "text-[40px]" : "text-[32px]";
+  const numCls = size === "lg" ? "text-[28px]" : "text-[22px]";
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-foreground/[0.03]">
+    <div className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-foreground/[0.03]">
       <span
-        className="grid size-7 shrink-0 place-items-center rounded-md text-[13px] font-bold text-background"
+        className="grid size-6 shrink-0 place-items-center rounded-md text-[12px] font-bold text-background"
         style={{ background: `hsl(${AXIS_VAR[axis]})` }}
       >
         {label}
@@ -76,7 +76,7 @@ function AxisRow({
           title={t("dro.zeroAxis", { axis: label })}
           disabled={!movable}
           onClick={() => void api.machine.setZero(axis === "x", axis === "y", axis === "z")}
-          className="grid size-7 place-items-center rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          className="grid size-6 place-items-center rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           0
         </button>
@@ -85,7 +85,7 @@ function AxisRow({
           title={canAutoMove ? t("dro.gotoAxis", { axis: label }) : t("controls.homeFirst")}
           disabled={!movable || !canAutoMove}
           onClick={() => void gotoWorkZero([axis], retractZ, machineZ, canAutoMove)}
-          className="grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          className="grid size-6 place-items-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           <LocateFixed className="size-3.5" />
         </button>
@@ -119,9 +119,9 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
 
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="mb-1 flex items-center px-2 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+      <div className="mb-1 flex items-center px-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/60">
         <span className="flex-1">{t("dro.work")}</span>
-        <span className="mr-[88px]">{t("dro.wcs")}</span>
+        <span className="mr-[78px]">{t("dro.wcs")}</span>
       </div>
       {AXES.map((axis) => (
         <AxisRow
@@ -137,7 +137,7 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
         />
       ))}
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-2 grid grid-cols-2 gap-2">
         <Button
           variant="secondary"
           disabled={!movable}
