@@ -282,15 +282,20 @@ export function DrillOperationEditor() {
     return cls ? DRILL_CLASS_COLOR[cls] : undefined;
   }, [route, run.state.currentHoleIndex]);
 
-  // Idle = paused or awaiting a tool change (machine not actively cutting).
+  // Idle = the machine is holding (paused or awaiting a tool change), not cutting.
+  // Transient phases (pausing/stopping) don't show the marker at all (gated by
+  // ACTIVE_PHASES in shouldShowMarker), so they need no idle handling here.
   const runIdle =
-    run.state.phase === "paused" ||
-    run.state.phase === "pausing" ||
-    run.state.phase === "awaitingToolChange";
+    run.state.phase === "paused" || run.state.phase === "awaitingToolChange";
 
   // Localized phase label for the marker pill (only during an active run).
   const currentPhaseLabel = useMemo(() => {
-    if (run.state.phase === "idle" || run.state.phase === "done") return undefined;
+    if (
+      run.state.phase === "idle" ||
+      run.state.phase === "done" ||
+      run.state.phase === "error"
+    )
+      return undefined;
     const key = runIdle ? "idle" : currentHolePhase.phase;
     return t(`phase.${key}`);
   }, [run.state.phase, runIdle, currentHolePhase.phase, t]);

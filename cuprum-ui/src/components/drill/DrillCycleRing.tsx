@@ -95,7 +95,7 @@ export function DrillCycleRing({
           outerRadius={rMm + 5 * k}
           angle={360}
           fill={color}
-          opacity={0.22}
+          opacity={0}
           listening={false}
         />
       )}
