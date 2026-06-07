@@ -225,6 +225,7 @@ fn main() {
             commands::machine::machine_override,
             commands::machine::machine_is_connected,
             commands::machine::machine_reattach,
+            commands::machine::machine_console_backlog,
             commands::drill_run::drill_run_start,
             commands::drill_run::drill_run_pause,
             commands::drill_run::drill_run_resume,

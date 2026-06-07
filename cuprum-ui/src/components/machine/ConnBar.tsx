@@ -21,6 +21,10 @@ export interface ConnBarProps {
    *  instead of the full bar with disabled selects. Lets a screen show what it's
    *  connected to (and disconnect) without keeping the pickers around. */
   connectedSummary?: boolean;
+  /** When true, skip the automatic reattach() call on mount. Use in windows that
+   *  follow machine state via global broadcasts (e.g. the drill window) and must
+   *  NOT steal the main window's telemetry Channel on open. */
+  skipReattach?: boolean;
 }
 
 /** Connection bar: serial port select + hot-plug refresh + connect/disconnect,
@@ -31,6 +35,7 @@ export function ConnBar({
   compact = false,
   machinePicker = false,
   connectedSummary = false,
+  skipReattach = false,
 }: ConnBarProps = {}) {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
@@ -51,9 +56,11 @@ export function ConnBar({
   // backend may still hold the serial port. Re-bind on mount so the UI recovers
   // the live connection instead of stranding it (a fresh connect would then hit
   // "already connected"). No-op if already connected or nothing is held.
+  // Skipped in windows that follow via global broadcasts (drill window) so they
+  // don't steal the main window's telemetry Channel on open.
   useEffect(() => {
-    void reattach();
-  }, [reattach]);
+    if (!skipReattach) void reattach();
+  }, [reattach, skipReattach]);
 
   const refresh = useCallback(() => {
     void api.machine.listPorts().then(setPorts).catch(() => setPorts([]));

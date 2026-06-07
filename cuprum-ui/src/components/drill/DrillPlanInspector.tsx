@@ -337,7 +337,7 @@ export function DrillPlanInspector({
                 profile + connect while disconnected; once connected it collapses to
                 a slim "● name · port · Disconnect" status row, so the operator can
                 see what's connected and switch machines by disconnecting first. */}
-            <ConnBar compact machinePicker connectedSummary />
+            <ConnBar compact machinePicker connectedSummary skipReattach />
 
             {/* Start button */}
             <Button
