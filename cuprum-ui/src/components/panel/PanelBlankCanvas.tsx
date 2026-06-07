@@ -16,7 +16,6 @@ import {
   BLANK_LABEL,
   INSTANCE_FILL,
   INSTANCE_STROKE,
-  INSTANCE_LABEL,
   INSTANCE_OFF_STROKE,
   INSTANCE_OFF_FILL,
   INSTANCE_WARN_STROKE,
@@ -45,7 +44,7 @@ import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
 import { ClampZoneLayer } from "@/components/panel/ClampZoneLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import { useDesignPreviewImages } from "@/hooks/useDesignPreviewImages";
-import { api, type BoardInstance, type KeepOutZone, type ProjectDesign, type ToolingHole } from "@/lib/api";
+import { api, type BoardInstance, type KeepOutZone, type ToolingHole } from "@/lib/api";
 import { useKeepOutSelection } from "@/keepOutSelectionStore";
 import {
   ContextMenu,
@@ -61,7 +60,6 @@ const SNAP_PX = 6;   // magnetic snap threshold in screen pixels
 // Stable empty fallbacks so the store selectors keep a constant reference when
 // the panel/designs are absent (avoids re-running the sizes effect every render).
 const EMPTY_INSTANCES: BoardInstance[] = [];
-const EMPTY_DESIGNS: ProjectDesign[] = [];
 const EMPTY_HOLES: ToolingHole[] = [];
 const EMPTY_ZONES: KeepOutZone[] = [];
 
@@ -83,7 +81,6 @@ export function PanelBlankCanvas({
   const { fmtLen } = useUnitFormat();
   const clampRadiusMm = useSettings((s) => s.profile.toolingClampRadiusMm);
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
-  const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY_DESIGNS);
   const holes = useShell((s) => s.currentManifest?.panel?.tooling_holes ?? EMPTY_HOLES);
   const zones = useShell((s) => s.currentManifest?.panel?.keep_out_zones ?? EMPTY_ZONES);
   const moveInstances = useShell((s) => s.moveInstances);
@@ -190,9 +187,6 @@ export function PanelBlankCanvas({
     }
     return m;
   }, [keepOutPreviewBox, byTooling, holes]);
-
-  // O(1) design lookup for the instance render loop + labels.
-  const designById = useMemo(() => new Map(designs.map((d) => [d.id, d])), [designs]);
 
   // Prune the ephemeral selection to ids still present (e.g. after a delete or an
   // undo that dropped instances). Cheap; runs whenever the instance set changes.
@@ -1056,7 +1050,6 @@ export function PanelBlankCanvas({
             {visibleInstances.map((inst) => {
               const sz = sizes[inst.design_id];
               if (!sz) return null;
-              const name = designById.get(inst.design_id)?.source_name ?? "";
               const isSelected = selected.has(inst.id);
               // Centre-pivot: place the Group at the board centre, offset by half the
               // board so local (0,0) is the unrotated top-left, then rotate about that
@@ -1136,18 +1129,6 @@ export function PanelBlankCanvas({
                       perfectDrawEnabled={false}
                     />
                   )}
-                  <Text
-                    x={0}
-                    y={0}
-                    width={sz.w}
-                    height={sz.h}
-                    align="center"
-                    verticalAlign="middle"
-                    text={name}
-                    fontSize={Math.max(Math.min(sz.w, sz.h) * 0.12, 1.5)}
-                    fill={INSTANCE_LABEL}
-                    listening={false}
-                  />
                 </Group>
               );
             })}
