@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,10 @@ import { DrillOperationEditor } from "@/components/operations/DrillOperationEdit
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 import { useShowWindowWhenReady } from "@/hooks/useShowWindowWhenReady";
 import { useDrillMachineFollower } from "@/hooks/useDrillMachineFollower";
+import {
+  MachineActionsProvider,
+  mainMachineActions,
+} from "@/components/machine/MachineActionsContext";
 
 /** Phases in which a run is live on the machine — closing the window then needs a
  *  confirm (the run keeps going on the backend regardless of the window). */
@@ -25,6 +29,10 @@ export function DrillWindow() {
   useDrillMachineFollower();
   // Window is created hidden; reveal it once the first snapshot has rendered.
   useShowWindowWhenReady(snap !== null);
+  // Stable action handlers for the machine controls rendered inside this window
+  // (ConnBar in DrillPlanInspector). The drill window can own a connection, so
+  // mainMachineActions() is correct here: connect/disconnect go through the store.
+  const actions = useMemo(() => mainMachineActions(), []);
 
   useEffect(() => {
     getCurrentWindow().setTitle(t("window.title")).catch(() => {});
@@ -67,14 +75,16 @@ export function DrillWindow() {
   }, [t]);
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#0a0c10]">
-      {snap ? (
-        <DrillOperationEditor snapshot={snap} />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-slate-500">
-          <Loader2 className="h-6 w-6 animate-spin" />
-        </div>
-      )}
-    </div>
+    <MachineActionsProvider value={actions}>
+      <div className="h-screen w-screen overflow-hidden bg-[#0a0c10]">
+        {snap ? (
+          <DrillOperationEditor snapshot={snap} />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-slate-500">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        )}
+      </div>
+    </MachineActionsProvider>
   );
 }
