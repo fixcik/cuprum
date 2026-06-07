@@ -69,6 +69,12 @@ pub enum Line {
     Ok,
     Error(u8),
     Alarm(u8),
+    /// A `[PRB:x,y,z:s]` probe report: machine position at contact and the success
+    /// flag (1 = contact found, 0 = no contact within travel).
+    Probe {
+        pos: [f32; 3],
+        success: bool,
+    },
     /// Bracketed message/feedback, inner text without the surrounding brackets.
     Message(String),
     Welcome(String),
@@ -157,6 +163,17 @@ pub fn parse_line(line: &str) -> Line {
         return Line::Welcome(line.to_string());
     }
     if let Some(inner) = line.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        if let Some(body) = inner.strip_prefix("PRB:") {
+            // body = "x,y,z:s"
+            if let Some((coords, flag)) = body.rsplit_once(':') {
+                if let Some(pos) = parse_triple(coords) {
+                    return Line::Probe {
+                        pos,
+                        success: flag.trim() != "0",
+                    };
+                }
+            }
+        }
         return Line::Message(inner.to_string());
     }
     if let Some(body) = line.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
@@ -231,6 +248,23 @@ impl StatusTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_probe_report() {
+        match parse_line("[PRB:10.000,20.000,-3.250:1]") {
+            Line::Probe { pos, success } => {
+                assert_eq!(pos, [10.0, 20.0, -3.25]);
+                assert!(success);
+            }
+            other => panic!("expected Probe, got {other:?}"),
+        }
+        match parse_line("[PRB:0.000,0.000,0.000:0]") {
+            Line::Probe { success, .. } => assert!(!success),
+            other => panic!("expected Probe, got {other:?}"),
+        }
+        // A non-PRB bracketed line stays a Message.
+        assert!(matches!(parse_line("[MSG:Caution]"), Line::Message(_)));
+    }
 
     #[test]
     fn parses_simple_replies() {

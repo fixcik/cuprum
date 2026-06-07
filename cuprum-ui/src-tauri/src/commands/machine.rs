@@ -223,6 +223,7 @@ pub fn machine_connect(
                             | grbl::Line::Error(_)
                             | grbl::Line::Alarm(_)
                             | grbl::Line::Welcome(_)
+                            | grbl::Line::Probe { .. }
                     ) {
                         if let Some(tx) = r_ack.lock().unwrap().as_ref() {
                             let _ = tx.send(parsed.clone());
@@ -339,18 +340,27 @@ const SYNC_STALL_SILENCE: Duration = Duration::from_secs(4);
 /// Abort if GRBL is Idle but no ok arrived this long after the write (lost ok).
 const SYNC_IDLE_NO_ACK: Duration = Duration::from_secs(3);
 
-/// Write a line and BLOCK until GRBL acknowledges it with `ok` (success) or
-/// rejects it with `error`/`ALARM` (failure). Used for commands whose acceptance
-/// the UI must trust before acting on it — notably setting the work zero: a blind
-/// fire-and-forget send would let a rejected `G10` pass the run's start gate and
-/// drive the bit in a stale coordinate system. Reuses the same reader→`ack_tx`
-/// channel as the drill runner; refuses if a run already holds it ("busy").
-fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), String> {
-    let writer = state.writer().ok_or("not connected")?;
-    let ack_slot = state.ack_slot().ok_or("not connected")?;
-    let activity = state.activity().ok_or("not connected")?;
-    let telemetry = state.telemetry();
-
+/// Write a line and BLOCK until GRBL gives it a terminal reply, over owned
+/// connection handles (so it can run on a `spawn_blocking` thread — the closure
+/// must be `Send`, which `&State` is not). Claims the reader→`ack_tx` slot, writes
+/// the line, then loops on the same liveness aborts as the rest of the sync waits.
+///
+/// `probe` selects the success rule:
+/// - `false` (plain `await ok`): the first `ok` is success; this is the
+///   `send_line_await_ok` behaviour (e.g. setting the work zero).
+/// - `true` (`G38.2` straight-probe): track the `[PRB:...:s]` flag and treat
+///   PRB-success + `ok` as a confirmed contact, a bare `ok` / `s=0` as no-contact,
+///   and an `ALARM` (G38.2 strict, no contact within travel) as failure.
+///
+/// Refuses if a drill run already holds the ack slot ("busy"); always releases it.
+fn await_terminal_owned(
+    writer: Arc<Mutex<GrblWriter>>,
+    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
+    activity: Arc<Mutex<Activity>>,
+    telemetry: Option<Channel<Telemetry>>,
+    line: &str,
+    probe: bool,
+) -> Result<(), String> {
     // Claim the ack channel. If a drill run already holds it, don't interfere.
     let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
     {
@@ -375,10 +385,24 @@ fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), Str
             });
         }
         let sent = std::time::Instant::now();
+        let mut contacted: Option<bool> = None;
         loop {
             match rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(grbl::Line::Ok) => return Ok(()),
+                // Probe report: remember the contact flag until the terminal `ok`.
+                Ok(grbl::Line::Probe { success, .. }) => contacted = Some(success),
+                Ok(grbl::Line::Ok) => {
+                    if probe {
+                        // `ok` is the terminal after a probe. If GRBL never flagged
+                        // contact (s=0, or a bare ok), treat as no-contact.
+                        return match contacted {
+                            Some(true) => Ok(()),
+                            _ => Err("no contact".into()),
+                        };
+                    }
+                    return Ok(());
+                }
                 Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
+                // G38.2 strict raises an ALARM on no contact within travel.
                 Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
                 // A reset (welcome banner) mid-command means the line was aborted.
                 Ok(grbl::Line::Welcome(_)) => return Err("reset".into()),
@@ -404,6 +428,21 @@ fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), Str
 
     *ack_slot.lock().unwrap() = None;
     result
+}
+
+/// Write a line and BLOCK until GRBL acknowledges it with `ok` (success) or
+/// rejects it with `error`/`ALARM` (failure). Used for commands whose acceptance
+/// the UI must trust before acting on it — notably setting the work zero: a blind
+/// fire-and-forget send would let a rejected `G10` pass the run's start gate and
+/// drive the bit in a stale coordinate system. Reuses the same reader→`ack_tx`
+/// channel as the drill runner; refuses if a run already holds it ("busy"). Thin
+/// `&State` wrapper over `await_terminal_owned` (plain ok-wait).
+fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), String> {
+    let writer = state.writer().ok_or("not connected")?;
+    let ack_slot = state.ack_slot().ok_or("not connected")?;
+    let activity = state.activity().ok_or("not connected")?;
+    let telemetry = state.telemetry();
+    await_terminal_owned(writer, ack_slot, activity, telemetry, line, false)
 }
 
 /// Overall ceiling for a homing cycle. GRBL stays silent for the whole cycle and
@@ -567,6 +606,91 @@ pub fn machine_spindle(state: State<MachineState>, on: bool, rpm: u32) -> Result
         grbl::spindle_off().to_string()
     };
     send_line(&state, &line)
+}
+
+/// Blocking body of the probe cycle, over owned handles so it can run on a
+/// `spawn_blocking` thread. Probes Z (`G38.2`); on contact sets the G54 Z work-zero
+/// (`G10 L20 P1 Z<offset_mm>`) and retracts Z to `safe_z_mm` (work coord). On no
+/// contact / reject the Z-zero is left untouched (returns Err before the `G10`).
+// Four owned connection handles + four probe scalars — inherent to the signature,
+// like the other owned-handle waiters; grouping them buys nothing here.
+#[allow(clippy::too_many_arguments)]
+fn do_probe_z(
+    writer: Arc<Mutex<GrblWriter>>,
+    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
+    activity: Arc<Mutex<Activity>>,
+    telemetry: Option<Channel<Telemetry>>,
+    max_dist_mm: f32,
+    feed_mm_min: f32,
+    offset_mm: f32,
+    safe_z_mm: f32,
+) -> Result<(), String> {
+    await_terminal_owned(
+        writer.clone(),
+        ack_slot.clone(),
+        activity.clone(),
+        telemetry.clone(),
+        &grbl::probe_z(max_dist_mm, feed_mm_min),
+        true,
+    )?;
+    // Contact confirmed: zero Z here (board top + plate offset)...
+    await_terminal_owned(
+        writer.clone(),
+        ack_slot,
+        activity,
+        telemetry.clone(),
+        &format!("G10 L20 P1 Z{offset_mm}"),
+        false,
+    )?;
+    // ...then lift clear. Fire-and-forget jog (mirrors home_await's direct write +
+    // echo): a retract that's late doesn't invalidate the just-set Z-zero.
+    let line = grbl::jog_to(None, None, Some(safe_z_mm), feed_mm_min);
+    writer
+        .lock()
+        .unwrap()
+        .write_line(&line)
+        .map_err(|e| e.to_string())?;
+    if let Some(t) = &telemetry {
+        let _ = t.send(Telemetry::Line {
+            dir: "tx".into(),
+            text: line,
+        });
+    }
+    Ok(())
+}
+
+/// Probe Z down onto the work surface and set the G54 Z work-zero at contact
+/// (`G10 L20 P1 Z<offset_mm>`), then retract Z to `safe_z_mm` (work coord). On no
+/// contact / reject the Z-zero is left untouched. The caller (frontend) is
+/// responsible for the probe-pin pre-check and the connectivity self-test. The
+/// descent is seconds long (max travel at probe feed), so the blocking wait runs
+/// off the main thread via `spawn_blocking` — otherwise it freezes the webview.
+#[tauri::command]
+pub async fn machine_probe_z(
+    state: State<'_, MachineState>,
+    max_dist_mm: f32,
+    feed_mm_min: f32,
+    offset_mm: f32,
+    safe_z_mm: f32,
+) -> Result<(), String> {
+    let writer = state.writer().ok_or("not connected")?;
+    let ack_slot = state.ack_slot().ok_or("not connected")?;
+    let activity = state.activity().ok_or("not connected")?;
+    let telemetry = state.telemetry();
+    tauri::async_runtime::spawn_blocking(move || {
+        do_probe_z(
+            writer,
+            ack_slot,
+            activity,
+            telemetry,
+            max_dist_mm,
+            feed_mm_min,
+            offset_mm,
+            safe_z_mm,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
