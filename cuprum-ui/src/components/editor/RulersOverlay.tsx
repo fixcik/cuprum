@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { RULER_TOP, RULER_LEFT } from "@/components/editor/canvasStyle";
 import { gridSteps, ticksFor } from "@/lib/canvasTicks";
 
@@ -92,29 +92,54 @@ export function RulersOverlay({
   // cursor on each ruler. Distinct from the opt-in crosshair (`hover`) — no full
   // cross lines, just value pills on the scales. Coalesced to one update per frame.
   const svgRef = useRef<SVGSVGElement>(null);
-  const [axisCursor, setAxisCursor] = useState<{ x: number; y: number } | null>(null);
-  const axisRaf = useRef<number | null>(null);
-  const axisPending = useRef<{ x: number; y: number } | null>(null);
+  const topCaretRef = useRef<SVGGElement>(null);
+  const leftCaretRef = useRef<SVGGElement>(null);
+  // Cached SVG bounding rect — refreshed on resize/scroll, never per pointer event.
+  const rectRef = useRef<DOMRect | null>(null);
+  // The carets follow the cursor IMPERATIVELY (transform writes, no React state).
+  // A global pointermove listener that did setState + getBoundingClientRect per event
+  // throttled rAF to ~12fps window-wide in WKWebView; pure transform writes against a
+  // cached rect are composite-only and keep movement at full frame rate.
   useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const refresh = () => {
+      rectRef.current = el.getBoundingClientRect();
+    };
+    refresh();
+    const ro = new ResizeObserver(refresh);
+    ro.observe(el);
+    window.addEventListener("scroll", refresh, true);
+    window.addEventListener("resize", refresh);
     const onMove = (e: PointerEvent) => {
-      const el = svgRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
+      const r = rectRef.current;
+      const top = topCaretRef.current;
+      const left = leftCaretRef.current;
+      if (!r || !top || !left) return;
       const x = e.clientX - r.left;
       const y = e.clientY - r.top;
-      axisPending.current = x >= 0 && y >= 0 && x <= r.width && y <= r.height ? { x, y } : null;
-      if (axisRaf.current != null) return;
-      axisRaf.current = requestAnimationFrame(() => {
-        axisRaf.current = null;
-        setAxisCursor(axisPending.current);
-      });
+      const inside = x > rulerLeft && y > rulerTop && x <= r.width && y <= r.height;
+      if (inside) {
+        top.setAttribute("transform", `translate(${x} 0)`);
+        left.setAttribute("transform", `translate(0 ${y})`);
+        top.style.display = "";
+        left.style.display = "";
+      } else {
+        top.style.display = "none";
+        left.style.display = "none";
+      }
     };
     window.addEventListener("pointermove", onMove, { passive: true });
     return () => {
+      ro.disconnect();
+      window.removeEventListener("scroll", refresh, true);
+      window.removeEventListener("resize", refresh);
       window.removeEventListener("pointermove", onMove);
-      if (axisRaf.current != null) cancelAnimationFrame(axisRaf.current);
     };
-  }, []);
+    // `ready` is included so the effect re-runs once the SVG is actually mounted
+    // (the component renders null until ready) — otherwise svgRef is null at first
+    // run and the listeners/observer never attach.
+  }, [rulerLeft, rulerTop, ready]);
 
   const screenX = (mm: number) => originX + mm * pxPerMm;
   const screenY = (mm: number) => originY + mm * pxPerMm;
@@ -329,15 +354,15 @@ export function RulersOverlay({
 
       {/* Always-on axis carets: a light marker runs along each ruler at the cursor
           so you can line the position up against the ticks without enabling the
-          crosshair. No text — the carets alone stay quiet over busy content. */}
-      {axisCursor && axisCursor.x > rulerLeft && axisCursor.y > rulerTop && (
-        <g fill={accent}>
-          {/* Top ruler caret */}
-          <path d={`M ${axisCursor.x} ${rulerTop} L ${axisCursor.x - 4} ${rulerTop - 6} L ${axisCursor.x + 4} ${rulerTop - 6} Z`} />
-          {/* Left ruler caret */}
-          <path d={`M ${rulerLeft} ${axisCursor.y} L ${rulerLeft - 6} ${axisCursor.y - 4} L ${rulerLeft - 6} ${axisCursor.y + 4} Z`} />
-        </g>
-      )}
+          crosshair. Positioned IMPERATIVELY by the pointermove effect (transform
+          writes) — rendering them via React state per move throttled rAF. Drawn at
+          the origin and translated; hidden until the cursor enters the plot. */}
+      <g ref={topCaretRef} fill={accent} style={{ display: "none" }}>
+        <path d={`M 0 ${rulerTop} L -4 ${rulerTop - 6} L 4 ${rulerTop - 6} Z`} />
+      </g>
+      <g ref={leftCaretRef} fill={accent} style={{ display: "none" }}>
+        <path d={`M ${rulerLeft} 0 L ${rulerLeft - 6} -4 L ${rulerLeft - 6} 4 Z`} />
+      </g>
 
       {/* Hover readout chip — over everything. */}
       {readout && (
