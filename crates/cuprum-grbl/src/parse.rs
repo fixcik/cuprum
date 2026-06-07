@@ -173,23 +173,41 @@ pub struct ResolvedStatus {
     pub wpos: [f32; 3],
     pub feed: f32,
     pub spindle: f32,
-    /// Override percentages `[feed, rapid, spindle]`; defaults to 100 % each.
+    /// Override percentages `[feed, rapid, spindle]`; carried over from the last
+    /// report that included `Ov:` (GRBL omits it from most reports).
     pub overrides: [u8; 3],
     /// Active limit/probe pins; all-false when no pin is engaged.
     pub pins: PinState,
 }
 
-/// Caches the last-seen work-coordinate offset so every report yields both
-/// MPos and WPos even when the line carried only one of them.
-#[derive(Default)]
+/// Caches fields GRBL reports only intermittently so every resolved status is
+/// complete: the work-coordinate offset (WCO) and the override percentages (Ov),
+/// both of which GRBL emits once after a change and then omits from most reports.
 pub struct StatusTracker {
     wco: [f32; 3],
+    overrides: [u8; 3],
+}
+
+impl Default for StatusTracker {
+    fn default() -> Self {
+        // GRBL's power-on overrides are 100 %; hold that until the first Ov: arrives.
+        Self {
+            wco: [0.0; 3],
+            overrides: [100, 100, 100],
+        }
+    }
 }
 
 impl StatusTracker {
     pub fn resolve(&mut self, r: &StatusReport) -> ResolvedStatus {
         if let Some(wco) = r.wco {
             self.wco = wco;
+        }
+        // Ov: is reported once after it changes, then dropped from subsequent
+        // reports. Carry the last-seen value forward instead of snapping back to
+        // 100 %, which otherwise makes the UI flicker (e.g. 90 % ↔ 100 %).
+        if let Some(ov) = r.overrides {
+            self.overrides = ov;
         }
         let sub = |a: [f32; 3]| [a[0] - self.wco[0], a[1] - self.wco[1], a[2] - self.wco[2]];
         let add = |a: [f32; 3]| [a[0] + self.wco[0], a[1] + self.wco[1], a[2] + self.wco[2]];
@@ -204,7 +222,7 @@ impl StatusTracker {
             wpos,
             feed: r.feed,
             spindle: r.spindle,
-            overrides: r.overrides.unwrap_or([100, 100, 100]),
+            overrides: self.overrides,
             pins: r.pins,
         }
     }
@@ -277,9 +295,18 @@ mod tests {
             panic!("expected Status");
         }
 
-        // Missing Ov: → resolved overrides default to 100 %.
+        // Missing Ov: → carry the last-seen overrides forward (GRBL omits Ov:
+        // from most reports), not snap back to 100 %.
         if let Line::Status(rep) = parse_line("<Idle|MPos:0,0,0|FS:0,0>") {
-            assert_eq!(t.resolve(&rep).overrides, [100, 100, 100]);
+            assert_eq!(t.resolve(&rep).overrides, [120, 100, 80]);
+        } else {
+            panic!("expected Status");
+        }
+
+        // A fresh tracker reports 100 % until the first Ov: arrives.
+        let mut fresh = StatusTracker::default();
+        if let Line::Status(rep) = parse_line("<Idle|MPos:0,0,0|FS:0,0>") {
+            assert_eq!(fresh.resolve(&rep).overrides, [100, 100, 100]);
         } else {
             panic!("expected Status");
         }

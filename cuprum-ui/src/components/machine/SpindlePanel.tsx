@@ -6,14 +6,15 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
+import { spindleFraction, rpmToSWord } from "@/lib/spindle";
 
-/** SVG ring showing the current spindle output as a percent arc over [0, max].
+/** SVG ring showing the current spindle output as a percent arc over [0, 1].
  *  GRBL reports the S word (clamped to $30), not true shaft RPM, so the friendly
- *  reading is its share of the firmware ceiling: 100 % at S === max. */
-function SpindleRing({ rpm, max, size = 64 }: { rpm: number; max: number; size?: number }) {
+ *  reading is its share of the firmware ceiling: 100 % at S === $30. */
+function SpindleRing({ fraction, size = 64 }: { fraction: number; size?: number }) {
   const r = (size - 12) / 2;
   const c = 2 * Math.PI * r;
-  const k = max > 0 ? Math.min(1, rpm / max) : 0;
+  const k = Math.min(1, Math.max(0, fraction));
   const cx = size / 2;
   const { t } = useTranslation("machine");
   return (
@@ -51,10 +52,12 @@ function SpindleRing({ rpm, max, size = 64 }: { rpm: number; max: number; size?:
 }
 
 /** Redesigned spindle panel: power ring + target slider (when speed is
- *  controllable) + On/Off. The gauge scale is GRBL's max spindle speed ($30,
- *  read on connect) so a maxed spindle reads 100 %; it falls back to the
- *  profile's spindleMaxRpm until $30 is known. On a stock 3018
- *  (`spindleControllable === false`) the slider is hidden and On uses the max. */
+ *  controllable) + On/Off. The slider edits REAL shaft RPM (0..physMax from the
+ *  profile's spindleMaxRpm); the gauge reads the live power fraction (reported S
+ *  over GRBL's $30). Real RPM and the S word are distinct scales, so the target
+ *  is converted to an S word before commanding — at $30=1000, physMax=12000 a
+ *  12000-RPM target commands M3 S1000 (100 % PWM). On a stock 3018
+ *  (`spindleControllable === false`) the slider is hidden and On runs full power. */
 export function SpindlePanel() {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
@@ -63,27 +66,32 @@ export function SpindlePanel() {
   const spindle = useMachine((s) => s.status.spindle);
   const grblMax = useMachine((s) => s.maxSpindleRpm);
   const enabled = canMove(state, connected);
-  // Real scale: GRBL's $30 once known, else the profile estimate.
-  const max = grblMax ?? cnc.spindleMaxRpm;
-  // Target RPM is a transient UI choice; default to max. Only meaningful when the
-  // spindle speed is controllable. Clamp to the live scale ($30 may be lower).
-  const [target, setTarget] = useState(max);
-  const clampedTarget = Math.min(target, max);
+  // Physical scale (real RPM at 100 %) — what the slider and readout speak.
+  const physMax = cnc.spindleMaxRpm;
+  // GRBL S-word ceiling ($30) once known, else assume the firmware already speaks
+  // real RPM (sMax === physMax → conversions are identity).
+  const sMax = grblMax ?? physMax;
+  // Target is real RPM; default to full. Only meaningful when speed is controllable.
+  const [target, setTarget] = useState(physMax);
+  const clampedTarget = Math.min(target, physMax);
   const on = spindle > 0;
-  // What RPM `On` commands: the chosen target when controllable, else the max.
-  const commandRpm = cnc.spindleControllable ? clampedTarget : max;
+  // Live power fraction from the reported S word (0..1) → ring + percent.
+  const fraction = spindleFraction(spindle, sMax);
+  // What `On` commands, as an S word: the chosen target (scaled) when controllable,
+  // else full power ($30).
+  const commandS = cnc.spindleControllable ? rpmToSWord(clampedTarget, physMax, sMax) : sMax;
 
   // If the spindle is already running, apply the chosen target live by re-commanding
-  // M3 S<rpm> — GRBL updates the speed without an off/on cycle. Fired on release
+  // M3 S<s> — GRBL updates the speed without an off/on cycle. Fired on release
   // (pointer-up / key-up), not on every drag tick, to avoid flooding the serial
   // buffer with intermediate values.
   const applyLive = () => {
-    if (on) void api.machine.spindle(true, clampedTarget);
+    if (on && enabled) void api.machine.spindle(true, commandS);
   };
 
   return (
     <div className="flex items-center gap-3">
-      <SpindleRing rpm={spindle} max={max} />
+      <SpindleRing fraction={fraction} />
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">
         {cnc.spindleControllable ? (
           <>
@@ -98,7 +106,7 @@ export function SpindlePanel() {
               type="range"
               className="w-full accent-primary disabled:opacity-40"
               min={0}
-              max={max}
+              max={physMax}
               step={100}
               value={clampedTarget}
               disabled={!enabled}
@@ -116,7 +124,7 @@ export function SpindlePanel() {
             size="sm"
             className="flex-1"
             disabled={!enabled}
-            onClick={() => void api.machine.spindle(true, commandRpm)}
+            onClick={() => void api.machine.spindle(true, commandS)}
           >
             <Play className="size-3.5" />
             {t("spindle.on")}
