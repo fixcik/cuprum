@@ -70,9 +70,11 @@ export interface MachineStatusEvent {
   pins: Pins;
 }
 
-/** A console line as stored in the UI: direction, text, and the local arrival
- *  time (epoch ms, stamped front-side in `pushLine`). */
+/** A console line as stored in the UI: monotonic sequence number, direction,
+ *  text, and the local arrival time (epoch ms, stamped front-side in `pushLine`). */
 export interface ConsoleLine {
+  /** Monotonic counter assigned on push; used as the delta relay key and React key. */
+  seq: number;
   dir: "rx" | "tx";
   text: string;
   ts: number;
@@ -244,6 +246,17 @@ export interface InspectorSnapshot {
   workingDir: string | null;
   currentPath: string | null;
   manifest: Manifest | null;
+}
+
+/** Full state snapshot sent from the main window to the console window on ready. */
+export interface ConsoleSnapshot {
+  connected: boolean;
+  port: string | null;
+  status: MachineStatus;
+  lines: ConsoleLine[];
+  homingAvailable: boolean;
+  homed: boolean;
+  maxSpindleRpm: number | null;
 }
 
 /** Snapshot pushed from the main window to the add-design window. */
@@ -539,6 +552,8 @@ export const api = {
   openInspectorWindow: (designId: string) => invoke<void>("open_inspector_window", { designId }),
   /** Open (or focus) the drilling-operation window (label `drill`). */
   openDrillWindow: () => invoke<void>("open_drill_window"),
+  /** Open (or focus) the machine console OS window. */
+  openConsoleWindow: () => invoke<void>("open_console_window"),
 
   // Dialogs for the project flows.
   pickZips: () =>
@@ -625,6 +640,31 @@ export const api = {
       "drill:set-class-override",
       (e) => cb(e.payload),
     ),
+  // Console window bridge events (main <-> console).
+  emitConsoleReady: () => emit("console:ready"),
+  onConsoleReady: (cb: () => void): Promise<UnlistenFn> => listen("console:ready", () => cb()),
+  emitConsoleClosed: () => emit("console:closed"),
+  onConsoleClosed: (cb: () => void): Promise<UnlistenFn> => listen("console:closed", () => cb()),
+
+  emitConsoleSnapshot: (s: ConsoleSnapshot) => emit("console:snapshot", s),
+  onConsoleSnapshot: (cb: (s: ConsoleSnapshot) => void): Promise<UnlistenFn> =>
+    listen<ConsoleSnapshot>("console:snapshot", (e) => cb(e.payload)),
+  emitConsoleStatus: (s: MachineStatus) => emit("console:status", s),
+  onConsoleStatus: (cb: (s: MachineStatus) => void): Promise<UnlistenFn> =>
+    listen<MachineStatus>("console:status", (e) => cb(e.payload)),
+  emitConsoleLines: (lines: ConsoleLine[]) => emit("console:lines", lines),
+  onConsoleLines: (cb: (lines: ConsoleLine[]) => void): Promise<UnlistenFn> =>
+    listen<ConsoleLine[]>("console:lines", (e) => cb(e.payload)),
+
+  // Intents console -> main (Phase 3 consumers; declared now for type completeness).
+  emitConsoleConnect: (port: string, baud: number) => emit("console:connect", { port, baud }),
+  onConsoleConnect: (cb: (p: { port: string; baud: number }) => void): Promise<UnlistenFn> =>
+    listen<{ port: string; baud: number }>("console:connect", (e) => cb(e.payload)),
+  emitConsoleDisconnect: () => emit("console:disconnect"),
+  onConsoleDisconnect: (cb: () => void): Promise<UnlistenFn> =>
+    listen("console:disconnect", () => cb()),
+  emitConsoleHome: () => emit("console:home"),
+  onConsoleHome: (cb: () => void): Promise<UnlistenFn> => listen("console:home", () => cb()),
 
   /** Apply localised native-menu labels (called on mount and on language change). */
   setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),
