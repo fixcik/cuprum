@@ -157,7 +157,7 @@ export function OperationHistory() {
               onToggle={() => setExpanded((cur) => (cur === r.runUid ? null : r.runUid))}
             />
           ))}
-          {hasMore && filter === "all" && (
+          {hasMore && (
             <button
               type="button"
               onClick={loadMore}

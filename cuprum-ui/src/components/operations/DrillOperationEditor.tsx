@@ -85,10 +85,14 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     feedOverridePct?: number;
   } | null>(null);
   const prefillAppliedRef = useRef(false);
+  // Set when an explicit "repeat run" prefill arrives — the default last-params fetch
+  // then must not clobber it if it resolves later (it raced the user's repeat click).
+  const repeatPrefillRef = useRef(false);
 
   // Fetch the most recent drill run's params once per project (saved path only).
   useEffect(() => {
     prefillAppliedRef.current = false;
+    repeatPrefillRef.current = false;
     setLastDrillParams(null);
     const path = snap.currentPath;
     if (!path) return;
@@ -96,7 +100,8 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     void api.operationLog
       .lastParams(path, "drill")
       .then((json) => {
-        if (!active || !json) return;
+        // Skip if an explicit repeat already supplied params — don't overwrite it.
+        if (!active || !json || repeatPrefillRef.current) return;
         try {
           setLastDrillParams(JSON.parse(json));
         } catch {
@@ -117,7 +122,9 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     const sub = api.onDrillPrefill((json) => {
       if (!active) return;
       try {
-        setLastDrillParams(JSON.parse(json));
+        const parsed = JSON.parse(json);
+        repeatPrefillRef.current = true;
+        setLastDrillParams(parsed);
         prefillAppliedRef.current = false;
       } catch {
         /* malformed — ignore */
