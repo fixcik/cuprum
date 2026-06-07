@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 
 /** SVG ring showing current spindle RPM as an arc over [0, max]. */
-function SpindleRing({ rpm, max, size = 92 }: { rpm: number; max: number; size?: number }) {
+function SpindleRing({ rpm, max, size = 64 }: { rpm: number; max: number; size?: number }) {
   const r = (size - 12) / 2;
   const c = 2 * Math.PI * r;
   const k = max > 0 ? Math.min(1, rpm / max) : 0;
@@ -16,14 +16,14 @@ function SpindleRing({ rpm, max, size = 92 }: { rpm: number; max: number; size?:
   const { t } = useTranslation("machine");
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
-      <circle cx={cx} cy={cx} r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth="6" />
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth="5" />
       <circle
         cx={cx}
         cy={cx}
         r={r}
         fill="none"
         stroke="hsl(var(--primary))"
-        strokeWidth="6"
+        strokeWidth="5"
         strokeLinecap="round"
         strokeDasharray={c}
         strokeDashoffset={c * (1 - k)}
@@ -32,16 +32,16 @@ function SpindleRing({ rpm, max, size = 92 }: { rpm: number; max: number; size?:
       />
       <text
         x={cx}
-        y={cx - 2}
+        y={cx - 1}
         textAnchor="middle"
-        fontSize="20"
+        fontSize="15"
         fontWeight="600"
         fill="hsl(var(--foreground))"
         style={{ fontVariantNumeric: "tabular-nums", fontFamily: "ui-monospace, monospace" }}
       >
         {Math.round(rpm)}
       </text>
-      <text x={cx} y={cx + 14} textAnchor="middle" fontSize="9" fill="hsl(var(--muted-foreground))">
+      <text x={cx} y={cx + 11} textAnchor="middle" fontSize="8" fill="hsl(var(--muted-foreground))">
         {t("spindle.rpm")}
       </text>
     </svg>
@@ -67,7 +67,7 @@ export function SpindlePanel() {
   const commandRpm = cnc.spindleControllable ? target : max;
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-3">
       <SpindleRing rpm={spindle} max={max} />
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">
         {cnc.spindleControllable ? (

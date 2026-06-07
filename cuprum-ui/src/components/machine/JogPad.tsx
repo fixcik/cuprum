@@ -21,7 +21,7 @@ import { useJog } from "@/hooks/useJog";
 import { JogStepControl } from "@/components/machine/JogStepControl";
 
 const jogBtn =
-  "group relative grid h-12 place-items-center rounded-lg border border-border bg-background text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground active:scale-[0.96] active:bg-primary/10 active:text-primary disabled:opacity-30 disabled:pointer-events-none";
+  "group relative grid h-9 place-items-center rounded-lg border border-border bg-background text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground active:scale-[0.96] active:bg-primary/10 active:text-primary disabled:opacity-30 disabled:pointer-events-none";
 
 /** Redesigned jog pad: 3×3 XY grid with diagonals, a centre go-to-work-zero
  *  button, a Z column, a step segmented control (with a continuous "hold" mode)
@@ -160,7 +160,7 @@ export function JogPad() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex gap-3">
+      <div className="flex gap-2">
         {/* XY 3×3 with diagonals */}
         <div className="grid flex-1 grid-cols-3 gap-1.5">
           {dirBtn(-1, 1, 0, "X− Y+", <ArrowUpLeft className="size-4" />)}
@@ -173,7 +173,7 @@ export function JogPad() {
             title={canAutoMove ? t("jog.gotoXY") : t("controls.homeFirst")}
             disabled={!canAutoMove}
             onClick={() => void gotoWorkZero(["x", "y"], retractZ, machineZ, canAutoMove)}
-            className="grid h-12 place-items-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-30"
+            className="grid h-9 place-items-center rounded-lg border border-primary/40 bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-30"
           >
             <LocateFixed className="size-5" />
           </button>
@@ -184,7 +184,7 @@ export function JogPad() {
           {dirBtn(1, -1, 0, "X+ Y−", <ArrowDownRight className="size-4" />)}
         </div>
         {/* Z column */}
-        <div className="flex w-[68px] flex-col gap-1.5">
+        <div className="flex w-[52px] flex-col gap-1.5">
           <button
             type="button"
             title="Z+ (PgUp)"

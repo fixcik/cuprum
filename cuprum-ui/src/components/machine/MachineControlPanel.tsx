@@ -56,9 +56,9 @@ export function MachineControlPanel({
        *  (not xl) keeps the work-field visible beside the column down to ~1024px,
        *  so a moderate window doesn't drop the field below and blow the column to
        *  full width. */}
-      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:flex-row lg:overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3 lg:flex-row lg:overflow-hidden">
         {homing && <HomingOverlay />}
-        <div className="flex flex-col gap-3 lg:w-[440px] lg:flex-none lg:overflow-auto">
+        <div className="flex flex-col gap-2.5 lg:w-[360px] lg:flex-none lg:overflow-auto">
           <AlarmBanner />
           <LimitRecoveryNotice />
           <SoftLimitsNotice />
