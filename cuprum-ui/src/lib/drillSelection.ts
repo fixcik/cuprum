@@ -61,8 +61,8 @@ export function subPlanForSelection(plan: PanelDrillPlan, selected: Set<string>)
 /** Stable hole ids in the route's drill order (route must be built from a sub-plan
  *  whose holes carry `id`). Used to map run progress (holesCompleted /
  *  currentHoleIndex, both in route order) back to stable hole ids. */
-export function holeIdsInRunOrder(route: DrillRoute): string[] {
-  return orderedHoleList(route).map((h) => h.id ?? "");
+export function holeIdsInRunOrder(route: DrillRoute): (string | null)[] {
+  return orderedHoleList(route).map((h) => h.id ?? null);
 }
 
 /** Selected minus already-drilled → still-to-drill. */
