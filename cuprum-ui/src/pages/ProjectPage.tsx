@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ChevronLeft, ChevronRight, ArrowRight, Scissors, type LucideIcon } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ChevronLeft, ChevronRight, ArrowRight, Scissors } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
@@ -9,6 +9,7 @@ import { useShell } from "@/shellStore";
 import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
+import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
 
 type ProjectTab = "panel" | "designs" | "operations";
 type OpenOp = null | "drill";
@@ -72,32 +73,17 @@ export function ProjectPage() {
     return <div className="flex-1 p-6 text-[13px] text-muted-foreground">{t("noProject")}</div>;
   }
 
-  const TABS: { id: ProjectTab; label: string; Icon: LucideIcon }[] = [
-    { id: "panel", label: t("tab.panel"), Icon: LayoutGrid },
-    { id: "designs", label: t("tab.designs"), Icon: Layers },
-    { id: "operations", label: t("tab.operations"), Icon: ListChecks },
+  const TABS: NavTab<ProjectTab>[] = [
+    { id: "panel", label: t("tab.panel"), icon: <LayoutGrid className="size-4" /> },
+    { id: "designs", label: t("tab.designs"), icon: <Layers className="size-4" /> },
+    { id: "operations", label: t("tab.operations"), icon: <ListChecks className="size-4" /> },
   ];
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Bambu-style tab bar */}
       <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-        {TABS.map(({ id, label, Icon }) => {
-          const active = tab === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={[
-                "flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors",
-                active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground",
-              ].join(" ")}
-            >
-              <Icon className="size-4" /> {label}
-            </button>
-          );
-        })}
+        <NavTabs tabs={TABS} value={tab} onChange={setTab} />
         {prep.total > 0 && prep.fraction < 1 && (
           <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <ProgressRing value={prep.fraction} className="size-4" />

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Layers } from "lucide-react";
+import { Loader2, Layers, Eye, Ruler, ShieldCheck, Settings } from "lucide-react";
 import { LayerPanel, type PanelRow } from "@/components/import/LayerPanel";
 import { PreviewPane, type PreviewMode, type PreviewTab } from "@/components/preview/PreviewPane";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { EditableText } from "@/components/ui/EditableText";
+import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
+import { DesignSettingsModal } from "@/components/project/DesignSettingsModal";
 import { VerdictDot } from "@/components/ui/VerdictDot";
 import { colorFor, sideOf, stackOrder } from "@/lib/layerColors";
 import {
@@ -49,6 +49,9 @@ export function DesignInspector({
 
   const [mode, setMode] = useState<PreviewMode>("2d");
   const [tab, setTab] = useState<PreviewTab>("preview");
+  // Design-settings modal (rename), opened from the header gear — replaces the old
+  // inline editable title.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [side, setSide] = useState<"top" | "bottom">("top");
   // "Mirror" toggle for the bottom 2D view (off by default = real back-of-board
   // view; on = see-through aligned with the top). Toggled from the preview switch.
@@ -218,47 +221,41 @@ export function DesignInspector({
 
   if (!design) return null;
 
+  // Project-style header tabs (icon + label), with the metrics spinner and the
+  // verdict status preserved. Tint the "feasibility" tab by verdict so a real
+  // problem is hard to miss; ok stays neutral.
+  const tabs: NavTab<PreviewTab>[] = [
+    { id: "preview", label: t("import:tab.preview"), icon: <Eye className="size-4" /> },
+    {
+      id: "metrics",
+      label: t("import:tab.metrics"),
+      icon: pv.metricsLoading ? <Loader2 className="size-4 animate-spin" /> : <Ruler className="size-4" />,
+    },
+    {
+      id: "feasibility",
+      label: t("import:tab.feasibility"),
+      title: pv.metricsLoading ? t("import:state.checking") : pv.metrics ? t(VERDICT_KEY[pv.verdict]) : undefined,
+      tone: pv.metricsLoading || !pv.metrics ? undefined : pv.verdict === "block" ? "danger" : pv.verdict === "warn" ? "warning" : undefined,
+      icon: pv.metricsLoading ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />,
+      trailing: !pv.metricsLoading && pv.metrics ? <VerdictDot verdict={pv.verdict} className="size-2" /> : undefined,
+    },
+  ];
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <EditableText
-            value={design.source_name}
-            onCommit={(name) => onRenameDesign(name)}
-            title={t("project:designs.rename")}
-            ariaLabel={t("project:designs.rename")}
-            className="max-w-[32ch] text-[13px] font-semibold text-foreground"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          {pv.hasRequired && (
-            <SegmentedControl
-              value={tab}
-              onChange={setTab}
-              options={[
-                { value: "preview", label: t("import:tab.preview") },
-                {
-                  value: "metrics",
-                  label: t("import:tab.metrics"),
-                  icon: pv.metricsLoading ? <Loader2 className="size-3 animate-spin" /> : undefined,
-                },
-                {
-                  value: "feasibility",
-                  label: t("import:tab.feasibility"),
-                  title: pv.metricsLoading ? t("import:state.checking") : pv.metrics ? t(VERDICT_KEY[pv.verdict]) : undefined,
-                  // Tint the whole tab by verdict (not just a tiny dot) so a real
-                  // problem is hard to miss; ok stays neutral.
-                  tone: pv.metricsLoading || !pv.metrics ? undefined : pv.verdict === "block" ? "danger" : pv.verdict === "warn" ? "warning" : undefined,
-                  icon: pv.metricsLoading ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : pv.metrics ? (
-                    <VerdictDot verdict={pv.verdict} className="size-2" />
-                  ) : undefined,
-                },
-              ]}
-            />
-          )}
-        </div>
+      {/* Bambu-style header: tabs on the left, gear (rename) on the right — mirrors
+          the project page. The design name lives in the OS window title. */}
+      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        {pv.hasRequired && <NavTabs tabs={tabs} value={tab} onChange={setTab} />}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          aria-label={t("project:designs.rename")}
+          title={t("project:designs.rename")}
+          className="ml-auto rounded-lg p-2 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Settings className="size-4" />
+        </button>
       </div>
       <div className="flex min-h-0 flex-1">
         <LayerPanel rows={rows} onType={onType} onToggle={pv.toggle} />
@@ -311,6 +308,13 @@ export function DesignInspector({
           )}
         </div>
       </div>
+
+      <DesignSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        name={design.source_name}
+        onRename={onRenameDesign}
+      />
     </div>
   );
 }
