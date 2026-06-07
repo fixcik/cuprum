@@ -12,6 +12,10 @@ export const KEEPOUT_DRILL_CLEARANCE_MM = 0.2;
 export interface PlanHole {
   xMm: number;
   yMm: number;
+  /** Stable hole id ("<groupIndexInFullPlan>:<holeIndexInGroup>"), attached when a
+   *  selection sub-plan is built so the run order can be mapped back to stable ids.
+   *  Absent on the raw plan/route (which key holes positionally). */
+  id?: string;
 }
 
 /** Holes of one diameter+class, with the assigned drill tool (null if no match). */

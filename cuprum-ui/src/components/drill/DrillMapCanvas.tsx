@@ -5,7 +5,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
-import { buildHoleToPathIndex } from "@/lib/drillRoute";
+import { buildHoleToPathIndex, orderedHoleList } from "@/lib/drillRoute";
 import type { DrillClass } from "@/lib/api";
 import type { PhaseProgress } from "@/lib/drillPhaseProgress";
 import { PHASE_COLORS } from "@/lib/drillPhaseProgress";
@@ -16,7 +16,8 @@ import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
 import { MIN_SCALE, MAX_SCALE, RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
-import { nearestHole } from "@/lib/drillHitTest";
+import { nearestPlanHole } from "@/lib/drillHitTest";
+import { enumerateHoles } from "@/lib/drillSelection";
 import { DrillCanvasToolPalette } from "./DrillCanvasToolPalette";
 
 // Re-export Viewport so callers (Task 2 rulers) can import it from here directly.
@@ -72,25 +73,26 @@ export interface DrillMapCanvasProps {
   widthMm: number;
   /** Panel height in mm. */
   heightMm: number;
+  /** Full (unfiltered) plan — all holes are rendered from this. */
   plan: PanelDrillPlan;
+  /** Route built from selected holes only — drives path overlay + tool-change rings. */
   route: DrillRoute;
   /** Keep-out zones in panel-space mm (optional). */
   zones?: { x: number; y: number; w: number; h: number }[];
-  /** Optional live-run progress for highlight overlay. When absent the canvas
-   *  renders exactly as it did before (no visual change). */
-  progress?: { holesCompleted: number; currentHoleIndex: number | null };
   /** Live machine WORK position (mm), or null to hide the marker. Optional z is
    *  shown in the marker readout. */
   machineWork?: { x: number; y: number; z?: number } | null;
   /** Which panel corner is machine (0,0). Defaults to "bottom-left". */
   datum?: DatumCorner;
-  /** Set of drill classes selected for this run. Holes whose class is NOT in this
-   *  set are drawn as a dim base layer so the operator can see what is excluded. */
-  selectedClasses?: Set<DrillClass>;
+  /** Stable hole ids of the holes included in the run selection. Unselected holes
+   *  are rendered dimmed so the operator can see what is excluded. */
+  selectedHoleIds?: Set<string>;
+  /** Stable hole ids of holes already drilled in this session (shown green). */
+  drilledHoleIds?: Set<string>;
+  /** Stable id of the hole currently being drilled (drives the phase-ring). */
+  currentHoleId?: string | null;
   /** Set of drill classes that are VISIBLE on the canvas. Holes whose class is NOT
-   *  in this set are skipped entirely (not rendered). Defaults to all classes visible.
-   *  Independent of selectedClasses: a class can be visible-but-dimmed (in visibleClasses
-   *  but not in selectedClasses) or hidden entirely (not in visibleClasses). */
+   *  in this set are skipped entirely (not rendered). Defaults to all classes visible. */
   visibleClasses?: Set<DrillClass>;
   /** Whether to render the traverse path line. Defaults to true. */
   showPath?: boolean;
@@ -100,13 +102,15 @@ export interface DrillMapCanvasProps {
   /** Smoothed three-phase progress (descent / drilling / retract) for the
    *  currently-drilling hole. Drives the three coloured ring segments around it. */
   currentHolePhase?: PhaseProgress;
-  /** Called on every viewport change (pan, zoom, animate frame) so Task 2 rulers
+  /** Called on every viewport change (pan, zoom, animate frame) so rulers
    *  can follow the canvas transform without prop drilling into the Stage. */
   onViewportChange?: (v: Viewport) => void;
-  /** Currently selected hole key (`${gi}-${hi}`). Drives the copper selection ring. */
-  selectedHoleId?: string | null;
-  /** Called when the user clicks a hole (or clicks empty space → null). */
-  onSelectHole?: (id: string | null) => void;
+  /** Called when the user clicks a hole — toggles its selection state. */
+  onToggleHole?: (id: string) => void;
+  /** Called when the user clicks a hole to surface its id for the detail card. */
+  onInspectHole?: (id: string | null) => void;
+  /** Stable id of the inspected hole (drives the copper selection ring). */
+  inspectedHoleId?: string | null;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
@@ -114,7 +118,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress, machineWork, datum = "bottom-left", selectedClasses, visibleClasses, showPath = true, showDiameters = false, currentHolePhase, onViewportChange, selectedHoleId, onSelectHole }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, visibleClasses, showPath = true, showDiameters = false, currentHolePhase, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   // Ref to the fit-group for pointer → mm coordinate conversion.
@@ -303,16 +307,26 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
   // Map ordered hole N → index in route.pathPoints (by coord match).
   const holeToPathIdx = useMemo(() => buildHoleToPathIndex(route), [route]);
 
+  // Count of drilled holes in route order (prefix of route holes all in drilledHoleIds).
+  // Used to split the traverse path into already-traversed and remaining portions.
+  const holesCompletedCount = useMemo(() => {
+    if (!drilledHoleIds || drilledHoleIds.size === 0) return 0;
+    const holes = orderedHoleList(route);
+    let count = 0;
+    for (const h of holes) {
+      if (h.id && drilledHoleIds.has(h.id)) count++;
+      else break;
+    }
+    return count;
+  }, [drilledHoleIds, route]);
+
   // Index in pathPoints where the drilled portion ends and the remaining begins.
-  // Everything before this index has been traversed. When progress is absent or
-  // holesCompleted is 0, splitPathIdx = 0 (nothing traversed yet).
-  // Note: a detour waypoint that exactly coincides with a hole coord could mis-split
-  // one segment — acceptable corner case, non-crashing.
+  // Everything before this index has been traversed. 0 when nothing has been drilled.
   const splitPathIdx = useMemo(() => {
-    if (!progress || progress.holesCompleted <= 0) return 0;
-    const i = holeToPathIdx[progress.holesCompleted];
+    if (holesCompletedCount <= 0) return 0;
+    const i = holeToPathIdx[holesCompletedCount];
     return i != null && i >= 0 ? i : route.pathPoints.length;
-  }, [progress, holeToPathIdx, route.pathPoints.length]);
+  }, [holesCompletedCount, holeToPathIdx, route.pathPoints.length]);
 
   // Datum-derived rulers configuration. The anchor is the datum corner in panel
   // mm (Y-down). axisFlip mirrors tick labels so the panel always reads 0→W and
@@ -340,13 +354,13 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
           const pos = stageRef.current?.getPointerPosition() ?? null;
           queueHover(pos ? { x: pos.x, y: pos.y } : null);
 
-          // Compute hovered hole key via fit-group relative pointer → mm.
+          // Compute hovered hole id via fit-group relative pointer → mm (all plan holes).
           const fitGroup = fitGroupRef.current;
           if (fitGroup && viewport.pxPerMm > 0) {
             const rel = fitGroup.getRelativePointerPosition();
             if (rel) {
-              const hit = nearestHole({ x: rel.x, y: rel.y }, route, viewport.pxPerMm);
-              const nextKey = hit ? hit.key : null;
+              const hit = nearestPlanHole({ x: rel.x, y: rel.y }, plan, viewport.pxPerMm);
+              const nextKey = hit ? hit.id : null;
               pendingHoveredKey.current = nextKey;
               if (hoveredHoleRaf.current == null) {
                 hoveredHoleRaf.current = requestAnimationFrame(() => {
@@ -372,8 +386,14 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
           if (!fitGroup || viewport.pxPerMm <= 0) return;
           const rel = fitGroup.getRelativePointerPosition();
           if (!rel) return;
-          const hit = nearestHole({ x: rel.x, y: rel.y }, route, viewport.pxPerMm);
-          onSelectHole?.(hit ? hit.key : null);
+          // Hit-test over all plan holes (not just selected/route subset).
+          const hit = nearestPlanHole({ x: rel.x, y: rel.y }, plan, viewport.pxPerMm);
+          if (hit) {
+            onToggleHole?.(hit.id);
+            onInspectHole?.(hit.id);
+          } else {
+            onInspectHole?.(null);
+          }
         }}
       >
         <Layer>
@@ -412,12 +432,12 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
             ))}
 
             {/* Traverse path drawn UNDER the holes. Hidden when showPath is false.
-                During a live run (progress provided) the path is split into two
-                segments: the already-traversed portion (copper, ~55% opacity) and
-                the remaining portion (dim white, ~18% opacity). */}
+                When any holes have been drilled, the path is split into two segments:
+                the already-traversed portion (copper, ~55% opacity) and the remaining
+                portion (dim white, ~18% opacity). */}
             {showPath && pathFlat.length >= 4 && (() => {
-              if (!progress) {
-                // No active run — render exactly as before.
+              if (holesCompletedCount <= 0) {
+                // Nothing drilled yet — single dim path.
                 return (
                   <Line
                     points={pathFlat}
@@ -430,7 +450,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
                   />
                 );
               }
-              // Active run: split at splitPathIdx.
+              // Some holes drilled: split at splitPathIdx.
               // Include the split point in both slices so segments connect seamlessly.
               const traversedPts = route.pathPoints
                 .slice(0, splitPathIdx + 1)
@@ -468,177 +488,141 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, progress
               );
             })()}
 
-            {/* Dim base layer: holes in visibleClasses but NOT in selectedClasses.
-                Holes not in visibleClasses are skipped entirely (not rendered at all). */}
-            {selectedClasses &&
-              plan.groups
-                .filter((g) => {
-                  // Skip entirely if the class is hidden via visibleClasses.
-                  if (visibleClasses && !visibleClasses.has(g.class)) return false;
-                  // Only render dimmed holes that are NOT in the run selection.
-                  return !selectedClasses.has(g.class);
-                })
-                .flatMap((g) =>
-                  g.holes.map((h, hi) => (
-                    <Circle
-                      key={`dim-${g.class}-${g.diameterMm}-${hi}`}
-                      x={h.xMm}
-                      y={h.yMm}
-                      radius={Math.max(g.diameterMm / 2, 0.1)}
-                      stroke="#334155"
-                      strokeWidth={HOLE_STROKE_PX}
-                      strokeScaleEnabled={false}
-                      opacity={0.25}
+            {/* Tool-change rings + diameter labels driven by the ROUTE (selected holes, ordered).
+                These overlay the holes layer so they appear above unselected dimmed holes. */}
+            {route.groups.map((g: RouteGroup, gi: number) => {
+              if (visibleClasses && !visibleClasses.has(g.class)) return null;
+              const color = groupColor(gi);
+              const firstHole = g.orderedHoles[0];
+              const r = g.diameterMm / 2;
+              if (!firstHole) return null;
+              return (
+                <Group key={`tc-${gi}`} listening={false}>
+                  {/* Tool-change ring around the first hole of each route group. */}
+                  <Circle
+                    x={firstHole.xMm}
+                    y={firstHole.yMm}
+                    radius={r + TOOL_CHANGE_RING_OFFSET_MM}
+                    stroke={color}
+                    strokeWidth={TOOL_CHANGE_RING_PX}
+                    strokeScaleEnabled={false}
+                    fill={undefined}
+                    opacity={0.6}
+                  />
+                  {/* Diameter label near the first hole of the group. */}
+                  {showDiameters && (
+                    <Text
+                      x={firstHole.xMm + r + 0.3}
+                      y={firstHole.yMm - Math.max(g.diameterMm * 0.3, 0.25)}
+                      text={`⌀${g.diameterMm}`}
+                      fontSize={Math.min(Math.max(g.diameterMm * 0.6, 0.5), 2.5)}
+                      fill="rgba(203,213,225,0.75)"
                       listening={false}
                     />
-                  )),
-                )}
+                  )}
+                </Group>
+              );
+            })}
 
-            {/* Holes per group with distinct colour; first hole of each group gets a
-                tool-change ring. The depth-progress Arc lives here too (mm-space with
-                strokeScaleEnabled=false) so it scales correctly with zoom.
+            {/* All holes rendered from the full plan.
+                - Unselected (not in selectedHoleIds): dimmed.
+                - Selected & not drilled: normal fill with group colour.
+                - Drilled (in drilledHoleIds): green fill.
+                - Current (currentHoleId): phase-progress rings.
+                - Inspected (inspectedHoleId): copper selection ring.
                 Groups whose class is hidden via visibleClasses are skipped entirely. */}
-            {(() => {
-              let gIdx = 0;
-              return route.groups.map((g: RouteGroup, gi: number) => {
-                // Skip this group entirely if its class is hidden.
-                if (visibleClasses && !visibleClasses.has(g.class)) {
-                  gIdx += g.orderedHoles.length;
-                  return null;
-                }
-                const color = groupColor(gi);
-                const firstHole = g.orderedHoles[0];
-                return g.orderedHoles.map((h, hi) => {
-                  const currentGIdx = gIdx++;
-                  const r = g.diameterMm / 2;
-                  const isToolChange = hi === 0;
+            {enumerateHoles(plan).map((eh) => {
+              // Skip entirely if the class is hidden.
+              if (visibleClasses && !visibleClasses.has(eh.class)) return null;
 
-                  const isDrilled =
-                    progress !== undefined && currentGIdx < progress.holesCompleted;
-                  const isCurrent =
-                    progress !== undefined &&
-                    progress.currentHoleIndex !== null &&
-                    currentGIdx === progress.currentHoleIndex;
-                  const showCurrent = isCurrent && !isDrilled;
+              const h = eh.hole;
+              const r = Math.max(eh.diameterMm / 2, 0.1);
+              const isSelected = selectedHoleIds ? selectedHoleIds.has(eh.id) : true;
+              const isDrilled = drilledHoleIds ? drilledHoleIds.has(eh.id) : false;
+              const isCurrent = eh.id === currentHoleId;
+              const isInspected = eh.id === inspectedHoleId;
+              const isHovered = hoveredHoleKey === eh.id && !isInspected;
 
-                  const holeFill = isDrilled
-                    ? "rgba(34,197,94,0.5)"
-                    : "rgba(0,0,0,0.6)";
+              // Colour holes by plan-group index for class-stable colouring.
+              const color = groupColor(eh.gi);
 
-                  const holeKey = `${gi}-${hi}`;
-                  const isSelected = selectedHoleId === holeKey;
-                  const isHovered = hoveredHoleKey === holeKey && !isSelected;
+              const holeFill = isDrilled
+                ? "rgba(34,197,94,0.5)"
+                : "rgba(0,0,0,0.6)";
 
-                  return (
-                    <Group key={holeKey} listening={false}>
-                      {/* Selection ring — copper coloured, drawn below other rings. */}
-                      {isSelected && (
-                        <Circle
-                          x={h.xMm}
-                          y={h.yMm}
-                          radius={r + SELECT_RING_OFFSET_MM}
-                          stroke={SELECT_RING_COLOR}
-                          strokeWidth={2}
-                          strokeScaleEnabled={false}
-                          fill={undefined}
-                        />
-                      )}
-                      {/* Hover highlight ring — subtle white, only when not selected. */}
-                      {isHovered && (
-                        <Circle
-                          x={h.xMm}
-                          y={h.yMm}
-                          radius={r + HOVER_RING_OFFSET_MM}
-                          stroke="rgba(255,255,255,0.45)"
-                          strokeWidth={1}
-                          strokeScaleEnabled={false}
-                          fill={undefined}
-                        />
-                      )}
-                      {/* Tool-change ring around the first hole in each group. */}
-                      {isToolChange && (
-                        <Circle
-                          x={h.xMm}
-                          y={h.yMm}
-                          radius={r + TOOL_CHANGE_RING_OFFSET_MM}
-                          stroke={color}
-                          strokeWidth={TOOL_CHANGE_RING_PX}
-                          strokeScaleEnabled={false}
-                          fill={undefined}
-                          opacity={0.6}
-                        />
-                      )}
-                      {/* Diameter label near the first hole of the group. Rendered in
-                          mm-space so it scales naturally with zoom. Only shown when
-                          showDiameters is true and this is the group's first hole. */}
-                      {showDiameters && isToolChange && firstHole && (
-                        <Text
-                          x={firstHole.xMm + r + 0.3}
-                          y={firstHole.yMm - Math.max(g.diameterMm * 0.3, 0.25)}
-                          text={`⌀${g.diameterMm}`}
-                          fontSize={Math.min(Math.max(g.diameterMm * 0.6, 0.5), 2.5)}
-                          fill="rgba(203,213,225,0.75)"
-                          listening={false}
-                        />
-                      )}
-                      {/* Three-phase progress ring for the currently-drilling hole:
-                          descent / drilling / retract, each a 120° segment with a
-                          faint track and a fill proportional to that phase. All in
-                          mm-space with strokeScaleEnabled=false so they scale under
-                          zoom (no screen-space conversion needed). */}
-                      {showCurrent &&
-                        (["descent", "drilling", "retract"] as const).map((ph, si) => {
-                          const frac = Math.max(
-                            0,
-                            Math.min(1, currentHolePhase?.[ph] ?? 0),
-                          );
-                          // Segment si occupies [−90 + si·120, +120). Clockwise fill.
-                          const segStart = -90 + si * 120;
-                          return (
-                            <Group key={ph} listening={false}>
-                              {/* Faint full-segment track */}
-                              <Arc
-                                x={h.xMm}
-                                y={h.yMm}
-                                innerRadius={r + 0.45}
-                                outerRadius={r + 0.75}
-                                angle={120}
-                                rotation={segStart}
-                                fill={PHASE_COLORS[ph]}
-                                opacity={0.18}
-                                listening={false}
-                              />
-                              {/* Fill proportional to the phase fraction */}
-                              {frac > 0 && (
-                                <Arc
-                                  x={h.xMm}
-                                  y={h.yMm}
-                                  innerRadius={r + 0.45}
-                                  outerRadius={r + 0.75}
-                                  angle={120 * frac}
-                                  rotation={segStart}
-                                  fill={PHASE_COLORS[ph]}
-                                  listening={false}
-                                />
-                              )}
-                            </Group>
-                          );
-                        })}
-                      {/* Hole circle */}
-                      <Circle
-                        x={h.xMm}
-                        y={h.yMm}
-                        radius={Math.max(r, 0.1)}
-                        stroke={color}
-                        strokeWidth={HOLE_STROKE_PX}
-                        strokeScaleEnabled={false}
-                        fill={holeFill}
-                      />
-                    </Group>
-                  );
-                });
-              });
-            })()}
+              return (
+                <Group key={eh.id} listening={false}>
+                  {/* Inspection ring — copper coloured, shown when this hole is inspected. */}
+                  {isInspected && (
+                    <Circle
+                      x={h.xMm}
+                      y={h.yMm}
+                      radius={r + SELECT_RING_OFFSET_MM}
+                      stroke={SELECT_RING_COLOR}
+                      strokeWidth={2}
+                      strokeScaleEnabled={false}
+                      fill={undefined}
+                    />
+                  )}
+                  {/* Hover highlight ring — subtle white, only when not inspected. */}
+                  {isHovered && (
+                    <Circle
+                      x={h.xMm}
+                      y={h.yMm}
+                      radius={r + HOVER_RING_OFFSET_MM}
+                      stroke="rgba(255,255,255,0.45)"
+                      strokeWidth={1}
+                      strokeScaleEnabled={false}
+                      fill={undefined}
+                    />
+                  )}
+                  {/* Three-phase progress ring for the currently-drilling hole. */}
+                  {isCurrent && !isDrilled &&
+                    (["descent", "drilling", "retract"] as const).map((ph, si) => {
+                      const frac = Math.max(0, Math.min(1, currentHolePhase?.[ph] ?? 0));
+                      const segStart = -90 + si * 120;
+                      return (
+                        <Group key={ph} listening={false}>
+                          <Arc
+                            x={h.xMm}
+                            y={h.yMm}
+                            innerRadius={r + 0.45}
+                            outerRadius={r + 0.75}
+                            angle={120}
+                            rotation={segStart}
+                            fill={PHASE_COLORS[ph]}
+                            opacity={0.18}
+                            listening={false}
+                          />
+                          {frac > 0 && (
+                            <Arc
+                              x={h.xMm}
+                              y={h.yMm}
+                              innerRadius={r + 0.45}
+                              outerRadius={r + 0.75}
+                              angle={120 * frac}
+                              rotation={segStart}
+                              fill={PHASE_COLORS[ph]}
+                              listening={false}
+                            />
+                          )}
+                        </Group>
+                      );
+                    })}
+                  {/* Hole circle — dimmed when unselected, normal/green when selected/drilled. */}
+                  <Circle
+                    x={h.xMm}
+                    y={h.yMm}
+                    radius={r}
+                    stroke={isSelected ? color : "#334155"}
+                    strokeWidth={HOLE_STROKE_PX}
+                    strokeScaleEnabled={false}
+                    fill={holeFill}
+                    opacity={isSelected ? 1 : 0.25}
+                  />
+                </Group>
+              );
+            })}
             {/* Machine-origin indicator — INSIDE the fit-group (mm space) so it
                 shares the holes' stage∘fit transform exactly (no double-applied
                 stage transform). Pixel sizes are divided by pxPerMm to stay

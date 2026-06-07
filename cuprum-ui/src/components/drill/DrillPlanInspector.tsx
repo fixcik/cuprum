@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
-import type { DrillClass } from "@/lib/api";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
+import type { DrillClass } from "@/lib/api";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
@@ -18,13 +18,16 @@ import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary"
 import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
 
 export interface DrillPlanInspectorProps {
+  /** The full (unfiltered) drill plan — passed to DrillSelectionControls for id-based presets. */
+  fullPlan: PanelDrillPlan;
+  /** The current sub-plan (selected holes only, with overrides applied). Used for tool list + warnings. */
   plan: PanelDrillPlan;
   route: DrillRoute;
   counts: Record<DrillClass, number>;
-  /** Currently selected drill classes (free selection replaces the pass stepper). */
-  selectedClasses: Set<DrillClass>;
-  /** Called when the user changes the class selection. */
-  onSelectedClassesChange: (s: Set<DrillClass>) => void;
+  /** Currently selected hole ids (stable). */
+  selectedHoleIds: Set<string>;
+  /** Called when the user changes the selection. */
+  onSelectedHoleIdsChange: (s: Set<string>) => void;
   run: UseDrillRun;
   onStart: () => void;
   /** Set/clear the class override for a diameter (forwarded to DrillToolsOrder). */
@@ -84,11 +87,12 @@ export interface DrillPlanInspectorProps {
  *  datum grid + Z touch-off + run panel (only when active) + tools order +
  *  warnings + sticky start footer. */
 export function DrillPlanInspector({
+  fullPlan,
   plan,
   route,
   counts,
-  selectedClasses,
-  onSelectedClassesChange,
+  selectedHoleIds,
+  onSelectedHoleIdsChange,
   run,
   onStart,
   onSetClass,
@@ -204,9 +208,10 @@ export function DrillPlanInspector({
         <>
           {/* Class selection presets + per-class chips */}
           <DrillSelectionControls
+            plan={fullPlan}
             counts={counts}
-            selectedClasses={selectedClasses}
-            onChange={onSelectedClassesChange}
+            selectedHoleIds={selectedHoleIds}
+            onChange={onSelectedHoleIdsChange}
             disabled={isRunActive}
           />
 
@@ -215,11 +220,12 @@ export function DrillPlanInspector({
 
           {/* Scrollable plan content */}
           <div className="flex flex-col flex-1 overflow-y-auto">
-            {/* Selected-hole card — only visible when a hole is selected */}
+            {/* Inspected-hole card — only visible when a hole is inspected */}
             {selectedHoleId && (
               <div className="pt-3">
                 <DrillHoleCard
                   selectedHoleId={selectedHoleId}
+                  plan={fullPlan}
                   route={route}
                   datum={datum}
                   panelWidthMm={panelWidthMm}

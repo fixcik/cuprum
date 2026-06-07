@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { type DrillClass, DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
+import { DEFAULT_FR4_THICKNESS_MM, type DrillClass } from "@/lib/api";
 import { useDrillScreenData } from "@/hooks/useDrillScreenData";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { filterPlanByClasses, classCounts, DRILL_CLASSES, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
+import { classCounts, DRILL_CLASSES, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
+import {
+  holesForClasses,
+  subPlanForSelection,
+  holeIdsInRunOrder,
+} from "@/lib/drillSelection";
 import { estimateDrill } from "@/lib/drillEstimate";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
@@ -31,19 +36,16 @@ export function DrillOperationEditor() {
 
   const snap = useDrillScreenData();
 
-  // useDrillPlan now returns only the full plan (no route — route is computed here
-  // after filtering by the selected class set).
+  // useDrillPlan returns the full plan (no route — route is computed here
+  // after filtering by the selected hole id set).
   const { plan, loading } = useDrillPlan(snap);
 
   // Ephemeral bit overrides: diameterKey (String(Math.round(d*1000))) → toolId.
-  // These patch the filteredPlan so both route and program use the override.
   const [bitOverrides, setBitOverrides] = useState<Map<string, string>>(new Map());
 
   const panel = snap?.manifest?.panel ?? null;
   const hasProject = !!(snap?.workingDir && snap.manifest);
 
-  // Shop settings for the G-code context come from the snapshot (pushed live by
-  // the main window), so profile/tool edits apply without restarting this window.
   const cncProfile = snap?.cncProfile ?? null;
   const tools = snap?.tools ?? [];
   const substrateThicknessMm =
@@ -53,7 +55,7 @@ export function DrillOperationEditor() {
   const drillDatumCorner = useSettings((s) => s.drillDatumCorner);
   const setDrillDatumCorner = useSettings((s) => s.setDrillDatumCorner);
 
-  // Build keep-out zones from the panel manifest (panel-space coords).
+  // Keep-out zones from the panel manifest (panel-space coords).
   const zones = useMemo(
     () =>
       (snap?.manifest?.panel?.keep_out_zones ?? []).map((z) => ({
@@ -65,9 +67,18 @@ export function DrillOperationEditor() {
     [snap?.manifest?.panel?.keep_out_zones],
   );
 
-  // Free class selection — persists across runs (the board hasn't moved).
-  const [selectedClasses, setSelectedClasses] = useState<Set<DrillClass>>(DEFAULT_SELECTED_CLASSES());
-  const selected = selectedClasses;
+  // Stable hole id selection — persists across runs (the board hasn't moved).
+  const [selectedHoleIds, setSelectedHoleIds] = useState<Set<string>>(new Set());
+
+  // Drilled holes tracking (session-scoped; cleared when plan changes).
+  const [drilledHoleIds, setDrilledHoleIds] = useState<Set<string>>(new Set());
+
+  // Seed the selection with the alignment preset once the plan is ready; reset on plan change.
+  useEffect(() => {
+    if (plan) setSelectedHoleIds(holesForClasses(plan, DEFAULT_SELECTED_CLASSES()));
+    else setSelectedHoleIds(new Set());
+    setDrilledHoleIds(new Set());
+  }, [plan]);
 
   // Visibility (which classes are shown on the canvas). Independent of run-selection.
   const [visibleClasses, setVisibleClasses] = useState<Set<DrillClass>>(new Set(DRILL_CLASSES));
@@ -75,52 +86,37 @@ export function DrillOperationEditor() {
   const [showPath, setShowPath] = useState(true);
   const [showDiameters, setShowDiameters] = useState(false);
 
-  // Selected hole on the drill canvas (key = `${gi}-${hi}`); null = none.
-  const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
+  // Inspected hole: the last-clicked hole's stable id (for the detail card).
+  const [inspectedHoleId, setInspectedHoleId] = useState<string | null>(null);
 
   // MPos Z captured when the operator binds XYZ work zero (null = not yet bound).
   const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
 
-  // Last work-zero bind error from GRBL (e.g. the command was rejected). Shown to
-  // the operator; while set it means the corresponding zero was NOT applied.
   const [zeroError, setZeroError] = useState<string | null>(null);
-  // Guards against a re-entrant bind while a previous one is still awaiting GRBL's
-  // ack (the command blocks up to a few seconds). A double-tap would otherwise hit
-  // "machine busy" and clear a zero the first call had just set.
   const bindingRef = useRef(false);
 
-  // Feed override % sent via UI (100 = nominal). Applied by sending GRBL real-time commands.
+  // Feed override % sent via UI (100 = nominal).
   const [feedOverridePct, setFeedOverridePct] = useState(100);
-
-  // Monotonic token to cancel a superseded feed-override step sequence.
   const feedSeqRef = useRef(0);
 
-  // Machine connection state for touch-off guards.
   const machineConnected = useMachine((s) => s.connected);
   const machineState = useMachine((s) => s.status.state);
   const machineHomed = useMachine((s) => s.homed);
-  // Live feed override % reported by GRBL (overrides[0]), may be undefined until first status.
   const grblFeedPct = useMachine((s) => s.status.overrides?.[0]);
 
-  // A homing cycle (or alarm/disconnect that voids `homed`) invalidates the work
-  // zero: the captured machine reference no longer maps to the panel. Force a
-  // re-bind so the start gate can't pass on a stale reference.
+  // Homing/disconnect voids the work zero — force re-bind.
   useEffect(() => {
     if (!machineHomed || machineState === "home") {
       setWorkZeroMachineZ(null);
     }
   }, [machineHomed, machineState]);
 
-  // Bind all three axes (G10 L20 P1 X0 Y0 Z0) at the current position (the datum
-  // corner on the copper surface), waiting for GRBL to accept it. Only on a
-  // confirmed `ok` do we capture MPos Z and open the start gate — a rejected
-  // command leaves the gate closed instead of crashing the run in stale coords.
   const handleBindZero = useCallback(async () => {
     const { status, connected } = useMachine.getState();
     if (!canMove(status.state, connected) || bindingRef.current) return;
     bindingRef.current = true;
     try {
-      await api.machine.setZero(true, true, true); // G10 L20 P1 X0 Y0 Z0, awaits ok
+      await api.machine.setZero(true, true, true);
       setZeroError(null);
       setWorkZeroMachineZ(useMachine.getState().status.mpos[2]);
     } catch (e) {
@@ -140,51 +136,44 @@ export function DrillOperationEditor() {
   // Counts per class over the full (unfiltered) plan; null until plan is ready.
   const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
 
-  // Filter the plan to the selected classes, then derive route + program from it.
-  const filteredPlan = useMemo(
-    () => (plan ? filterPlanByClasses(plan, selected) : null),
-    [plan, selected],
+  // Build the sub-plan from the id selection (pure — only selected holes retained).
+  const subPlan = useMemo(
+    () => (plan ? subPlanForSelection(plan, selectedHoleIds) : null),
+    [plan, selectedHoleIds],
   );
 
   // Apply bit overrides: patch toolId on each group whose diameterKey has an override.
-  const filteredPlanWithOverrides = useMemo(() => {
-    if (!filteredPlan) return null;
-    if (bitOverrides.size === 0) return filteredPlan;
-    const groups = filteredPlan.groups.map((g) => {
+  const subPlanWithOverrides = useMemo(() => {
+    if (!subPlan) return null;
+    if (bitOverrides.size === 0) return subPlan;
+    const groups = subPlan.groups.map((g) => {
       const key = String(Math.round(g.diameterMm * 1000));
       const overrideToolId = bitOverrides.get(key);
       return overrideToolId ? { ...g, toolId: overrideToolId } : g;
     });
-    // Recompute unmatched diameters from the patched groups so an applied override
-    // clears its "no matching bit" warning.
     const unmatchedDiametersMm = groups
       .filter((g) => !g.toolId)
       .map((g) => g.diameterMm)
       .sort((a, b) => a - b);
-    return { ...filteredPlan, groups, unmatchedDiametersMm };
-  }, [filteredPlan, bitOverrides]);
+    return { ...subPlan, groups, unmatchedDiametersMm };
+  }, [subPlan, bitOverrides]);
 
-  // Route computed from the filtered plan (with overrides); null while plan/panel unavailable.
+  // Route computed from the sub-plan (with overrides); null while plan/panel unavailable.
   const route = useMemo(() => {
-    if (!filteredPlanWithOverrides || !panel) return null;
+    if (!subPlanWithOverrides || !panel) return null;
     const start = datumCornerPanelPoint(drillDatumCorner, panel.width_mm, panel.height_mm);
-    return planDrillRoute(filteredPlanWithOverrides, start, zones);
-  }, [filteredPlanWithOverrides, panel, drillDatumCorner, zones]);
+    return planDrillRoute(subPlanWithOverrides, start, zones);
+  }, [subPlanWithOverrides, panel, drillDatumCorner, zones]);
 
-  // The selected-hole key (`${gi}-${hi}`) indexes the current route; clear it when
-  // the route changes (pass switch, override, datum) so the hole card can't show a
-  // different hole at the same index.
+  // Clear inspected hole when the route changes (datum/override/selection switch).
   useEffect(() => {
-    setSelectedHoleId(null);
+    setInspectedHoleId(null);
   }, [route]);
 
-  // Build the drill program (G-code + steps) from the filtered plan. `startMachineXY`
-  // (omitted for the preview) makes the first traverse avoid keep-out zones from the
-  // bit's real position at run start.
   const buildProgram = useCallback(
     (startMachineXY?: { x: number; y: number }) => {
-      if (!filteredPlanWithOverrides || !panel || !cncProfile) return null;
-      return emitDrillProgram(filteredPlanWithOverrides, {
+      if (!subPlanWithOverrides || !panel || !cncProfile) return null;
+      return emitDrillProgram(subPlanWithOverrides, {
         panelHeightMm: panel.height_mm,
         panelWidthMm: panel.width_mm,
         datumCorner: drillDatumCorner,
@@ -195,37 +184,47 @@ export function DrillOperationEditor() {
         startMachineXY,
       });
     },
-    [filteredPlanWithOverrides, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
+    [subPlanWithOverrides, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
   );
 
-  // Total estimated run time for the current pass route (passed to RunHeader for ETA).
   const totalEstimateSec = useMemo(() => {
     if (!route || !cncProfile) return 0;
     return estimateDrill(route, tools, cncProfile, substrateThicknessMm).timeSec;
   }, [route, tools, cncProfile, substrateThicknessMm]);
 
-  // Live-run hook.
   const run = useDrillRun();
   const machineWork = useMachinePosition();
 
-  // Start the run from a program whose first traverse avoids keep-out zones from
-  // the bit's ACTUAL position (it may not be parked at work zero). Falls back to
-  // (0,0) when the position is unknown.
   const handleStart = useCallback(() => {
     const exec = buildProgram(machineWork ? { x: machineWork.x, y: machineWork.y } : undefined);
     if (exec) void run.start(exec.steps);
   }, [buildProgram, machineWork, run]);
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
-  // Apply a feed override % by resetting to 100 then nudging in ±10/±1 steps.
-  // A sequence token cancels an in-flight series if the slider is released again,
-  // so two rapid changes can't interleave into a wrong final GRBL state.
+  // Mark holes drilled as the run reports progress (route order → stable ids).
+  // Robust to partial stops: only the holes actually completed get marked.
+  useEffect(() => {
+    if (!route || run.state.holesCompleted <= 0) return;
+    const ids = holeIdsInRunOrder(route).slice(0, run.state.holesCompleted);
+    setDrilledHoleIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) if (id) next.add(id);
+      return next;
+    });
+  }, [run.state.holesCompleted, route]);
+
+  // Current running hole as a stable id (for canvas highlight).
+  const currentHoleId = useMemo(() => {
+    if (!route || run.state.currentHoleIndex == null) return null;
+    return holeIdsInRunOrder(route)[run.state.currentHoleIndex] ?? null;
+  }, [route, run.state.currentHoleIndex]);
+
   const handleFeedChange = useCallback(async (targetPct: number) => {
     setFeedOverridePct(targetPct);
     const seq = ++feedSeqRef.current;
     const step = async (action: "100" | "+10" | "-10" | "+1" | "-1") => {
       await api.machine.override("feed", action);
-      return feedSeqRef.current === seq; // false → superseded
+      return feedSeqRef.current === seq;
     };
     if (!(await step("100"))) return;
     let diff = targetPct - 100;
@@ -235,14 +234,11 @@ export function DrillOperationEditor() {
     while (diff <= -1) { if (!(await step("-1"))) return; diff += 1; }
   }, []);
 
-  // Run finished: keep the work zero (the board hasn't moved) and reset only the
-  // transient run machine so the inspector returns to PLAN mode.
+  // Run finished: keep work zero (board hasn't moved), reset only the run machine.
   const handleRunDone = useCallback(() => {
     run.reset();
   }, [run]);
 
-  // Three-phase progress ring (descent / drilling / retract) for the
-  // currently-drilling hole.
   const targetDepthMm = substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM;
   const currentHolePhase = useDrillPhaseProgress({
     active: run.state.phase === "running" && run.state.currentHoleIndex !== null,
@@ -252,14 +248,8 @@ export function DrillOperationEditor() {
     safeZMm: cncProfile?.safeZMm ?? 5,
   });
 
-  // hasAnyHoles: whether the FULL plan has any holes (independent of selection).
-  // Used to gate the "no holes" empty-screen (not the "nothing selected" case).
   const hasAnyHoles = !!(plan && plan.totalHoles > 0);
 
-  // Empty state: no project open yet, or the full plan finished computing with no holes at all.
-  // Gate "no holes" on plan !== null so the first render after a snapshot (before the effect
-  // flips loading) doesn't flash the message. The "nothing selected" case is NOT a full-screen
-  // empty state — it keeps the normal layout (canvas shows dimmed holes + selector).
   if (!hasProject || (plan !== null && !loading && !hasAnyHoles)) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-[#0a0c10] text-slate-500 text-sm">
@@ -281,7 +271,7 @@ export function DrillOperationEditor() {
         </div>
       )}
 
-      {/* Top toolbar: visibility chips + view toggles (datum moved to inspector) */}
+      {/* Top toolbar: visibility chips + view toggles */}
       <DrillCanvasTopBar
         counts={counts ?? { registration: 0, pth: 0, npth: 0, mechanical: 0 }}
         visibleClasses={visibleClasses}
@@ -294,41 +284,46 @@ export function DrillOperationEditor() {
 
       {/* Main layout: canvas hero + inspector sidebar */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Drill map (takes all remaining space); renders even when selection is empty
-            so unselected holes appear dimmed and the user knows what was excluded. */}
+        {/* Drill map — renders all holes; unselected appear dimmed */}
         <div className="relative flex-1 overflow-hidden">
-          {plan && filteredPlan && route && panel && (
+          {plan && subPlan && route && panel && (
             <DrillMapCanvas
               widthMm={panel.width_mm}
               heightMm={panel.height_mm}
               plan={plan}
               route={route}
-              selectedClasses={selected}
+              selectedHoleIds={selectedHoleIds}
+              drilledHoleIds={drilledHoleIds}
+              currentHoleId={currentHoleId}
               visibleClasses={visibleClasses}
               showPath={showPath}
               showDiameters={showDiameters}
               zones={zones}
               datum={drillDatumCorner}
-              progress={{
-                holesCompleted: run.state.holesCompleted,
-                currentHoleIndex: run.state.currentHoleIndex,
-              }}
               machineWork={showMarker ? machineWork : null}
               currentHolePhase={currentHolePhase}
-              selectedHoleId={selectedHoleId}
-              onSelectHole={setSelectedHoleId}
+              inspectedHoleId={inspectedHoleId}
+              onToggleHole={(id) =>
+                setSelectedHoleIds((s) => {
+                  const n = new Set(s);
+                  n.has(id) ? n.delete(id) : n.add(id);
+                  return n;
+                })
+              }
+              onInspectHole={setInspectedHoleId}
             />
           )}
         </div>
 
         {/* Inspector sidebar; always shown once plan is available */}
-        {filteredPlanWithOverrides && route && counts && panel && cncProfile && (
+        {subPlanWithOverrides && route && counts && panel && cncProfile && plan && (
           <DrillPlanInspector
-            plan={filteredPlanWithOverrides}
+            fullPlan={plan}
+            plan={subPlanWithOverrides}
             route={route}
             counts={counts}
-            selectedClasses={selectedClasses}
-            onSelectedClassesChange={setSelectedClasses}
+            selectedHoleIds={selectedHoleIds}
+            onSelectedHoleIdsChange={setSelectedHoleIds}
             run={run}
             onStart={handleStart}
             onSetClass={(dMm, klass) =>
@@ -337,8 +332,8 @@ export function DrillOperationEditor() {
             onSetBitOverride={(diameterKey, toolId) =>
               setBitOverrides((m) => new Map(m).set(diameterKey, toolId))
             }
-            selectedHoleId={selectedHoleId}
-            onClearHole={() => setSelectedHoleId(null)}
+            selectedHoleId={inspectedHoleId}
+            onClearHole={() => setInspectedHoleId(null)}
             datum={drillDatumCorner}
             onDatumChange={setDrillDatumCorner}
             panelWidthMm={panel.width_mm}
@@ -356,7 +351,7 @@ export function DrillOperationEditor() {
             zGate={zGate}
             connected={machineConnected}
             spindleControllable={cncProfile.spindleControllable ?? false}
-            hasHoles={route.totalHoles > 0}
+            hasHoles={selectedHoleIds.size > 0}
             feedOverridePct={feedOverridePct}
             grblFeedPct={grblFeedPct}
             onFeedChange={handleFeedChange}
