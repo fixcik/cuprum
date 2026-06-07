@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronLeft } from "lucide-react";
 import type { DatumCorner } from "@/lib/datum";
+import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { XYGateResult } from "@/lib/xyGate";
 import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
+import { DrillTableMap } from "@/components/drill/DrillTableMap";
 import { DatumCornerPicker } from "@/components/ui/DatumCornerPicker";
 
 export interface DrillZeroInspectorProps {
@@ -13,6 +15,10 @@ export interface DrillZeroInspectorProps {
   onBack: () => void;
   /** Whether the work zero is bound (drives the "set" header badge). */
   isSet: boolean;
+  /** Selected sub-plan — holes drawn as dots on the board-on-bed map. */
+  plan: PanelDrillPlan;
+  panelWidthMm: number;
+  panelHeightMm: number;
   /** MPos Z captured at bind (null = not bound). */
   workZeroMachineZ: number | null;
   safeZMm: number;
@@ -28,13 +34,16 @@ export interface DrillZeroInspectorProps {
 
 /** Inspector mode for binding the work zero. Lives inside the right sidebar — the
  *  canvas stays put when switching to/from this mode. Holds the datum-corner grid,
- *  the jog/Z/bind controls (WorkZeroCard), and the GRBL bind-error banner. The
- *  board-on-bed mini-map is added in a follow-up phase. */
+ *  the board-on-bed mini-map (travel-fit check + click-to-move), the jog/Z/bind
+ *  controls (WorkZeroCard), and the GRBL bind-error banner. */
 export function DrillZeroInspector({
   datum,
   onDatumChange,
   onBack,
   isSet,
+  plan,
+  panelWidthMm,
+  panelHeightMm,
   workZeroMachineZ,
   safeZMm,
   maxXMm,
@@ -75,6 +84,22 @@ export function DrillZeroInspector({
             {t("zeroMode.datumLabel")}
           </p>
           <DatumCornerPicker value={datum} onChange={onDatumChange} />
+        </div>
+
+        {/* Board-on-bed mini-map: travel-fit check + click-to-move */}
+        <div className="px-4 pb-1">
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t("tableMap.label")}
+          </p>
+          <DrillTableMap
+            plan={plan}
+            datum={datum}
+            panelWidthMm={panelWidthMm}
+            panelHeightMm={panelHeightMm}
+            maxXMm={maxXMm}
+            maxYMm={maxYMm}
+            maxZMm={maxZMm}
+          />
         </div>
 
         {/* Jog + Z + bind controls */}

@@ -105,6 +105,12 @@
     "bound": "set",
     "datumLabel": "Board datum corner (zero 0,0)"
   },
+  "tableMap": {
+    "label": "Board on the bed",
+    "caption": "travel {{w}} × {{h}} · click to bring zero here",
+    "fits": "Board fits the travel",
+    "overflow": "Past machine travel {{detail}}. Bring the zero closer to the origin or change the datum corner."
+  },
   "zero": {
     "bindRejected": "Zero rejected by the machine ({{error}}) — not set. Re-position and bind again."
   },
