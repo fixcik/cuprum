@@ -78,7 +78,8 @@
     "feedHold": "Feed hold",
     "cycleStart": "Resume",
     "softReset": "Soft reset",
-    "homeFirst": "Home the machine first"
+    "homeFirst": "Home the machine first",
+    "openConsole": "Open console"
   },
   "console": {
     "title": "Console",

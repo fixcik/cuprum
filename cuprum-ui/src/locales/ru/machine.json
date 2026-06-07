@@ -78,7 +78,8 @@
     "feedHold": "Пауза",
     "cycleStart": "Продолжить",
     "softReset": "Мягкий сброс",
-    "homeFirst": "Сначала базируйте станок"
+    "homeFirst": "Сначала базируйте станок",
+    "openConsole": "Открыть консоль"
   },
   "console": {
     "title": "Консоль",
