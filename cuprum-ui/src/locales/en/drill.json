@@ -92,13 +92,10 @@
     "bind": "Set zero here",
     "reset": "Reset",
     "set": "Zero set",
-    "notSet": "Zero not set",
-    "notSetHint": "Set work zero (XYZ) at the datum corner",
     "notZeroedHint": "Bind work zero (XYZ) at the datum corner",
     "tooHigh": "Z-zero is too high — the retract will exceed the machine travel; lower the bit to the copper and bind again.",
     "zMachine": "Z-zero (machine)",
-    "retract": "Retract",
-    "perStep": "/step"
+    "retract": "Retract"
   },
   "zero": {
     "bindRejected": "Zero rejected by the machine ({{error}}) — not set. Re-position and bind again."
