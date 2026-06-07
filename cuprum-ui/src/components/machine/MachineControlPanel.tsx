@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Fan, LocateFixed, Move, Move3d, SlidersHorizontal } from "lucide-react";
+import { Crosshair, Fan, LocateFixed, Move, Move3d, SlidersHorizontal } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
@@ -13,6 +13,7 @@ import { Dro } from "@/components/machine/Dro";
 import { JogPad } from "@/components/machine/JogPad";
 import { SpindlePanel } from "@/components/machine/SpindlePanel";
 import { Overrides } from "@/components/machine/Overrides";
+import { DatumCornerPicker } from "@/components/ui/DatumCornerPicker";
 import { FieldPanel } from "@/components/machine/FieldPanel";
 import { ConsoleDrawer } from "@/components/machine/ConsoleDrawer";
 import { HomingOverlay } from "@/components/machine/HomingOverlay";
@@ -32,8 +33,12 @@ export function MachineControlPanel({
   onCloseConsole?: () => void;
 }) {
   const { t } = useTranslation("machine");
+  // Datum-corner labels live in the `drill` namespace (shared work-zero vocabulary).
+  const { t: tDrill } = useTranslation("drill");
   const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
   const machineSafeZMm = useSettings((s) => s.cncProfile.machineSafeZMm);
+  const datumCorner = useSettings((s) => s.drillDatumCorner);
+  const setDatumCorner = useSettings((s) => s.setDrillDatumCorner);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
   const machineZ = useMachine((s) => s.status.mpos[2]);
@@ -79,6 +84,9 @@ export function MachineControlPanel({
             }
           >
             <Dro />
+          </Card>
+          <Card title={tDrill("datum.label")} icon={Crosshair}>
+            <DatumCornerPicker value={datumCorner} onChange={setDatumCorner} />
           </Card>
           <Card title={t("jog.title")} icon={Move}>
             <JogPad />

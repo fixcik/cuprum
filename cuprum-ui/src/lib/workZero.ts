@@ -21,6 +21,15 @@ export function parseSoftLimitsEnabled(line: string): boolean | null {
   return m ? m[1] !== "0" : null;
 }
 
+/** Parse a GRBL `$$` line for max spindle speed ($30, RPM). This is the firmware
+ *  ceiling the S word is clamped to and mapped to 100 % PWM, so it's the real
+ *  scale for the spindle gauge. Returns the value if the line is `$30=<n>`, else
+ *  null (not that line). */
+export function parseMaxSpindle(line: string): number | null {
+  const m = line.trim().match(/^\$30=([\d.]+)/);
+  return m ? Number(m[1]) : null;
+}
+
 /** Parse a GRBL `$$` max-travel line ($130/$131/$132 → X/Y/Z) into the axis
  *  index (0=X, 1=Y, 2=Z) and its value in mm. Returns null for any other line. */
 export function parseMaxTravel(line: string): { axis: 0 | 1 | 2; value: number } | null {

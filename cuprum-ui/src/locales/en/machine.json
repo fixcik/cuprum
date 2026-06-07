@@ -60,6 +60,7 @@
     "on": "On",
     "off": "Off",
     "rpm": "RPM",
+    "power": "power",
     "target": "Target",
     "manual": "Manual spindle — speed not controllable"
   },

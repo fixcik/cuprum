@@ -17,6 +17,7 @@ import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
 import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
+import { DatumCornerPicker } from "@/components/ui/DatumCornerPicker";
 import { formatXYViolations } from "@/lib/xyGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -163,12 +164,6 @@ export function DrillPlanInspector({
     });
   }
 
-  // Datum corner layout: 2×2 grid (top row: top-left / top-right; bottom row: bottom-left / bottom-right).
-  const datumGrid: [DatumCorner, DatumCorner][] = [
-    ["top-left", "top-right"],
-    ["bottom-left", "bottom-right"],
-  ];
-
   return (
     <aside className="flex h-full w-[368px] shrink-0 flex-col overflow-hidden border-l border-border bg-panel">
       {/* Header — always visible in both modes */}
@@ -263,25 +258,7 @@ export function DrillPlanInspector({
               <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 {t("datum.label")}
               </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {datumGrid.map((row) =>
-                  row.map((corner) => (
-                    <button
-                      key={corner}
-                      type="button"
-                      onClick={() => onDatumChange(corner)}
-                      className={
-                        "rounded-md border px-2 py-1.5 text-[12px] transition-colors cursor-pointer " +
-                        (datum === corner
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:border-slate-500 hover:text-foreground")
-                      }
-                    >
-                      {t(`datum.${corner}`)}
-                    </button>
-                  )),
-                )}
-              </div>
+              <DatumCornerPicker value={datum} onChange={onDatumChange} />
             </div>
 
             {/* Unified XYZ work-zero card */}
