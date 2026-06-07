@@ -34,6 +34,18 @@ impl MachineState {
     }
 }
 
+/// Active input pins reported by the `Pn:` status field. GRBL includes this field
+/// only while at least one pin is engaged, so an absent field means all clear.
+/// We track the per-axis limit switches and the probe; the other letters GRBL may
+/// emit here (D door, H hold, R reset, S cycle-start) are ignored.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PinState {
+    pub x: bool,
+    pub y: bool,
+    pub z: bool,
+    pub probe: bool,
+}
+
 /// A parsed `<...>` status report. `mpos`/`wpos`/`wco` are present only if the line
 /// carried them (GRBL sends one of MPos/WPos plus WCO periodically).
 #[derive(Debug, Clone, PartialEq)]
@@ -46,6 +58,8 @@ pub struct StatusReport {
     pub spindle: f32,
     /// Override percentages `[feed, rapid, spindle]` from the `Ov:` field, if present.
     pub overrides: Option<[u8; 3]>,
+    /// Active limit/probe pins from the `Pn:` field; all-false when absent.
+    pub pins: PinState,
 }
 
 /// One line from GRBL, classified.
@@ -77,6 +91,21 @@ fn parse_overrides(s: &str) -> Option<[u8; 3]> {
     Some([feed, rapid, spindle])
 }
 
+/// Decode a `Pn:` value (e.g. `XYZP`) into the limit/probe flags we track.
+fn parse_pins(s: &str) -> PinState {
+    let mut p = PinState::default();
+    for c in s.chars() {
+        match c {
+            'X' => p.x = true,
+            'Y' => p.y = true,
+            'Z' => p.z = true,
+            'P' => p.probe = true,
+            _ => {}
+        }
+    }
+    p
+}
+
 fn parse_status(body: &str) -> StatusReport {
     let mut fields = body.split('|');
     let state = MachineState::parse(fields.next().unwrap_or(""));
@@ -88,6 +117,7 @@ fn parse_status(body: &str) -> StatusReport {
         feed: 0.0,
         spindle: 0.0,
         overrides: None,
+        pins: PinState::default(),
     };
     for f in fields {
         if let Some(v) = f.strip_prefix("MPos:") {
@@ -104,6 +134,8 @@ fn parse_status(body: &str) -> StatusReport {
             report.feed = v.parse().unwrap_or(0.0);
         } else if let Some(v) = f.strip_prefix("Ov:") {
             report.overrides = parse_overrides(v);
+        } else if let Some(v) = f.strip_prefix("Pn:") {
+            report.pins = parse_pins(v);
         }
     }
     report
@@ -143,6 +175,8 @@ pub struct ResolvedStatus {
     pub spindle: f32,
     /// Override percentages `[feed, rapid, spindle]`; defaults to 100 % each.
     pub overrides: [u8; 3],
+    /// Active limit/probe pins; all-false when no pin is engaged.
+    pub pins: PinState,
 }
 
 /// Caches the last-seen work-coordinate offset so every report yields both
@@ -171,6 +205,7 @@ impl StatusTracker {
             feed: r.feed,
             spindle: r.spindle,
             overrides: r.overrides.unwrap_or([100, 100, 100]),
+            pins: r.pins,
         }
     }
 }
@@ -251,6 +286,71 @@ mod tests {
     }
 
     #[test]
+    fn parses_pin_state() {
+        // Single axis limit engaged.
+        match parse_line("<Idle|MPos:0.000,0.000,0.000|Pn:X>") {
+            Line::Status(s) => {
+                assert_eq!(
+                    s.pins,
+                    PinState {
+                        x: true,
+                        ..Default::default()
+                    }
+                );
+            }
+            other => panic!("expected Status, got {other:?}"),
+        }
+        // All limits plus probe; order/extra letters (D door) don't matter.
+        match parse_line("<Alarm|MPos:0.000,0.000,0.000|Pn:PXYZD>") {
+            Line::Status(s) => {
+                assert_eq!(
+                    s.pins,
+                    PinState {
+                        x: true,
+                        y: true,
+                        z: true,
+                        probe: true
+                    }
+                );
+            }
+            other => panic!("expected Status, got {other:?}"),
+        }
+        // Probe only.
+        match parse_line("<Idle|MPos:0.000,0.000,0.000|Pn:P>") {
+            Line::Status(s) => {
+                assert_eq!(
+                    s.pins,
+                    PinState {
+                        probe: true,
+                        ..Default::default()
+                    }
+                );
+            }
+            other => panic!("expected Status, got {other:?}"),
+        }
+        // No Pn: field → all clear, and the flags survive resolve().
+        let mut t = StatusTracker::default();
+        if let Line::Status(rep) = parse_line("<Idle|MPos:0.000,0.000,0.000|FS:0,0>") {
+            assert_eq!(rep.pins, PinState::default());
+            assert_eq!(t.resolve(&rep).pins, PinState::default());
+        } else {
+            panic!("expected Status");
+        }
+        // resolve() carries the parsed pins through verbatim.
+        if let Line::Status(rep) = parse_line("<Idle|MPos:0.000,0.000,0.000|Pn:Y>") {
+            assert_eq!(
+                t.resolve(&rep).pins,
+                PinState {
+                    y: true,
+                    ..Default::default()
+                }
+            );
+        } else {
+            panic!("expected Status");
+        }
+    }
+
+    #[test]
     fn parses_state_with_substate() {
         assert_eq!(
             status_state("<Hold:0|MPos:0.000,0.000,0.000>"),
@@ -284,6 +384,7 @@ mod tests {
             feed: 0.0,
             spindle: 0.0,
             overrides: None,
+            pins: PinState::default(),
         };
         let s1 = t.resolve(&r1);
         assert_eq!(s1.mpos, [10.0, 10.0, 0.0]);
@@ -298,6 +399,7 @@ mod tests {
             feed: 0.0,
             spindle: 0.0,
             overrides: None,
+            pins: PinState::default(),
         };
         let s2 = t.resolve(&r2);
         assert_eq!(s2.wpos, [10.0, 7.0, 0.0]);
@@ -311,6 +413,7 @@ mod tests {
             feed: 0.0,
             spindle: 0.0,
             overrides: None,
+            pins: PinState::default(),
         };
         let s3 = t.resolve(&r3);
         assert_eq!(s3.mpos, [7.0, 3.0, 0.0]);

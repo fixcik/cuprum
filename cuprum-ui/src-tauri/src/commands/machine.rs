@@ -9,6 +9,27 @@ use tauri::{AppHandle, Emitter, State};
 
 use cuprum_core::grbl::{self, GrblWriter, MachineState as GrblState};
 
+/// Active limit/probe pins, mirrored to the front-end (grbl `PinState` is
+/// serde-free, so the DTO mapping lives here per the leaf-crate idiom).
+#[derive(Clone, Copy, Serialize)]
+pub struct Pins {
+    pub x: bool,
+    pub y: bool,
+    pub z: bool,
+    pub probe: bool,
+}
+
+impl From<grbl::PinState> for Pins {
+    fn from(p: grbl::PinState) -> Self {
+        Pins {
+            x: p.x,
+            y: p.y,
+            z: p.z,
+            probe: p.probe,
+        }
+    }
+}
+
 /// Telemetry pushed to the front-end over a per-connection Channel.
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -21,6 +42,8 @@ pub enum Telemetry {
         spindle: f32,
         /// Override percentages `[feed, rapid, spindle]`.
         overrides: [u8; 3],
+        /// Active limit/probe pins from the GRBL `Pn:` field.
+        pins: Pins,
     },
     Line {
         /// "rx" (from GRBL) | "tx" (sent by us).
@@ -182,6 +205,7 @@ pub fn machine_connect(
                             feed: s.feed,
                             spindle: s.spindle,
                             overrides: s.overrides,
+                            pins: s.pins.into(),
                         });
                         // Global broadcast for other windows (drill webview).
                         let _ = r_app.emit(

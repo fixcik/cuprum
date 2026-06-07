@@ -15,4 +15,6 @@ pub use command::{
     STATUS_QUERY,
 };
 pub use connection::{list_ports, open, GrblReader, GrblWriter, PortInfo};
-pub use parse::{parse_line, Line, MachineState, ResolvedStatus, StatusReport, StatusTracker};
+pub use parse::{
+    parse_line, Line, MachineState, PinState, ResolvedStatus, StatusReport, StatusTracker,
+};
