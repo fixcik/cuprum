@@ -2,7 +2,10 @@ import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { Fan, Gauge, Minus, Plus } from "lucide-react";
 import { useMachine } from "@/machineStore";
-import { useMachineActions } from "@/components/machine/MachineActionsContext";
+import {
+  useMachineActions,
+  type OverrideAction,
+} from "@/components/machine/MachineActionsContext";
 
 /** One override row: icon + label, then a "− {value}% +" stepper on the right.
  *  −/+ nudge by 10 %, clicking the percent resets to 100 %. */
@@ -21,7 +24,7 @@ function OverrideRow({
   kind: "feed" | "spindle";
   disabled: boolean;
   resetTitle: string;
-  onOverride: (kind: "feed" | "spindle", action: string) => void;
+  onOverride: (kind: "feed" | "spindle", action: OverrideAction) => void;
 }) {
   return (
     <div className="flex items-center gap-2">

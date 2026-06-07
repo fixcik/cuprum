@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Fan, Gauge, Loader2 } from "lucide-react";
@@ -24,7 +24,8 @@ function ConsoleToolbar() {
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2">
-      {/* QuickActions and Overrides already consume useMachineActions() internally. */}
+      {/* QuickActions consumes useMachineActions() internally. The console toolbar
+          intentionally omits the Overrides panel (chosen scope). */}
       <QuickActions />
       <div className="ml-auto flex items-center gap-3">
         {/* Feed/spindle mini-readout — same layout as MachineToolbar. */}
@@ -51,6 +52,8 @@ function ConsoleToolbar() {
 export function ConsoleWindow() {
   const { t } = useTranslation("machine");
   useConsoleClient();
+  // Stable provider value (factory captures only static api references).
+  const actions = useMemo(() => consoleMachineActions(), []);
   const ready = useMachine((s) => s.lines.length > 0 || s.connected);
   const [seeded, setSeeded] = useState(false);
   useShowWindowWhenReady(seeded);
@@ -76,7 +79,7 @@ export function ConsoleWindow() {
   }
 
   return (
-    <MachineActionsProvider value={consoleMachineActions()}>
+    <MachineActionsProvider value={actions}>
       <div className="flex h-screen w-screen flex-col bg-card text-foreground">
         {/* Action toolbar: QuickActions + F/S readout + StatusPill + EStop.
             ConnBar (port/baud/connect) is deferred to Phase 3. */}
