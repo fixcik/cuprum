@@ -69,9 +69,18 @@ export function machinesFromPersisted(p: PersistedLegacy): MachinesResult {
   if (p.machines && p.machines.length > 0) {
     let patched = false;
     const machines = p.machines.map((m) => {
-      if (m.kind === "cnc" && (m as CncMachine).machineSafeZMm === undefined) {
-        patched = true;
-        return { ...m, machineSafeZMm: DEFAULT_CNC_MACHINE.machineSafeZMm } as CncMachine;
+      if (m.kind === "cnc") {
+        const cnc = m as CncMachine;
+        const needsPatch =
+          cnc.machineSafeZMm === undefined ||
+          cnc.probeFeedMmMin === undefined;
+        if (needsPatch) {
+          patched = true;
+          return {
+            ...DEFAULT_CNC_MACHINE,
+            ...m,
+          } as CncMachine;
+        }
       }
       return m;
     });

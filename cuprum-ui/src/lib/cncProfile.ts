@@ -19,6 +19,18 @@ export interface CncProfile {
   /** Can we command spindle speed (S word)? Stock 3018 spindle: false. */
   spindleControllable: boolean;
   spindleHasPwm: boolean;
+  // --- probe (Z touch-off per tool) ---
+  /** Probe feed (mm/min) for the slow G38.2 descent. */
+  probeFeedMmMin: number;
+  /** Max probe travel down (mm); G38.2 errors if no contact within this. Keep small
+   *  so a missed contact (probe not wired) is a gentle nudge, not a crash. */
+  probeMaxDistMm: number;
+  /** Z offset applied at contact (mm). 0 = clip on copper, contact = board top. A
+   *  conductive plate of thickness t under the bit → set t. */
+  probePlateOffsetMm: number;
+  /** Whether a Z-probe is available (the 3018 shipped with one). Gates the "Probe"
+   *  path in the run's per-tool Z step. */
+  hasProbe: boolean;
   // --- emission (consumed by the Phase 4 G-code emitter) ---
   gcodeDialect: "grbl_1_1";
   /** Work-coordinate safe-Z (mm), used by the drilling G-code emitter for retracts. */
@@ -47,6 +59,10 @@ export const DEFAULT_CNC_PROFILE: CncProfile = {
   spindleMaxRpm: 9000,
   spindleControllable: false,
   spindleHasPwm: true,
+  probeFeedMmMin: 50,
+  probeMaxDistMm: 8,
+  probePlateOffsetMm: 0,
+  hasProbe: true,
   gcodeDialect: "grbl_1_1",
   safeZMm: 5,
   machineSafeZMm: -1,
