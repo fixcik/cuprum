@@ -6,8 +6,10 @@ import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { cn } from "@/lib/utils";
 
-/** Control-command buttons: home (gated by homing support), unlock, feed-hold,
- *  resume (cycle-start) and soft reset. Wraps to fit the column width. */
+/** Control-command buttons for the toolbar: home (gated by homing support),
+ *  unlock, feed-hold, resume (cycle-start) and soft reset. Compact icon buttons;
+ *  labels appear only on wide widths (2xl) and otherwise live in the tooltip, so
+ *  the row never crowds out the status pill / E-Stop. */
 export function QuickActions({ className }: { className?: string }) {
   const { t } = useTranslation("machine");
   const connected = useMachine((s) => s.connected);
@@ -20,39 +22,59 @@ export function QuickActions({ className }: { className?: string }) {
   // Feed-hold only makes sense while the machine is actively moving.
   const canHold = state === "run" || state === "jog" || state === "home";
 
+  const label = (key: string) => <span className="hidden 2xl:inline">{t(key)}</span>;
+
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div className={cn("flex items-center gap-1.5", className)}>
       <Button
         variant="warn"
+        size="sm"
+        title={t("controls.home")}
         disabled={!movable || !homingAvailable || homing}
         onClick={() => void runHoming()}
       >
         <Home />
-        {t("controls.home")}
-      </Button>
-      <Button variant="outline" disabled={!connected} onClick={() => void api.machine.unlock()}>
-        <Unlock />
-        {t("controls.unlock")}
+        {label("controls.home")}
       </Button>
       <Button
         variant="outline"
+        size="sm"
+        title={t("controls.unlock")}
+        disabled={!connected}
+        onClick={() => void api.machine.unlock()}
+      >
+        <Unlock />
+        {label("controls.unlock")}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        title={t("controls.feedHold")}
         disabled={!connected || !canHold}
         onClick={() => void api.machine.feedHold()}
       >
         <Pause />
-        {t("controls.feedHold")}
+        {label("controls.feedHold")}
       </Button>
       <Button
         variant="outline"
+        size="sm"
+        title={t("controls.cycleStart")}
         disabled={!connected || !isHold}
         onClick={() => void api.machine.cycleStart()}
       >
         <Play />
-        {t("controls.cycleStart")}
+        {label("controls.cycleStart")}
       </Button>
-      <Button variant="secondary" disabled={!connected} onClick={() => void api.machine.softReset()}>
+      <Button
+        variant="secondary"
+        size="sm"
+        title={t("controls.softReset")}
+        disabled={!connected}
+        onClick={() => void api.machine.softReset()}
+      >
         <RotateCcw />
-        {t("controls.softReset")}
+        {label("controls.softReset")}
       </Button>
     </div>
   );
