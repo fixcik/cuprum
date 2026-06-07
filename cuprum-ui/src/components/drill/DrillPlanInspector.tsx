@@ -197,7 +197,7 @@ export function DrillPlanInspector({
           feedOverridePct={feedOverridePct}
           grblFeedPct={grblFeedPct}
           onFeedChange={onFeedChange}
-          onPassDone={onRunDone}
+          onRunDone={onRunDone}
         />
       ) : (
         /* ── PLAN mode ── */

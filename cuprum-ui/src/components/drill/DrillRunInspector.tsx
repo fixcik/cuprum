@@ -21,7 +21,7 @@ export interface DrillRunInspectorProps {
   feedOverridePct: number;
   grblFeedPct: number | undefined;
   onFeedChange: (pct: number) => void;
-  onPassDone: () => void;
+  onRunDone: () => void;
 }
 
 /** RUN-mode inspector: progress header, tool-change/finish cards, feed slider, and
@@ -36,7 +36,7 @@ export function DrillRunInspector({
   feedOverridePct,
   grblFeedPct,
   onFeedChange,
-  onPassDone,
+  onRunDone,
 }: DrillRunInspectorProps) {
   const { t } = useTranslation("drill");
   const { state } = run;
@@ -86,7 +86,7 @@ export function DrillRunInspector({
           <DrillFinishCard
             holesTotal={state.holesTotal}
             elapsedSec={elapsedSec}
-            onDone={onPassDone}
+            onDone={onRunDone}
           />
         </div>
       )}
