@@ -8,6 +8,7 @@ import type { DatumCorner } from "@/lib/datum";
 import type { Tool } from "@/lib/toolLibrary";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { ZGateResult } from "@/lib/zGate";
+import type { XYGateResult } from "@/lib/xyGate";
 import { Button } from "@/components/ui/Button";
 import { DrillSelectionControls } from "@/components/drill/DrillSelectionControls";
 import { DrillRunInspector } from "@/components/drill/DrillRunInspector";
@@ -16,6 +17,8 @@ import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
 import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
+import { formatXYViolations } from "@/lib/xyGate";
+import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export interface DrillPlanInspectorProps {
   /** The full (unfiltered) drill plan — passed to DrillSelectionControls for id-based presets. */
@@ -62,8 +65,10 @@ export interface DrillPlanInspectorProps {
   maxZMm: number;
   /** Last work-zero bind error from GRBL (null = none). Shown as a banner. */
   zeroError: string | null;
-  /** Pre-computed gate result for the start button. */
+  /** Pre-computed Z gate result for the start button. */
   zGate: ZGateResult;
+  /** Pre-computed XY gate result (hole bbox vs machine envelope) for the start button. */
+  xyGate: XYGateResult;
   /** Whether the machine is connected (for footer start gate). */
   connected: boolean;
   /** Whether the spindle is software-controllable (false = 3018 manual dial). */
@@ -114,6 +119,7 @@ export function DrillPlanInspector({
   maxZMm,
   zeroError,
   zGate,
+  xyGate,
   connected,
   spindleControllable,
   hasHoles,
@@ -124,6 +130,7 @@ export function DrillPlanInspector({
   totalEstimateSec,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
+  const { fmtLen } = useUnitFormat();
 
   // mode: "run" when a run is live (any non-idle, non-error phase); "plan" otherwise.
   const mode =
@@ -134,9 +141,11 @@ export function DrillPlanInspector({
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
-    !connected || !hasHoles || zGate.valid === false || isRunActive;
+    !connected || !hasHoles || zGate.valid === false || xyGate.valid === false || isRunActive;
 
   // Hint shown below the start button when a gate condition blocks the run.
+  // Z gate (touch-off) takes priority over the XY gate: the operator binds zero
+  // first, and a missing bind closes both — show the bind hint, not an XY overrun.
   let startHint: string | null = null;
   if (!connected) {
     startHint = t("run.notConnected");
@@ -148,6 +157,10 @@ export function DrillPlanInspector({
     } else {
       startHint = t("workzero.tooHigh");
     }
+  } else if (xyGate.valid === false && xyGate.reason === "out-of-bounds") {
+    startHint = t("workzero.xyOutOfBounds", {
+      detail: formatXYViolations(xyGate.violations, fmtLen),
+    });
   }
 
   // Datum corner layout: 2×2 grid (top row: top-left / top-right; bottom row: bottom-left / bottom-right).
@@ -278,6 +291,7 @@ export function DrillPlanInspector({
               maxXMm={maxXMm}
               maxYMm={maxYMm}
               maxZMm={maxZMm}
+              xyGate={xyGate}
               onBind={onBind}
               onClear={onClear}
             />

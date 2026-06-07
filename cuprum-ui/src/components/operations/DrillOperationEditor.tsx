@@ -27,6 +27,7 @@ import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { checkZGate } from "@/lib/zGate";
+import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
 
 /** Drill operation editor — sourceable inline (no IPC).
  *  Builds the drill snapshot directly from stores via useDrillScreenData,
@@ -91,6 +92,9 @@ export function DrillOperationEditor() {
 
   // MPos Z captured when the operator binds XYZ work zero (null = not yet bound).
   const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
+  // MPos X/Y captured at the same bind — the work-coordinate offset, used by the
+  // XY gate to check the hole bbox against the machine envelope (null = not bound).
+  const [workZeroMachineXY, setWorkZeroMachineXY] = useState<{ x: number; y: number } | null>(null);
 
   const [zeroError, setZeroError] = useState<string | null>(null);
   const bindingRef = useRef(false);
@@ -108,6 +112,7 @@ export function DrillOperationEditor() {
   useEffect(() => {
     if (!machineHomed || machineState === "home") {
       setWorkZeroMachineZ(null);
+      setWorkZeroMachineXY(null);
     }
   }, [machineHomed, machineState]);
 
@@ -118,9 +123,12 @@ export function DrillOperationEditor() {
     try {
       await api.machine.setZero(true, true, true);
       setZeroError(null);
-      setWorkZeroMachineZ(useMachine.getState().status.mpos[2]);
+      const mpos = useMachine.getState().status.mpos;
+      setWorkZeroMachineZ(mpos[2]);
+      setWorkZeroMachineXY({ x: mpos[0], y: mpos[1] });
     } catch (e) {
       setWorkZeroMachineZ(null);
+      setWorkZeroMachineXY(null);
       setZeroError(String(e));
     } finally {
       bindingRef.current = false;
@@ -129,6 +137,7 @@ export function DrillOperationEditor() {
 
   const handleClearZero = useCallback(() => {
     setWorkZeroMachineZ(null);
+    setWorkZeroMachineXY(null);
   }, []);
 
   const zGate = checkZGate(workZeroMachineZ, cncProfile?.safeZMm ?? 5);
@@ -169,6 +178,22 @@ export function DrillOperationEditor() {
   useEffect(() => {
     setInspectedHoleId(null);
   }, [route]);
+
+  // Machine-frame bbox of the holes that will actually run (selected sub-plan),
+  // for the XY gate. Recomputes on selection/datum/panel change.
+  const workExtent = useMemo(() => {
+    if (!subPlanWithOverrides || !panel) return null;
+    return planWorkExtent(subPlanWithOverrides, drillDatumCorner, panel.width_mm, panel.height_mm);
+  }, [subPlanWithOverrides, panel, drillDatumCorner]);
+
+  // XY gate: at the bound work zero, does the whole hole bbox fit inside the
+  // machine travel? Blocks the run (and shows a banner) when it would overrun.
+  // Without a CNC profile the travel is unknown — skip the gate (defaults valid)
+  // rather than gating against a degenerate 0-travel envelope. The inspector that
+  // surfaces the gate only renders once a profile is present anyway.
+  const xyGate: XYGateResult = cncProfile
+    ? checkXYGate(workZeroMachineXY, workExtent, cncProfile.workEnvelopeMm.x, cncProfile.workEnvelopeMm.y)
+    : { valid: true };
 
   const buildProgram = useCallback(
     (startMachineXY?: { x: number; y: number }) => {
@@ -349,6 +374,7 @@ export function DrillOperationEditor() {
             maxZMm={cncProfile.workEnvelopeMm.z}
             zeroError={zeroError}
             zGate={zGate}
+            xyGate={xyGate}
             connected={machineConnected}
             spindleControllable={cncProfile.spindleControllable ?? false}
             hasHoles={selectedHoleIds.size > 0}

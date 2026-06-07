@@ -88,6 +88,7 @@
     "set": "Zero set",
     "notZeroedHint": "Bind work zero (XYZ) at the datum corner",
     "tooHigh": "Z-zero is too high — the retract will exceed the machine travel; lower the bit to the copper and bind again.",
+    "xyOutOfBounds": "Work zero is off — at this position some holes run past the machine travel ({{detail}}). Re-bind closer to the machine origin or change the datum corner.",
     "zMachine": "Z-zero (machine)",
     "retract": "Retract"
   },
