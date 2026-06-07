@@ -64,7 +64,10 @@ export function panelOnTable(
 }
 
 /** Does the board rect fit inside the machine travel [0,maxX] × [0,maxY]? Reports
- *  the worst overshoot per axis (past either the 0 end or the max end). */
+ *  the worst single-end overshoot per axis (past either the 0 end or the max end).
+ *  `ok` is correct for any overflow; `ox`/`oy` are the larger end's overshoot — in
+ *  the pathological case of a board wider than the travel (both ends overflow on an
+ *  axis), only the bigger end is reported in the magnitude. */
 export function envelopeFit(rect: TableRect, maxXMm: number, maxYMm: number): EnvelopeFit {
   const ox = Math.max(0, -rect.x0, rect.x1 - maxXMm);
   const oy = Math.max(0, -rect.y0, rect.y1 - maxYMm);

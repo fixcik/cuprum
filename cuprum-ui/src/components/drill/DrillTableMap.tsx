@@ -67,6 +67,9 @@ export function DrillTableMap({
 
   // Jog bounds in the WORK frame that correspond to the machine travel [0,max],
   // so jogTo's clamp matches the envelope without re-clamping a valid target.
+  // WCO is stable while jogging and only changes on a re-zero, which re-renders
+  // (mpos/wpos are subscribed) and refreshes these bounds — same render-time-bounds
+  // / click-time-target pattern as WorkZeroCard's Z click-to-move.
   const { enabled, jogTo } = useJog({
     bounds: {
       x: [0 - wcoX, maxXMm - wcoX],
