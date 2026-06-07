@@ -106,8 +106,10 @@ pub fn drill_run_start(
     let activity = machine.activity().ok_or("not connected")?;
 
     // Register the ack channel so the reader thread can forward ok/error/alarm.
+    // The runner keeps a clone (RunConn.tx) so it can release the slot during a
+    // tool-change pause and reclaim it afterwards.
     let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
-    *ack_slot.lock().unwrap() = Some(tx);
+    *ack_slot.lock().unwrap() = Some(tx.clone());
 
     let ctrl = Arc::new(Control::default());
     let ctrl_thread = ctrl.clone();
@@ -140,6 +142,7 @@ pub fn drill_run_start(
                 writer,
                 rx,
                 ack_slot,
+                tx,
                 activity,
             },
             ctrl_thread,
@@ -242,6 +245,11 @@ struct RunConn {
     writer: Arc<Mutex<cuprum_core::grbl::GrblWriter>>,
     rx: std::sync::mpsc::Receiver<grbl::Line>,
     ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
+    /// A clone of the ack sender. During a tool-change pause the runner releases the
+    /// ack slot (sets it to None) so the operator's per-tool Z bind (probe / manual
+    /// touch-off, both ok-waiters) can claim it; this clone keeps `rx` alive and lets
+    /// the runner reclaim the slot before streaming the next group.
+    tx: std::sync::mpsc::Sender<grbl::Line>,
     activity: Arc<Mutex<Activity>>,
 }
 
@@ -256,6 +264,7 @@ fn run_job(
         writer,
         rx,
         ack_slot,
+        tx,
         activity,
     } = conn;
 
@@ -452,6 +461,12 @@ fn run_job(
                 },
             );
             emit_state("awaitingToolChange");
+            // Release the ack channel for the duration of the pause so the operator's
+            // per-tool Z bind — `machine_probe_z` (G38.2) or `machine_set_zero` (manual
+            // touch-off), both of which claim the slot to wait for GRBL's ok — can run.
+            // The runner only polls `confirm_tool_change` here; it streams nothing and
+            // needs no ok routing until it reclaims the slot below.
+            *ack_slot.lock().unwrap() = None;
             while !ctrl.confirm_tool_change.load(Relaxed)
                 && !ctrl.abort.load(Relaxed)
                 && !ctrl.stopping.load(Relaxed)
@@ -461,6 +476,11 @@ fn run_job(
             if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
                 break;
             }
+            // Reclaim the slot before streaming the next group, and drop any line that
+            // arrived while it was released (a stray ok from the operator's bind) so the
+            // next line's ok-wait can't consume a stale token.
+            *ack_slot.lock().unwrap() = Some(tx.clone());
+            while rx.try_recv().is_ok() {}
             emit_state("running");
         }
 
