@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
-import { type MachineStateName } from "@/lib/api";
 import { useJog } from "@/hooks/useJog";
 import { machineZFromFraction } from "@/lib/zbar";
 import { checkZGate } from "@/lib/zGate";
@@ -22,8 +21,6 @@ import { JogStepControl } from "@/components/machine/JogStepControl";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export interface WorkZeroCardProps {
-  connected: boolean;
-  machineState: MachineStateName;
   /** MPos Z captured at bind (null = not bound). Drives the Z gate. */
   workZeroMachineZ: number | null;
   safeZMm: number;
@@ -48,8 +45,6 @@ const zBtn =
  *  an amber gate banner when the retract would exceed the machine ceiling, and a
  *  compact clickable Z scale for click-to-level. */
 export function WorkZeroCard({
-  connected: _connected,
-  machineState: _machineState,
   workZeroMachineZ,
   safeZMm,
   maxXMm,
@@ -115,8 +110,10 @@ export function WorkZeroCard({
   const onTrackClick = (e: React.MouseEvent) => {
     if (!enabled) return;
     const targetMachineZ = machineZFromFraction(fracFromBottom(e.clientY), maxZMm);
-    // jogTo expects work coordinates; convert from machine Z via live WCO.
-    void jogTo({ z: targetMachineZ - wcoZ });
+    // jogTo expects work coordinates; convert from machine Z via the LIVE WCO read
+    // at click time (a rebind changes WCO and the render snapshot may be stale).
+    const { mpos, wpos } = useMachine.getState().status;
+    void jogTo({ z: targetMachineZ - (mpos[2] - wpos[2]) });
   };
 
   const onTrackMove = (e: React.MouseEvent) => {
