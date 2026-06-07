@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Crosshair, Fan, LocateFixed, Move, Move3d, SlidersHorizontal } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
+import { api } from "@/lib/api";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
 import { SoftLimitsNotice } from "@/components/machine/SoftLimitsNotice";
@@ -33,6 +35,20 @@ export function MachineControlPanel({
   onCloseConsole?: () => void;
 }) {
   const { t } = useTranslation("machine");
+
+  // Track whether the console OS window is open so the drawer shows a stub.
+  const [consoleWindowOpen, setConsoleWindowOpen] = useState(false);
+  useEffect(() => {
+    const p = api.onConsoleClosed(() => setConsoleWindowOpen(false));
+    return () => {
+      void p.then((f) => f());
+    };
+  }, []);
+
+  const popOutConsole = () => {
+    void api.openConsoleWindow();
+    setConsoleWindowOpen(true);
+  };
   // Datum-corner labels live in the `drill` namespace (shared work-zero vocabulary).
   const { t: tDrill } = useTranslation("drill");
   const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
@@ -99,7 +115,13 @@ export function MachineControlPanel({
           </Card>
         </div>
         <FieldPanel className="min-h-[20rem] min-w-0 flex-1 lg:min-h-0" />
-        <ConsoleDrawer open={consoleOpen} onClose={() => onCloseConsole?.()} />
+        <ConsoleDrawer
+          open={consoleOpen}
+          onClose={() => onCloseConsole?.()}
+          windowOpen={consoleWindowOpen}
+          onPopOut={popOutConsole}
+          onFocusWindow={() => void api.openConsoleWindow()}
+        />
       </div>
     </div>
   );
