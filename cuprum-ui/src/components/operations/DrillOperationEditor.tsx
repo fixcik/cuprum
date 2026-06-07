@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { DEFAULT_FR4_THICKNESS_MM, type DrillClass } from "@/lib/api";
+import { DEFAULT_FR4_THICKNESS_MM } from "@/lib/api";
 import { useDrillScreenData } from "@/hooks/useDrillScreenData";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { classCounts, DRILL_CLASSES, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
+import { classCounts, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
 import {
   holesForClasses,
   subPlanForSelection,
@@ -81,8 +81,6 @@ export function DrillOperationEditor() {
     setDrilledHoleIds(new Set());
   }, [plan]);
 
-  // Visibility (which classes are shown on the canvas). Independent of run-selection.
-  const [visibleClasses, setVisibleClasses] = useState<Set<DrillClass>>(new Set(DRILL_CLASSES));
   // Canvas view toggles.
   const [showPath, setShowPath] = useState(true);
   const [showDiameters, setShowDiameters] = useState(false);
@@ -296,11 +294,8 @@ export function DrillOperationEditor() {
         </div>
       )}
 
-      {/* Top toolbar: visibility chips + view toggles */}
+      {/* Top toolbar: view toggles + selection hint */}
       <DrillCanvasTopBar
-        counts={counts ?? { registration: 0, pth: 0, npth: 0, mechanical: 0 }}
-        visibleClasses={visibleClasses}
-        onVisibleClassesChange={setVisibleClasses}
         showPath={showPath}
         onShowPathChange={setShowPath}
         showDiameters={showDiameters}
@@ -320,7 +315,6 @@ export function DrillOperationEditor() {
               selectedHoleIds={selectedHoleIds}
               drilledHoleIds={drilledHoleIds}
               currentHoleId={currentHoleId}
-              visibleClasses={visibleClasses}
               showPath={showPath}
               showDiameters={showDiameters}
               zones={zones}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
@@ -16,8 +17,8 @@ import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
 import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
-import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
-import { DatumCornerPicker } from "@/components/ui/DatumCornerPicker";
+import { WorkZeroStatusCard } from "@/components/drill/WorkZeroStatusCard";
+import { DrillZeroInspector } from "@/components/drill/DrillZeroInspector";
 import { formatXYViolations } from "@/lib/xyGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -140,6 +141,17 @@ export function DrillPlanInspector({
   // Whether pass switching and plan editing are blocked.
   const isRunActive = mode === "run";
 
+  // Inspector sub-mode within "plan": the plan list ⇄ the zero-binding controls.
+  // The canvas does not change when switching — only the right sidebar swaps.
+  const [panelMode, setPanelMode] = useState<"plan" | "zero">("plan");
+  // A run takes over the inspector; collapse back to the plan list so we don't
+  // return into the zero mode after the run ends.
+  useEffect(() => {
+    if (isRunActive) setPanelMode("plan");
+  }, [isRunActive]);
+
+  const workZeroSet = workZeroMachineZ !== null;
+
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
     !connected || !hasHoles || zGate.valid === false || xyGate.valid === false || isRunActive;
@@ -211,6 +223,23 @@ export function DrillPlanInspector({
           onFeedChange={onFeedChange}
           onRunDone={onRunDone}
         />
+      ) : panelMode === "zero" ? (
+        /* ── ZERO-BINDING mode ── */
+        <DrillZeroInspector
+          datum={datum}
+          onDatumChange={onDatumChange}
+          onBack={() => setPanelMode("plan")}
+          isSet={workZeroSet}
+          workZeroMachineZ={workZeroMachineZ}
+          safeZMm={cncProfile.safeZMm}
+          maxXMm={maxXMm}
+          maxYMm={maxYMm}
+          maxZMm={maxZMm}
+          xyGate={xyGate}
+          onBind={onBind}
+          onClear={onClear}
+          zeroError={zeroError}
+        />
       ) : (
         /* ── PLAN mode ── */
         <>
@@ -253,33 +282,18 @@ export function DrillPlanInspector({
               />
             </div>
 
-            {/* Datum corner — 2×2 grid */}
-            <div className="border-t border-border px-4 py-3">
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t("datum.label")}
-              </p>
-              <DatumCornerPicker value={datum} onChange={onDatumChange} />
+            {/* Work zero — compact status card-button (opens the zero-binding mode) */}
+            <div className="border-t border-border">
+              <WorkZeroStatusCard
+                isSet={workZeroSet}
+                datum={datum}
+                xyGate={xyGate}
+                onOpen={() => {
+                  onClearHole();
+                  setPanelMode("zero");
+                }}
+              />
             </div>
-
-            {/* Unified XYZ work-zero card */}
-            <WorkZeroCard
-              workZeroMachineZ={workZeroMachineZ}
-              safeZMm={cncProfile.safeZMm}
-              maxXMm={maxXMm}
-              maxYMm={maxYMm}
-              maxZMm={maxZMm}
-              xyGate={xyGate}
-              onBind={onBind}
-              onClear={onClear}
-            />
-
-            {/* Work-zero bind error from GRBL (command rejected → zero NOT set). */}
-            {zeroError && (
-              <div className="mx-4 mb-3 flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>{t("zero.bindRejected", { error: zeroError })}</span>
-              </div>
-            )}
 
             {/* Divider */}
             <div className="h-px bg-border" />

@@ -6,7 +6,6 @@ import { Maximize, Plus, Minus } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import { buildHoleToPathIndex, orderedHoleList } from "@/lib/drillRoute";
-import type { DrillClass } from "@/lib/api";
 import type { PhaseProgress } from "@/lib/drillPhaseProgress";
 import { PHASE_COLORS } from "@/lib/drillPhaseProgress";
 import { MachineMarker } from "./MachineMarker";
@@ -81,25 +80,22 @@ interface HolesLayerProps {
   plan: PanelDrillPlan;
   selectedHoleIds?: Set<string>;
   drilledHoleIds?: Set<string>;
-  visibleClasses?: Set<DrillClass>;
 }
 
 /** The bulk holes layer: one Circle per plan hole, coloured by selection/drilled
  *  state. Memoised so frequent re-renders of the canvas (mouse hover, GRBL polling)
- *  don't reconcile the whole hole set — it only re-renders when the plan, the
- *  selection/drilled sets, or class visibility actually change. Per-hole rings
- *  (hover / inspected / current-phase) live in cheap single-node overlays instead,
- *  so they never force this layer to re-render. */
+ *  don't reconcile the whole hole set — it only re-renders when the plan or the
+ *  selection/drilled sets actually change. Per-hole rings (hover / inspected /
+ *  current-phase) live in cheap single-node overlays instead, so they never force
+ *  this layer to re-render. */
 const HolesLayer = memo(function HolesLayer({
   plan,
   selectedHoleIds,
   drilledHoleIds,
-  visibleClasses,
 }: HolesLayerProps) {
   return (
     <>
       {enumerateHoles(plan).map((eh) => {
-        if (visibleClasses && !visibleClasses.has(eh.class)) return null;
         const h = eh.hole;
         const r = Math.max(eh.diameterMm / 2, 0.1);
         const isSelected = selectedHoleIds ? selectedHoleIds.has(eh.id) : true;
@@ -127,18 +123,15 @@ const HolesLayer = memo(function HolesLayer({
 
 interface RouteOverlayProps {
   route: DrillRoute;
-  visibleClasses?: Set<DrillClass>;
   showDiameters: boolean;
 }
 
 /** Tool-change rings (one per route group's first hole) plus optional diameter
- *  labels. Memoised on the route + visibility so it stays out of the hover/poll
- *  re-render path. */
-const RouteOverlay = memo(function RouteOverlay({ route, visibleClasses, showDiameters }: RouteOverlayProps) {
+ *  labels. Memoised on the route so it stays out of the hover/poll re-render path. */
+const RouteOverlay = memo(function RouteOverlay({ route, showDiameters }: RouteOverlayProps) {
   return (
     <>
       {route.groups.map((g: RouteGroup, gi: number) => {
-        if (visibleClasses && !visibleClasses.has(g.class)) return null;
         const color = groupColor(gi);
         const firstHole = g.orderedHoles[0];
         const r = g.diameterMm / 2;
@@ -277,9 +270,6 @@ export interface DrillMapCanvasProps {
   drilledHoleIds?: Set<string>;
   /** Stable id of the hole currently being drilled (drives the phase-ring). */
   currentHoleId?: string | null;
-  /** Set of drill classes that are VISIBLE on the canvas. Holes whose class is NOT
-   *  in this set are skipped entirely (not rendered). Defaults to all classes visible. */
-  visibleClasses?: Set<DrillClass>;
   /** Whether to render the traverse path line. Defaults to true. */
   showPath?: boolean;
   /** Whether to render a diameter label near the first hole of each visible group.
@@ -304,7 +294,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, visibleClasses, showPath = true, showDiameters = false, currentHolePhase, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   // Ref to the fit-group for pointer → mm coordinate conversion.
@@ -602,14 +592,13 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
             <PathOverlay route={route} showPath={showPath} drilledHoleIds={drilledHoleIds} />
 
             {/* Tool-change rings + diameter labels driven by the ROUTE (memoised). */}
-            <RouteOverlay route={route} visibleClasses={visibleClasses} showDiameters={showDiameters} />
+            <RouteOverlay route={route} showDiameters={showDiameters} />
 
             {/* Bulk holes layer (memoised — isolated from hover/poll re-renders). */}
             <HolesLayer
               plan={plan}
               selectedHoleIds={selectedHoleIds}
               drilledHoleIds={drilledHoleIds}
-              visibleClasses={visibleClasses}
             />
 
             {/* Single-node overlay rings drawn on top of the holes layer. Each is a
