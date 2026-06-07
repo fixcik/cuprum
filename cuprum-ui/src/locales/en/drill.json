@@ -1,6 +1,7 @@
 {
   "window": {
-    "title": "Drill Plan"
+    "title": "Drill Plan",
+    "closeDuringRun": "A drill run is in progress. Close this window anyway? The machine will keep running."
   },
   "summary": {
     "holes_one": "{{count}} hole",

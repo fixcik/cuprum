@@ -185,6 +185,7 @@ fn main() {
             commands::windows::take_pending_open,
             commands::windows::open_add_design_window,
             commands::windows::open_inspector_window,
+            commands::windows::open_drill_window,
             set_app_menu,
             commands::machine::list_serial_ports,
             commands::machine::machine_connect,
@@ -211,7 +212,8 @@ fn main() {
             commands::drill_run::drill_run_resume,
             commands::drill_run::drill_run_confirm_tool_change,
             commands::drill_run::drill_run_stop,
-            commands::drill_run::drill_run_estop
+            commands::drill_run::drill_run_estop,
+            commands::drill_run::drill_run_status
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");

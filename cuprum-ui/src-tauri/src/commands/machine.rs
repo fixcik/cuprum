@@ -52,14 +52,22 @@ pub enum Telemetry {
     },
 }
 
-/// Position snapshot broadcast as the global `machine://status` event so the
-/// separate drill webview can track the tool without the main window's Channel.
+/// Full status snapshot broadcast as the global `machine://status` event so the
+/// separate drill webview can track the tool AND control the run without the main
+/// window's per-connection Channel. Carries the same fields as `Telemetry::Status`
+/// (minus console lines) so a follower window has status parity (feed/overrides/pins).
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MachinePos {
     state: String,
     mpos: [f32; 3],
     wpos: [f32; 3],
+    feed: f32,
+    spindle: f32,
+    /// Override percentages `[feed, rapid, spindle]`.
+    overrides: [u8; 3],
+    /// Active limit/probe pins from the GRBL `Pn:` field.
+    pins: Pins,
 }
 
 #[derive(Serialize)]
@@ -243,15 +251,20 @@ pub fn machine_connect(
                             feed: s.feed,
                             spindle: s.spindle,
                             overrides: s.overrides,
-                            pins: s.pins.into(),
+                            pins: s.pins.clone().into(),
                         });
-                        // Global broadcast for other windows (drill webview).
+                        // Global broadcast for other windows (drill webview) — full
+                        // status (not just position) so a follower window has parity.
                         let _ = r_app.emit(
                             "machine://status",
                             MachinePos {
                                 state: state_str(s.state).into(),
                                 mpos: s.mpos,
                                 wpos: s.wpos,
+                                feed: s.feed,
+                                spindle: s.spindle,
+                                overrides: s.overrides,
+                                pins: s.pins.into(),
                             },
                         );
                     }

@@ -237,6 +237,47 @@ pub fn drill_run_estop(machine: State<MachineState>, job: State<DrillJob>) -> Re
     Ok(())
 }
 
+/// Snapshot of the live run, for a window that opens (or reopens) mid-run and needs
+/// to re-attach. Phase is derived from the control flags — `holesCompleted` is not
+/// tracked here (the runner emits it per hole), so a fresh follower fills progress in
+/// from the next `drill-run://progress` event. `active` is false when no run is live.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrillRunStatus {
+    active: bool,
+    phase: String,
+}
+
+/// Report the current run status so a (re)opened drill window can reflect an
+/// in-progress run instead of showing an idle screen. Best-effort: phase only,
+/// progress arrives with the next live event.
+#[tauri::command]
+pub fn drill_run_status(job: State<DrillJob>) -> DrillRunStatus {
+    let slot = job.0.lock().unwrap();
+    match slot.as_ref() {
+        Some(h) if !h.ctrl.finished.load(Relaxed) => {
+            let c = &h.ctrl;
+            let phase = if c.stopping.load(Relaxed) {
+                "stopping"
+            } else if c.confirm_tool_change.load(Relaxed) {
+                "awaitingToolChange"
+            } else if c.paused.load(Relaxed) {
+                "paused"
+            } else {
+                "running"
+            };
+            DrillRunStatus {
+                active: true,
+                phase: phase.into(),
+            }
+        }
+        _ => DrillRunStatus {
+            active: false,
+            phase: "idle".into(),
+        },
+    }
+}
+
 // ── Runner thread ────────────────────────────────────────────────────────────
 
 /// Connection handles the runner owns (cloned out of `MachineState` before the

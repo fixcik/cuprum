@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ChevronLeft, ChevronRight, ArrowRight, Scissors } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ArrowRight, Scissors } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
-import { DrillOperationEditor } from "@/components/operations/DrillOperationEditor";
+import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
@@ -12,7 +12,6 @@ import { ProgressRing } from "@/components/ui/ProgressRing";
 import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
 
 type ProjectTab = "panel" | "designs" | "operations";
-type OpenOp = null | "drill";
 
 export function ProjectPage() {
   const { t, i18n } = useTranslation("project");
@@ -32,7 +31,6 @@ export function ProjectPage() {
   const saving = useShell((s) => s.saving);
   const [pointsOpen, setPointsOpen] = useState(false);
   // Which operation card is open inline (null = list view).
-  const [openOp, setOpenOp] = useState<OpenOp>(null);
 
   const artifactProgress = useShell((s) => s.artifactProgress);
   const pruneArtifactProgress = useShell((s) => s.pruneArtifactProgress);
@@ -184,7 +182,7 @@ export function ProjectPage() {
       <div className="min-h-0 flex-1">
         {tab === "panel" && <PanelEditor />}
         {tab === "designs" && <DesignsGallery />}
-        {tab === "operations" && openOp === null && (
+        {tab === "operations" && (
           /* Operations list view */
           <div className="flex h-full flex-col overflow-y-auto p-6">
             {/* Section heading */}
@@ -204,7 +202,7 @@ export function ProjectPage() {
               {/* Drill card — active */}
               <button
                 type="button"
-                onClick={() => setOpenOp("drill")}
+                onClick={() => void api.openDrillWindow()}
                 className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
               >
                 <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
@@ -243,28 +241,6 @@ export function ProjectPage() {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-        {tab === "operations" && openOp === "drill" && (
-          /* Drill editor inline view */
-          <div className="flex h-full flex-col">
-            {/* Breadcrumb bar */}
-            <div className="flex shrink-0 items-center gap-1 border-b border-border bg-panel/40 px-3 py-1.5 text-[12px]">
-              <button
-                type="button"
-                onClick={() => setOpenOp(null)}
-                className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <ChevronLeft className="size-3.5" />
-                {t("operations.back")}
-              </button>
-              <ChevronRight className="size-3 text-muted-foreground/50" />
-              <span className="text-foreground">{t("operations.drill.title")}</span>
-            </div>
-            {/* Editor fills remaining height */}
-            <div className="flex-1 min-h-0">
-              <DrillOperationEditor />
             </div>
           </div>
         )}
