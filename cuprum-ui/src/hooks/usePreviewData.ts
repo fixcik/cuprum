@@ -13,7 +13,7 @@ import {
   type Stackup,
 } from "@/lib/api";
 import type { FindingCategory, Finding, ProblemType, Verdict } from "@/lib/feasibility";
-import { parseBoardMesh, type BoardMeshData } from "@/lib/boardMesh";
+import type { BoardMeshData } from "@/lib/boardMesh";
 import { evaluate, overallVerdict, problemTypeOf } from "@/lib/feasibility";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 import { useSettings } from "@/settingsStore";
@@ -289,6 +289,10 @@ export function usePreviewData(
     (async () => {
       try {
         const buf = await api.projectBoardMesh(workingDir, refs, excludedDrillKeys, thicknessMm);
+        // Dynamic import: parseBoardMesh builds a THREE.BufferGeometry, so it pulls
+        // three into a lazy chunk instead of the startup bundle. Safe — this runs
+        // only when the 3D view has been armed.
+        const { parseBoardMesh } = await import("@/lib/boardMesh");
         if (!cancelled) setMesh(parseBoardMesh(buf));
       } catch {
         if (!cancelled) setMesh(null);
