@@ -2,9 +2,7 @@ import { useRef } from "react";
 import { Group, Line, Circle } from "react-konva";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-
-const HANDLE_STROKE = "#5b9dff";
-const HANDLE_FILL = "#0a0c10";
+import { COPPER_STROKE, CANVAS_BG } from "@/components/editor/canvasStyle";
 
 /** Free-rotation knob for the current panel selection. The knob sits just OUTSIDE a
  *  bbox corner (diagonal stub), leaving the top-centre clear for the selection HUD;
@@ -13,7 +11,12 @@ const HANDLE_FILL = "#0a0c10";
  *  drag start (so multi-select rotates each instance about its OWN centre by the same
  *  amount). Snap (15°/1°) is applied by the parent via `e.shiftKey || e.altKey`. The
  *  knob is pinned to its derived pose (parent feeds a live preview angle); on drag end
- *  the parent commits. All coordinates in panel mm. */
+ *  the parent commits. All coordinates in panel mm.
+ *
+ *  Styled as a copper ring (dark fill + copper rim), matching the selection ring and
+ *  corner handles — round to read apart from the square resize handles. Its radius is
+ *  fed in mm by the parent so it stays a constant SCREEN size at any zoom (the parent
+ *  divides a px radius by pxPerMm), like the corner handles. */
 export function RotationHandle({
   cx,
   cy,
@@ -21,6 +24,7 @@ export function RotationHandle({
   anchorY,
   knobX,
   knobY,
+  radiusMm,
   pointerMm,
   onRotate,
   onCommit,
@@ -34,6 +38,8 @@ export function RotationHandle({
   /** Knob position — corner offset diagonally outward (mm). */
   knobX: number;
   knobY: number;
+  /** Knob radius in mm = (screen px radius) / pxPerMm, so it's screen-constant. */
+  radiusMm: number;
   /** Pointer position in panel mm (via the fit-group's relative pointer). */
   pointerMm: () => { x: number; y: number } | null;
   /** Live rotation delta (deg) since drag start. `fine` = shift/alt held. */
@@ -81,7 +87,7 @@ export function RotationHandle({
     <Group listening>
       <Line
         points={[anchorX, anchorY, knobX, knobY]}
-        stroke={HANDLE_STROKE}
+        stroke={COPPER_STROKE}
         strokeWidth={1}
         strokeScaleEnabled={false}
         listening={false}
@@ -89,9 +95,9 @@ export function RotationHandle({
       <Circle
         x={knobX}
         y={knobY}
-        radius={4}
-        fill={HANDLE_FILL}
-        stroke={HANDLE_STROKE}
+        radius={radiusMm}
+        fill={CANVAS_BG}
+        stroke={COPPER_STROKE}
         strokeWidth={1.5}
         strokeScaleEnabled={false}
         draggable

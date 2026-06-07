@@ -56,6 +56,9 @@ import {
 
 const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
 const SNAP_PX = 6;   // magnetic snap threshold in screen pixels
+// Rotation knob (RotationHandle): constant screen px, like the corner handles.
+const ROT_KNOB_OUT_PX = 16; // diagonal corner→knob-centre distance
+const ROT_KNOB_R_PX = 5.5;  // knob (copper ring) radius
 
 // Stable empty fallbacks so the store selectors keep a constant reference when
 // the panel/designs are absent (avoids re-running the sizes effect every render).
@@ -1140,10 +1143,15 @@ export function PanelBlankCanvas({
               rotPreview={rotPreview}
               pxPerMm={viewport.pxPerMm}
             />
-            {tool === "select" && !dragDelta && selectionBBox && (() => {
+            {tool === "select" && !dragDelta && selectionBBox && viewport.pxPerMm > 0 && (() => {
               // Knob hangs off the bottom-right bbox corner (diagonal stub), leaving the
               // top-centre clear for the selection HUD; rotation pivot stays the centre.
-              const k = (Math.max(W, H) * 0.06) / Math.SQRT2;
+              // Offset and radius are constant SCREEN px (÷ pxPerMm → mm), like the
+              // corner handles, so the knob neither balloons in nor vanishes on zoom.
+              // Gated on a measured viewport (pxPerMm>0) so the knob never renders as a
+              // zero-radius, unclickable node before first layout (mirrors SelectionOverlay).
+              const mmPerPx = 1 / viewport.pxPerMm;
+              const k = (ROT_KNOB_OUT_PX / Math.SQRT2) * mmPerPx;
               return (
                 <RotationHandle
                   cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
@@ -1152,6 +1160,7 @@ export function PanelBlankCanvas({
                   anchorY={selectionBBox.maxY}
                   knobX={selectionBBox.maxX + k}
                   knobY={selectionBBox.maxY + k}
+                  radiusMm={ROT_KNOB_R_PX * mmPerPx}
                   pointerMm={pointerMm}
                   onRotate={onRotatePreview}
                   onCommit={onRotateCommit}
