@@ -7,6 +7,13 @@ import { QuickActions } from "@/components/machine/QuickActions";
 import { StatusPill } from "@/components/machine/StatusPill";
 import { EStop } from "@/components/machine/EStop";
 
+export interface MachineToolbarProps {
+  /** Forwarded to the embedded ConnBar: skip the automatic reattach() on mount so
+   *  a window that follows machine state via global broadcasts (e.g. the console
+   *  window) never builds a telemetry Channel and steals it from the main window. */
+  skipReattach?: boolean;
+}
+
 /** Status/connection toolbar: ConnBar on the left; the machine action buttons +
  *  feed/spindle mini-readout + big StatusPill + compact E-Stop form one right
  *  cluster. The whole bar wraps (`flex-wrap`) and the right cluster stays
@@ -14,14 +21,14 @@ import { EStop } from "@/components/machine/EStop";
  *  the E-Stop / status off the edge — the emergency stop must never be clipped.
  *  The E-Stop is the Phase-1 emergency stop: it fires a soft reset immediately,
  *  without confirmation. */
-export function MachineToolbar() {
+export function MachineToolbar({ skipReattach = false }: MachineToolbarProps = {}) {
   const a = useMachineActions();
   const feed = useMachine((s) => s.status.feed);
   const spindle = useMachine((s) => s.status.spindle);
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2">
-      <ConnBar />
+      <ConnBar skipReattach={skipReattach} />
       <div className="ml-auto flex items-center gap-3">
         <QuickActions />
         <div className="h-6 w-px bg-border" />

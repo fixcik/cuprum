@@ -61,8 +61,11 @@ export function ConsoleWindow() {
       <div className="flex h-screen w-screen flex-col bg-card text-foreground">
         {/* Full MachineToolbar: ConnBar (connect via intent → main) + QuickActions
             + F/S readout + StatusPill + EStop. Connection state from global
-            broadcasts; connect/disconnect go as intents to the main window. */}
-        <MachineToolbar />
+            broadcasts; connect/disconnect go as intents to the main window.
+            skipReattach: the console window follows global broadcasts and must
+            NEVER build a telemetry Channel — reattach() would swap the backend's
+            telemetry away from the main window (main goes dark). */}
+        <MachineToolbar skipReattach />
         <div className="min-h-0 flex-1">
           <ConsoleBody onClose={() => void getCurrentWindow().close()} />
         </div>
