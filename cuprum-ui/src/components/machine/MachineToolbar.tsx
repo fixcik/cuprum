@@ -1,6 +1,7 @@
 import { Fan, Gauge } from "lucide-react";
 import { useMachine } from "@/machineStore";
-import { api } from "@/lib/api";
+import { useMachineActions } from "@/components/machine/MachineActionsContext";
+
 import { ConnBar } from "@/components/machine/ConnBar";
 import { QuickActions } from "@/components/machine/QuickActions";
 import { StatusPill } from "@/components/machine/StatusPill";
@@ -14,6 +15,7 @@ import { EStop } from "@/components/machine/EStop";
  *  The E-Stop is the Phase-1 emergency stop: it fires a soft reset immediately,
  *  without confirmation. */
 export function MachineToolbar() {
+  const a = useMachineActions();
   const feed = useMachine((s) => s.status.feed);
   const spindle = useMachine((s) => s.status.spindle);
 
@@ -34,7 +36,7 @@ export function MachineToolbar() {
         </div>
         <StatusPill big />
         <div className="h-6 w-px bg-border" />
-        <EStop compact onClick={() => void api.machine.softReset()} />
+        <EStop compact onClick={() => a.softReset()} />
       </div>
     </div>
   );

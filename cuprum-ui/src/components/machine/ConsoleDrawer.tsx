@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Copy, ExternalLink, PanelRightClose, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useMachine } from "@/machineStore";
-import { api } from "@/lib/api";
+import { useMachineActions } from "@/components/machine/MachineActionsContext";
 
 /** Local wall-clock time of a console line as HH:MM:SS.mmm. */
 function fmtTime(ts: number): string {
@@ -59,6 +59,7 @@ export function ConsoleBody({
   onPopOut?: () => void;
 }) {
   const { t } = useTranslation("machine");
+  const a = useMachineActions();
   const lines = useMachine((s) => s.lines);
   const connected = useMachine((s) => s.connected);
   const [input, setInput] = useState("");
@@ -84,7 +85,7 @@ export function ConsoleBody({
   const send = () => {
     const line = input.trim();
     if (line && connected) {
-      void api.machine.send(line);
+      a.send(line);
       setInput("");
     }
   };

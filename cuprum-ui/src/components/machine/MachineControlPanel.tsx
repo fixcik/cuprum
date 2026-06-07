@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Crosshair, Fan, LocateFixed, Move, Move3d, SlidersHorizontal } from "lucide-react";
 import { useSettings } from "@/settingsStore";
@@ -6,6 +6,10 @@ import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { api } from "@/lib/api";
+import {
+  MachineActionsProvider,
+  mainMachineActions,
+} from "@/components/machine/MachineActionsContext";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
 import { SoftLimitsNotice } from "@/components/machine/SoftLimitsNotice";
@@ -35,6 +39,11 @@ export function MachineControlPanel({
   onCloseConsole?: () => void;
 }) {
   const { t } = useTranslation("machine");
+
+  // Stable action handlers — memoized so the provider value doesn't change on
+  // every render (this component re-renders ~5×/sec off the status stream), which
+  // would otherwise re-render every useMachineActions() consumer at that rate.
+  const actions = useMemo(() => mainMachineActions(), []);
 
   // Track whether the console OS window is open so the drawer shows a stub.
   // Driven by authoritative signals, not JS unmount: console:ready (covers
@@ -77,6 +86,7 @@ export function MachineControlPanel({
   const retractZ = safeRetractMachineZ(machineZ - workZ, safeZMm, machineSafeZMm);
 
   return (
+    <MachineActionsProvider value={actions}>
     <div className="flex min-h-0 flex-1 flex-col">
       <MachineToolbar />
       {/* relative anchors the console drawer; on narrow widths the column and
@@ -131,5 +141,6 @@ export function MachineControlPanel({
         />
       </div>
     </div>
+    </MachineActionsProvider>
   );
 }

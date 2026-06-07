@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Home, Pause, Play, RotateCcw, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useMachine } from "@/machineStore";
-import { api } from "@/lib/api";
+import { useMachineActions } from "@/components/machine/MachineActionsContext";
 import { canMove } from "@/lib/machineControls";
 import { cn } from "@/lib/utils";
 
@@ -12,11 +12,11 @@ import { cn } from "@/lib/utils";
  *  the row never crowds out the status pill / E-Stop. */
 export function QuickActions({ className }: { className?: string }) {
   const { t } = useTranslation("machine");
+  const a = useMachineActions();
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
   const homingAvailable = useMachine((s) => s.homingAvailable);
   const homing = useMachine((s) => s.homing);
-  const runHoming = useMachine((s) => s.runHoming);
   const movable = canMove(state, connected);
   const isHold = state === "hold";
   // Feed-hold only makes sense while the machine is actively moving.
@@ -31,7 +31,7 @@ export function QuickActions({ className }: { className?: string }) {
         size="sm"
         title={t("controls.home")}
         disabled={!movable || !homingAvailable || homing}
-        onClick={() => void runHoming()}
+        onClick={() => a.home()}
       >
         <Home />
         {label("controls.home")}
@@ -41,7 +41,7 @@ export function QuickActions({ className }: { className?: string }) {
         size="sm"
         title={t("controls.unlock")}
         disabled={!connected}
-        onClick={() => void api.machine.unlock()}
+        onClick={() => a.unlock()}
       >
         <Unlock />
         {label("controls.unlock")}
@@ -51,7 +51,7 @@ export function QuickActions({ className }: { className?: string }) {
         size="sm"
         title={t("controls.feedHold")}
         disabled={!connected || !canHold}
-        onClick={() => void api.machine.feedHold()}
+        onClick={() => a.feedHold()}
       >
         <Pause />
         {label("controls.feedHold")}
@@ -61,7 +61,7 @@ export function QuickActions({ className }: { className?: string }) {
         size="sm"
         title={t("controls.cycleStart")}
         disabled={!connected || !isHold}
-        onClick={() => void api.machine.cycleStart()}
+        onClick={() => a.cycleStart()}
       >
         <Play />
         {label("controls.cycleStart")}
@@ -71,7 +71,7 @@ export function QuickActions({ className }: { className?: string }) {
         size="sm"
         title={t("controls.softReset")}
         disabled={!connected}
-        onClick={() => void api.machine.softReset()}
+        onClick={() => a.softReset()}
       >
         <RotateCcw />
         {label("controls.softReset")}
