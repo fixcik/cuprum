@@ -32,6 +32,9 @@ export function OperationHistory() {
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
+    // Reset the type filter on project change — a filter set for the previous
+    // project could hide the new project's runs behind an empty state.
+    setFilter("all");
     if (!currentPath) {
       setRuns([]);
       return;
