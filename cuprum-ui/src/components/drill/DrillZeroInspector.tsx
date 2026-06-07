@@ -29,7 +29,8 @@ export interface DrillZeroInspectorProps {
   maxYMm: number;
   maxZMm: number;
   xyGate: XYGateResult;
-  onBind: () => void;
+  /** Bind the work zero. Returns true on success → the mode closes back to plan. */
+  onBind: () => boolean | Promise<boolean>;
   onClear: () => void;
   /** Last work-zero bind error from GRBL (null = none). */
   zeroError: string | null;
@@ -128,7 +129,15 @@ export function DrillZeroInspector({
 
       {/* Sticky footer: bind / reset actions pinned to the bottom */}
       <div className="sticky bottom-0 mt-auto flex shrink-0 gap-2 border-t border-border bg-panel p-3">
-        <Button size="sm" disabled={!canBind} onClick={onBind} className="flex-1">
+        <Button
+          size="sm"
+          disabled={!canBind}
+          onClick={async () => {
+            // On a successful bind, leave the zero mode and return to the plan.
+            if (await onBind()) onBack();
+          }}
+          className="flex-1"
+        >
           {t("workzero.bind")}
         </Button>
         <Button size="sm" variant="secondary" disabled={!isSet} onClick={onClear}>

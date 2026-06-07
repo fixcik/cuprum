@@ -114,9 +114,10 @@ export function DrillOperationEditor() {
     }
   }, [machineHomed, machineState]);
 
-  const handleBindZero = useCallback(async () => {
+  // Returns true when the zero was bound (so the caller can leave the zero mode).
+  const handleBindZero = useCallback(async (): Promise<boolean> => {
     const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected) || bindingRef.current) return;
+    if (!canMove(status.state, connected) || bindingRef.current) return false;
     bindingRef.current = true;
     try {
       await api.machine.setZero(true, true, true);
@@ -124,10 +125,12 @@ export function DrillOperationEditor() {
       const mpos = useMachine.getState().status.mpos;
       setWorkZeroMachineZ(mpos[2]);
       setWorkZeroMachineXY({ x: mpos[0], y: mpos[1] });
+      return true;
     } catch (e) {
       setWorkZeroMachineZ(null);
       setWorkZeroMachineXY(null);
       setZeroError(String(e));
+      return false;
     } finally {
       bindingRef.current = false;
     }

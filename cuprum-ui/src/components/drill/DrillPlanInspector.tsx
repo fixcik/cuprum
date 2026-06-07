@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
@@ -57,8 +57,8 @@ export interface DrillPlanInspectorProps {
   substrateThicknessMm: number;
   /** MPos Z captured at bind (null = not yet bound). Drives the Z gate. */
   workZeroMachineZ: number | null;
-  /** Called when operator presses "Set zero here" on the work-zero card. */
-  onBind: () => void;
+  /** Bind the work zero. Returns true on success so the zero mode can close. */
+  onBind: () => boolean | Promise<boolean>;
   /** Called when operator resets the captured work zero. */
   onClear: () => void;
   /** Machine travel limits (mm) forwarded to WorkZeroCard for jog clamping. */
@@ -151,17 +151,9 @@ export function DrillPlanInspector({
   }, [isRunActive]);
 
   const workZeroSet = workZeroMachineZ !== null;
-
-  // Auto-return to the plan once the zero is bound from the zero mode. Track the
-  // previous bound state so entering zero mode with an ALREADY-bound zero doesn't
-  // bounce straight back — only a fresh bind (false→true while in zero) returns.
-  const prevWorkZeroSet = useRef(workZeroSet);
-  useEffect(() => {
-    if (panelMode === "zero" && !prevWorkZeroSet.current && workZeroSet) {
-      setPanelMode("plan");
-    }
-    prevWorkZeroSet.current = workZeroSet;
-  }, [workZeroSet, panelMode]);
+  // Returning to the plan after a bind is driven explicitly by the zero mode's
+  // bind button (await onBind → onBack), so it also fires on a re-bind when the
+  // zero was already set (no false→true transition to observe).
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
