@@ -88,7 +88,8 @@
   "workzero": {
     "title": "Work Zero",
     "cardTitle": "Work zero",
-    "jogTitle": "Jog to datum",
+    "jogTitle": "Jog XY",
+    "gotoZero": "Go to work zero XY",
     "openSettings": "Set up",
     "statusNotSet": "not set",
     "statusSet": "set · {{corner}} corner",
