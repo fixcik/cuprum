@@ -136,7 +136,10 @@ export function RulersOverlay({
       window.removeEventListener("resize", refresh);
       window.removeEventListener("pointermove", onMove);
     };
-  }, [rulerLeft, rulerTop]);
+    // `ready` is included so the effect re-runs once the SVG is actually mounted
+    // (the component renders null until ready) — otherwise svgRef is null at first
+    // run and the listeners/observer never attach.
+  }, [rulerLeft, rulerTop, ready]);
 
   const screenX = (mm: number) => originX + mm * pxPerMm;
   const screenY = (mm: number) => originY + mm * pxPerMm;
