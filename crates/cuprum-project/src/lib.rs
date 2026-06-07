@@ -109,7 +109,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-pub use catalog::RecentProject;
+pub use catalog::{OperationRun, RecentProject};
 pub use document::history::{RestorePoint, RestorePointMeta};
 pub use document::manifest::{GerberFile, Manifest, Stackup};
 pub use document::panel::PanelDoc;
@@ -139,6 +139,70 @@ pub fn list_recent(db_path: &Path) -> Result<Vec<RecentProject>> {
 pub fn remove_recent(db_path: &Path, path: &str) -> Result<()> {
     let conn = catalog::open(db_path)?;
     catalog::remove(&conn, path)
+}
+
+// ---- Operation-run journal (path-taking wrappers over `catalog`) ----
+
+/// Record a just-launched operation run.
+pub fn operation_run_start(
+    db_path: &Path,
+    run_uid: &str,
+    project_path: &str,
+    op_type: &str,
+    started_at: i64,
+    progress_total: Option<i64>,
+    params_json: &str,
+) -> Result<()> {
+    let conn = catalog::open(db_path)?;
+    catalog::operation_run_start(
+        &conn,
+        run_uid,
+        project_path,
+        op_type,
+        started_at,
+        progress_total,
+        params_json,
+    )
+}
+
+/// Finalize an operation run (outcome + completed count + optional summary).
+pub fn operation_run_finish(
+    db_path: &Path,
+    run_uid: &str,
+    ended_at: i64,
+    outcome: &str,
+    progress_done: i64,
+    summary_json: Option<&str>,
+) -> Result<()> {
+    let conn = catalog::open(db_path)?;
+    catalog::operation_run_finish(
+        &conn,
+        run_uid,
+        ended_at,
+        outcome,
+        progress_done,
+        summary_json,
+    )
+}
+
+/// List operation runs for a project (newest first), optionally filtered by type.
+pub fn operation_runs_list(
+    db_path: &Path,
+    project_path: &str,
+    op_type: Option<&str>,
+) -> Result<Vec<OperationRun>> {
+    let conn = catalog::open(db_path)?;
+    catalog::operation_runs_list(&conn, project_path, op_type)
+}
+
+/// The most recent run's `params_json` for a project + op type (prefill default).
+pub fn operation_run_last_params(
+    db_path: &Path,
+    project_path: &str,
+    op_type: &str,
+) -> Result<Option<String>> {
+    let conn = catalog::open(db_path)?;
+    catalog::operation_run_last_params(&conn, project_path, op_type)
 }
 
 /// Store the panel verdict and the capability-profile hash it was computed

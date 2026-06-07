@@ -276,6 +276,9 @@ export interface AddDesignResult {
  *  (in the drill bridge) and pushed over IPC to the drill window. */
 export interface DrillSnapshot {
   workingDir: string | null;
+  /** The saved `.cuprum` path (project identity), or null for an unsaved project.
+   *  Used to key the operation-run journal; logging is skipped when null. */
+  currentPath: string | null;
   manifest: Manifest | null;
   /** Board extent (mm) per placed design_id; needed for panel drill plan. */
   placedSizes: Record<string, { w: number; h: number }>;
@@ -286,6 +289,24 @@ export interface DrillSnapshot {
   /** DFM thresholds used to classify/snap drill holes. */
   viaMaxDiameterMm: number;
   drillBitToleranceMm: number;
+}
+
+/** One journalled operation run (catalog `operation_runs`). Op-agnostic — drill is
+ *  the first writer; `params_json`/`summary_json` hold op-specific detail. */
+export interface OperationRun {
+  runUid: string;
+  projectPath: string;
+  opType: string;
+  startedAt: number;
+  /** null while the run is in progress. */
+  endedAt: number | null;
+  /** null while in progress; "completed" | "stopped" | "error". */
+  outcome: string | null;
+  /** Total work units (holes/layers/lines); null when not applicable. */
+  progressTotal: number | null;
+  progressDone: number;
+  paramsJson: string;
+  summaryJson: string | null;
 }
 
 export interface Orphan {
@@ -700,6 +721,39 @@ export const api = {
     onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>
       listen<{ message: string }>("drill-run://error", (e) => cb(e.payload.message)),
     onDone: (cb: () => void): Promise<UnlistenFn> => listen("drill-run://done", () => cb()),
+  },
+
+  /** Operation-run journal (catalog DB). Op-agnostic — drill is the first writer.
+   *  Logging is best-effort: callers fire-and-forget and must not let a failure
+   *  block or abort the real operation. */
+  operationLog: {
+    /** Record a launched run (backend stamps started_at). */
+    start: (p: {
+      runUid: string;
+      projectPath: string;
+      opType: string;
+      progressTotal: number | null;
+      paramsJson: string;
+    }) => invoke<void>("operation_run_log_start", p),
+    /** Finalize a run (backend stamps ended_at). */
+    finish: (
+      runUid: string,
+      outcome: "completed" | "stopped" | "error",
+      progressDone: number,
+      summaryJson?: string | null,
+    ) =>
+      invoke<void>("operation_run_log_finish", {
+        runUid,
+        outcome,
+        progressDone,
+        summaryJson: summaryJson ?? null,
+      }),
+    /** List a project's runs (newest first), optionally filtered by op type. */
+    list: (projectPath: string, opType?: string | null) =>
+      invoke<OperationRun[]>("operation_runs_list", { projectPath, opType: opType ?? null }),
+    /** Most recent run's params_json for a project + op type (prefill default). */
+    lastParams: (projectPath: string, opType: string) =>
+      invoke<string | null>("operation_run_last_params", { projectPath, opType }),
   },
 };
 

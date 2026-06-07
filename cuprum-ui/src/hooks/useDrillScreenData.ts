@@ -10,6 +10,7 @@ import type { DrillSnapshot } from "@/lib/api";
  *  changes — useDrillPlan depends on snapshot object identity to avoid reruns. */
 export function useDrillScreenData(): DrillSnapshot {
   const workingDir = useShell((s) => s.workingDir);
+  const currentPath = useShell((s) => s.currentPath);
   const manifest = useShell((s) => s.currentManifest);
   const placedSizes = usePlacedBoardSizes();
   const cncProfile = useSettings((s) => s.cncProfile);
@@ -21,6 +22,7 @@ export function useDrillScreenData(): DrillSnapshot {
     () =>
       buildDrillSnapshot({
         workingDir,
+        currentPath,
         manifest,
         placedSizes,
         cncProfile,
@@ -29,6 +31,6 @@ export function useDrillScreenData(): DrillSnapshot {
         drillBitToleranceMm,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workingDir, manifest, placedSizes, cncProfile, tools, viaMaxDiameterMm, drillBitToleranceMm],
+    [workingDir, currentPath, manifest, placedSizes, cncProfile, tools, viaMaxDiameterMm, drillBitToleranceMm],
   );
 }

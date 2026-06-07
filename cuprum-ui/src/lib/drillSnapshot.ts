@@ -8,6 +8,7 @@ import type { Tool } from "@/lib/toolLibrary";
  *  drill window, which renders the drill operation editor from it. */
 export function buildDrillSnapshot(args: {
   workingDir: string | null;
+  currentPath: string | null;
   manifest: Manifest | null;
   placedSizes: Record<string, { w: number; h: number }>;
   cncProfile: CncProfile;
@@ -17,6 +18,7 @@ export function buildDrillSnapshot(args: {
 }): DrillSnapshot {
   return {
     workingDir: args.workingDir,
+    currentPath: args.currentPath,
     manifest: args.manifest,
     placedSizes: args.placedSizes,
     cncProfile: args.cncProfile,
