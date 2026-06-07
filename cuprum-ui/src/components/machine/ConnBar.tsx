@@ -6,11 +6,18 @@ import { api, type SerialPortInfo } from "@/lib/api";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 
+export interface ConnBarProps {
+  /** Narrow layout for tight columns (e.g. the drill inspector footer): the port
+   *  select stretches to fill its row and the connect button drops to a full-width
+   *  row below, instead of the default single fixed-width row. */
+  compact?: boolean;
+}
+
 /** Connection bar: serial port select + hot-plug refresh + connect/disconnect.
  *  No status pill here — that lives in the toolbar. Live-refreshes the port list
  *  while disconnected (2s poll, paused when the tab is hidden), mirroring the
  *  original ConnectionBar. */
-export function ConnBar() {
+export function ConnBar({ compact = false }: ConnBarProps = {}) {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
   const setCnc = useSettings((s) => s.setCncProfile);
@@ -79,36 +86,42 @@ export function ConnBar() {
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="relative">
-        <select
-          value={selectedPort}
+    <div className={compact ? "flex flex-col gap-2" : "flex items-center gap-2"}>
+      {/* Row 1 (compact) / inline group: port select + hot-plug refresh. */}
+      <div className={compact ? "flex items-center gap-2" : "contents"}>
+        <div className={compact ? "relative flex-1" : "relative"}>
+          <select
+            value={selectedPort}
+            disabled={connected}
+            onChange={(e) => setCnc({ port: e.target.value })}
+            className={`h-9 appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground outline-none disabled:opacity-50 ${
+              compact ? "w-full" : "w-[230px]"
+            }`}
+          >
+            {ports.length === 0 && <option value="">{t("connection.noPorts")}</option>}
+            {ports.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        </div>
+        <button
+          type="button"
+          title={t("connection.refresh")}
+          onClick={refresh}
           disabled={connected}
-          onChange={(e) => setCnc({ port: e.target.value })}
-          className="h-9 w-[230px] appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground outline-none disabled:opacity-50"
+          className="grid size-9 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-50"
         >
-          {ports.length === 0 && <option value="">{t("connection.noPorts")}</option>}
-          {ports.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <RefreshCw className="size-4" />
+        </button>
       </div>
-      <button
-        type="button"
-        title={t("connection.refresh")}
-        onClick={refresh}
-        disabled={connected}
-        className="grid size-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-50"
-      >
-        <RefreshCw className="size-4" />
-      </button>
       <Button
         variant={connected ? "outline" : "default"}
         onClick={onToggle}
         disabled={busy || (!connected && !selectedPort)}
+        className={compact ? "w-full" : undefined}
       >
         {connected ? <Unplug className="size-4" /> : <Plug className="size-4" />}
         {connected ? t("connection.disconnect") : t("connection.connect")}
