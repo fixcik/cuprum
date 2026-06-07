@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
-import type { DrillClass, MachineStateName } from "@/lib/api";
+import type { DrillClass } from "@/lib/api";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { DrillPass } from "@/lib/drillPasses";
@@ -16,8 +16,7 @@ import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
 import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
-import { XYZeroCard } from "@/components/drill/XYZeroCard";
-import { ZTouchOffCard } from "@/components/drill/ZTouchOffCard";
+import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
 
 export interface DrillPlanInspectorProps {
   plan: PanelDrillPlan;
@@ -47,25 +46,20 @@ export interface DrillPlanInspectorProps {
   cncProfile: CncProfile;
   /** Substrate thickness in mm (for preflight time estimate). */
   substrateThicknessMm: number;
-  /** MPos Z captured at touch-off (null = not yet done). */
+  /** MPos Z captured at bind (null = not yet bound). Drives the Z gate. */
   workZeroMachineZ: number | null;
-  /** Called when operator presses "Bind" on the Z touch-off card. */
-  onTouchOff: () => void;
-  /** Called when operator resets the captured Z. */
-  onClearTouchOff: () => void;
-  /** Whether the work X-Y zero has been bound this session. */
-  workZeroXYSet: boolean;
-  /** Called when operator presses "Bind X-Y" on the X-Y zero card. */
-  onBindXY: () => void;
-  /** Called when operator resets the X-Y zero. */
-  onClearXY: () => void;
+  /** Called when operator presses "Set zero here" on the work-zero card. */
+  onBind: () => void;
+  /** Called when operator resets the captured work zero. */
+  onClear: () => void;
+  /** Machine travel limits (mm) forwarded to WorkZeroCard for jog clamping. */
+  maxXMm: number;
+  maxYMm: number;
+  maxZMm: number;
   /** Last work-zero bind error from GRBL (null = none). Shown as a banner. */
   zeroError: string | null;
   /** Pre-computed gate result for the start button. */
   zGate: ZGateResult;
-  /** Machine connection state (forwarded to ZTouchOffCard). */
-  machineConnected: boolean;
-  machineState: MachineStateName;
   /** Whether the machine is connected (for footer start gate). */
   connected: boolean;
   /** Whether the spindle is software-controllable (false = 3018 manual dial). */
@@ -110,15 +104,13 @@ export function DrillPlanInspector({
   cncProfile,
   substrateThicknessMm,
   workZeroMachineZ,
-  onTouchOff,
-  onClearTouchOff,
-  workZeroXYSet,
-  onBindXY,
-  onClearXY,
+  onBind,
+  onClear,
+  maxXMm,
+  maxYMm,
+  maxZMm,
   zeroError,
   zGate,
-  machineConnected,
-  machineState,
   connected,
   spindleControllable,
   hasHoles,
@@ -140,7 +132,7 @@ export function DrillPlanInspector({
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
-    !connected || !hasHoles || !workZeroXYSet || zGate.valid === false || isRunActive;
+    !connected || !hasHoles || zGate.valid === false || isRunActive;
 
   // Hint shown below the start button when a gate condition blocks the run.
   let startHint: string | null = null;
@@ -148,13 +140,11 @@ export function DrillPlanInspector({
     startHint = t("run.notConnected");
   } else if (!hasHoles) {
     startHint = t("run.noHolesForPass");
-  } else if (!workZeroXYSet) {
-    startHint = t("xyzero.notSetHint");
   } else if (zGate.valid === false) {
     if (zGate.reason === "not-zeroed") {
-      startHint = t("ztouch.notZeroedHint");
+      startHint = t("workzero.notZeroedHint");
     } else {
-      startHint = t("ztouch.tooHigh");
+      startHint = t("workzero.tooHigh");
     }
   }
 
@@ -278,30 +268,15 @@ export function DrillPlanInspector({
               </div>
             </div>
 
-            {/* Work X-Y zero card */}
-            <XYZeroCard
-              connected={machineConnected}
-              machineState={machineState}
-              xySet={workZeroXYSet}
-              maxXMm={cncProfile.workEnvelopeMm.x}
-              maxYMm={cncProfile.workEnvelopeMm.y}
-              jogStepsMm={cncProfile.jogStepsMm}
-              jogFeedMmMin={cncProfile.jogFeedMmMin}
-              onBind={onBindXY}
-              onClear={onClearXY}
-            />
-
-            {/* Z touch-off card */}
-            <ZTouchOffCard
-              connected={machineConnected}
-              machineState={machineState}
+            {/* Unified XYZ work-zero card */}
+            <WorkZeroCard
               workZeroMachineZ={workZeroMachineZ}
               safeZMm={cncProfile.safeZMm}
-              maxTravelZMm={cncProfile.workEnvelopeMm.z}
-              jogStepsMm={cncProfile.jogStepsMm}
-              jogFeedMmMin={cncProfile.jogFeedMmMin}
-              onTouchOff={onTouchOff}
-              onClear={onClearTouchOff}
+              maxXMm={maxXMm}
+              maxYMm={maxYMm}
+              maxZMm={maxZMm}
+              onBind={onBind}
+              onClear={onClear}
             />
 
             {/* Work-zero bind error from GRBL (command rejected → zero NOT set). */}

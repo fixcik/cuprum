@@ -100,30 +100,6 @@
     "retract": "Retract",
     "perStep": "/step"
   },
-  "ztouch": {
-    "title": "Z Touch-off",
-    "hint": "Lower the bit to the copper surface, then press Bind.",
-    "touchOff": "Bind",
-    "reset": "Reset",
-    "tooHigh": "Z-zero is too high — the retract will exceed the machine travel; lower the bit to the copper and bind again.",
-    "zLabel": "Z",
-    "perStep": "/step",
-    "zMachine": "Z-zero (machine)",
-    "retract": "Retract",
-    "notZeroed": "Touch off required before starting.",
-    "notZeroedHint": "Set Z-zero before starting"
-  },
-  "xyzero": {
-    "title": "Work X-Y Zero",
-    "hint": "Move the bit to the panel datum corner, then press Bind X-Y.",
-    "bind": "Bind X-Y",
-    "reset": "Reset",
-    "xLabel": "X",
-    "yLabel": "Y",
-    "set": "X-Y bound",
-    "notSet": "Bind X-Y before starting.",
-    "notSetHint": "Bind X-Y before starting"
-  },
   "zero": {
     "bindRejected": "Zero rejected by the machine ({{error}}) — not set. Re-position and bind again."
   },

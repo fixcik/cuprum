@@ -184,7 +184,7 @@ export function WorkZeroCard({
 
       {/* Jog controls: XY 3×3 pad on the left, compact Z column on the right */}
       <div className="flex items-start gap-4">
-        {/* XY 3×3 jog pad (132 px wide — same as XYZeroCard) */}
+        {/* XY 3×3 jog pad (132 px wide) */}
         <div className="grid w-[132px] grid-cols-3 gap-1.5">
           <span />
           <button
