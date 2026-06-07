@@ -96,6 +96,13 @@ pub fn set_work_zero(x: bool, y: bool, z: bool) -> String {
     s
 }
 
+/// Strict straight-probe toward the work: `G38.2 Z-<max_dist> F<feed>`. Descends
+/// until the probe pin triggers (sets the work Z reference at contact) or, on no
+/// contact within `max_dist` mm, raises a probe-fail ALARM (G38.2 = strict).
+pub fn probe_z(max_dist: f32, feed: f32) -> String {
+    format!("G38.2 Z-{max_dist} F{feed}")
+}
+
 pub fn home() -> &'static str {
     "$H"
 }
@@ -115,6 +122,12 @@ pub fn spindle_off() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_z_is_strict_downward_probe() {
+        assert_eq!(probe_z(8.0, 50.0), "G38.2 Z-8 F50");
+        assert_eq!(probe_z(6.5, 50.0), "G38.2 Z-6.5 F50");
+    }
 
     #[test]
     fn jog_omits_zero_axes_and_appends_feed() {
