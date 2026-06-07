@@ -4,6 +4,12 @@ import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { COPPER_STROKE, CANVAS_BG } from "@/components/editor/canvasStyle";
 
+// CSS has no native "rotate" cursor, so we use a custom one: a circular-arrow glyph
+// (lucide RotateCw shape) drawn white over a dark halo so it reads on both the dark
+// canvas and a green board. Hotspot is the 24×24 centre (12,12). `grab` is the fallback.
+const ROTATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="#0a0c10" stroke-width="4"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/></g><g stroke="#ffffff" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/></g></svg>`;
+const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ROTATE_SVG)}") 12 12, grab`;
+
 /** Free-rotation knob for the current panel selection. The knob sits just OUTSIDE a
  *  bbox corner (diagonal stub), leaving the top-centre clear for the selection HUD;
  *  rotation is still about the selection-bbox centre `(cx,cy)`. Dragging the knob
@@ -106,7 +112,7 @@ export function RotationHandle({
         onDragEnd={onDragEnd}
         onMouseEnter={(e) => {
           const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = "grab";
+          if (stage) stage.container().style.cursor = ROTATE_CURSOR;
         }}
         onMouseLeave={(e) => {
           const stage = e.target.getStage();
