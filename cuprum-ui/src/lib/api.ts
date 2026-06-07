@@ -597,6 +597,11 @@ export const api = {
     listPorts: () => invoke<SerialPortInfo[]>("list_serial_ports"),
     connect: (port: string, baud: number, telemetry: Channel<Telemetry>) =>
       invoke<void>("machine_connect", { port, baud, telemetry }),
+    /** Re-bind a fresh telemetry Channel to a connection the backend kept alive
+     *  across a webview reload. Returns the held port, or null if nothing is
+     *  connected (machine.rs `machine_reattach`). */
+    reattach: (telemetry: Channel<Telemetry>) =>
+      invoke<{ port: string } | null>("machine_reattach", { telemetry }),
     disconnect: () => invoke<void>("machine_disconnect"),
     jog: (dx: number, dy: number, dz: number, feed: number) =>
       invoke<void>("machine_jog", { dx, dy, dz, feed }),

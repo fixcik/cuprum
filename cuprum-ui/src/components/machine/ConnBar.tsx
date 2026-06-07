@@ -16,9 +16,18 @@ export function ConnBar() {
   const setCnc = useSettings((s) => s.setCncProfile);
   const connected = useMachine((s) => s.connected);
   const connect = useMachine((s) => s.connect);
+  const reattach = useMachine((s) => s.reattach);
   const disconnect = useMachine((s) => s.disconnect);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [busy, setBusy] = useState(false);
+
+  // After a webview reload the store resets to "disconnected" while the Rust
+  // backend may still hold the serial port. Re-bind on mount so the UI recovers
+  // the live connection instead of stranding it (a fresh connect would then hit
+  // "already connected"). No-op if already connected or nothing is held.
+  useEffect(() => {
+    void reattach();
+  }, [reattach]);
 
   const refresh = useCallback(() => {
     void api.machine.listPorts().then(setPorts).catch(() => setPorts([]));

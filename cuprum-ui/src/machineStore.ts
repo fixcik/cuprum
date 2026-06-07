@@ -44,6 +44,11 @@ interface MachineStore {
    *  bracketed by the homeAwait command, not the status stream. */
   homing: boolean;
   connect: (port: string, baud: number) => Promise<void>;
+  /** Re-bind to a connection the backend kept alive across a webview reload: if
+   *  the Rust side still holds the serial port, subscribe a fresh telemetry
+   *  Channel and restore connection state. No-op if already connected or nothing
+   *  is held. Call once on mount. */
+  reattach: () => Promise<void>;
   disconnect: () => Promise<void>;
   pushLine: (line: Omit<ConsoleLine, "ts">) => void;
   setStatus: (status: MachineStatus) => void;
@@ -65,17 +70,16 @@ let travelBuf: [number | null, number | null, number | null] = [null, null, null
 // frame. Reset on connect.
 let seenAlarmAfterConnect = false;
 
-export const useMachine = create<MachineStore>((set, get) => ({
-  connected: false,
-  port: null,
-  status: IDLE_STATUS,
-  lines: [],
-  homingAvailable: false,
-  softLimitsEnabled: null,
-  maxTravelMm: null,
-  homed: false,
-  homing: false,
-  connect: async (port, baud) => {
+// Guards against overlapping reattach() calls (e.g. React StrictMode's double
+// mount fires the effect twice): the `connected` check alone doesn't, since both
+// calls pass it before the awaited backend round-trip resolves.
+let reattaching = false;
+
+export const useMachine = create<MachineStore>((set, get) => {
+  // Build a telemetry Channel wired to the store. Shared by connect() and
+  // reattach() so a post-reload re-bind streams status/console exactly like a
+  // fresh connect.
+  const buildChannel = (): Channel<Telemetry> => {
     const ch = new Channel<Telemetry>();
     ch.onmessage = (msg) => {
       if (msg.type === "status") {
@@ -102,7 +106,12 @@ export const useMachine = create<MachineStore>((set, get) => ({
           });
       }
     };
-    await api.machine.connect(port, baud, ch);
+    return ch;
+  };
+
+  // Post-connect bring-up shared by connect() and reattach(): reset the derived
+  // state, mark connected, re-query $$ and run the re-reference detection.
+  const finishConnect = async (port: string) => {
     // Start unhomed; the detection below may upgrade this if the controller kept
     // its reference across the reconnect. Soft-limit state is unknown until the
     // following $$ query reports it.
@@ -129,66 +138,96 @@ export const useMachine = create<MachineStore>((set, get) => ({
       )
         set({ homed: true });
     }, HOME_DETECT_DELAY_MS);
-  },
-  disconnect: async () => {
-    if (!get().connected) return;
-    await api.machine.disconnect();
-    get().reset();
-  },
-  // Stamp the local arrival time front-side so the console can show per-line
-  // timings (e.g. how long an `ok` took).
-  pushLine: (line) =>
-    set((s) => ({ lines: [...s.lines.slice(-(MAX_LINES - 1)), { ...line, ts: Date.now() }] })),
-  // Track the homing cycle via the status stream: a transition out of the `home`
-  // state into `idle` means the cycle completed, so the frame is referenced
-  // (homed). Entering `alarm` clears it — an alarm voids the known position.
-  setStatus: (status) =>
-    set((s) => {
-      const prev = s.status.state;
-      let homed = s.homed;
-      if (prev === "home" && status.state === "idle") homed = true;
-      else if (status.state === "alarm") {
-        homed = false;
-        // Remember the alarm so connect's re-reference detection won't mistake a
-        // later `$X`-cleared idle for an already-homed frame.
-        seenAlarmAfterConnect = true;
+  };
+
+  return {
+    connected: false,
+    port: null,
+    status: IDLE_STATUS,
+    lines: [],
+    homingAvailable: false,
+    softLimitsEnabled: null,
+    maxTravelMm: null,
+    homed: false,
+    homing: false,
+    connect: async (port, baud) => {
+      await api.machine.connect(port, baud, buildChannel());
+      await finishConnect(port);
+    },
+    reattach: async () => {
+      // Already wired up in this JS context, or a reattach is mid-flight — nothing
+      // to do. `reattaching` is set synchronously so overlapping calls bail before
+      // the awaited backend round-trip.
+      if (get().connected || reattaching) return;
+      reattaching = true;
+      try {
+        const info = await api.machine.reattach(buildChannel());
+        // null => the backend holds no connection (normal cold start).
+        if (info) await finishConnect(info.port);
+      } finally {
+        reattaching = false;
       }
-      return homed === s.homed ? { status } : { status, homed };
-    }),
-  // GRBL stays silent during the cycle, so completion can't be read from the
-  // status stream — homeAwait resolves on the `$H` ok (homed) and rejects on
-  // failure/abort. The overlay tracks `homing`.
-  runHoming: async () => {
-    if (get().homing) return;
-    set({ homing: true });
-    try {
-      await api.machine.homeAwait();
-      set({ homed: true, homing: false });
-    } catch (e) {
-      // cancelHoming already cleared `homing`; an "aborted" reject is expected
-      // then. Only surface the reason; the alarm banner covers genuine failures.
-      get().pushLine({ dir: "rx", text: `homing: ${String(e)}` });
+    },
+    disconnect: async () => {
+      if (!get().connected) return;
+      await api.machine.disconnect();
+      get().reset();
+    },
+    // Stamp the local arrival time front-side so the console can show per-line
+    // timings (e.g. how long an `ok` took).
+    pushLine: (line) =>
+      set((s) => ({ lines: [...s.lines.slice(-(MAX_LINES - 1)), { ...line, ts: Date.now() }] })),
+    // Track the homing cycle via the status stream: a transition out of the `home`
+    // state into `idle` means the cycle completed, so the frame is referenced
+    // (homed). Entering `alarm` clears it — an alarm voids the known position.
+    setStatus: (status) =>
+      set((s) => {
+        const prev = s.status.state;
+        let homed = s.homed;
+        if (prev === "home" && status.state === "idle") homed = true;
+        else if (status.state === "alarm") {
+          homed = false;
+          // Remember the alarm so connect's re-reference detection won't mistake a
+          // later `$X`-cleared idle for an already-homed frame.
+          seenAlarmAfterConnect = true;
+        }
+        return homed === s.homed ? { status } : { status, homed };
+      }),
+    // GRBL stays silent during the cycle, so completion can't be read from the
+    // status stream — homeAwait resolves on the `$H` ok (homed) and rejects on
+    // failure/abort. The overlay tracks `homing`.
+    runHoming: async () => {
+      if (get().homing) return;
+      set({ homing: true });
+      try {
+        await api.machine.homeAwait();
+        set({ homed: true, homing: false });
+      } catch (e) {
+        // cancelHoming already cleared `homing`; an "aborted" reject is expected
+        // then. Only surface the reason; the alarm banner covers genuine failures.
+        get().pushLine({ dir: "rx", text: `homing: ${String(e)}` });
+        set({ homing: false });
+      }
+    },
+    cancelHoming: () => {
+      if (!get().homing) return;
+      void api.machine.softReset();
       set({ homing: false });
-    }
-  },
-  cancelHoming: () => {
-    if (!get().homing) return;
-    void api.machine.softReset();
-    set({ homing: false });
-  },
-  // Keep `lines` so the user still sees why the connection dropped (e.g. the
-  // error line pushed just before an unplug). Connection state + DRO reset.
-  reset: () => {
-    travelBuf = [null, null, null];
-    set({
-      connected: false,
-      port: null,
-      status: IDLE_STATUS,
-      homingAvailable: false,
-      softLimitsEnabled: null,
-      maxTravelMm: null,
-      homed: false,
-      homing: false,
-    });
-  },
-}));
+    },
+    // Keep `lines` so the user still sees why the connection dropped (e.g. the
+    // error line pushed just before an unplug). Connection state + DRO reset.
+    reset: () => {
+      travelBuf = [null, null, null];
+      set({
+        connected: false,
+        port: null,
+        status: IDLE_STATUS,
+        homingAvailable: false,
+        softLimitsEnabled: null,
+        maxTravelMm: null,
+        homed: false,
+        homing: false,
+      });
+    },
+  };
+});
