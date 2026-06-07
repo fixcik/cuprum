@@ -308,6 +308,31 @@ describe("drillRunReducer", () => {
     });
   });
 
+describe("drillRunReducer — zBound (per-tool Z gate)", () => {
+  it("starts unbound", () => {
+    expect(initialDrillRunState.zBound).toBe(false);
+    const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+    expect(started.zBound).toBe(false);
+  });
+
+  it("zbound sets zBound true", () => {
+    const s = drillRunReducer(initialDrillRunState, { type: "zbound" });
+    expect(s.zBound).toBe(true);
+  });
+
+  it("entering a tool change clears zBound", () => {
+    const bound = drillRunReducer(initialDrillRunState, { type: "zbound" });
+    const tc = drillRunReducer(bound, { type: "toolchange", toolName: "0.8mm", diameterMm: 0.8 });
+    expect(tc.phase).toBe("awaitingToolChange");
+    expect(tc.zBound).toBe(false);
+  });
+
+  it("reset clears zBound", () => {
+    const bound = drillRunReducer(initialDrillRunState, { type: "zbound" });
+    expect(drillRunReducer(bound, { type: "reset" }).zBound).toBe(false);
+  });
+});
+
   // 9. reducer does not mutate the input state object
   it("does not mutate the input state", () => {
     const original: DrillRunState = {

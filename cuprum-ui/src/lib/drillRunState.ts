@@ -14,6 +14,9 @@ export interface DrillRunState {
   holesTotal: number;
   currentHoleIndex: number | null;
   toolChange: { toolName: string; diameterMm: number } | null;
+  /** Whether Z has been re-bound for the CURRENT bit (probe or manual touch-off).
+   *  Resets when a tool change begins; gates "Продолжить"/"Начать". Frontend-only. */
+  zBound: boolean;
   error: string | null;
   runStartedAt: number | null;
 }
@@ -25,7 +28,8 @@ export type DrillRunEvent =
   | { type: "toolchange"; toolName: string; diameterMm: number }
   | { type: "error"; message: string }
   | { type: "done" }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "zbound" };
 
 export const initialDrillRunState: DrillRunState = {
   phase: "idle",
@@ -33,6 +37,7 @@ export const initialDrillRunState: DrillRunState = {
   holesTotal: 0,
   currentHoleIndex: null,
   toolChange: null,
+  zBound: false,
   error: null,
   runStartedAt: null,
 };
@@ -67,7 +72,11 @@ export function drillRunReducer(
         ...s,
         phase: "awaitingToolChange",
         toolChange: { toolName: e.toolName, diameterMm: e.diameterMm },
+        zBound: false,
       };
+
+    case "zbound":
+      return { ...s, zBound: true };
 
     case "state": {
       if (e.phase === "running") {
