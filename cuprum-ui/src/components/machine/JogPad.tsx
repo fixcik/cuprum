@@ -11,7 +11,6 @@ import {
   ArrowUpRight,
   ChevronDown,
   ChevronUp,
-  Infinity as InfinityIcon,
   LocateFixed,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -19,6 +18,7 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { useJog } from "@/hooks/useJog";
+import { JogStepControl } from "@/components/machine/JogStepControl";
 
 const jogBtn =
   "group relative grid h-12 place-items-center rounded-lg border border-border bg-background text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground active:scale-[0.96] active:bg-primary/10 active:text-primary disabled:opacity-30 disabled:pointer-events-none";
@@ -217,43 +217,13 @@ export function JogPad() {
 
       {/* step + feed */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted-foreground">{t("jog.stepMm")}</span>
-          <div className="inline-flex overflow-hidden rounded-md border border-border">
-            {cnc.jogStepsMm.map((s) => {
-              const on = step === s;
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => {
-                    stopContinuous(); // halt any in-flight continuous move first
-                    setStep(s);
-                  }}
-                  className={`px-2.5 py-1 text-[12px] tabular-nums transition-colors ${
-                    on
-                      ? "bg-primary font-semibold text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {s}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              title={t("jog.continuousHint")}
-              onClick={() => setStep("cont")}
-              className={`grid place-items-center px-2.5 py-1 text-[12px] transition-colors ${
-                continuous
-                  ? "bg-primary font-semibold text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <InfinityIcon className="size-3.5" />
-            </button>
-          </div>
-        </div>
+        <JogStepControl
+          steps={cnc.jogStepsMm}
+          step={step}
+          setStep={setStep}
+          continuous={continuous}
+          onBeforeChange={stopContinuous}
+        />
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-muted-foreground">{t("jog.feed")}</span>
           <div className="relative">

@@ -5,6 +5,8 @@ import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { clampJogDelta } from "@/lib/jogClamp";
+import { resolveJogBounds } from "@/lib/jogBounds";
+import type { JogBounds } from "@/lib/jogBounds";
 
 export type JogStep = number | "cont";
 
@@ -37,12 +39,16 @@ export const useJogStep = create<JogStepStore>((set) => ({
 // at a time. Plain (non-reactive) on purpose: it gates sends, it isn't rendered.
 let moving = false;
 
+export type { JogBounds };
+
 /** Shared jog controller used by the jog pad, the Z bar and the work field: the
  *  shared step state, a one-shot step jog (`go`), a continuous hold jog
  *  (`startContinuous`/`stopContinuous`), and an absolute cancel-then-retarget
- *  click-to-move (`jogTo`). Every move is clamped to the work envelope
- *  (X∈[0,x], Y∈[0,y], Z∈[-z,0]) from the live machine position. */
-export function useJog() {
+ *  click-to-move (`jogTo`). Every move is clamped to the resolved bounds (default:
+ *  X∈[0,x], Y∈[0,y], Z∈[-z,0]) from the live machine position. Pass `bounds` to
+ *  override the clamp range, e.g. for machine-frame touch-off before work zero is
+ *  set. */
+export function useJog(opts?: { bounds?: JogBounds }) {
   const cnc = useSettings((s) => s.cncProfile);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
@@ -51,26 +57,32 @@ export function useJog() {
   const setStep = useJogStep((s) => s.setStep);
   const continuous = step === "cont";
 
-  // Step jog: one relative move per call, each axis clamped to the envelope from
-  // the live mpos. No-op if every clamped axis is below the edge threshold.
+  // Resolve clamp bounds once per render; destructure to six stable primitives so
+  // the callbacks can list them as deps without an object identity churn each render.
+  const b = resolveJogBounds(cnc.workEnvelopeMm, opts?.bounds);
+  const [bx0, bx1] = b.x;
+  const [by0, by1] = b.y;
+  const [bz0, bz1] = b.z;
+
+  // Step jog: one relative move per call, each axis clamped to the bounds from the
+  // live mpos. No-op if every clamped axis is below the edge threshold.
   const go = useCallback(
     (dx: number, dy: number, dz: number) => {
       if (!enabled || typeof step !== "number") return;
       const mpos = useMachine.getState().status.mpos;
-      const env = cnc.workEnvelopeMm;
-      const ax = clampJogDelta(dx * step, mpos[0], 0, env.x);
-      const ay = clampJogDelta(dy * step, mpos[1], 0, env.y);
-      const az = clampJogDelta(dz * step, mpos[2], -env.z, 0);
+      const ax = clampJogDelta(dx * step, mpos[0], bx0, bx1);
+      const ay = clampJogDelta(dy * step, mpos[1], by0, by1);
+      const az = clampJogDelta(dz * step, mpos[2], bz0, bz1);
       if (Math.abs(ax) < MIN_JOG_MM && Math.abs(ay) < MIN_JOG_MM && Math.abs(az) < MIN_JOG_MM) return;
       void api.machine.jog(ax, ay, az, cnc.jogFeedMmMin);
     },
-    [enabled, step, cnc.jogFeedMmMin, cnc.workEnvelopeMm],
+    [enabled, step, cnc.jogFeedMmMin, bx0, bx1, by0, by1, bz0, bz1],
   );
 
-  // Continuous jog: a single jog toward the envelope edge along the chosen
-  // direction; the trailing jog-cancel on release stops it early. For diagonals
-  // every active axis is clamped to the smallest available room so motion stays
-  // on a true 45° line and never leaves the envelope.
+  // Continuous jog: a single jog toward the bounds edge along the chosen direction;
+  // the trailing jog-cancel on release stops it early. For diagonals every active
+  // axis is clamped to the smallest available room so motion stays on a true 45°
+  // line and never leaves the bounds.
   const startContinuous = useCallback(
     async (sx: number, sy: number, sz: number) => {
       if (!enabled) return;
@@ -82,10 +94,9 @@ export function useJog() {
         await api.machine.jogCancel();
       }
       const mpos = useMachine.getState().status.mpos;
-      const env = cnc.workEnvelopeMm;
-      const roomX = sx > 0 ? env.x - mpos[0] : sx < 0 ? mpos[0] : Infinity;
-      const roomY = sy > 0 ? env.y - mpos[1] : sy < 0 ? mpos[1] : Infinity;
-      const roomZ = sz > 0 ? 0 - mpos[2] : sz < 0 ? mpos[2] - -env.z : Infinity;
+      const roomX = sx > 0 ? bx1 - mpos[0] : sx < 0 ? mpos[0] - bx0 : Infinity;
+      const roomY = sy > 0 ? by1 - mpos[1] : sy < 0 ? mpos[1] - by0 : Infinity;
+      const roomZ = sz > 0 ? bz1 - mpos[2] : sz < 0 ? mpos[2] - bz0 : Infinity;
       const room = Math.min(
         sx !== 0 ? Math.max(0, roomX) : Infinity,
         sy !== 0 ? Math.max(0, roomY) : Infinity,
@@ -95,7 +106,7 @@ export function useJog() {
       moving = true;
       void api.machine.jog(sx * room, sy * room, sz * room, cnc.jogFeedMmMin);
     },
-    [enabled, cnc.workEnvelopeMm, cnc.jogFeedMmMin],
+    [enabled, bx0, bx1, by0, by1, bz0, bz1, cnc.jogFeedMmMin],
   );
 
   const stopContinuous = useCallback(() => {
@@ -105,26 +116,25 @@ export function useJog() {
   }, []);
 
   // Absolute click-to-move jog: drive the given axes (work coordinates) to their
-  // targets, each clamped to the work envelope. Cancels any in-flight jog first
-  // so a fresh click RETARGETS instead of queuing behind the old move (GRBL
-  // buffers jogs) — and because a jog keeps the machine in the `jog` state (still
-  // `canMove`), the click surface stays live, so re-clicks aren't blocked. Uses
-  // an absolute target ($J=G90) so it's robust to where the cancel decelerated.
+  // targets, each clamped to the bounds. Cancels any in-flight jog first so a
+  // fresh click RETARGETS instead of queuing behind the old move (GRBL buffers
+  // jogs) — and because a jog keeps the machine in the `jog` state (still
+  // `canMove`), the click surface stays live, so re-clicks aren't blocked. Uses an
+  // absolute target ($J=G90) so it's robust to where the cancel decelerated.
   // `feed` defaults to the jog feed; pass RAPID_JOG_FEED for rapid-like traverse.
   const jogTo = useCallback(
     async (target: { x?: number; y?: number; z?: number }, feed = cnc.jogFeedMmMin) => {
       if (!enabled) return;
       const { mpos, wpos } = useMachine.getState().status;
-      const env = cnc.workEnvelopeMm;
-      // Clamp each work-space target to the envelope via the live work offset
-      // (wco = machine − work), so a target can never leave [0,x]/[0,y]/[-z,0].
+      // Clamp each work-space target to the bounds via the live work offset
+      // (wco = machine − work), so the target stays within [lo, hi] in machine coords.
       const clampWork = (work: number, axis: 0 | 1 | 2, lo: number, hi: number): number => {
         const wco = mpos[axis] - wpos[axis];
         return Math.min(hi, Math.max(lo, work + wco)) - wco;
       };
-      const tx = target.x !== undefined ? clampWork(target.x, 0, 0, env.x) : undefined;
-      const ty = target.y !== undefined ? clampWork(target.y, 1, 0, env.y) : undefined;
-      const tz = target.z !== undefined ? clampWork(target.z, 2, -env.z, 0) : undefined;
+      const tx = target.x !== undefined ? clampWork(target.x, 0, bx0, bx1) : undefined;
+      const ty = target.y !== undefined ? clampWork(target.y, 1, by0, by1) : undefined;
+      const tz = target.z !== undefined ? clampWork(target.z, 2, bz0, bz1) : undefined;
       // Skip a no-op jog (target already at the current position) — GRBL rejects a
       // zero-distance $J with an error, which would just be console noise.
       const atTarget = (t: number | undefined, axis: 0 | 1 | 2) =>
@@ -138,7 +148,7 @@ export function useJog() {
       }
       void api.machine.jogTo({ x: tx, y: ty, z: tz }, feed);
     },
-    [enabled, cnc.workEnvelopeMm, cnc.jogFeedMmMin],
+    [enabled, bx0, bx1, by0, by1, bz0, bz1, cnc.jogFeedMmMin],
   );
 
   // Stop any in-flight continuous jog the moment motion becomes disallowed

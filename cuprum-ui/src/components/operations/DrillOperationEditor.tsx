@@ -79,13 +79,8 @@ export function DrillOperationEditor() {
   // Selected hole on the drill canvas (key = `${gi}-${hi}`); null = none.
   const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
 
-  // Z touch-off: MPos Z captured at the copper surface (null = not yet touched off).
+  // MPos Z captured when the operator binds XYZ work zero (null = not yet bound).
   const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
-
-  // Work X-Y zero bound at the datum corner this session (ephemeral). The run's
-  // G-code is in work coords (origin = datum corner), so this must be set or the
-  // run lands off the panel.
-  const [workZeroXYSet, setWorkZeroXYSet] = useState(false);
 
   // Last work-zero bind error from GRBL (e.g. the command was rejected). Shown to
   // the operator; while set it means the corresponding zero was NOT applied.
@@ -110,61 +105,37 @@ export function DrillOperationEditor() {
   // Live feed override % reported by GRBL (overrides[0]), may be undefined until first status.
   const grblFeedPct = useMachine((s) => s.status.overrides?.[0]);
 
-  // A homing cycle (or alarm/disconnect that voids `homed`) invalidates BOTH the Z
-  // touch-off and the X-Y zero: the captured machine references no longer map to
-  // the panel. Force a re-bind so the start gate can't pass on a stale reference.
+  // A homing cycle (or alarm/disconnect that voids `homed`) invalidates the work
+  // zero: the captured machine reference no longer maps to the panel. Force a
+  // re-bind so the start gate can't pass on a stale reference.
   useEffect(() => {
     if (!machineHomed || machineState === "home") {
       setWorkZeroMachineZ(null);
-      setWorkZeroXYSet(false);
     }
   }, [machineHomed, machineState]);
 
-  // Set the Z work zero (G54) at the copper surface, waiting for GRBL to accept it.
-  // Only on a confirmed `ok` do we capture MPos Z and pass the gate — a rejected
-  // command leaves Z un-zeroed (gate stays closed) instead of crashing the run in
-  // a stale coordinate system. Captures MPos AFTER the ack.
-  const handleTouchOff = useCallback(async () => {
+  // Bind all three axes (G10 L20 P1 X0 Y0 Z0) at the current position (the datum
+  // corner on the copper surface), waiting for GRBL to accept it. Only on a
+  // confirmed `ok` do we capture MPos Z and open the start gate — a rejected
+  // command leaves the gate closed instead of crashing the run in stale coords.
+  const handleBindZero = useCallback(async () => {
     const { status, connected } = useMachine.getState();
     if (!canMove(status.state, connected) || bindingRef.current) return;
     bindingRef.current = true;
     try {
-      await api.machine.setZero(false, false, true); // G10 L20 P1 Z0, awaits ok
+      await api.machine.setZero(true, true, true); // G10 L20 P1 X0 Y0 Z0, awaits ok
       setZeroError(null);
       setWorkZeroMachineZ(useMachine.getState().status.mpos[2]);
     } catch (e) {
       setWorkZeroMachineZ(null);
-      setZeroError(`Z: ${String(e)}`);
+      setZeroError(String(e));
     } finally {
       bindingRef.current = false;
     }
   }, []);
 
-  const handleClearTouchOff = useCallback(() => {
+  const handleClearZero = useCallback(() => {
     setWorkZeroMachineZ(null);
-  }, []);
-
-  // Bind the work X-Y zero (G54) at the current position (the datum corner),
-  // waiting for GRBL to accept it. Only a confirmed `ok` marks X-Y bound; a
-  // rejected command leaves it unset so the start gate stays closed.
-  const handleBindXY = useCallback(async () => {
-    const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected) || bindingRef.current) return;
-    bindingRef.current = true;
-    try {
-      await api.machine.setZero(true, true, false); // G10 L20 P1 X0 Y0, awaits ok
-      setZeroError(null);
-      setWorkZeroXYSet(true);
-    } catch (e) {
-      setWorkZeroXYSet(false);
-      setZeroError(`X-Y: ${String(e)}`);
-    } finally {
-      bindingRef.current = false;
-    }
-  }, []);
-
-  const handleClearXY = useCallback(() => {
-    setWorkZeroXYSet(false);
   }, []);
 
   const zGate = checkZGate(workZeroMachineZ, cncProfile?.safeZMm ?? 5);
@@ -267,12 +238,11 @@ export function DrillOperationEditor() {
     while (diff <= -1) { if (!(await step("-1"))) return; diff += 1; }
   }, []);
 
-  // Called when the operator finishes a pass: mark it done, reset Z touch-off,
+  // Called when the operator finishes a pass: mark it done, reset work zero,
   // advance pass, and return the run to idle (so the inspector leaves RUN mode).
   const handlePassDone = useCallback(() => {
     setPassDone((prev) => new Set([...prev, activePassId]));
     setWorkZeroMachineZ(null);
-    setWorkZeroXYSet(false);
     // Advance to the next pass in DRILL_PASSES order that has not been completed yet.
     const nextPass = DRILL_PASSES.find(
       (p) => p.id !== activePassId && !passDone.has(p.id),
@@ -387,15 +357,13 @@ export function DrillOperationEditor() {
             cncProfile={cncProfile}
             substrateThicknessMm={substrateThicknessMm}
             workZeroMachineZ={workZeroMachineZ}
-            onTouchOff={handleTouchOff}
-            onClearTouchOff={handleClearTouchOff}
-            workZeroXYSet={workZeroXYSet}
-            onBindXY={handleBindXY}
-            onClearXY={handleClearXY}
+            onBind={handleBindZero}
+            onClear={handleClearZero}
+            maxXMm={cncProfile.workEnvelopeMm.x}
+            maxYMm={cncProfile.workEnvelopeMm.y}
+            maxZMm={cncProfile.workEnvelopeMm.z}
             zeroError={zeroError}
             zGate={zGate}
-            machineConnected={machineConnected}
-            machineState={machineState}
             connected={machineConnected}
             spindleControllable={cncProfile.spindleControllable ?? false}
             hasHoles={route.totalHoles > 0}
