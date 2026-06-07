@@ -64,15 +64,19 @@ export function useJog(opts?: { bounds?: JogBounds }) {
   const [by0, by1] = b.y;
   const [bz0, bz1] = b.z;
 
-  // Step jog: one relative move per call, each axis clamped to the bounds from the
-  // live mpos. No-op if every clamped axis is below the edge threshold.
+  // Step jog: one relative move per call, each requested axis clamped to the bounds
+  // from the live mpos. Axes with a zero requested delta are left UNTOUCHED — never
+  // pass them through clampJogDelta, which would "correct" an out-of-range live
+  // position back toward the bound and move an axis the caller never asked for
+  // (e.g. a bounds.z of [0,0] dragging Z to the ceiling on a plain X jog). No-op if
+  // every requested axis is below the edge threshold.
   const go = useCallback(
     (dx: number, dy: number, dz: number) => {
       if (!enabled || typeof step !== "number") return;
       const mpos = useMachine.getState().status.mpos;
-      const ax = clampJogDelta(dx * step, mpos[0], bx0, bx1);
-      const ay = clampJogDelta(dy * step, mpos[1], by0, by1);
-      const az = clampJogDelta(dz * step, mpos[2], bz0, bz1);
+      const ax = dx !== 0 ? clampJogDelta(dx * step, mpos[0], bx0, bx1) : 0;
+      const ay = dy !== 0 ? clampJogDelta(dy * step, mpos[1], by0, by1) : 0;
+      const az = dz !== 0 ? clampJogDelta(dz * step, mpos[2], bz0, bz1) : 0;
       if (Math.abs(ax) < MIN_JOG_MM && Math.abs(ay) < MIN_JOG_MM && Math.abs(az) < MIN_JOG_MM) return;
       void api.machine.jog(ax, ay, az, cnc.jogFeedMmMin);
     },
