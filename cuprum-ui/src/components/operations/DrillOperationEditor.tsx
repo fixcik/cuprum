@@ -28,6 +28,10 @@ import { canMove } from "@/lib/machineControls";
 import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
 import { type ZGateResult, checkZGate } from "@/lib/zGate";
 
+/** Phases in which a run is live; a transition out of this set into done/error/idle
+ *  is the run's terminal event (used to journal the outcome). */
+const ACTIVE_RUN_PHASES = new Set(["running", "pausing", "paused", "stopping", "awaitingToolChange"]);
+
 /** Drill operation editor. Renders the hole map, pass selector, summary, and run
  *  panel from a pushed `DrillSnapshot` (the editor lives in the separate drill
  *  window, so project data arrives via IPC, not the store). Machine state comes
@@ -225,11 +229,63 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   const run = useDrillRun();
   const machineWork = useMachinePosition();
 
+  // run_uid of the in-flight journalled run (null when none is being logged, e.g.
+  // unsaved project). Set on start, cleared when the terminal outcome is written.
+  const runUidRef = useRef<string | null>(null);
+
   const handleStart = useCallback(() => {
     const exec = buildProgram(machineWork ? { x: machineWork.x, y: machineWork.y } : undefined);
-    if (exec) void run.start(exec.steps);
-  }, [buildProgram, machineWork, run]);
+    if (!exec) return;
+    void run.start(exec.steps);
+    // Best-effort journal write — never blocks or aborts the real run. Skipped for
+    // an unsaved project (no stable path to key history on).
+    const projectPath = snap.currentPath;
+    if (projectPath) {
+      const uid = crypto.randomUUID();
+      runUidRef.current = uid;
+      const holesTotal = exec.steps.filter((s) => s.kind === "hole").length;
+      const params = {
+        selectedHoleIds: [...selectedHoleIds],
+        bitOverrides: Object.fromEntries(bitOverrides),
+        datum: drillDatumCorner,
+        feedOverridePct,
+        workZeroMachineXY,
+        estimateSec: totalEstimateSec,
+      };
+      void api.operationLog
+        .start({ runUid: uid, projectPath, opType: "drill", progressTotal: holesTotal, paramsJson: JSON.stringify(params) })
+        .catch(() => {});
+    }
+  }, [
+    buildProgram,
+    machineWork,
+    run,
+    snap.currentPath,
+    selectedHoleIds,
+    bitOverrides,
+    drillDatumCorner,
+    feedOverridePct,
+    workZeroMachineXY,
+    totalEstimateSec,
+  ]);
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
+
+  // Journal the run outcome on the active→terminal transition (best-effort). The
+  // backend has no distinct "stopped" event — both graceful stop and estop end at
+  // "idle" — so idle-after-active maps to "stopped".
+  const prevPhaseRef = useRef(run.state.phase);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    const cur = run.state.phase;
+    prevPhaseRef.current = cur;
+    const uid = runUidRef.current;
+    if (!uid) return;
+    if (ACTIVE_RUN_PHASES.has(prev) && !ACTIVE_RUN_PHASES.has(cur)) {
+      runUidRef.current = null;
+      const outcome = cur === "done" ? "completed" : cur === "error" ? "error" : "stopped";
+      void api.operationLog.finish(uid, outcome, run.state.holesCompleted).catch(() => {});
+    }
+  }, [run.state.phase, run.state.holesCompleted]);
 
   // Mark holes drilled as the run reports progress (route order → stable ids).
   // Robust to partial stops: only the holes actually completed get marked.

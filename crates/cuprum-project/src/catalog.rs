@@ -27,6 +27,27 @@ pub struct RecentProject {
     pub profile_hash: Option<String>,
 }
 
+/// One journalled operation run (drill / exposure / milling …). Op-agnostic:
+/// op-specific config + summary live in the JSON columns.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OperationRun {
+    pub run_uid: String,
+    pub project_path: String,
+    pub op_type: String,
+    pub started_at: i64,
+    /// `None` while the run is still in progress.
+    pub ended_at: Option<i64>,
+    /// `None` while in progress; otherwise "completed" / "stopped" / "error".
+    pub outcome: Option<String>,
+    /// Total work units (holes / layers / lines); `None` when not applicable.
+    pub progress_total: Option<i64>,
+    pub progress_done: i64,
+    /// Op-specific launch config (JSON) — also the source for "repeat last".
+    pub params_json: String,
+    /// Op-specific outcome detail (JSON); `None` until the run finishes.
+    pub summary_json: Option<String>,
+}
+
 /// Open (creating if needed) the catalog DB and ensure the schema exists.
 pub fn open(db_path: &Path) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
@@ -60,6 +81,34 @@ pub fn open(db_path: &Path) -> Result<Connection> {
             }
         }
     }
+    // Operation-run journal — one row per launched operation (drill now; exposure /
+    // milling later). Op-agnostic: the type lives in `op_type`, op-specific config in
+    // `params_json`. Generic columns (op_type, started_at, outcome, progress) let the
+    // history list query across types without parsing JSON.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS operation_runs (
+            id              INTEGER PRIMARY KEY,
+            run_uid         TEXT NOT NULL UNIQUE,
+            project_path    TEXT NOT NULL,
+            op_type         TEXT NOT NULL,
+            started_at      INTEGER NOT NULL,
+            ended_at        INTEGER,
+            outcome         TEXT,
+            progress_total  INTEGER,
+            progress_done   INTEGER NOT NULL DEFAULT 0,
+            params_json     TEXT NOT NULL,
+            summary_json    TEXT
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_operation_runs_project ON operation_runs(project_path)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_operation_runs_optype ON operation_runs(project_path, op_type)",
+        [],
+    )?;
     Ok(conn)
 }
 
@@ -148,6 +197,115 @@ pub fn remove(conn: &Connection, path: &str) -> Result<()> {
     Ok(())
 }
 
+// ---- Operation-run journal ----
+
+/// Insert a row for a just-launched run (`ended_at`/`outcome` NULL until it
+/// finishes). Writing on start — not only on finish — means even a crash mid-run
+/// leaves a record of what was launched.
+pub fn operation_run_start(
+    conn: &Connection,
+    run_uid: &str,
+    project_path: &str,
+    op_type: &str,
+    started_at: i64,
+    progress_total: Option<i64>,
+    params_json: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO operation_runs
+            (run_uid, project_path, op_type, started_at, progress_total, params_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![run_uid, project_path, op_type, started_at, progress_total, params_json],
+    )?;
+    Ok(())
+}
+
+/// Finalize a run: stamp `ended_at`, `outcome`, completed count, and optional
+/// summary. No-op if the `run_uid` isn't present.
+pub fn operation_run_finish(
+    conn: &Connection,
+    run_uid: &str,
+    ended_at: i64,
+    outcome: &str,
+    progress_done: i64,
+    summary_json: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE operation_runs
+            SET ended_at = ?2, outcome = ?3, progress_done = ?4, summary_json = ?5
+          WHERE run_uid = ?1",
+        rusqlite::params![run_uid, ended_at, outcome, progress_done, summary_json],
+    )?;
+    Ok(())
+}
+
+/// List runs for a project, newest first. `op_type = None` returns all types;
+/// `Some(t)` filters to that type.
+pub fn operation_runs_list(
+    conn: &Connection,
+    project_path: &str,
+    op_type: Option<&str>,
+) -> Result<Vec<OperationRun>> {
+    let map_row = |row: &rusqlite::Row| -> rusqlite::Result<OperationRun> {
+        Ok(OperationRun {
+            run_uid: row.get(0)?,
+            project_path: row.get(1)?,
+            op_type: row.get(2)?,
+            started_at: row.get(3)?,
+            ended_at: row.get(4)?,
+            outcome: row.get(5)?,
+            progress_total: row.get(6)?,
+            progress_done: row.get(7)?,
+            params_json: row.get(8)?,
+            summary_json: row.get(9)?,
+        })
+    };
+    const COLS: &str = "run_uid, project_path, op_type, started_at, ended_at, outcome,
+                        progress_total, progress_done, params_json, summary_json";
+    let mut out = Vec::new();
+    match op_type {
+        Some(t) => {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {COLS} FROM operation_runs
+                  WHERE project_path = ?1 AND op_type = ?2 ORDER BY started_at DESC"
+            ))?;
+            let rows = stmt.query_map(rusqlite::params![project_path, t], map_row)?;
+            for r in rows {
+                out.push(r?);
+            }
+        }
+        None => {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {COLS} FROM operation_runs
+                  WHERE project_path = ?1 ORDER BY started_at DESC"
+            ))?;
+            let rows = stmt.query_map(rusqlite::params![project_path], map_row)?;
+            for r in rows {
+                out.push(r?);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The `params_json` of the most recent run of `op_type` for a project — the
+/// default for "repeat last" / prefill. `None` when there's no prior run.
+pub fn operation_run_last_params(
+    conn: &Connection,
+    project_path: &str,
+    op_type: &str,
+) -> Result<Option<String>> {
+    let r = conn
+        .query_row(
+            "SELECT params_json FROM operation_runs
+              WHERE project_path = ?1 AND op_type = ?2 ORDER BY started_at DESC LIMIT 1",
+            rusqlite::params![project_path, op_type],
+            |row| row.get::<_, String>(0),
+        )
+        .ok();
+    Ok(r)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +383,60 @@ mod tests {
         let final_list = list(&conn).unwrap();
         assert_eq!(final_list[0].panel_verdict, Some("ok".to_string()));
         assert_eq!(final_list[0].profile_hash, Some("def456".to_string()));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn operation_runs_journal() {
+        let dir = std::env::temp_dir().join(format!("cuprum-oprun-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("catalog.sqlite");
+        let conn = open(&db).unwrap();
+
+        let proj = "/tmp/p.cuprum";
+
+        // A finished drill run.
+        operation_run_start(&conn, "uid-1", proj, "drill", 100, Some(120), "{\"feed\":100}").unwrap();
+        // Mid-run: ended_at/outcome NULL, progress_done defaults to 0.
+        let live = operation_runs_list(&conn, proj, None).unwrap();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].run_uid, "uid-1");
+        assert_eq!(live[0].ended_at, None);
+        assert_eq!(live[0].outcome, None);
+        assert_eq!(live[0].progress_total, Some(120));
+        assert_eq!(live[0].progress_done, 0);
+
+        operation_run_finish(&conn, "uid-1", 250, "completed", 120, Some("{\"sec\":42}")).unwrap();
+        let done = operation_runs_list(&conn, proj, None).unwrap();
+        assert_eq!(done[0].ended_at, Some(250));
+        assert_eq!(done[0].outcome, Some("completed".to_string()));
+        assert_eq!(done[0].progress_done, 120);
+        assert_eq!(done[0].summary_json, Some("{\"sec\":42}".to_string()));
+
+        // A second run of a different type, newer — list is newest-first.
+        operation_run_start(&conn, "uid-2", proj, "expose", 300, None, "{\"layer\":1}").unwrap();
+        let all = operation_runs_list(&conn, proj, None).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].run_uid, "uid-2"); // 300 > 100 (started_at DESC)
+
+        // Filter by op_type.
+        let drills = operation_runs_list(&conn, proj, Some("drill")).unwrap();
+        assert_eq!(drills.len(), 1);
+        assert_eq!(drills[0].op_type, "drill");
+
+        // last_params returns the most recent run's params for that type.
+        operation_run_start(&conn, "uid-3", proj, "drill", 400, Some(80), "{\"feed\":75}").unwrap();
+        assert_eq!(
+            operation_run_last_params(&conn, proj, "drill").unwrap(),
+            Some("{\"feed\":75}".to_string()) // uid-3 (400) over uid-1 (100)
+        );
+        // No prior run of this type / project → None.
+        assert_eq!(operation_run_last_params(&conn, proj, "milling").unwrap(), None);
+        assert_eq!(operation_run_last_params(&conn, "/tmp/other.cuprum", "drill").unwrap(), None);
+
+        // Runs are scoped per project.
+        assert_eq!(operation_runs_list(&conn, "/tmp/other.cuprum", None).unwrap().len(), 0);
 
         std::fs::remove_dir_all(&dir).ok();
     }
