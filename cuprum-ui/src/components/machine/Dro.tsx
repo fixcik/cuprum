@@ -1,12 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { Bookmark, Crosshair, Home, LocateFixed } from "lucide-react";
+import { Crosshair, LocateFixed } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
-import { workZeroFromStatus } from "@/lib/workZero";
-import { restoreWorkZero } from "@/lib/restoreWorkZero";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { cn } from "@/lib/utils";
 
@@ -96,47 +94,28 @@ function AxisRow({
   );
 }
 
-/** Redesigned hero DRO: large mono work coordinates with small machine readouts,
- *  axis colour badges, per-axis zero/goto buttons, and the work-zero action block
- *  (zero XYZ, go to XY, save zero, home+restore). Reuses the existing work-zero
- *  save/restore logic (workZeroMm, restoreWorkZero, homingAvailable). */
+/** Hero DRO: large mono work coordinates with small machine readouts, per-axis
+ *  colour badges, per-axis zero/goto buttons, and two action buttons — Zero XYZ
+ *  (api.machine.setZero) and Go to XY (gotoWorkZero). Persisting/restoring the
+ *  work zero is intentionally not here: the datum is set per operation. */
 export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
   const { t } = useTranslation("machine");
   const status = useMachine((s) => s.status);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
-  const homingAvailable = useMachine((s) => s.homingAvailable);
   const homed = useMachine((s) => s.homed);
   const cncProfile = useSettings((s) => s.cncProfile);
-  const setCncProfile = useSettings((s) => s.setCncProfile);
   // Zeroing sets the WCS — GRBL rejects it outside Idle/Jog, so gate it with the
   // same canMove() used for jog/home/spindle rather than just `connected`.
   const movable = canMove(state, connected);
   // Machine-coordinate auto-moves (G53 retracts) additionally require a homed
   // frame — otherwise the safe-Z target is meaningless.
   const canAutoMove = movable && homed;
-  const { workZeroMm, safeZMm, machineSafeZMm } = cncProfile;
+  const { safeZMm, machineSafeZMm } = cncProfile;
   // Safe retract: a clearance above the work-zero surface, capped at the machine
   // ceiling. wcoZ = machine Z of work zero (mpos.z − wpos.z).
   const wcoZ = status.mpos[2] - status.wpos[2];
   const retractZ = safeRetractMachineZ(wcoZ, safeZMm, machineSafeZMm);
-
-  function handleSaveZero() {
-    setCncProfile({ workZeroMm: workZeroFromStatus(status.mpos, status.wpos) });
-  }
-
-  function handleRestoreZero() {
-    if (!workZeroMm) return;
-    void (async () => {
-      try {
-        await restoreWorkZero(workZeroMm);
-      } catch (e) {
-        useMachine.getState().pushLine({ dir: "rx", text: `restore failed: ${String(e)}` });
-      }
-    })();
-  }
-
-  const canRestore = connected && homingAvailable && workZeroMm !== null && movable;
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -176,26 +155,7 @@ export function Dro({ size = "lg" }: { size?: "md" | "lg" }) {
           <LocateFixed />
           {t("dro.gotoXY")}
         </Button>
-        <Button variant="outline" size="sm" disabled={!movable} onClick={handleSaveZero}>
-          <Bookmark className="size-3.5" />
-          {t("dro.saveZero")}
-        </Button>
-        <Button variant="outline" size="sm" disabled={!canRestore} onClick={handleRestoreZero}>
-          <Home className="size-3.5" />
-          {t("dro.restoreZeroShort")}
-        </Button>
       </div>
-
-      {workZeroMm && (
-        <div className="mt-2 flex items-center gap-1.5 px-2 text-[11px] text-muted-foreground">
-          <Bookmark className="size-3 text-muted-foreground/70" />
-          {t("dro.zeroSaved", { x: workZeroMm.x.toFixed(3), y: workZeroMm.y.toFixed(3) })}
-        </div>
-      )}
-
-      {connected && !homingAvailable && workZeroMm && (
-        <div className="mt-1 px-2 text-[11px] text-muted-foreground">{t("dro.homingUnavailable")}</div>
-      )}
 
       {connected && !homed && (
         <div className="mt-1 px-2 text-[11px] text-amber-500">{t("dro.notHomed")}</div>

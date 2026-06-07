@@ -32,11 +32,6 @@
     "zeroAll": "Zero XYZ",
     "gotoXY": "Go to XY",
     "gotoZero": "Go to zero",
-    "saveZero": "Save zero",
-    "restoreZero": "Home + restore zero",
-    "restoreZeroShort": "Home + restore",
-    "zeroSaved": "Zero saved: X{{x}} Y{{y}}",
-    "homingUnavailable": "Restore unavailable: enable homing in firmware ($22=1)",
     "notHomed": "Not homed — auto-moves are unavailable. Home the machine first."
   },
   "estop": "Stop",
