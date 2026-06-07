@@ -7,19 +7,19 @@ describe("checkZGate", () => {
       valid: true,
     });
   });
-  it("blocks when depth alone exceeds travel", () => {
+  it("blocks when depth alone exceeds travel — without the redundant span reason", () => {
     const r = checkZGate({ safeZMm: 5, toolChangeZMm: 20, depthMm: 50, envZMm: 45 });
     expect(r.valid).toBe(false);
-    if (!r.valid) expect(r.reasons).toContain("depth");
+    if (!r.valid) expect(r.reasons).toEqual(["depth"]);
   });
   it("blocks when the tool-change retract exceeds travel", () => {
     const r = checkZGate({ safeZMm: 5, toolChangeZMm: 50, depthMm: 1, envZMm: 45 });
     expect(r.valid).toBe(false);
     if (!r.valid) expect(r.reasons).toContain("toolchange");
   });
-  it("blocks when depth + tool-change span exceeds travel", () => {
+  it("blocks on span only when neither limit fails individually", () => {
     const r = checkZGate({ safeZMm: 5, toolChangeZMm: 40, depthMm: 10, envZMm: 45 });
     expect(r.valid).toBe(false);
-    if (!r.valid) expect(r.reasons).toContain("span");
+    if (!r.valid) expect(r.reasons).toEqual(["span"]);
   });
 });

@@ -13,12 +13,16 @@ export function checkZGate(p: {
   depthMm: number;
   envZMm: number;
 }): ZGateResult {
+  const depthFails = p.depthMm > p.envZMm + EPS_MM;
+  const toolChangeFails = p.toolChangeZMm > p.envZMm + EPS_MM;
   const reasons: ZGateReason[] = [];
-  if (p.depthMm > p.envZMm + EPS_MM) reasons.push("depth");
-  if (p.toolChangeZMm > p.envZMm + EPS_MM) reasons.push("toolchange");
+  if (depthFails) reasons.push("depth");
+  if (toolChangeFails) reasons.push("toolchange");
   // The deepest cut (-depth) and the highest park (+toolChangeZ) must both fit the
-  // travel no matter where the surface sits within it → their sum must fit.
-  if (p.depthMm + p.toolChangeZMm > p.envZMm + EPS_MM) reasons.push("span");
+  // travel no matter where the surface sits within it → their sum must fit. Only
+  // surface this when neither individual limit already failed (else it's redundant).
+  if (!depthFails && !toolChangeFails && p.depthMm + p.toolChangeZMm > p.envZMm + EPS_MM)
+    reasons.push("span");
   return reasons.length ? { valid: false, reasons } : { valid: true };
 }
 
