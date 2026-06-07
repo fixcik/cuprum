@@ -1,13 +1,18 @@
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import type { DrillRoute } from "@/lib/drillRoute";
+import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DatumCorner } from "@/lib/datum";
 import { machinePoint } from "@/lib/datum";
+import { enumerateHoles } from "@/lib/drillSelection";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
 
 export interface DrillHoleCardProps {
-  /** Selected hole key `${gi}-${hi}` into route.groups; null = nothing selected. */
+  /** Stable hole id (`gi:hi`); null = nothing selected. */
   selectedHoleId: string | null;
+  /** Full plan — used to look up hole details by stable id. */
+  plan: PanelDrillPlan;
+  /** Route — used to look up the route-group colour index by stable id. */
   route: DrillRoute;
   datum: DatumCorner;
   panelWidthMm: number;
@@ -15,10 +20,11 @@ export interface DrillHoleCardProps {
   onClear: () => void;
 }
 
-/** Card showing details of the currently selected hole on the drill map.
- *  Returns null when no hole is selected or the key is out of range. */
+/** Card showing details of the currently inspected hole on the drill map.
+ *  Resolves the stable id against the full plan; returns null if no hole is selected. */
 export function DrillHoleCard({
   selectedHoleId,
+  plan,
   route,
   datum,
   panelWidthMm,
@@ -29,17 +35,24 @@ export function DrillHoleCard({
 
   if (!selectedHoleId) return null;
 
-  const parts = selectedHoleId.split("-");
-  const gi = parseInt(parts[0], 10);
-  const hi = parseInt(parts[1], 10);
+  // Find the enumerated hole by stable id.
+  const eh = enumerateHoles(plan).find((e) => e.id === selectedHoleId);
+  if (!eh) return null;
 
-  const g = route.groups[gi];
-  if (!g) return null;
+  const hole = eh.hole;
 
-  const hole = g.orderedHoles[hi];
-  if (!hole) return null;
+  // Derive the colour from the route-group index that contains this stable id,
+  // falling back to the plan-group index if the hole is not in the current route
+  // (unselected holes can still be inspected).
+  let colorIdx = eh.gi;
+  for (let gi = 0; gi < route.groups.length; gi++) {
+    if (route.groups[gi].orderedHoles.some((h) => h.id === selectedHoleId)) {
+      colorIdx = gi;
+      break;
+    }
+  }
+  const color = groupColor(colorIdx);
 
-  const color = groupColor(gi);
   const [mx, my] = machinePoint(hole.xMm, hole.yMm, datum, panelWidthMm, panelHeightMm);
 
   return (
@@ -51,7 +64,7 @@ export function DrillHoleCard({
           style={{ backgroundColor: color }}
         />
         <span className="flex-1 text-xs text-slate-300">
-          {t(`class.${g.class}`)}
+          {t(`class.${eh.class}`)}
         </span>
         <button
           type="button"
@@ -70,7 +83,7 @@ export function DrillHoleCard({
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
             {t("hole.dia")}
           </span>
-          <span className="text-slate-200">{g.diameterMm.toFixed(2)} мм</span>
+          <span className="text-slate-200">{eh.diameterMm.toFixed(2)} мм</span>
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
