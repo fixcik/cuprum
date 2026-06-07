@@ -170,10 +170,14 @@ export function DrillPlanInspector({
     } else {
       startHint = t("workzero.tooHigh");
     }
-  } else if (xyGate.valid === false && xyGate.reason === "out-of-bounds") {
-    startHint = t("workzero.xyOutOfBounds", {
-      detail: formatXYViolations(xyGate.violations, fmtLen),
-    });
+  } else if (xyGate.valid === false) {
+    // "out-of-bounds" → overrun detail; "not-zeroed" → fall back to the bind hint
+    // (today this coincides with the zGate not-zeroed case above, but stay robust
+    // if Z/XY binding ever splits).
+    startHint =
+      xyGate.reason === "out-of-bounds"
+        ? t("workzero.xyOutOfBounds", { detail: formatXYViolations(xyGate.violations, fmtLen) })
+        : t("workzero.notZeroedHint");
   }
 
   return (
