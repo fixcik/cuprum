@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { api, type SerialPortInfo } from "@/lib/api";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
+import { useMachineActions } from "@/components/machine/MachineActionsContext";
 
 export interface ConnBarProps {
   /** Narrow layout for tight columns (e.g. the drill inspector footer): the port
@@ -20,6 +21,10 @@ export interface ConnBarProps {
    *  instead of the full bar with disabled selects. Lets a screen show what it's
    *  connected to (and disconnect) without keeping the pickers around. */
   connectedSummary?: boolean;
+  /** When true, skip the automatic reattach() call on mount. Use in windows that
+   *  follow machine state via global broadcasts (e.g. the drill window) and must
+   *  NOT steal the main window's telemetry Channel on open. */
+  skipReattach?: boolean;
 }
 
 /** Connection bar: serial port select + hot-plug refresh + connect/disconnect,
@@ -30,6 +35,7 @@ export function ConnBar({
   compact = false,
   machinePicker = false,
   connectedSummary = false,
+  skipReattach = false,
 }: ConnBarProps = {}) {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
@@ -37,11 +43,10 @@ export function ConnBar({
   const machines = useSettings((s) => s.machines);
   const activeCncMachineId = useSettings((s) => s.activeCncMachineId);
   const setActiveCncMachineId = useSettings((s) => s.setActiveCncMachineId);
+  const a = useMachineActions();
   const connected = useMachine((s) => s.connected);
   const connectedPort = useMachine((s) => s.port);
-  const connect = useMachine((s) => s.connect);
   const reattach = useMachine((s) => s.reattach);
-  const disconnect = useMachine((s) => s.disconnect);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -51,9 +56,11 @@ export function ConnBar({
   // backend may still hold the serial port. Re-bind on mount so the UI recovers
   // the live connection instead of stranding it (a fresh connect would then hit
   // "already connected"). No-op if already connected or nothing is held.
+  // Skipped in windows that follow via global broadcasts (drill window) so they
+  // don't steal the main window's telemetry Channel on open.
   useEffect(() => {
-    void reattach();
-  }, [reattach]);
+    if (!skipReattach) void reattach();
+  }, [reattach, skipReattach]);
 
   const refresh = useCallback(() => {
     void api.machine.listPorts().then(setPorts).catch(() => setPorts([]));
@@ -91,17 +98,19 @@ export function ConnBar({
 
   const selectedPort = cnc.port ?? ports[0]?.name ?? "";
 
-  const onToggle = async () => {
+  const onToggle = () => {
     setBusy(true);
-    try {
-      if (connected) await disconnect();
-      else if (selectedPort) {
-        setCnc({ port: selectedPort });
-        await connect(selectedPort, cnc.baud);
-      }
-    } finally {
-      setBusy(false);
+    if (connected) {
+      a.disconnect();
+    } else if (selectedPort) {
+      setCnc({ port: selectedPort });
+      a.connect(selectedPort, cnc.baud);
     }
+    // The busy flag is cleared on the next connected-state change via the store,
+    // so we reset it promptly here. For the main window the actual connect is
+    // async but the store updates connected synchronously upon completion; for the
+    // console window it is a fire-and-forget intent to the main window.
+    setBusy(false);
   };
 
   // Connected slim summary (opt-in): show what we're connected to + a disconnect

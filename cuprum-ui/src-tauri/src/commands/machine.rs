@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -51,6 +52,20 @@ pub enum Telemetry {
         text: String,
     },
 }
+
+/// One console log line, broadcast globally so the console window can follow the
+/// live feed without owning the per-connection telemetry Channel. Mirrors the
+/// `Telemetry::Line` payload (dir + text); the frontend timestamps it on arrival.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsoleLine {
+    /// "rx" (received from GRBL) or "tx" (sent by us).
+    pub dir: String,
+    pub text: String,
+}
+
+/// Maximum number of lines held in the in-memory ring buffer (per connection).
+const CONSOLE_BACKLOG_CAP: usize = 500;
 
 /// Full status snapshot broadcast as the global `machine://status` event so the
 /// separate drill webview can track the tool AND control the run without the main
@@ -119,8 +134,50 @@ pub struct ReattachDto {
     pub port: String,
 }
 
-#[derive(Default)]
-pub struct MachineState(Mutex<Option<MachineConn>>);
+/// Application-level machine state: the optional live connection plus a capped
+/// ring buffer of recent console lines shared by all windows. The line log is
+/// cleared on every new connect (fresh session) and grows up to
+/// `CONSOLE_BACKLOG_CAP` entries, after which the oldest line is evicted.
+pub struct MachineState {
+    conn: Mutex<Option<MachineConn>>,
+    /// Capped ring buffer of recent console lines; seeded into follower windows
+    /// (e.g. the console window) via `machine_console_backlog`.
+    line_log: Arc<Mutex<VecDeque<ConsoleLine>>>,
+}
+
+impl Default for MachineState {
+    fn default() -> Self {
+        Self {
+            conn: Mutex::new(None),
+            line_log: Arc::new(Mutex::new(VecDeque::with_capacity(CONSOLE_BACKLOG_CAP))),
+        }
+    }
+}
+
+/// Push a console line into the capped ring buffer AND broadcast it globally via
+/// `machine://line`. Called at every site that also sends `Telemetry::Line` to the
+/// per-connection Channel, so the console window can follow the log without owning
+/// that Channel. The existing Channel sends are left in place (the main window still
+/// needs them for its own console drawer).
+fn record_and_broadcast_line(
+    line_log: &Arc<Mutex<VecDeque<ConsoleLine>>>,
+    app: &AppHandle,
+    dir: &str,
+    text: &str,
+) {
+    let entry = ConsoleLine {
+        dir: dir.to_string(),
+        text: text.to_string(),
+    };
+    {
+        let mut log = line_log.lock().unwrap();
+        if log.len() == CONSOLE_BACKLOG_CAP {
+            log.pop_front();
+        }
+        log.push_back(entry.clone());
+    }
+    let _ = app.emit("machine://line", entry);
+}
 
 fn state_str(s: GrblState) -> &'static str {
     match s {
@@ -162,7 +219,7 @@ pub fn machine_connect(
     baud: u32,
     telemetry: Channel<Telemetry>,
 ) -> Result<(), String> {
-    let mut guard = state.0.lock().unwrap();
+    let mut guard = state.conn.lock().unwrap();
     if let Some(conn) = guard.as_ref() {
         // Idempotent reconnect: if the backend already holds this exact port (e.g.
         // a webview reload left the connection live and the user pressed Connect),
@@ -190,6 +247,11 @@ pub fn machine_connect(
         hold: false,
     }));
     let echo_status = Arc::new(AtomicBool::new(false));
+
+    // Clear the backlog: a new connect starts a fresh session, so old lines from a
+    // previous connection must not appear in the console window's seeded view.
+    state.line_log.lock().unwrap().clear();
+    let r_line_log = state.line_log.clone();
 
     // Reader thread: parse lines, push status + raw rx lines.
     let r_stop = stop.clone();
@@ -221,6 +283,9 @@ pub fn machine_connect(
                             dir: "rx".into(),
                             text: line.clone(),
                         });
+                        // Also record + broadcast globally so the console window can
+                        // follow the log without owning the telemetry Channel.
+                        record_and_broadcast_line(&r_line_log, &r_app, "rx", &line);
                     }
                     // Route terminal replies to a pending ok-wait. Welcome is
                     // included so a soft-reset (e.g. aborting a homing cycle)
@@ -313,7 +378,7 @@ pub fn machine_connect(
 
 #[tauri::command]
 pub fn machine_disconnect(state: State<MachineState>) -> Result<(), String> {
-    let conn = state.0.lock().unwrap().take();
+    let conn = state.conn.lock().unwrap().take();
     if let Some(mut conn) = conn {
         conn.stop.store(true, Ordering::Relaxed);
         if let Some(h) = conn.poller_handle.take() {
@@ -327,12 +392,12 @@ pub fn machine_disconnect(state: State<MachineState>) -> Result<(), String> {
 }
 
 /// Write a line via the live connection and echo it to the console as "tx".
-fn send_line(state: &State<MachineState>, line: &str) -> Result<(), String> {
+fn send_line(state: &State<MachineState>, app: &AppHandle, line: &str) -> Result<(), String> {
     // Take owned handles and release the outer state lock BEFORE the (blocking)
     // serial write and telemetry send: keeps the outer lock off the I/O path and
     // avoids nesting telemetry.lock() under it.
     let (writer, telemetry) = {
-        let guard = state.0.lock().unwrap();
+        let guard = state.conn.lock().unwrap();
         let conn = guard.as_ref().ok_or("not connected")?;
         (conn.writer.clone(), conn.telemetry.clone())
     };
@@ -345,6 +410,8 @@ fn send_line(state: &State<MachineState>, line: &str) -> Result<(), String> {
         dir: "tx".into(),
         text: line.to_string(),
     });
+    // Also record + broadcast globally so the console window follows TX commands.
+    record_and_broadcast_line(&state.line_log, app, "tx", line);
     Ok(())
 }
 
@@ -371,6 +438,7 @@ fn await_terminal_owned(
     ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
     activity: Arc<Mutex<Activity>>,
     telemetry: Option<Channel<Telemetry>>,
+    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
     line: &str,
     probe: bool,
 ) -> Result<(), String> {
@@ -396,6 +464,9 @@ fn await_terminal_owned(
                 dir: "tx".into(),
                 text: line.to_string(),
             });
+        }
+        if let Some((ref log, ref app)) = line_log {
+            record_and_broadcast_line(log, app, "tx", line);
         }
         let sent = std::time::Instant::now();
         let mut contacted: Option<bool> = None;
@@ -450,12 +521,17 @@ fn await_terminal_owned(
 /// drive the bit in a stale coordinate system. Reuses the same reader→`ack_tx`
 /// channel as the drill runner; refuses if a run already holds it ("busy"). Thin
 /// `&State` wrapper over `await_terminal_owned` (plain ok-wait).
-fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), String> {
+fn send_line_await_ok(
+    state: &State<MachineState>,
+    app: &AppHandle,
+    line: &str,
+) -> Result<(), String> {
     let writer = state.writer().ok_or("not connected")?;
     let ack_slot = state.ack_slot().ok_or("not connected")?;
     let activity = state.activity().ok_or("not connected")?;
     let telemetry = state.telemetry();
-    await_terminal_owned(writer, ack_slot, activity, telemetry, line, false)
+    let line_log = Some((state.line_log.clone(), app.clone()));
+    await_terminal_owned(writer, ack_slot, activity, telemetry, line_log, line, false)
 }
 
 /// Overall ceiling for a homing cycle. GRBL stays silent for the whole cycle and
@@ -476,6 +552,7 @@ fn home_await(
     writer: Arc<Mutex<GrblWriter>>,
     ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
     telemetry: Option<Channel<Telemetry>>,
+    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
 ) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
     {
@@ -498,6 +575,9 @@ fn home_await(
                 dir: "tx".into(),
                 text: line.to_string(),
             });
+        }
+        if let Some((ref log, ref app)) = line_log {
+            record_and_broadcast_line(log, app, "tx", line);
         }
         let sent = std::time::Instant::now();
         loop {
@@ -524,10 +604,15 @@ fn home_await(
 }
 
 /// Write a real-time byte via the live connection, echoing `label` as "tx".
-fn send_realtime(state: &State<MachineState>, byte: u8, label: &str) -> Result<(), String> {
+fn send_realtime(
+    state: &State<MachineState>,
+    app: &AppHandle,
+    byte: u8,
+    label: &str,
+) -> Result<(), String> {
     // Same handle-extract-then-release pattern as send_line (see its comment).
     let (writer, telemetry) = {
-        let guard = state.0.lock().unwrap();
+        let guard = state.conn.lock().unwrap();
         let conn = guard.as_ref().ok_or("not connected")?;
         (conn.writer.clone(), conn.telemetry.clone())
     };
@@ -540,18 +625,21 @@ fn send_realtime(state: &State<MachineState>, byte: u8, label: &str) -> Result<(
         dir: "tx".into(),
         text: label.to_string(),
     });
+    // Also record + broadcast globally so the console window follows real-time bytes.
+    record_and_broadcast_line(&state.line_log, app, "tx", label);
     Ok(())
 }
 
 #[tauri::command]
 pub fn machine_jog(
+    app: AppHandle,
     state: State<MachineState>,
     dx: f32,
     dy: f32,
     dz: f32,
     feed: f32,
 ) -> Result<(), String> {
-    send_line(&state, &grbl::jog(dx, dy, dz, feed))
+    send_line(&state, &app, &grbl::jog(dx, dy, dz, feed))
 }
 
 /// Absolute jog (work coords): drive the given axes to their targets. Used by the
@@ -559,18 +647,19 @@ pub fn machine_jog(
 /// before re-issuing so a new click retargets instead of queuing behind it.
 #[tauri::command]
 pub fn machine_jog_to(
+    app: AppHandle,
     state: State<MachineState>,
     x: Option<f32>,
     y: Option<f32>,
     z: Option<f32>,
     feed: f32,
 ) -> Result<(), String> {
-    send_line(&state, &grbl::jog_to(x, y, z, feed))
+    send_line(&state, &app, &grbl::jog_to(x, y, z, feed))
 }
 
 #[tauri::command]
-pub fn machine_jog_cancel(state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, grbl::JOG_CANCEL, "jog-cancel")
+pub fn machine_jog_cancel(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
+    send_realtime(&state, &app, grbl::JOG_CANCEL, "jog-cancel")
 }
 
 /// Set the G54 work zero on the selected axes and wait for GRBL to accept it.
@@ -578,17 +667,18 @@ pub fn machine_jog_cancel(state: State<MachineState>) -> Result<(), String> {
 /// trusts a zero the machine didn't actually apply.
 #[tauri::command]
 pub fn machine_set_zero(
+    app: AppHandle,
     state: State<MachineState>,
     x: bool,
     y: bool,
     z: bool,
 ) -> Result<(), String> {
-    send_line_await_ok(&state, &grbl::set_work_zero(x, y, z))
+    send_line_await_ok(&state, &app, &grbl::set_work_zero(x, y, z))
 }
 
 #[tauri::command]
-pub fn machine_home(state: State<MachineState>) -> Result<(), String> {
-    send_line(&state, grbl::home())
+pub fn machine_home(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
+    send_line(&state, &app, grbl::home())
 }
 
 /// Home ($H) and resolve only once the cycle completes, so the UI can show
@@ -597,28 +687,37 @@ pub fn machine_home(state: State<MachineState>) -> Result<(), String> {
 /// thread via `spawn_blocking`, so the webview stays responsive and the
 /// "homing…" overlay can paint.
 #[tauri::command]
-pub async fn machine_home_await(state: State<'_, MachineState>) -> Result<(), String> {
+pub async fn machine_home_await(
+    app: AppHandle,
+    state: State<'_, MachineState>,
+) -> Result<(), String> {
     let writer = state.writer().ok_or("not connected")?;
     let ack_slot = state.ack_slot().ok_or("not connected")?;
     let telemetry = state.telemetry();
-    tauri::async_runtime::spawn_blocking(move || home_await(writer, ack_slot, telemetry))
+    let line_log = Some((state.line_log.clone(), app));
+    tauri::async_runtime::spawn_blocking(move || home_await(writer, ack_slot, telemetry, line_log))
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn machine_unlock(state: State<MachineState>) -> Result<(), String> {
-    send_line(&state, grbl::unlock())
+pub fn machine_unlock(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
+    send_line(&state, &app, grbl::unlock())
 }
 
 #[tauri::command]
-pub fn machine_spindle(state: State<MachineState>, on: bool, rpm: u32) -> Result<(), String> {
+pub fn machine_spindle(
+    app: AppHandle,
+    state: State<MachineState>,
+    on: bool,
+    rpm: u32,
+) -> Result<(), String> {
     let line = if on {
         grbl::spindle_on(rpm)
     } else {
         grbl::spindle_off().to_string()
     };
-    send_line(&state, &line)
+    send_line(&state, &app, &line)
 }
 
 /// Blocking body of the probe cycle, over owned handles so it can run on a
@@ -633,6 +732,7 @@ fn do_probe_z(
     ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
     activity: Arc<Mutex<Activity>>,
     telemetry: Option<Channel<Telemetry>>,
+    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
     max_dist_mm: f32,
     feed_mm_min: f32,
     offset_mm: f32,
@@ -650,6 +750,7 @@ fn do_probe_z(
             ack_slot.clone(),
             activity.clone(),
             telemetry.clone(),
+            line_log.clone(),
             &format!("G90 G0 Z{z}"),
             false,
         )?;
@@ -659,6 +760,7 @@ fn do_probe_z(
         ack_slot.clone(),
         activity.clone(),
         telemetry.clone(),
+        line_log.clone(),
         &grbl::probe_z(max_dist_mm, feed_mm_min),
         true,
     )?;
@@ -668,6 +770,7 @@ fn do_probe_z(
         ack_slot,
         activity,
         telemetry.clone(),
+        line_log.clone(),
         &format!("G10 L20 P1 Z{offset_mm}"),
         false,
     )?;
@@ -682,8 +785,11 @@ fn do_probe_z(
     if let Some(t) = &telemetry {
         let _ = t.send(Telemetry::Line {
             dir: "tx".into(),
-            text: line,
+            text: line.clone(),
         });
+    }
+    if let Some((ref log, ref app)) = line_log {
+        record_and_broadcast_line(log, app, "tx", &line);
     }
     Ok(())
 }
@@ -696,6 +802,7 @@ fn do_probe_z(
 /// off the main thread via `spawn_blocking` — otherwise it freezes the webview.
 #[tauri::command]
 pub async fn machine_probe_z(
+    app: AppHandle,
     state: State<'_, MachineState>,
     max_dist_mm: f32,
     feed_mm_min: f32,
@@ -707,12 +814,14 @@ pub async fn machine_probe_z(
     let ack_slot = state.ack_slot().ok_or("not connected")?;
     let activity = state.activity().ok_or("not connected")?;
     let telemetry = state.telemetry();
+    let line_log = Some((state.line_log.clone(), app));
     tauri::async_runtime::spawn_blocking(move || {
         do_probe_z(
             writer,
             ack_slot,
             activity,
             telemetry,
+            line_log,
             max_dist_mm,
             feed_mm_min,
             offset_mm,
@@ -725,7 +834,11 @@ pub async fn machine_probe_z(
 }
 
 #[tauri::command]
-pub fn machine_send(state: State<MachineState>, line: String) -> Result<(), String> {
+pub fn machine_send(
+    app: AppHandle,
+    state: State<MachineState>,
+    line: String,
+) -> Result<(), String> {
     // A bare `?` is the status query; GRBL's `<...>` reply is normally filtered from
     // the console (5 Hz poll noise). When the user types it explicitly, arm a
     // one-shot so the reader echoes the next status report back to them. Send it as
@@ -733,18 +846,18 @@ pub fn machine_send(state: State<MachineState>, line: String) -> Result<(), Stri
     // a spurious `ok`. Arm before the write (so the reply can't beat the arm), and
     // disarm if the write fails so a stale arm can't later swallow a poll line.
     if line.trim() == "?" {
-        if let Some(conn) = state.0.lock().unwrap().as_ref() {
+        if let Some(conn) = state.conn.lock().unwrap().as_ref() {
             conn.echo_status.store(true, Ordering::Release);
         }
-        let r = send_realtime(&state, grbl::STATUS_QUERY, "?");
+        let r = send_realtime(&state, &app, grbl::STATUS_QUERY, "?");
         if r.is_err() {
-            if let Some(conn) = state.0.lock().unwrap().as_ref() {
+            if let Some(conn) = state.conn.lock().unwrap().as_ref() {
                 conn.echo_status.store(false, Ordering::Relaxed);
             }
         }
         return r;
     }
-    send_line(&state, &line)
+    send_line(&state, &app, &line)
 }
 
 /// Write a line and block until GRBL acknowledges it, returning Err on
@@ -753,29 +866,34 @@ pub fn machine_send(state: State<MachineState>, line: String) -> Result<(), Stri
 /// silently dropped, so the change would never reach EEPROM yet the UI assumes
 /// success.
 #[tauri::command]
-pub fn machine_send_await_ok(state: State<MachineState>, line: String) -> Result<(), String> {
-    send_line_await_ok(&state, &line)
+pub fn machine_send_await_ok(
+    app: AppHandle,
+    state: State<MachineState>,
+    line: String,
+) -> Result<(), String> {
+    send_line_await_ok(&state, &app, &line)
 }
 
 #[tauri::command]
-pub fn machine_soft_reset(state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, grbl::SOFT_RESET, "soft-reset")
+pub fn machine_soft_reset(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
+    send_realtime(&state, &app, grbl::SOFT_RESET, "soft-reset")
 }
 
 #[tauri::command]
-pub fn machine_feed_hold(state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, grbl::FEED_HOLD, "!")
+pub fn machine_feed_hold(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
+    send_realtime(&state, &app, grbl::FEED_HOLD, "!")
 }
 
 #[tauri::command]
-pub fn machine_cycle_start(state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, grbl::CYCLE_START, "~")
+pub fn machine_cycle_start(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
+    send_realtime(&state, &app, grbl::CYCLE_START, "~")
 }
 
 /// Adjust a real-time override. `kind` ∈ {feed, rapid, spindle};
 /// `action` ∈ {"100", "+10", "-10", "+1", "-1", "stop"}. "stop" is spindle-only.
 #[tauri::command]
 pub fn machine_override(
+    app: AppHandle,
     state: State<MachineState>,
     kind: String,
     action: String,
@@ -799,26 +917,30 @@ pub fn machine_override(
         ("spindle", "stop") => grbl::SPINDLE_OVERRIDE_STOP,
         _ => return Err(format!("unknown override: {kind}/{action}")),
     };
-    send_realtime(&state, byte, &format!("ov:{kind}{action}"))
+    send_realtime(&state, &app, byte, &format!("ov:{kind}{action}"))
 }
 
 impl MachineState {
     pub(crate) fn writer(&self) -> Option<Arc<Mutex<GrblWriter>>> {
-        self.0.lock().unwrap().as_ref().map(|c| c.writer.clone())
+        self.conn.lock().unwrap().as_ref().map(|c| c.writer.clone())
     }
 
     pub(crate) fn ack_slot(
         &self,
     ) -> Option<Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>> {
-        self.0.lock().unwrap().as_ref().map(|c| c.ack_tx.clone())
+        self.conn.lock().unwrap().as_ref().map(|c| c.ack_tx.clone())
     }
 
     pub(crate) fn activity(&self) -> Option<Arc<Mutex<Activity>>> {
-        self.0.lock().unwrap().as_ref().map(|c| c.activity.clone())
+        self.conn
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|c| c.activity.clone())
     }
 
     pub(crate) fn telemetry(&self) -> Option<Channel<Telemetry>> {
-        self.0
+        self.conn
             .lock()
             .unwrap()
             .as_ref()
@@ -826,7 +948,7 @@ impl MachineState {
     }
 
     pub(crate) fn is_connected(&self) -> bool {
-        self.0.lock().unwrap().is_some()
+        self.conn.lock().unwrap().is_some()
     }
 }
 
@@ -844,10 +966,20 @@ pub fn machine_reattach(
     state: State<MachineState>,
     telemetry: Channel<Telemetry>,
 ) -> Option<ReattachDto> {
-    let guard = state.0.lock().unwrap();
+    let guard = state.conn.lock().unwrap();
     let conn = guard.as_ref()?;
     *conn.telemetry.lock().unwrap() = telemetry;
     Some(ReattachDto {
         port: conn.port.clone(),
     })
+}
+
+/// Return the in-memory ring buffer of recent console lines (up to
+/// `CONSOLE_BACKLOG_CAP` entries). Called by a follower window (e.g. the console
+/// window) on mount to seed its view before live `machine://line` events arrive.
+/// Returns an empty list when no connection is active or no lines have been logged
+/// yet (the follower must handle both without blocking).
+#[tauri::command]
+pub fn machine_console_backlog(state: State<MachineState>) -> Vec<ConsoleLine> {
+    state.line_log.lock().unwrap().iter().cloned().collect()
 }

@@ -248,17 +248,6 @@ export interface InspectorSnapshot {
   manifest: Manifest | null;
 }
 
-/** Full state snapshot sent from the main window to the console window on ready. */
-export interface ConsoleSnapshot {
-  connected: boolean;
-  port: string | null;
-  status: MachineStatus;
-  lines: ConsoleLine[];
-  homingAvailable: boolean;
-  homed: boolean;
-  maxSpindleRpm: number | null;
-}
-
 /** Snapshot pushed from the main window to the add-design window. */
 export interface AddDesignSnapshot {
   workingDir: string | null;
@@ -674,17 +663,8 @@ export const api = {
   emitConsoleClosed: () => emit("console:closed"),
   onConsoleClosed: (cb: () => void): Promise<UnlistenFn> => listen("console:closed", () => cb()),
 
-  emitConsoleSnapshot: (s: ConsoleSnapshot) => emit("console:snapshot", s),
-  onConsoleSnapshot: (cb: (s: ConsoleSnapshot) => void): Promise<UnlistenFn> =>
-    listen<ConsoleSnapshot>("console:snapshot", (e) => cb(e.payload)),
-  emitConsoleStatus: (s: MachineStatus) => emit("console:status", s),
-  onConsoleStatus: (cb: (s: MachineStatus) => void): Promise<UnlistenFn> =>
-    listen<MachineStatus>("console:status", (e) => cb(e.payload)),
-  emitConsoleLines: (lines: ConsoleLine[]) => emit("console:lines", lines),
-  onConsoleLines: (cb: (lines: ConsoleLine[]) => void): Promise<UnlistenFn> =>
-    listen<ConsoleLine[]>("console:lines", (e) => cb(e.payload)),
-
-  // Intents console -> main (Phase 3 consumers; declared now for type completeness).
+  // Intents console -> main (connect/disconnect/home requests from the console window,
+  // executed by the main window which owns the serial Channel).
   emitConsoleConnect: (port: string, baud: number) => emit("console:connect", { port, baud }),
   onConsoleConnect: (cb: (p: { port: string; baud: number }) => void): Promise<UnlistenFn> =>
     listen<{ port: string; baud: number }>("console:connect", (e) => cb(e.payload)),
@@ -706,6 +686,14 @@ export const api = {
      *  connected (machine.rs `machine_reattach`). */
     reattach: (telemetry: Channel<Telemetry>) =>
       invoke<{ port: string } | null>("machine_reattach", { telemetry }),
+    /** Fetch the in-memory ring buffer of recent console lines (up to 500 entries).
+     *  Returns the raw backend payload {dir, text}; the caller stamps seq/ts. */
+    consoleBacklog: () =>
+      invoke<{ dir: "rx" | "tx"; text: string }[]>("machine_console_backlog"),
+    /** Subscribe to `machine://line` global broadcasts (one line per event).
+     *  Returns a promise that resolves to an unlisten function. */
+    onLine: (cb: (line: { dir: "rx" | "tx"; text: string }) => void): Promise<import("@tauri-apps/api/event").UnlistenFn> =>
+      listen<{ dir: "rx" | "tx"; text: string }>("machine://line", (e) => cb(e.payload)),
     disconnect: () => invoke<void>("machine_disconnect"),
     jog: (dx: number, dy: number, dz: number, feed: number) =>
       invoke<void>("machine_jog", { dx, dy, dz, feed }),
