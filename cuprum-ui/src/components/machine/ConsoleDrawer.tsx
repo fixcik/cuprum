@@ -95,8 +95,8 @@ function ConsoleBody({ onClose }: { onClose: () => void }) {
         ref={logRef}
         className="min-h-0 flex-1 select-text overflow-auto px-3 py-2 font-mono text-[11.5px] leading-[1.55]"
       >
-        {lines.map((l, i) => (
-          <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
+        {lines.map((l) => (
+          <div key={l.seq} className="flex gap-2 whitespace-pre-wrap break-all">
             <span className="shrink-0 select-none tabular-nums text-muted-foreground/40">
               {fmtTime(l.ts)}
             </span>
