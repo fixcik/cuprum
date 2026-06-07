@@ -6,6 +6,7 @@
     "abort": "Стоп (прервать)"
   },
   "connection": {
+    "machine": "Станок",
     "port": "Порт",
     "refresh": "Обновить",
     "noPorts": "Нет serial-портов",
