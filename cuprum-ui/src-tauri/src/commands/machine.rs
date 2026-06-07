@@ -84,13 +84,26 @@ pub(crate) struct Activity {
 
 /// Live connection held in Tauri managed state.
 struct MachineConn {
+    /// Serial port this connection was opened on. Lets a reattaching front-end
+    /// (after a webview reload) learn which port the still-live backend holds.
+    port: String,
     writer: Arc<Mutex<GrblWriter>>,
-    telemetry: Channel<Telemetry>,
+    /// Telemetry sink, behind a swappable cell: a webview reload destroys the
+    /// front-end's Channel, so `machine_reattach` replaces it here and the reader
+    /// keeps streaming to the new one without reopening the port.
+    telemetry: Arc<Mutex<Channel<Telemetry>>>,
     stop: Arc<AtomicBool>,
     reader_handle: Option<JoinHandle<()>>,
     poller_handle: Option<JoinHandle<()>>,
     ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
     activity: Arc<Mutex<Activity>>,
+}
+
+/// Returned by `machine_reattach` when the backend still holds a live connection.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReattachDto {
+    pub port: String,
 }
 
 #[derive(Default)]
@@ -137,11 +150,24 @@ pub fn machine_connect(
     telemetry: Channel<Telemetry>,
 ) -> Result<(), String> {
     let mut guard = state.0.lock().unwrap();
-    if guard.is_some() {
-        return Err("already connected".into());
+    if let Some(conn) = guard.as_ref() {
+        // Idempotent reconnect: if the backend already holds this exact port (e.g.
+        // a webview reload left the connection live and the user pressed Connect),
+        // just swap in the fresh telemetry Channel rather than failing or reopening
+        // the port. A different port is a genuine conflict.
+        if conn.port == port {
+            *conn.telemetry.lock().unwrap() = telemetry;
+            drop(guard);
+            let _ = app.emit("machine://connected", ());
+            return Ok(());
+        }
+        return Err("connected to a different port".into());
     }
     let (writer, mut reader) = grbl::open(&port, baud).map_err(|e| e.to_string())?;
     let writer = Arc::new(Mutex::new(writer));
+    // Swappable telemetry sink (see MachineConn::telemetry) so a reattach can
+    // redirect the reader's stream to a new front-end Channel.
+    let telemetry = Arc::new(Mutex::new(telemetry));
     let stop = Arc::new(AtomicBool::new(false));
     let ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>> =
         Arc::new(Mutex::new(None));
@@ -172,7 +198,7 @@ pub fn machine_connect(
                     // list), and bury real traffic. Status is forwarded separately as
                     // Telemetry::Status below.
                     if !matches!(parsed, grbl::Line::Status(_)) {
-                        let _ = r_tel.send(Telemetry::Line {
+                        let _ = r_tel.lock().unwrap().send(Telemetry::Line {
                             dir: "rx".into(),
                             text: line.clone(),
                         });
@@ -198,7 +224,7 @@ pub fn machine_connect(
                             a.idle = matches!(s.state, GrblState::Idle);
                             a.hold = matches!(s.state, GrblState::Hold);
                         }
-                        let _ = r_tel.send(Telemetry::Status {
+                        let _ = r_tel.lock().unwrap().send(Telemetry::Status {
                             state: state_str(s.state).into(),
                             mpos: s.mpos,
                             wpos: s.wpos,
@@ -245,6 +271,7 @@ pub fn machine_connect(
     });
 
     *guard = Some(MachineConn {
+        port,
         writer,
         telemetry,
         stop,
@@ -275,14 +302,20 @@ pub fn machine_disconnect(state: State<MachineState>) -> Result<(), String> {
 
 /// Write a line via the live connection and echo it to the console as "tx".
 fn send_line(state: &State<MachineState>, line: &str) -> Result<(), String> {
-    let guard = state.0.lock().unwrap();
-    let conn = guard.as_ref().ok_or("not connected")?;
-    conn.writer
+    // Take owned handles and release the outer state lock BEFORE the (blocking)
+    // serial write and telemetry send: keeps the outer lock off the I/O path and
+    // avoids nesting telemetry.lock() under it.
+    let (writer, telemetry) = {
+        let guard = state.0.lock().unwrap();
+        let conn = guard.as_ref().ok_or("not connected")?;
+        (conn.writer.clone(), conn.telemetry.clone())
+    };
+    writer
         .lock()
         .unwrap()
         .write_line(line)
         .map_err(|e| e.to_string())?;
-    let _ = conn.telemetry.send(Telemetry::Line {
+    let _ = telemetry.lock().unwrap().send(Telemetry::Line {
         dir: "tx".into(),
         text: line.to_string(),
     });
@@ -428,14 +461,18 @@ fn home_await(
 
 /// Write a real-time byte via the live connection, echoing `label` as "tx".
 fn send_realtime(state: &State<MachineState>, byte: u8, label: &str) -> Result<(), String> {
-    let guard = state.0.lock().unwrap();
-    let conn = guard.as_ref().ok_or("not connected")?;
-    conn.writer
+    // Same handle-extract-then-release pattern as send_line (see its comment).
+    let (writer, telemetry) = {
+        let guard = state.0.lock().unwrap();
+        let conn = guard.as_ref().ok_or("not connected")?;
+        (conn.writer.clone(), conn.telemetry.clone())
+    };
+    writer
         .lock()
         .unwrap()
         .write_realtime(byte)
         .map_err(|e| e.to_string())?;
-    let _ = conn.telemetry.send(Telemetry::Line {
+    let _ = telemetry.lock().unwrap().send(Telemetry::Line {
         dir: "tx".into(),
         text: label.to_string(),
     });
@@ -596,7 +633,11 @@ impl MachineState {
     }
 
     pub(crate) fn telemetry(&self) -> Option<Channel<Telemetry>> {
-        self.0.lock().unwrap().as_ref().map(|c| c.telemetry.clone())
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|c| c.telemetry.lock().unwrap().clone())
     }
 
     pub(crate) fn is_connected(&self) -> bool {
@@ -607,4 +648,21 @@ impl MachineState {
 #[tauri::command]
 pub fn machine_is_connected(state: State<MachineState>) -> bool {
     state.is_connected()
+}
+
+/// Re-bind a fresh telemetry Channel to the still-live connection after a webview
+/// reload (which destroys the front-end's previous Channel while the backend keeps
+/// the serial port and reader/poller threads running). Returns the held port so the
+/// front-end can restore its connection state, or `None` if nothing is connected.
+#[tauri::command]
+pub fn machine_reattach(
+    state: State<MachineState>,
+    telemetry: Channel<Telemetry>,
+) -> Option<ReattachDto> {
+    let guard = state.0.lock().unwrap();
+    let conn = guard.as_ref()?;
+    *conn.telemetry.lock().unwrap() = telemetry;
+    Some(ReattachDto {
+        port: conn.port.clone(),
+    })
 }
