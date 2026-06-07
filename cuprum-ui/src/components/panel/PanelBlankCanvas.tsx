@@ -1143,12 +1143,14 @@ export function PanelBlankCanvas({
               rotPreview={rotPreview}
               pxPerMm={viewport.pxPerMm}
             />
-            {tool === "select" && !dragDelta && selectionBBox && (() => {
+            {tool === "select" && !dragDelta && selectionBBox && viewport.pxPerMm > 0 && (() => {
               // Knob hangs off the bottom-right bbox corner (diagonal stub), leaving the
               // top-centre clear for the selection HUD; rotation pivot stays the centre.
               // Offset and radius are constant SCREEN px (÷ pxPerMm → mm), like the
               // corner handles, so the knob neither balloons in nor vanishes on zoom.
-              const mmPerPx = viewport.pxPerMm > 0 ? 1 / viewport.pxPerMm : 0;
+              // Gated on a measured viewport (pxPerMm>0) so the knob never renders as a
+              // zero-radius, unclickable node before first layout (mirrors SelectionOverlay).
+              const mmPerPx = 1 / viewport.pxPerMm;
               const k = (ROT_KNOB_OUT_PX / Math.SQRT2) * mmPerPx;
               return (
                 <RotationHandle
