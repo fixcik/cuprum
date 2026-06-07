@@ -164,7 +164,7 @@ export function WorkZeroCard({
       {/* Header */}
       <div className="flex items-center gap-2">
         <Crosshair className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="text-[13px] font-semibold text-foreground">{t("workzero.title")}</span>
+        <span className="text-[13px] font-semibold text-foreground">{t("workzero.jogTitle")}</span>
       </div>
 
       {/* Hint */}

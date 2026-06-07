@@ -52,7 +52,8 @@
   "toolbar": {
     "show": "Show",
     "path": "Path",
-    "diameters": "Diameters"
+    "diameters": "Diameters",
+    "selectionHint": "Highlighted = what's selected in the plan on the right"
   },
   "hole": {
     "clear": "Clear selection",
@@ -79,6 +80,12 @@
   },
   "workzero": {
     "title": "Work Zero",
+    "cardTitle": "Work zero",
+    "jogTitle": "Jog to datum",
+    "openSettings": "Set up",
+    "statusNotSet": "not set",
+    "statusSet": "set · {{corner}} corner",
+    "statusOverrun": "off — runs past machine travel",
     "hint": "Jog the bit to the datum corner and lower it onto the copper, then press «Set zero here».",
     "xLabel": "X",
     "yLabel": "Y",
@@ -91,6 +98,12 @@
     "xyOutOfBounds": "Work zero is off — at this position some holes run past the machine travel ({{detail}}). Re-bind closer to the machine origin or change the datum corner.",
     "zMachine": "Z-zero (machine)",
     "retract": "Retract"
+  },
+  "zeroMode": {
+    "title": "Work Zero",
+    "back": "Plan",
+    "bound": "set",
+    "datumLabel": "Board datum corner (zero 0,0)"
   },
   "zero": {
     "bindRejected": "Zero rejected by the machine ({{error}}) — not set. Re-position and bind again."
