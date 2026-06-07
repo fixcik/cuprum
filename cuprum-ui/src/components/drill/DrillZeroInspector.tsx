@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronLeft } from "lucide-react";
 import type { DatumCorner } from "@/lib/datum";
@@ -61,6 +62,9 @@ export function DrillZeroInspector({
   const { t } = useTranslation("drill");
   // Whether the machine can move (connected + idle/jog-safe) — gates the bind action.
   const canBind = useMachine((s) => canMove(s.status.state, s.connected));
+  // Local in-flight guard so the bind button shows a disabled state during the
+  // async setZero round-trip (otherwise it looks unresponsive on slow GRBL links).
+  const [isBinding, setIsBinding] = useState(false);
 
   return (
     <>
@@ -131,10 +135,16 @@ export function DrillZeroInspector({
       <div className="sticky bottom-0 mt-auto flex shrink-0 gap-2 border-t border-border bg-panel p-3">
         <Button
           size="sm"
-          disabled={!canBind}
+          disabled={!canBind || isBinding}
           onClick={async () => {
-            // On a successful bind, leave the zero mode and return to the plan.
-            if (await onBind()) onBack();
+            if (isBinding) return;
+            setIsBinding(true);
+            try {
+              // On a successful bind, leave the zero mode and return to the plan.
+              if (await onBind()) onBack();
+            } finally {
+              setIsBinding(false);
+            }
           }}
           className="flex-1"
         >
