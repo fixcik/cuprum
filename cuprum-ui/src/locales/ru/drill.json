@@ -88,7 +88,8 @@
   "workzero": {
     "title": "Привязка нуля",
     "cardTitle": "Рабочий ноль",
-    "jogTitle": "Подвод сверла",
+    "jogTitle": "Подвод по XY",
+    "gotoZero": "На рабочий ноль XY",
     "openSettings": "Настроить",
     "statusNotSet": "не выставлен",
     "statusSet": "выставлен · угол {{corner}}",

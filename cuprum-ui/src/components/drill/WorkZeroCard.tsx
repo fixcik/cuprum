@@ -1,18 +1,23 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertTriangle,
   ArrowDown,
+  ArrowDownLeft,
+  ArrowDownRight,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  ArrowUpLeft,
+  ArrowUpRight,
   CheckCircle2,
   Crosshair,
+  Info,
 } from "lucide-react";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { useJog } from "@/hooks/useJog";
 import { type XYGateResult, formatXYViolations } from "@/lib/xyGate";
-import { AlertTriangle } from "lucide-react";
 import { JogStepControl } from "@/components/machine/JogStepControl";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -26,20 +31,24 @@ export interface WorkZeroCardProps {
   xyGate: XYGateResult;
 }
 
+/** Axis colours from the design tokens (X red, Y green) — used for the X/Y badges. */
+const X_COLOR = "#d9534f";
+const Y_COLOR = "#3fbf6f";
+
 /** Shared button style for the XY jog pad arrows. */
 const padBtn =
-  "flex h-8 w-full items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground active:bg-primary/10 disabled:pointer-events-none disabled:opacity-30";
+  "flex h-9 w-full items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground active:bg-primary/10 disabled:pointer-events-none disabled:opacity-30";
 
-/** Machine-frame jog body for binding the work zero: a two-axis DRO (X/Y), an XY
- *  pad, a step selector, the bound-zero status line, the XY gate banner, and an
- *  informational note that Z is probed per-bit. The bind/reset actions live in the
- *  inspector's sticky footer (DrillZeroInspector), not here. */
-export function WorkZeroCard({
-  workZeroSet,
-  maxXMm,
-  maxYMm,
-  xyGate,
-}: WorkZeroCardProps) {
+/** Centre "go to work zero" button — primary-tinted to read as the origin. */
+const centerBtn =
+  "flex h-9 w-full items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-30";
+
+/** Machine-frame jog body for binding the work zero: an 8-way XY pad with a centre
+ *  go-to-zero, the live X/Y readout as coloured badges, a step selector in the
+ *  header, the bound-zero status line, the XY gate banner, and an informational
+ *  note that Z is probed per-bit. The bind/reset actions live in the inspector's
+ *  sticky footer (DrillZeroInspector), not here. */
+export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, xyGate }: WorkZeroCardProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
 
@@ -55,7 +64,7 @@ export function WorkZeroCard({
     z: [0, 0] as [number, number],
   };
 
-  const { enabled, step, setStep, continuous, go, startContinuous, stopContinuous } =
+  const { enabled, step, setStep, continuous, go, startContinuous, stopContinuous, jogTo } =
     useJog({ bounds });
 
   // Stop any in-flight continuous jog on unmount.
@@ -78,84 +87,74 @@ export function WorkZeroCard({
         }
       : { onClick: () => go(dx, dy, 0) };
 
+  // One directional pad button. dx/dy ∈ {-1,0,1}.
+  const dirBtn = (dx: number, dy: number, label: string, icon: React.ReactNode) => (
+    <button
+      type="button"
+      title={`${label} ${fmtLen(typeof step === "number" ? step : 0)}`}
+      disabled={!enabled}
+      className={padBtn}
+      {...xyProps(dx, dy)}
+    >
+      {icon}
+    </button>
+  );
+
+  const axisBadge = (label: string, color: string, value: number) => (
+    <div className="flex items-center gap-2">
+      <span
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[12px] font-bold text-white"
+        style={{ backgroundColor: color }}
+      >
+        {label}
+      </span>
+      <span className="font-mono text-[15px] tabular-nums text-foreground">{fmtLen(value)}</span>
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-3 border-b border-border p-4 text-sm">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <Crosshair className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="text-[13px] font-semibold text-foreground">{t("workzero.jogTitle")}</span>
-      </div>
-
-      {/* Hint */}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">{t("workzero.hint")}</p>
-
-      {/* Two-axis DRO: MPos X / Y */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">{t("workzero.xLabel")}</span>
-          <span className="font-mono text-[13px] tabular-nums text-foreground">{fmtLen(mposX)}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">{t("workzero.yLabel")}</span>
-          <span className="font-mono text-[13px] tabular-nums text-foreground">{fmtLen(mposY)}</span>
-        </div>
-      </div>
-
-      {/* XY 3×3 jog pad */}
-      <div className="grid w-[132px] grid-cols-3 gap-1.5">
-        <span />
-        <button
-          type="button"
-          title={`Y+ ${fmtLen(typeof step === "number" ? step : 0)}`}
-          disabled={!enabled}
-          className={padBtn}
-          {...xyProps(0, 1)}
-        >
-          <ArrowUp className="h-4 w-4" />
-        </button>
-        <span />
-        <button
-          type="button"
-          title={`X− ${fmtLen(typeof step === "number" ? step : 0)}`}
-          disabled={!enabled}
-          className={padBtn}
-          {...xyProps(-1, 0)}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <span className="grid place-items-center text-[9px] uppercase tracking-wide text-muted-foreground/50">
-          {typeof step === "number" ? fmtLen(step) : "∞"}
+      {/* Header: section label + step selector */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {t("workzero.jogTitle")}
         </span>
-        <button
-          type="button"
-          title={`X+ ${fmtLen(typeof step === "number" ? step : 0)}`}
-          disabled={!enabled}
-          className={padBtn}
-          {...xyProps(1, 0)}
-        >
-          <ArrowRight className="h-4 w-4" />
-        </button>
-        <span />
-        <button
-          type="button"
-          title={`Y− ${fmtLen(typeof step === "number" ? step : 0)}`}
-          disabled={!enabled}
-          className={padBtn}
-          {...xyProps(0, -1)}
-        >
-          <ArrowDown className="h-4 w-4" />
-        </button>
-        <span />
+        <JogStepControl
+          steps={steps}
+          step={step}
+          setStep={setStep}
+          continuous={continuous}
+          onBeforeChange={stopContinuous}
+        />
       </div>
 
-      {/* Step selector */}
-      <JogStepControl
-        steps={steps}
-        step={step}
-        setStep={setStep}
-        continuous={continuous}
-        onBeforeChange={stopContinuous}
-      />
+      {/* 3×3 jog pad (left) + live X/Y badges (right) */}
+      <div className="flex items-center gap-4">
+        <div className="grid w-[150px] grid-cols-3 gap-1.5">
+          {dirBtn(-1, 1, "↖", <ArrowUpLeft className="h-4 w-4" />)}
+          {dirBtn(0, 1, "Y+", <ArrowUp className="h-4 w-4" />)}
+          {dirBtn(1, 1, "↗", <ArrowUpRight className="h-4 w-4" />)}
+          {dirBtn(-1, 0, "X−", <ArrowLeft className="h-4 w-4" />)}
+          <button
+            type="button"
+            title={t("workzero.gotoZero")}
+            disabled={!enabled}
+            className={centerBtn}
+            onClick={() => void jogTo({ x: 0, y: 0 })}
+          >
+            <Crosshair className="h-4 w-4" />
+          </button>
+          {dirBtn(1, 0, "X+", <ArrowRight className="h-4 w-4" />)}
+          {dirBtn(-1, -1, "↙", <ArrowDownLeft className="h-4 w-4" />)}
+          {dirBtn(0, -1, "Y−", <ArrowDown className="h-4 w-4" />)}
+          {dirBtn(1, -1, "↘", <ArrowDownRight className="h-4 w-4" />)}
+        </div>
+
+        <div className="flex flex-col gap-2.5">
+          {axisBadge("X", X_COLOR, mposX)}
+          {axisBadge("Y", Y_COLOR, mposY)}
+        </div>
+      </div>
 
       {/* Status line: bound or not-bound hint */}
       {workZeroSet ? (
@@ -176,7 +175,10 @@ export function WorkZeroCard({
       )}
 
       {/* Informational note: Z is probed per-bit, not set here */}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">{t("workzero.zPerToolNote")}</p>
+      <div className="flex items-start gap-2 rounded-md border border-border bg-background/40 px-3 py-2">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <p className="text-[11px] leading-relaxed text-muted-foreground">{t("workzero.zPerToolNote")}</p>
+      </div>
     </div>
   );
 }
