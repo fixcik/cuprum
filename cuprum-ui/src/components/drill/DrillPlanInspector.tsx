@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
+import { AlarmActions } from "@/components/machine/AlarmActions";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillClass } from "@/lib/api";
 import type { DrillRoute } from "@/lib/drillRoute";
@@ -198,6 +199,7 @@ export function DrillPlanInspector({
             <div>{run.state.error}</div>
             <div className="text-rose-300/70">{t("run.errorHint")}</div>
           </div>
+          <AlarmActions />
           <button
             type="button"
             aria-label={t("hole.clear")}
