@@ -140,7 +140,20 @@
     "step1": "Retract the collet and remove the current bit",
     "step2": "Insert the new bit and tighten the collet",
     "step3": "Resume — the machine will re-probe Z",
-    "confirm": "Confirm & continue"
+    "confirm": "Confirm & continue",
+    "zTitle": "Z touch-off",
+    "tabProbe": "Probe",
+    "tabManual": "Manual",
+    "probeTest": "Touch the probe to the bit — we'll test the circuit",
+    "probeOk": "Probe connected",
+    "probeBtn": "Set Z by probe",
+    "probing": "Probing…",
+    "probeShorted": "Probe is shorted — detach before probing",
+    "probeFail": "No contact — check the probe",
+    "manualHint": "Jog the bit down to the copper, then set Z",
+    "manualBind": "Set Z here",
+    "zBound": "Z set",
+    "confirmHint": "Set Z first"
   },
   "finish": {
     "title_one": "Done · {{count}} hole · {{time}}",
