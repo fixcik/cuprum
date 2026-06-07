@@ -348,12 +348,14 @@ const HOMING_TIMEOUT: Duration = Duration::from_secs(120);
 /// it). Unlike `send_line_await_ok`, it tolerates the long mid-cycle silence GRBL
 /// produces while homing — status reports stop until the cycle ends, so liveness
 /// can't be judged from silence here. Reuses the reader→`ack_tx` channel; refuses
-/// if a run already holds it.
-fn home_await(state: &State<MachineState>) -> Result<(), String> {
-    let writer = state.writer().ok_or("not connected")?;
-    let ack_slot = state.ack_slot().ok_or("not connected")?;
-    let telemetry = state.telemetry();
-
+/// if a run already holds it. Takes the connection handles by value so it can run
+/// on a blocking thread (the cycle is seconds long — it must NOT run on the main
+/// thread or it freezes the webview).
+fn home_await(
+    writer: Arc<Mutex<GrblWriter>>,
+    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
+    telemetry: Option<Channel<Telemetry>>,
+) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
     {
         let mut slot = ack_slot.lock().unwrap();
@@ -450,12 +452,19 @@ pub fn machine_home(state: State<MachineState>) -> Result<(), String> {
     send_line(&state, grbl::home())
 }
 
-/// Home ($H) and block until the cycle resolves, so the UI can show progress and
-/// only mark the frame homed once GRBL actually confirms it (Err on
-/// failure/abort/timeout).
+/// Home ($H) and resolve only once the cycle completes, so the UI can show
+/// progress and mark the frame homed only when GRBL confirms it (Err on
+/// failure/abort/timeout). Runs the seconds-long blocking wait off the main
+/// thread via `spawn_blocking`, so the webview stays responsive and the
+/// "homing…" overlay can paint.
 #[tauri::command]
-pub fn machine_home_await(state: State<MachineState>) -> Result<(), String> {
-    home_await(&state)
+pub async fn machine_home_await(state: State<'_, MachineState>) -> Result<(), String> {
+    let writer = state.writer().ok_or("not connected")?;
+    let ack_slot = state.ack_slot().ok_or("not connected")?;
+    let telemetry = state.telemetry();
+    tauri::async_runtime::spawn_blocking(move || home_await(writer, ack_slot, telemetry))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
