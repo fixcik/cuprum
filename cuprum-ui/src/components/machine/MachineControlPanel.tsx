@@ -7,6 +7,7 @@ import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
 import { SoftLimitsNotice } from "@/components/machine/SoftLimitsNotice";
+import { LimitRecoveryNotice } from "@/components/machine/LimitRecoveryNotice";
 import { Card } from "@/components/machine/Card";
 import { Dro } from "@/components/machine/Dro";
 import { JogPad } from "@/components/machine/JogPad";
@@ -59,6 +60,7 @@ export function MachineControlPanel({
         {homing && <HomingOverlay />}
         <div className="flex flex-col gap-3 lg:w-[440px] lg:flex-none lg:overflow-auto">
           <AlarmBanner />
+          <LimitRecoveryNotice />
           <SoftLimitsNotice />
           <Card
             title={t("dro.coordinates")}

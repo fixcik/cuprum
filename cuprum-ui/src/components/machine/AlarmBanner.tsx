@@ -9,7 +9,11 @@ import { api } from "@/lib/api";
 export function AlarmBanner() {
   const { t } = useTranslation("machine");
   const state = useMachine((s) => s.status.state);
+  const pins = useMachine((s) => s.status.pins);
   if (state !== "alarm") return null;
+  // A stuck limit switch needs the dedicated recovery flow (plain $X can't move
+  // off an engaged switch with hard limits on) — defer to LimitRecoveryNotice.
+  if (pins?.x || pins?.y || pins?.z) return null;
 
   return (
     <div className="anim-in flex items-center gap-2.5 rounded-lg border border-destructive/40 bg-destructive/15 px-3 py-2 text-[12px] text-destructive">

@@ -101,5 +101,18 @@
     "configure": "Configure soft limits",
     "configuring": "Writing to machine…",
     "error": "Couldn't write to the machine: {{error}}"
+  },
+  "limitRecovery": {
+    "message": "Limit switch engaged: {{axes}}. Free the axis before homing.",
+    "enter": "Free the switch",
+    "entering": "Disabling protection…",
+    "warning": "Protection disabled (soft + hard limits). Jog in small, careful steps.",
+    "step": "Step, mm",
+    "axis": "Axis {{axis}}",
+    "stuck": "engaged",
+    "clear": "clear",
+    "home": "Done, home",
+    "cancel": "Cancel",
+    "error": "Failed: {{error}}"
   }
 }
