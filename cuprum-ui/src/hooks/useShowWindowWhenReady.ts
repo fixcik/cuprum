@@ -25,10 +25,15 @@ export function useShowWindowWhenReady(ready: boolean, fallbackMs = 1500): void 
     void w.setFocus();
   }, []);
 
-  // Safety net: never leave the window hidden even if `ready` never flips.
+  // Safety net: never leave the window hidden even if `ready` never flips. If the
+  // root unmounts before the timer fires (e.g. the window closes itself), reveal it
+  // in the cleanup too — show() is idempotent, so this can't double-show.
   useEffect(() => {
     const t = setTimeout(show, fallbackMs);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      show();
+    };
   }, [show, fallbackMs]);
 
   // Show on the next frame after content is ready, so the first paint with real
