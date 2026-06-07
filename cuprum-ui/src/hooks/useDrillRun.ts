@@ -17,6 +17,9 @@ export interface UseDrillRun {
   stop: () => void;
   estop: () => void;
   confirmToolChange: () => void;
+  /** Mark Z as bound for the current bit (probe or manual touch-off succeeded) —
+   *  unlocks "Продолжить"/"Начать". Frontend-only; no machine command here. */
+  markZBound: () => void;
   reset: () => void;
 }
 
@@ -84,11 +87,15 @@ export function useDrillRun(): UseDrillRun {
     void api.drillRun.confirmToolChange();
   }, []);
 
+  const markZBound = useCallback(() => {
+    dispatch({ type: "zbound" });
+  }, []);
+
   // Return to idle (PLAN mode) after a finished/error run without starting a new
   // one — e.g. "finish pass". Local state only; no machine command.
   const reset = useCallback(() => {
     dispatch({ type: "reset" });
   }, []);
 
-  return { state, connected, start, pause, resume, stop, estop, confirmToolChange, reset };
+  return { state, connected, start, pause, resume, stop, estop, confirmToolChange, markZBound, reset };
 }

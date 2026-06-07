@@ -275,6 +275,7 @@ describe("drillRunReducer", () => {
       holesTotal: 10,
       currentHoleIndex: 3,
       toolChange: { toolName: "Сверло 1.2", diameterMm: 1.2 },
+      zBound: true,
       error: "something went wrong",
       runStartedAt: 1234567890,
     };
