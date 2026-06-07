@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Arc } from "react-konva";
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus } from "lucide-react";
@@ -7,7 +7,8 @@ import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import { buildHoleToPathIndex, orderedHoleList } from "@/lib/drillRoute";
 import type { PhaseProgress } from "@/lib/drillPhaseProgress";
-import { PHASE_COLORS } from "@/lib/drillPhaseProgress";
+import { sweepFraction, phaseColor } from "@/lib/drillPhaseProgress";
+import { DrillCycleRing } from "./DrillCycleRing";
 import { MachineMarker } from "./MachineMarker";
 import { workPosToPanel } from "@/lib/machineMarker";
 import { type DatumCorner, datumCornerPanelPoint } from "@/lib/datum";
@@ -278,6 +279,12 @@ export interface DrillMapCanvasProps {
   /** Smoothed three-phase progress (descent / drilling / retract) for the
    *  currently-drilling hole. Drives the three coloured ring segments around it. */
   currentHolePhase?: PhaseProgress;
+  /** Colour of the active bit (class colour) — drives the drilling-phase arc. */
+  currentBitColor?: string;
+  /** True while the run is paused / awaiting a tool change → idle ring, no pulse. */
+  runIdle?: boolean;
+  /** Localized current phase label for the marker pill (omitted → no phase row). */
+  currentPhaseLabel?: string;
   /** Called on every viewport change (pan, zoom, animate frame) so rulers
    *  can follow the canvas transform without prop drilling into the Stage. */
   onViewportChange?: (v: Viewport) => void;
@@ -294,7 +301,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, currentBitColor, runIdle, currentPhaseLabel, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId }: DrillMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   // Ref to the fit-group for pointer → mm coordinate conversion.
@@ -627,44 +634,29 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
                   />
                 );
               })()}
-            {/* Three-phase progress ring for the currently-drilling hole. */}
+            {/* Single-sweep progress ring for the currently-drilling hole. */}
             {currentHoleId &&
               !drilledHoleIds?.has(currentHoleId) &&
               (() => {
                 const g = holeIndex.get(currentHoleId);
-                if (!g) return null;
-                const r = g.r;
-                return (["descent", "drilling", "retract"] as const).map((ph, si) => {
-                  const frac = Math.max(0, Math.min(1, currentHolePhase?.[ph] ?? 0));
-                  const segStart = -90 + si * 120;
-                  return (
-                    <Group key={ph} listening={false}>
-                      <Arc
-                        x={g.xMm}
-                        y={g.yMm}
-                        innerRadius={r + 0.45}
-                        outerRadius={r + 0.75}
-                        angle={120}
-                        rotation={segStart}
-                        fill={PHASE_COLORS[ph]}
-                        opacity={0.18}
-                        listening={false}
-                      />
-                      {frac > 0 && (
-                        <Arc
-                          x={g.xMm}
-                          y={g.yMm}
-                          innerRadius={r + 0.45}
-                          outerRadius={r + 0.75}
-                          angle={120 * frac}
-                          rotation={segStart}
-                          fill={PHASE_COLORS[ph]}
-                          listening={false}
-                        />
-                      )}
-                    </Group>
-                  );
-                });
+                if (!g || !currentHolePhase) return null;
+                const idle = !!runIdle;
+                const col = phaseColor(
+                  currentHolePhase.phase,
+                  currentBitColor ?? "#fbbf24",
+                  idle,
+                );
+                return (
+                  <DrillCycleRing
+                    xMm={g.xMm}
+                    yMm={g.yMm}
+                    holeRadiusMm={g.r}
+                    pxPerMm={viewport.pxPerMm}
+                    sweep={idle ? 0 : sweepFraction(currentHolePhase)}
+                    color={col}
+                    active={!idle}
+                  />
+                );
               })()}
             {/* Machine-origin indicator — INSIDE the fit-group (mm space) so it
                 shares the holes' stage∘fit transform exactly (no double-applied
@@ -706,6 +698,10 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
                 transform as the holes; constant on-screen size via pxPerMm. */}
             {machineWork && viewport.pxPerMm > 0 && (() => {
               const p = workPosToPanel(machineWork.x, machineWork.y, H, datum, W);
+              const idle = !!runIdle;
+              const markerPhaseColor = currentHolePhase
+                ? phaseColor(currentHolePhase.phase, currentBitColor ?? "#fbbf24", idle)
+                : undefined;
               return (
                 <MachineMarker
                   xMm={p.xMm}
@@ -714,6 +710,9 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
                   workX={machineWork.x}
                   workY={machineWork.y}
                   workZ={machineWork.z}
+                  panelWidthMm={W}
+                  phaseLabel={currentPhaseLabel}
+                  phaseColor={markerPhaseColor}
                 />
               );
             })()}

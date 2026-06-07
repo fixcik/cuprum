@@ -6,7 +6,8 @@ import { useDrillScreenData } from "@/hooks/useDrillScreenData";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
-import { planDrillRoute } from "@/lib/drillRoute";
+import { planDrillRoute, classAtRunIndex } from "@/lib/drillRoute";
+import { DRILL_CLASS_COLOR } from "@/lib/drillClassColor";
 import { datumCornerPanelPoint } from "@/lib/datum";
 import { classCounts, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
 import {
@@ -274,6 +275,26 @@ export function DrillOperationEditor() {
     safeZMm: cncProfile?.safeZMm ?? 5,
   });
 
+  // Active bit colour (by drill class) for the current hole's drilling-phase arc.
+  const currentBitColor = useMemo(() => {
+    if (!route || run.state.currentHoleIndex == null) return undefined;
+    const cls = classAtRunIndex(route, run.state.currentHoleIndex);
+    return cls ? DRILL_CLASS_COLOR[cls] : undefined;
+  }, [route, run.state.currentHoleIndex]);
+
+  // Idle = paused or awaiting a tool change (machine not actively cutting).
+  const runIdle =
+    run.state.phase === "paused" ||
+    run.state.phase === "pausing" ||
+    run.state.phase === "awaitingToolChange";
+
+  // Localized phase label for the marker pill (only during an active run).
+  const currentPhaseLabel = useMemo(() => {
+    if (run.state.phase === "idle" || run.state.phase === "done") return undefined;
+    const key = runIdle ? "idle" : currentHolePhase.phase;
+    return t(`phase.${key}`);
+  }, [run.state.phase, runIdle, currentHolePhase.phase, t]);
+
   const hasAnyHoles = !!(plan && plan.totalHoles > 0);
 
   if (!hasProject || (plan !== null && !loading && !hasAnyHoles)) {
@@ -324,6 +345,9 @@ export function DrillOperationEditor() {
               datum={drillDatumCorner}
               machineWork={showMarker ? machineWork : null}
               currentHolePhase={currentHolePhase}
+              currentBitColor={currentBitColor}
+              runIdle={runIdle}
+              currentPhaseLabel={currentPhaseLabel}
               inspectedHoleId={inspectedHoleId}
               onToggleHole={(id) =>
                 setSelectedHoleIds((s) => {
