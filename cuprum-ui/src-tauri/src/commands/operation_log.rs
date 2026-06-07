@@ -74,10 +74,13 @@ pub(crate) fn operation_runs_list(
     app: AppHandle,
     project_path: String,
     op_type: Option<String>,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<OperationRunDto>, String> {
     let db = catalog_db_path(&app)?;
-    let runs = cuprum_project::operation_runs_list(&db, &project_path, op_type.as_deref())
-        .map_err(|e| e.to_string())?;
+    let runs =
+        cuprum_project::operation_runs_list(&db, &project_path, op_type.as_deref(), limit, offset)
+            .map_err(|e| e.to_string())?;
     Ok(runs
         .into_iter()
         .map(|r| OperationRunDto {

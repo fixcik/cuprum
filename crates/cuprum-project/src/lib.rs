@@ -185,14 +185,17 @@ pub fn operation_run_finish(
     )
 }
 
-/// List operation runs for a project (newest first), optionally filtered by type.
+/// List operation runs for a project (newest first), optionally filtered by type,
+/// paginated via `limit`/`offset` ("load more").
 pub fn operation_runs_list(
     db_path: &Path,
     project_path: &str,
     op_type: Option<&str>,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<OperationRun>> {
     let conn = catalog::open(db_path)?;
-    catalog::operation_runs_list(&conn, project_path, op_type)
+    catalog::operation_runs_list(&conn, project_path, op_type, limit, offset)
 }
 
 /// The most recent run's `params_json` for a project + op type (prefill default).

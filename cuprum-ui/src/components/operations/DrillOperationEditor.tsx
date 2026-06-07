@@ -85,10 +85,14 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     feedOverridePct?: number;
   } | null>(null);
   const prefillAppliedRef = useRef(false);
+  // Set when an explicit "repeat run" prefill arrives — the default last-params fetch
+  // then must not clobber it if it resolves later (it raced the user's repeat click).
+  const repeatPrefillRef = useRef(false);
 
   // Fetch the most recent drill run's params once per project (saved path only).
   useEffect(() => {
     prefillAppliedRef.current = false;
+    repeatPrefillRef.current = false;
     setLastDrillParams(null);
     const path = snap.currentPath;
     if (!path) return;
@@ -96,7 +100,8 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     void api.operationLog
       .lastParams(path, "drill")
       .then((json) => {
-        if (!active || !json) return;
+        // Skip if an explicit repeat already supplied params — don't overwrite it.
+        if (!active || !json || repeatPrefillRef.current) return;
         try {
           setLastDrillParams(JSON.parse(json));
         } catch {
@@ -108,6 +113,28 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
       active = false;
     };
   }, [snap.currentPath]);
+
+  // "Repeat run": the main window pushes a past run's params to prefill from. Feed it
+  // through the same prefill path (reset the once-per-project guard so the seed effect
+  // re-applies it, filtered to the current plan).
+  useEffect(() => {
+    let active = true;
+    const sub = api.onDrillPrefill((json) => {
+      if (!active) return;
+      try {
+        const parsed = JSON.parse(json);
+        repeatPrefillRef.current = true;
+        setLastDrillParams(parsed);
+        prefillAppliedRef.current = false;
+      } catch {
+        /* malformed — ignore */
+      }
+    });
+    return () => {
+      active = false;
+      void sub.then((un) => un());
+    };
+  }, []);
 
   // Seed the selection once the plan is ready: prefer the last run's config (filtered
   // to holes that still exist on the panel), applied once per project; otherwise the

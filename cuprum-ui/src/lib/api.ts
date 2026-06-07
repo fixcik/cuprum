@@ -571,8 +571,10 @@ export const api = {
   openAddDesignWindow: () => invoke<void>("open_add_design_window"),
   /** Open (or focus) the inspector window for a design (label `inspector-<id>`). */
   openInspectorWindow: (designId: string) => invoke<void>("open_inspector_window", { designId }),
-  /** Open (or focus) the drilling-operation window (label `drill`). */
-  openDrillWindow: () => invoke<void>("open_drill_window"),
+  /** Open (or focus) the drilling-operation window (label `drill`). Resolves `true`
+   *  if the window already existed (was focused), `false` if freshly created — used
+   *  to route a "repeat run" prefill (emit now vs. hand off as a pending one-shot). */
+  openDrillWindow: () => invoke<boolean>("open_drill_window"),
   /** Open (or focus) the machine console OS window. */
   openConsoleWindow: () => invoke<void>("open_console_window"),
 
@@ -647,6 +649,11 @@ export const api = {
   emitDrillSnapshot: (s: DrillSnapshot) => emit("drill:snapshot", s),
   onDrillSnapshot: (cb: (s: DrillSnapshot) => void): Promise<UnlistenFn> =>
     listen<DrillSnapshot>("drill:snapshot", (e) => cb(e.payload)),
+  /** Main → drill window: prefill the editor with a past run's params_json ("repeat
+   *  run"). Overrides the default last-run prefill. */
+  emitDrillPrefill: (paramsJson: string) => emit("drill:prefill", { paramsJson }),
+  onDrillPrefill: (cb: (paramsJson: string) => void): Promise<UnlistenFn> =>
+    listen<{ paramsJson: string }>("drill:prefill", (e) => cb(e.payload.paramsJson)),
   /** Relay the main window's JS-derived machine flags (homed) to the drill window. */
   emitMachineDerived: (d: { homed: boolean }) => emit("machine://derived", d),
   onMachineDerived: (cb: (d: { homed: boolean }) => void): Promise<UnlistenFn> =>
@@ -788,9 +795,15 @@ export const api = {
         progressDone,
         summaryJson: summaryJson ?? null,
       }),
-    /** List a project's runs (newest first), optionally filtered by op type. */
-    list: (projectPath: string, opType?: string | null) =>
-      invoke<OperationRun[]>("operation_runs_list", { projectPath, opType: opType ?? null }),
+    /** List a project's runs (newest first), paginated via limit/offset ("load
+     *  more"), optionally filtered by op type. */
+    list: (projectPath: string, limit: number, offset: number, opType?: string | null) =>
+      invoke<OperationRun[]>("operation_runs_list", {
+        projectPath,
+        opType: opType ?? null,
+        limit,
+        offset,
+      }),
     /** Most recent run's params_json for a project + op type (prefill default). */
     lastParams: (projectPath: string, opType: string) =>
       invoke<string | null>("operation_run_last_params", { projectPath, opType }),

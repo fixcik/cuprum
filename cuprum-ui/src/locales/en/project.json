@@ -57,8 +57,12 @@
     "empty": "No runs yet.",
     "noProject": "Save the project to keep a run history.",
     "filterAll": "All",
+    "loadMore": "Load more",
+    "repeat": "Repeat",
     "holesLabel": "Holes:",
     "toolsLabel": "Bits:",
+    "feedLabel": "Feed:",
+    "estimateLabel": "Est.:",
     "minShort": "m",
     "secShort": "s",
     "type": {

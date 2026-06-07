@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, XCircle, Loader2, History as HistoryIcon } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, History as HistoryIcon, RotateCcw } from "lucide-react";
 import { api, type OperationRun } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { relativeTime } from "@/i18n/relativeTime";
+
+/** Runs fetched per page; "load more" appends the next page. */
+const PAGE_SIZE = 20;
 
 /** Compact duration ("Xm Ys" / "Ys") from whole seconds. */
 function formatDuration(sec: number, minShort: string, secShort: string): string {
@@ -13,43 +16,64 @@ function formatDuration(sec: number, minShort: string, secShort: string): string
   return s ? `${m}${minShort} ${s}${secShort}` : `${m}${minShort}`;
 }
 
-/** Distinct tool count parsed from a drill run's params_json (history summary). */
-function drillToolCount(paramsJson: string): number | null {
+interface DrillParams {
+  toolCount?: number;
+  feedOverridePct?: number;
+  estimateSec?: number;
+  selectedHoleIds?: string[];
+}
+
+function parseDrillParams(paramsJson: string): DrillParams {
   try {
-    const p = JSON.parse(paramsJson) as { toolCount?: number };
-    return typeof p.toolCount === "number" ? p.toolCount : null;
+    return JSON.parse(paramsJson) as DrillParams;
   } catch {
-    return null;
+    return {};
   }
 }
 
 /** Op types that have a window to (re)open from a history card. */
-const OPENABLE: Record<string, () => void> = {
-  drill: () => void api.openDrillWindow(),
-};
+const OPENABLE = new Set(["drill"]);
+
+/** Open the op's window and prefill it with this run's config ("repeat run"). An
+ *  already-open window is listening, so prefill it now; a fresh one consumes the
+ *  pending prefill on its ready handshake. */
+async function repeatRun(run: OperationRun) {
+  if (run.opType !== "drill") return;
+  const wasOpen = await api.openDrillWindow();
+  if (wasOpen) api.emitDrillPrefill(run.paramsJson);
+  else useShell.getState().setPendingDrillPrefill(run.paramsJson);
+}
 
 /** Operation history as a card list — every journalled run across all op types,
- *  newest first, filterable by type. Lives in the Operations view beside the
- *  operation buttons; clicking a run reopens its operation window. */
+ *  newest first, paginated and filterable. Lives in the Operations view beside the
+ *  operation buttons; a card expands to read-only run details with a "repeat" action. */
 export function OperationHistory() {
   const { t } = useTranslation("project");
   const currentPath = useShell((s) => s.currentPath);
   const [runs, setRuns] = useState<OperationRun[] | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
+  // First page on project change (resets filter/expansion so stale state can't hide
+  // the new project's runs).
   useEffect(() => {
-    // Reset the type filter on project change — a stale filter could hide the new
-    // project's runs behind an empty state.
     setFilter("all");
+    setExpanded(null);
+    setHasMore(false);
     if (!currentPath) {
       setRuns([]);
       return;
     }
+    setRuns(null);
     let active = true;
     void api.operationLog
-      .list(currentPath)
+      .list(currentPath, PAGE_SIZE, 0)
       .then((rows) => {
-        if (active) setRuns(rows);
+        if (!active) return;
+        setRuns(rows);
+        setHasMore(rows.length === PAGE_SIZE);
       })
       .catch(() => {
         if (active) setRuns([]);
@@ -58,6 +82,19 @@ export function OperationHistory() {
       active = false;
     };
   }, [currentPath]);
+
+  const loadMore = () => {
+    if (!currentPath || loadingMore) return;
+    setLoadingMore(true);
+    void api.operationLog
+      .list(currentPath, PAGE_SIZE, runs?.length ?? 0)
+      .then((rows) => {
+        setRuns((prev) => [...(prev ?? []), ...rows]);
+        setHasMore(rows.length === PAGE_SIZE);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  };
 
   const types = useMemo(() => [...new Set((runs ?? []).map((r) => r.opType))], [runs]);
   const shown = useMemo(
@@ -110,87 +147,138 @@ export function OperationHistory() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-          {shown.map((r) => {
-            const rel = relativeTime(r.startedAt);
-            const dur =
-              r.endedAt != null
-                ? formatDuration(
-                    Math.max(0, r.endedAt - r.startedAt),
-                    t("runHistory.minShort"),
-                    t("runHistory.secShort"),
-                  )
-                : null;
-            const tools = r.opType === "drill" ? drillToolCount(r.paramsJson) : null;
-            const open = OPENABLE[r.opType];
-            const summary = (
-              <>
-                {r.progressTotal != null && (
-                  <span>
-                    {t("runHistory.holesLabel")} {r.progressTotal}
-                  </span>
-                )}
-                {tools != null && (
-                  <span>
-                    {" · "}
-                    {t("runHistory.toolsLabel")} {tools}
-                  </span>
-                )}
-              </>
-            );
-            return (
-              <RunCard
-                key={r.runUid}
-                onOpen={open}
-                title={typeLabel(r.opType)}
-                outcome={<OutcomeBadge outcome={r.outcome} t={t} />}
-                summary={summary}
-                meta={`${t(rel.key, rel.params)}${dur ? ` · ${dur}` : ""}`}
-              />
-            );
-          })}
+          {shown.map((r) => (
+            <RunCard
+              key={r.runUid}
+              run={r}
+              t={t}
+              typeLabel={typeLabel}
+              expanded={expanded === r.runUid}
+              onToggle={() => setExpanded((cur) => (cur === r.runUid ? null : r.runUid))}
+            />
+          ))}
+          {hasMore && (
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="mt-1 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] text-muted-foreground hover:bg-card hover:text-foreground disabled:opacity-60"
+            >
+              {loadingMore && <Loader2 className="size-3.5 animate-spin" />}
+              {t("runHistory.loadMore")}
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-/** A single history card — a button when the op can be reopened, else a plain box. */
 function RunCard({
-  onOpen,
-  title,
-  outcome,
-  summary,
-  meta,
+  run,
+  t,
+  typeLabel,
+  expanded,
+  onToggle,
 }: {
-  onOpen?: () => void;
-  title: string;
-  outcome: React.ReactNode;
-  summary: React.ReactNode;
-  meta: string;
+  run: OperationRun;
+  t: (k: string | string[], opts?: Record<string, unknown>) => string;
+  typeLabel: (op: string) => string;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
-  const inner = (
-    <>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[13px] font-medium text-foreground">{title}</span>
-        {outcome}
-      </div>
-      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <span className="tabular-nums">{summary}</span>
-        <span className="shrink-0 tabular-nums">{meta}</span>
-      </div>
-    </>
+  const rel = relativeTime(run.startedAt);
+  const minShort = t("runHistory.minShort");
+  const secShort = t("runHistory.secShort");
+  const dur =
+    run.endedAt != null
+      ? formatDuration(Math.max(0, run.endedAt - run.startedAt), minShort, secShort)
+      : null;
+  const drill = run.opType === "drill" ? parseDrillParams(run.paramsJson) : null;
+  const canRepeat = OPENABLE.has(run.opType);
+
+  return (
+    <div className="rounded-lg border border-border bg-card/50">
+      {/* Header row — toggles the detail */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full px-3 py-2 text-left transition-colors hover:bg-card"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[13px] font-medium text-foreground">{typeLabel(run.opType)}</span>
+          <OutcomeBadge outcome={run.outcome} t={t} />
+        </div>
+        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span className="tabular-nums">
+            {run.progressTotal != null && (
+              <span>
+                {t("runHistory.holesLabel")} {run.progressTotal}
+              </span>
+            )}
+            {drill?.toolCount != null && (
+              <span>
+                {" · "}
+                {t("runHistory.toolsLabel")} {drill.toolCount}
+              </span>
+            )}
+          </span>
+          <span className="shrink-0 tabular-nums">
+            {t(rel.key, rel.params)}
+            {dur ? ` · ${dur}` : ""}
+          </span>
+        </div>
+      </button>
+
+      {/* Read-only detail */}
+      {expanded && (
+        <div className="border-t border-border/60 px-3 py-2">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            {run.progressTotal != null && (
+              <Row
+                label={t("runHistory.holesLabel")}
+                value={
+                  run.progressDone < run.progressTotal
+                    ? `${run.progressDone} / ${run.progressTotal}`
+                    : String(run.progressTotal)
+                }
+              />
+            )}
+            {drill?.toolCount != null && (
+              <Row label={t("runHistory.toolsLabel")} value={String(drill.toolCount)} />
+            )}
+            {drill?.feedOverridePct != null && (
+              <Row label={t("runHistory.feedLabel")} value={`${drill.feedOverridePct} %`} />
+            )}
+            {drill?.estimateSec != null && drill.estimateSec > 0 && (
+              <Row
+                label={t("runHistory.estimateLabel")}
+                value={formatDuration(Math.round(drill.estimateSec), minShort, secShort)}
+              />
+            )}
+          </dl>
+          {canRepeat && (
+            <button
+              type="button"
+              onClick={() => void repeatRun(run)}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] text-foreground transition-colors hover:border-primary/50 hover:bg-primary/10"
+            >
+              <RotateCcw className="size-3.5" />
+              {t("runHistory.repeat")}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
-  const base = "rounded-lg border border-border bg-card/50 px-3 py-2 text-left";
-  return onOpen ? (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`${base} w-full transition-colors hover:border-primary/50 hover:bg-card`}
-    >
-      {inner}
-    </button>
-  ) : (
-    <div className={base}>{inner}</div>
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="tabular-nums text-foreground">{value}</dd>
+    </div>
   );
 }
 

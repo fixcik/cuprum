@@ -252,6 +252,8 @@ pub fn operation_runs_list(
     conn: &Connection,
     project_path: &str,
     op_type: Option<&str>,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<OperationRun>> {
     let map_row = |row: &rusqlite::Row| -> rusqlite::Result<OperationRun> {
         Ok(OperationRun {
@@ -269,14 +271,17 @@ pub fn operation_runs_list(
     };
     const COLS: &str = "run_uid, project_path, op_type, started_at, ended_at, outcome,
                         progress_total, progress_done, params_json, summary_json";
+    // Paginated newest-first; the caller fetches a page at a time ("load more").
     let mut out = Vec::new();
     match op_type {
         Some(t) => {
             let mut stmt = conn.prepare(&format!(
                 "SELECT {COLS} FROM operation_runs
-                  WHERE project_path = ?1 AND op_type = ?2 ORDER BY started_at DESC"
+                  WHERE project_path = ?1 AND op_type = ?2
+                  ORDER BY started_at DESC LIMIT ?3 OFFSET ?4"
             ))?;
-            let rows = stmt.query_map(rusqlite::params![project_path, t], map_row)?;
+            let rows =
+                stmt.query_map(rusqlite::params![project_path, t, limit, offset], map_row)?;
             for r in rows {
                 out.push(r?);
             }
@@ -284,9 +289,9 @@ pub fn operation_runs_list(
         None => {
             let mut stmt = conn.prepare(&format!(
                 "SELECT {COLS} FROM operation_runs
-                  WHERE project_path = ?1 ORDER BY started_at DESC"
+                  WHERE project_path = ?1 ORDER BY started_at DESC LIMIT ?2 OFFSET ?3"
             ))?;
-            let rows = stmt.query_map(rusqlite::params![project_path], map_row)?;
+            let rows = stmt.query_map(rusqlite::params![project_path, limit, offset], map_row)?;
             for r in rows {
                 out.push(r?);
             }
@@ -417,7 +422,7 @@ mod tests {
         )
         .unwrap();
         // Mid-run: ended_at/outcome NULL, progress_done defaults to 0.
-        let live = operation_runs_list(&conn, proj, None).unwrap();
+        let live = operation_runs_list(&conn, proj, None, 100, 0).unwrap();
         assert_eq!(live.len(), 1);
         assert_eq!(live[0].run_uid, "uid-1");
         assert_eq!(live[0].ended_at, None);
@@ -426,7 +431,7 @@ mod tests {
         assert_eq!(live[0].progress_done, 0);
 
         operation_run_finish(&conn, "uid-1", 250, "completed", 120, Some("{\"sec\":42}")).unwrap();
-        let done = operation_runs_list(&conn, proj, None).unwrap();
+        let done = operation_runs_list(&conn, proj, None, 100, 0).unwrap();
         assert_eq!(done[0].ended_at, Some(250));
         assert_eq!(done[0].outcome, Some("completed".to_string()));
         assert_eq!(done[0].progress_done, 120);
@@ -434,12 +439,12 @@ mod tests {
 
         // A second run of a different type, newer — list is newest-first.
         operation_run_start(&conn, "uid-2", proj, "expose", 300, None, "{\"layer\":1}").unwrap();
-        let all = operation_runs_list(&conn, proj, None).unwrap();
+        let all = operation_runs_list(&conn, proj, None, 100, 0).unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].run_uid, "uid-2"); // 300 > 100 (started_at DESC)
 
         // Filter by op_type.
-        let drills = operation_runs_list(&conn, proj, Some("drill")).unwrap();
+        let drills = operation_runs_list(&conn, proj, Some("drill"), 100, 0).unwrap();
         assert_eq!(drills.len(), 1);
         assert_eq!(drills[0].op_type, "drill");
 
@@ -470,10 +475,22 @@ mod tests {
 
         // Runs are scoped per project.
         assert_eq!(
-            operation_runs_list(&conn, "/tmp/other.cuprum", None)
+            operation_runs_list(&conn, "/tmp/other.cuprum", None, 100, 0)
                 .unwrap()
                 .len(),
             0
+        );
+
+        // Pagination: 3 runs total (uid-3@400, uid-2@300, uid-1@100), newest-first.
+        let page1 = operation_runs_list(&conn, proj, None, 2, 0).unwrap();
+        assert_eq!(
+            page1.iter().map(|r| r.run_uid.as_str()).collect::<Vec<_>>(),
+            ["uid-3", "uid-2"]
+        );
+        let page2 = operation_runs_list(&conn, proj, None, 2, 2).unwrap();
+        assert_eq!(
+            page2.iter().map(|r| r.run_uid.as_str()).collect::<Vec<_>>(),
+            ["uid-1"]
         );
 
         std::fs::remove_dir_all(&dir).ok();
