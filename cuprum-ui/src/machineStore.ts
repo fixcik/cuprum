@@ -11,6 +11,8 @@ const MAX_LINES = 500;
  *  $22 flag and a fresh state are in. */
 const HOME_DETECT_DELAY_MS = 600;
 
+const PINS_CLEAR = { x: false, y: false, z: false, probe: false } as const;
+
 const IDLE_STATUS: MachineStatus = {
   state: "unknown",
   mpos: [0, 0, 0],
@@ -18,6 +20,7 @@ const IDLE_STATUS: MachineStatus = {
   feed: 0,
   spindle: 0,
   overrides: [100, 100, 100],
+  pins: { ...PINS_CLEAR },
 };
 
 interface MachineStore {
@@ -76,8 +79,8 @@ export const useMachine = create<MachineStore>((set, get) => ({
     const ch = new Channel<Telemetry>();
     ch.onmessage = (msg) => {
       if (msg.type === "status") {
-        const { state, mpos, wpos, feed, spindle, overrides = [100, 100, 100] } = msg;
-        get().setStatus({ state, mpos, wpos, feed, spindle, overrides });
+        const { state, mpos, wpos, feed, spindle, overrides = [100, 100, 100], pins } = msg;
+        get().setStatus({ state, mpos, wpos, feed, spindle, overrides, pins: pins ?? { ...PINS_CLEAR } });
       } else {
         get().pushLine({ dir: msg.dir, text: msg.text });
         // Scan firmware settings lines for homing-enable ($22).

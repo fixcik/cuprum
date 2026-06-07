@@ -34,6 +34,15 @@ export type Verdict = "ok" | "warn" | "block";
 export type MachineStateName =
   | "idle" | "run" | "hold" | "jog" | "alarm" | "home" | "door" | "check" | "sleep" | "unknown";
 
+/** Active limit/probe pins from the GRBL `Pn:` status field (machine.rs `Pins`).
+ *  All-false when no pin is engaged. */
+export interface Pins {
+  x: boolean;
+  y: boolean;
+  z: boolean;
+  probe: boolean;
+}
+
 export interface MachineStatus {
   state: MachineStateName;
   mpos: [number, number, number];
@@ -42,6 +51,8 @@ export interface MachineStatus {
   spindle: number;
   /** Override percentages [feed, rapid, spindle]; defaults to 100 % each. */
   overrides?: [number, number, number];
+  /** Active limit/probe pins; defaults to all-false when absent. */
+  pins?: Pins;
 }
 
 /** Payload of the global `machine://status` event (machine.rs `MachinePos`). */
