@@ -29,7 +29,8 @@ pub const METRICS_VERSION: &[u8] = b"metrics-v18";
 /// Bump when the preview composition/palette/size changes.
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
 /// v3: substrate/mask/layers clipped to the rounded Edge_Cuts outline.
-pub const PREVIEW_VERSION: &[u8] = b"preview-v3";
+/// v4: composite framed to the board-outline bbox (was union-of-layers bbox).
+pub const PREVIEW_VERSION: &[u8] = b"preview-v4";
 
 /// Bump when `mesh::board_geometry` output changes (triangulation, layer/barrel
 /// emission, substrate Z). Unlike the others this keys the OS app-cache mesh blob,

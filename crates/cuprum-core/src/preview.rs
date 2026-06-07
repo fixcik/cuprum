@@ -91,12 +91,16 @@ fn union_bbox(layers: &[(String, LayerGeometry)]) -> Option<BBox> {
 pub fn compose_svg(
     layers: &[(String, LayerGeometry)],
     overrides: &HashMap<String, String>,
-    board_clip: Option<&str>,
+    board_outline: Option<(&str, BBox)>,
 ) -> String {
-    // Union bbox over ALL layers for a stable board extent.
-    let Some(bb) = union_bbox(layers) else {
+    // Frame the view to the board outline when available, so the rasterized PNG's
+    // extent equals the board bbox the panel uses for instance placement; otherwise
+    // fall back to the union bbox over ALL layers (silk overhang included).
+    let frame = board_outline.map(|(_, bb)| bb).or_else(|| union_bbox(layers));
+    let Some(bb) = frame else {
         return r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>"#.to_string();
     };
+    let board_clip = board_outline.map(|(d, _)| d);
     let w = (bb.max_x - bb.min_x).max(f32::MIN_POSITIVE);
     let h = (bb.max_y - bb.min_y).max(f32::MIN_POSITIVE);
     let minx = trim(bb.min_x);
@@ -197,33 +201,46 @@ fn trim(v: f32) -> String {
     }
 }
 
-/// SVG clip-path `d` (gerber mm) for the board outline: every Edge_Cuts loop as a
-/// closed subpath. `None` when the edge layer has no stitchable loop, or the
-/// perimeter didn't close (a malformed/partial outline would auto-close into a
-/// bogus clip — fall back to no clipping). Reuses the same outline reconstruction
-/// as the 3D substrate (`mesh::outline_info`), so the thumbnail, the interactive
-/// preview and the 3D board agree on the board shape. The compound path is meant
-/// to be filled `evenodd` so inner cutouts punch holes regardless of winding.
-fn board_clip_d(edge_bytes: &[u8]) -> Option<String> {
+/// SVG clip-path `d` (gerber mm) for the board outline AND its bounding box, both
+/// derived from the same Edge_Cuts loop reconstruction (`mesh::outline_info`) so the
+/// clip and the frame agree (and match the 3D substrate). Every Edge_Cuts loop is a
+/// closed subpath; the compound path is meant to be filled `evenodd` so inner
+/// cutouts punch holes regardless of winding. `None` when the edge layer has no
+/// stitchable loop, or the perimeter didn't close (a malformed/partial outline would
+/// auto-close into a bogus shape — fall back to no outline, i.e. union-bbox framing
+/// and no clipping).
+fn board_outline(edge_bytes: &[u8]) -> Option<(String, BBox)> {
     let (loops, perimeter_closed) = crate::mesh::outline_info(edge_bytes);
     if !perimeter_closed {
         return None;
     }
     let mut d = String::new();
+    let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
+    let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
     for ring in loops.iter().filter(|r| r.len() >= 3) {
         for (i, p) in ring.iter().enumerate() {
-            let _ = write!(
-                d,
-                "{}{} {} ",
-                if i == 0 { "M" } else { "L" },
-                trim(p[0] as f32),
-                trim(p[1] as f32),
-            );
+            let (x, y) = (p[0] as f32, p[1] as f32);
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            let _ = write!(d, "{}{} {} ", if i == 0 { "M" } else { "L" }, trim(x), trim(y));
         }
         d.push_str("Z ");
     }
     let d = d.trim_end();
-    (!d.is_empty()).then(|| d.to_string())
+    if d.is_empty() || !min_x.is_finite() {
+        return None;
+    }
+    Some((
+        d.to_string(),
+        BBox {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        },
+    ))
 }
 
 /// One layer feeding the composite: raw gerber bytes + its IPC layer-type string.
@@ -288,11 +305,15 @@ pub fn render_design_preview(
     }
     // Reconstruct the board outline from Edge_Cuts so the composite clips to the
     // real (rounded) shape instead of the rectangular bbox — matches the inspector.
-    let board_clip = layers
+    let board_outline = layers
         .iter()
         .find(|l| l.layer_type == "edgeCuts")
-        .and_then(|e| board_clip_d(&e.bytes));
-    let doc = compose_svg(&composed, overrides, board_clip.as_deref());
+        .and_then(|e| board_outline(&e.bytes));
+    let doc = compose_svg(
+        &composed,
+        overrides,
+        board_outline.as_ref().map(|(d, bb)| (d.as_str(), *bb)),
+    );
     let png = rasterize(&doc, max_px)?;
     if !crate::diskcache::cache_disabled() {
         crate::diskcache::put_persistent(&dir, &key, &png);
@@ -420,16 +441,47 @@ mod tests {
     const EDGE_OPEN: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.15*%\nD10*\nX0Y0D02*\nX100000Y0D01*\nX100000Y100000D01*\nM02*\n";
 
     #[test]
-    fn board_clip_d_stitches_edge_cuts_into_a_closed_path() {
-        let d = board_clip_d(EDGE_SQUARE).expect("square stitches into a loop");
+    fn board_outline_reports_path_and_bbox() {
+        let (d, bb) = board_outline(EDGE_SQUARE).expect("square stitches into a loop");
         assert!(d.starts_with('M'), "clip path starts with a moveto: {d}");
         assert!(d.contains('Z'), "clip path closes the loop: {d}");
-        // Empty/garbage edge bytes → no clip (graceful).
-        assert!(board_clip_d(b"M02*\n").is_none(), "no segments → no clip");
-        // Open/partial perimeter → no clip (don't clip to a bogus auto-closed shape).
         assert!(
-            board_clip_d(EDGE_OPEN).is_none(),
-            "open perimeter falls back to no clip"
+            bb.min_x.abs() < 1e-3 && (bb.max_x - 10.0).abs() < 1e-3,
+            "x spans 0..10: {bb:?}"
+        );
+        assert!(
+            bb.min_y.abs() < 1e-3 && (bb.max_y - 10.0).abs() < 1e-3,
+            "y spans 0..10: {bb:?}"
+        );
+        // Empty/garbage edge bytes → no outline (graceful).
+        assert!(board_outline(b"M02*\n").is_none(), "no segments → no outline");
+        // Open/partial perimeter → no outline (don't clip to a bogus auto-closed shape).
+        assert!(
+            board_outline(EDGE_OPEN).is_none(),
+            "open perimeter falls back to no outline"
+        );
+    }
+
+    #[test]
+    fn compose_frames_view_to_outline_not_union() {
+        // Silk overhangs the 10×10 board; framing must follow the outline bbox, not
+        // the union of layer bboxes, so the PNG extent equals the board placement size.
+        let layers = vec![
+            ("edgeCuts".to_string(), geom("<rect/>", 0.0, 0.0, 10.0, 10.0)),
+            ("topSilk".to_string(), geom("<text/>", -2.0, -1.0, 15.0, 12.0)),
+        ];
+        let o = std::collections::HashMap::new();
+        let (d, bb) = board_outline(EDGE_SQUARE).unwrap();
+        let doc = compose_svg(&layers, &o, Some((&d, bb)));
+        assert!(
+            doc.contains("viewBox=\"0 0 10 10\""),
+            "framed to outline bbox: {doc}"
+        );
+        // No outline → union bbox (overhang included), preserving old behavior.
+        let plain = compose_svg(&layers, &o, None);
+        assert!(
+            plain.contains("viewBox=\"-2 -1 17 13\""),
+            "union bbox fallback: {plain}"
         );
     }
 
@@ -446,8 +498,8 @@ mod tests {
             ),
         ];
         let overrides = std::collections::HashMap::new();
-        let clip = board_clip_d(EDGE_SQUARE).unwrap();
-        let doc = compose_svg(&layers, &overrides, Some(&clip));
+        let (d, bb) = board_outline(EDGE_SQUARE).unwrap();
+        let doc = compose_svg(&layers, &overrides, Some((&d, bb)));
         assert!(doc.contains("id=\"board-clip\""), "clipPath defined: {doc}");
         assert!(
             doc.contains("fill-rule=\"evenodd\""),
