@@ -602,6 +602,9 @@ export const api = {
     ) => invoke<void>("machine_override", { kind, action }),
     spindle: (on: boolean, rpm: number) => invoke<void>("machine_spindle", { on, rpm }),
     send: (line: string) => invoke<void>("machine_send", { line }),
+    /** Write a line and reject if GRBL answers error/ALARM — used for firmware
+     *  settings writes whose acceptance the UI must confirm. */
+    sendAwaitOk: (line: string) => invoke<void>("machine_send_await_ok", { line }),
     onConnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://connected", () => cb()),
     onDisconnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://disconnected", () => cb()),
     onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>

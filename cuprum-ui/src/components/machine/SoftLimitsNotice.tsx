@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +22,8 @@ export function SoftLimitsNotice() {
   const softLimitsEnabled = useMachine((s) => s.softLimitsEnabled);
   const maxTravelMm = useMachine((s) => s.maxTravelMm);
   const env = useSettings((s) => s.cncProfile.workEnvelopeMm);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!connected || softLimitsEnabled === null) return null;
 
@@ -35,39 +38,55 @@ export function SoftLimitsNotice() {
 
   const message = !softLimitsEnabled ? t("softLimits.disabled") : t("softLimits.mismatch");
 
-  // Push the work envelope into the firmware as soft limits, then re-query to
-  // refresh the local state. Sent one line at a time so each setting is
-  // acknowledged before the next; failures are logged but don't abort the rest.
+  // Push the configured work envelope into the firmware as soft limits, one line
+  // at a time and BLOCKING on each `ok`, so a dropped/rejected write can't be
+  // mistaken for success (a blind fire-and-forget send never reaches EEPROM yet
+  // the warning would clear, then return on the next reconnect). The envelope is
+  // the per-machine source of truth — no hard-coded sizes. After every line is
+  // acknowledged, re-query $$ so the local soft-limit state refreshes and the
+  // warning clears for good.
   const configure = async () => {
-    const lines = [
+    setBusy(true);
+    setError(null);
+    const writes = [
       "$20=1",
       `$130=${env.x.toFixed(3)}`,
       `$131=${env.y.toFixed(3)}`,
       `$132=${env.z.toFixed(3)}`,
       "$22=1",
-      "$$",
     ];
-    for (const line of lines) {
-      try {
-        await api.machine.send(line);
-      } catch (e) {
-        console.error(`soft-limits: failed to send ${line}`, e);
+    try {
+      for (const line of writes) {
+        await api.machine.sendAwaitOk(line);
       }
+      await api.machine.send("$$");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="anim-in flex items-center gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-[12px] text-amber-500">
-      <ShieldAlert className="size-4 shrink-0" />
-      <span className="flex-1 font-medium">{message}</span>
-      <Button
-        variant="outline"
-        size="sm"
-        className="border-amber-500/40 text-amber-500 hover:bg-amber-500/20"
-        onClick={() => void configure()}
-      >
-        {t("softLimits.configure")}
-      </Button>
+    <div className="anim-in flex flex-col gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-[12px] text-amber-500">
+      <div className="flex items-center gap-2.5">
+        <ShieldAlert className="size-4 shrink-0" />
+        <span className="flex-1 font-medium">{message}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          className="border-amber-500/40 text-amber-500 hover:bg-amber-500/20"
+          onClick={() => void configure()}
+        >
+          {busy ? t("softLimits.configuring") : t("softLimits.configure")}
+        </Button>
+      </div>
+      {error && (
+        <span className="pl-[26px] text-[11px] text-red-400">
+          {t("softLimits.error", { error })}
+        </span>
+      )}
     </div>
   );
 }

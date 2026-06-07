@@ -392,6 +392,16 @@ pub fn machine_send(state: State<MachineState>, line: String) -> Result<(), Stri
     send_line(&state, &line)
 }
 
+/// Write a line and block until GRBL acknowledges it, returning Err on
+/// `error:N`/`ALARM:N`. Used for firmware-setting writes (e.g. `$20=1`,
+/// `$130=...`) the UI must know were actually applied — a blind send can be
+/// silently dropped, so the change would never reach EEPROM yet the UI assumes
+/// success.
+#[tauri::command]
+pub fn machine_send_await_ok(state: State<MachineState>, line: String) -> Result<(), String> {
+    send_line_await_ok(&state, &line)
+}
+
 #[tauri::command]
 pub fn machine_soft_reset(state: State<MachineState>) -> Result<(), String> {
     send_realtime(&state, grbl::SOFT_RESET, "soft-reset")
