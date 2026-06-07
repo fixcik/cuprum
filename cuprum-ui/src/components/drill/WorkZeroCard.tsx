@@ -16,6 +16,7 @@ import { useSettings } from "@/settingsStore";
 import { useJog } from "@/hooks/useJog";
 import { machineZFromFraction } from "@/lib/zbar";
 import { checkZGate } from "@/lib/zGate";
+import { type XYGateResult, formatXYViolations } from "@/lib/xyGate";
 import { Button } from "@/components/ui/Button";
 import { JogStepControl } from "@/components/machine/JogStepControl";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
@@ -28,6 +29,8 @@ export interface WorkZeroCardProps {
   maxXMm: number;
   maxYMm: number;
   maxZMm: number;
+  /** XY gate result (hole bbox vs machine envelope) — drives the XY overrun banner. */
+  xyGate: XYGateResult;
   onBind: () => void;
   onClear: () => void;
 }
@@ -50,6 +53,7 @@ export function WorkZeroCard({
   maxXMm,
   maxYMm,
   maxZMm,
+  xyGate,
   onBind,
   onClear,
 }: WorkZeroCardProps) {
@@ -331,6 +335,14 @@ export function WorkZeroCard({
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{t("workzero.tooHigh")}</span>
+        </div>
+      )}
+
+      {/* Amber gate banner: at this zero, the hole bbox overruns the XY travel */}
+      {xyGate.valid === false && xyGate.reason === "out-of-bounds" && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{t("workzero.xyOutOfBounds", { detail: formatXYViolations(xyGate.violations, fmtLen) })}</span>
         </div>
       )}
     </div>
