@@ -20,10 +20,22 @@ function ConsoleBody({ onClose }: { onClose: () => void }) {
   const connected = useMachine((s) => s.connected);
   const [input, setInput] = useState("");
   const [copied, setCopied] = useState(false);
-  const endRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const firstScroll = useRef(true);
 
+  // Auto-scroll the log to the bottom on new lines — but scroll ONLY this
+  // container (`scrollTop`), never `scrollIntoView`, which would also yank every
+  // scrollable ancestor and make the whole panel jump. On first open jump to the
+  // bottom unconditionally; afterwards stick to the bottom only when the user is
+  // already there, so manual scroll-back isn't fought.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    const el = logRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (firstScroll.current || nearBottom) {
+      el.scrollTop = el.scrollHeight;
+      firstScroll.current = false;
+    }
   }, [lines]);
 
   const send = () => {
@@ -79,7 +91,10 @@ function ConsoleBody({ onClose }: { onClose: () => void }) {
       </header>
       {/* select-text overrides the app-global `user-select: none` so the operator
           can copy console output (g-code, errors). */}
-      <div className="min-h-0 flex-1 select-text overflow-auto px-3 py-2 font-mono text-[11.5px] leading-[1.55]">
+      <div
+        ref={logRef}
+        className="min-h-0 flex-1 select-text overflow-auto px-3 py-2 font-mono text-[11.5px] leading-[1.55]"
+      >
         {lines.map((l, i) => (
           <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
             <span className="shrink-0 select-none tabular-nums text-muted-foreground/40">
@@ -103,7 +118,6 @@ function ConsoleBody({ onClose }: { onClose: () => void }) {
             </span>
           </div>
         ))}
-        <div ref={endRef} />
       </div>
       <div className="flex shrink-0 items-center gap-2 border-t border-border p-2.5">
         <input

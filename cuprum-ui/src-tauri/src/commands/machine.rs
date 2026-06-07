@@ -142,11 +142,18 @@ pub fn machine_connect(
                     // Any line from GRBL = the link is alive (used by the runner's
                     // liveness-based ok-wait).
                     r_activity.lock().unwrap().last = std::time::Instant::now();
-                    let _ = r_tel.send(Telemetry::Line {
-                        dir: "rx".into(),
-                        text: line.clone(),
-                    });
                     let parsed = grbl::parse_line(&line);
+                    // Echo to the console — but NOT the status-report polls (`<...>`),
+                    // which arrive at ~5 Hz from the 200 ms poller and would flood the
+                    // log, thrash the console (auto-scroll + full re-render of the line
+                    // list), and bury real traffic. Status is forwarded separately as
+                    // Telemetry::Status below.
+                    if !matches!(parsed, grbl::Line::Status(_)) {
+                        let _ = r_tel.send(Telemetry::Line {
+                            dir: "rx".into(),
+                            text: line.clone(),
+                        });
+                    }
                     if matches!(
                         parsed,
                         grbl::Line::Ok | grbl::Line::Error(_) | grbl::Line::Alarm(_)
