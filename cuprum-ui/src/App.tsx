@@ -11,6 +11,7 @@ import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
 import { useDrillBridge } from "@/hooks/useDrillBridge";
 import { useMachineBridge } from "@/hooks/useMachineBridge";
+import { useConsoleBridge } from "@/hooks/useConsoleBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import i18n from "@/i18n";
@@ -24,6 +25,7 @@ export default function App() {
   useInspectorBridge();
   useDrillBridge();
   useMachineBridge();
+  useConsoleBridge();
 
   useEffect(() => {
     loadDisplayScale();

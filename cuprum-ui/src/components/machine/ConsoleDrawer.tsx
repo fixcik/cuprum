@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Copy, PanelRightClose, Terminal } from "lucide-react";
+import { Copy, ExternalLink, PanelRightClose, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
@@ -12,9 +12,52 @@ function fmtTime(ts: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
+/** Stub shown in the drawer while the console is open in a separate OS window. */
+function ConsoleStub({
+  onClose,
+  onFocus,
+}: {
+  onClose: () => void;
+  onFocus: () => void;
+}) {
+  const { t } = useTranslation("machine");
+  return (
+    <div className="flex h-full flex-col bg-card">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+        <Terminal className="size-4 text-muted-foreground" />
+        <span className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {t("console.title")}
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            title={t("console.close")}
+            onClick={onClose}
+            className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          >
+            <PanelRightClose className="size-4" />
+          </button>
+        </div>
+      </header>
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+        <p className="text-[13px] text-muted-foreground">{t("console.inWindow")}</p>
+        <Button variant="secondary" size="sm" onClick={onFocus}>
+          {t("console.focusWindow")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Inner console body: header (title + line count + copy + close), scrolling log
- *  with auto-scroll, and the G-code input. Reused by the drawer. */
-function ConsoleBody({ onClose }: { onClose: () => void }) {
+ *  with auto-scroll, and the G-code input. Reused by the drawer and the console window. */
+export function ConsoleBody({
+  onClose,
+  onPopOut,
+}: {
+  onClose: () => void;
+  onPopOut?: () => void;
+}) {
   const { t } = useTranslation("machine");
   const lines = useMachine((s) => s.lines);
   const connected = useMachine((s) => s.connected);
@@ -79,6 +122,16 @@ function ConsoleBody({ onClose }: { onClose: () => void }) {
             <Copy className="size-3.5" />
             {copied ? t("console.copied") : t("console.copy")}
           </button>
+          {onPopOut && (
+            <button
+              type="button"
+              title={t("console.popOut")}
+              onClick={onPopOut}
+              className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            >
+              <ExternalLink className="size-4" />
+            </button>
+          )}
           <button
             type="button"
             title={t("console.close")}
@@ -95,8 +148,8 @@ function ConsoleBody({ onClose }: { onClose: () => void }) {
         ref={logRef}
         className="min-h-0 flex-1 select-text overflow-auto px-3 py-2 font-mono text-[11.5px] leading-[1.55]"
       >
-        {lines.map((l, i) => (
-          <div key={i} className="flex gap-2 whitespace-pre-wrap break-all">
+        {lines.map((l) => (
+          <div key={l.seq} className="flex gap-2 whitespace-pre-wrap break-all">
             <span className="shrink-0 select-none tabular-nums text-muted-foreground/40">
               {fmtTime(l.ts)}
             </span>
@@ -137,11 +190,30 @@ function ConsoleBody({ onClose }: { onClose: () => void }) {
 }
 
 /** Right-side slide-in console drawer over the content. */
-export function ConsoleDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ConsoleDrawer({
+  open,
+  onClose,
+  windowOpen = false,
+  onPopOut,
+  onFocusWindow,
+}: {
+  open: boolean;
+  onClose: () => void;
+  windowOpen?: boolean;
+  onPopOut?: () => void;
+  onFocusWindow?: () => void;
+}) {
   if (!open) return null;
   return (
     <div className="slide-in absolute inset-y-0 right-0 z-20 w-[440px] max-w-full border-l border-border shadow-2xl">
-      <ConsoleBody onClose={onClose} />
+      {windowOpen ? (
+        <ConsoleStub
+          onClose={onClose}
+          onFocus={() => onFocusWindow?.()}
+        />
+      ) : (
+        <ConsoleBody onClose={onClose} onPopOut={onPopOut} />
+      )}
     </div>
   );
 }

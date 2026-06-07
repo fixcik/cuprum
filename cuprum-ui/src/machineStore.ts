@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { Channel } from "@tauri-apps/api/core";
 import { api, type ConsoleLine, type MachineStatus, type Telemetry } from "@/lib/api";
+
+export type { ConsoleLine };
 import {
   parseHomingEnabled,
   parseSoftLimitsEnabled,
@@ -10,6 +12,9 @@ import {
 import { shouldInferHomed } from "@/lib/homing";
 
 const MAX_LINES = 500;
+
+// Monotonic counter for per-line sequence numbers used by the relay delta helper.
+let lineSeq = 0;
 
 /** Grace after connect before judging whether the machine is already referenced.
  *  $$ replies within ~100 ms and status streams every 200 ms, so by now both the
@@ -59,8 +64,21 @@ interface MachineStore {
    *  is held. Call once on mount. */
   reattach: () => Promise<void>;
   disconnect: () => Promise<void>;
-  pushLine: (line: Omit<ConsoleLine, "ts">) => void;
+  pushLine: (line: Omit<ConsoleLine, "ts" | "seq">) => void;
   setStatus: (status: MachineStatus) => void;
+  /** Seed the local store wholesale from a relay snapshot (console window only).
+   *  The console window never runs connect; its store is purely a read-model. */
+  seedFromSnapshot: (s: {
+    connected: boolean;
+    port: string | null;
+    status: MachineStatus;
+    lines: ConsoleLine[];
+    homingAvailable: boolean;
+    homed: boolean;
+    maxSpindleRpm: number | null;
+  }) => void;
+  /** Append relay line deltas to the log, capped at MAX_LINES (console window only). */
+  appendRelayLines: (lines: ConsoleLine[]) => void;
   /** Run a homing cycle ($H), waiting for GRBL to confirm completion. Marks the
    *  frame homed on success; surfaces failure/abort to the console. */
   runHoming: () => Promise<void>;
@@ -194,10 +212,12 @@ export const useMachine = create<MachineStore>((set, get) => {
       await api.machine.disconnect();
       get().reset();
     },
-    // Stamp the local arrival time front-side so the console can show per-line
-    // timings (e.g. how long an `ok` took).
+    // Stamp the local arrival time and monotonic seq front-side so the console
+    // can show per-line timings and the relay delta helper can key on seq.
     pushLine: (line) =>
-      set((s) => ({ lines: [...s.lines.slice(-(MAX_LINES - 1)), { ...line, ts: Date.now() }] })),
+      set((s) => ({
+        lines: [...s.lines, { ...line, seq: ++lineSeq, ts: Date.now() }].slice(-(MAX_LINES)),
+      })),
     // Track the homing cycle via the status stream: a transition out of the `home`
     // state into `idle` means the cycle completed, so the frame is referenced
     // (homed). Entering `alarm` clears it — an alarm voids the known position.
@@ -214,6 +234,20 @@ export const useMachine = create<MachineStore>((set, get) => {
         }
         return homed === s.homed ? { status } : { status, homed };
       }),
+    // Seed the whole read-model from a relay snapshot (console window only).
+    seedFromSnapshot: (s) =>
+      set(() => ({
+        connected: s.connected,
+        port: s.port,
+        status: s.status,
+        lines: s.lines,
+        homingAvailable: s.homingAvailable,
+        homed: s.homed,
+        maxSpindleRpm: s.maxSpindleRpm,
+      })),
+    // Append relay line deltas to the log, capped at MAX_LINES (console window only).
+    appendRelayLines: (incoming) =>
+      set((st) => ({ lines: [...st.lines, ...incoming].slice(-(MAX_LINES)) })),
     // GRBL stays silent during the cycle, so completion can't be read from the
     // status stream — homeAwait resolves on the `$H` ok (homed) and rejects on
     // failure/abort. The overlay tracks `homing`.

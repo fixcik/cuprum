@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Crosshair, Fan, LocateFixed, Move, Move3d, SlidersHorizontal } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
+import { api } from "@/lib/api";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
 import { SoftLimitsNotice } from "@/components/machine/SoftLimitsNotice";
@@ -33,6 +35,27 @@ export function MachineControlPanel({
   onCloseConsole?: () => void;
 }) {
   const { t } = useTranslation("machine");
+
+  // Track whether the console OS window is open so the drawer shows a stub.
+  // Driven by authoritative signals, not JS unmount: console:ready (covers
+  // pop-out AND a webview reload remount) sets it true; console:closed (the Rust
+  // Destroyed event) sets it false.
+  const [consoleWindowOpen, setConsoleWindowOpen] = useState(false);
+  useEffect(() => {
+    const ps = [
+      api.onConsoleReady(() => setConsoleWindowOpen(true)),
+      api.onConsoleClosed(() => setConsoleWindowOpen(false)),
+    ];
+    return () => {
+      ps.forEach((p) => void p.then((f) => f()));
+    };
+  }, []);
+
+  const popOutConsole = () => {
+    void api.openConsoleWindow();
+    // Optimistic: instant stub feedback before the ready handshake lands.
+    setConsoleWindowOpen(true);
+  };
   // Datum-corner labels live in the `drill` namespace (shared work-zero vocabulary).
   const { t: tDrill } = useTranslation("drill");
   const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
@@ -99,7 +122,13 @@ export function MachineControlPanel({
           </Card>
         </div>
         <FieldPanel className="min-h-[20rem] min-w-0 flex-1 lg:min-h-0" />
-        <ConsoleDrawer open={consoleOpen} onClose={() => onCloseConsole?.()} />
+        <ConsoleDrawer
+          open={consoleOpen}
+          onClose={() => onCloseConsole?.()}
+          windowOpen={consoleWindowOpen}
+          onPopOut={popOutConsole}
+          onFocusWindow={() => void api.openConsoleWindow()}
+        />
       </div>
     </div>
   );

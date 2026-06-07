@@ -124,10 +124,20 @@ fn main() {
                         if label.starts_with("inspector-")
                             || label == "add-design"
                             || label == "drill"
+                            || label == "console"
                         {
                             let _ = w.close();
                         }
                     }
+                }
+            }
+            // The console window is gone (OS-close, app quit, or any teardown):
+            // tell the main window so it can revert the in-app drawer stub. Driven
+            // by the authoritative Destroyed event, not a JS unmount — OS-close
+            // kills the webview's JS context before any React cleanup runs.
+            if window.label() == "console" {
+                if let WindowEvent::Destroyed = event {
+                    let _ = window.app_handle().emit("console:closed", ());
                 }
             }
         })
@@ -191,6 +201,7 @@ fn main() {
             commands::windows::display_px_per_mm,
             commands::windows::take_pending_open,
             commands::windows::open_add_design_window,
+            commands::windows::open_console_window,
             commands::windows::open_inspector_window,
             commands::windows::open_drill_window,
             set_app_menu,
