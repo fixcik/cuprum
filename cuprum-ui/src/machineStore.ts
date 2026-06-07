@@ -66,6 +66,19 @@ interface MachineStore {
   disconnect: () => Promise<void>;
   pushLine: (line: Omit<ConsoleLine, "ts" | "seq">) => void;
   setStatus: (status: MachineStatus) => void;
+  /** Seed the local store wholesale from a relay snapshot (console window only).
+   *  The console window never runs connect; its store is purely a read-model. */
+  seedFromSnapshot: (s: {
+    connected: boolean;
+    port: string | null;
+    status: MachineStatus;
+    lines: ConsoleLine[];
+    homingAvailable: boolean;
+    homed: boolean;
+    maxSpindleRpm: number | null;
+  }) => void;
+  /** Append relay line deltas to the log, capped at MAX_LINES (console window only). */
+  appendRelayLines: (lines: ConsoleLine[]) => void;
   /** Run a homing cycle ($H), waiting for GRBL to confirm completion. Marks the
    *  frame homed on success; surfaces failure/abort to the console. */
   runHoming: () => Promise<void>;
@@ -221,6 +234,20 @@ export const useMachine = create<MachineStore>((set, get) => {
         }
         return homed === s.homed ? { status } : { status, homed };
       }),
+    // Seed the whole read-model from a relay snapshot (console window only).
+    seedFromSnapshot: (s) =>
+      set(() => ({
+        connected: s.connected,
+        port: s.port,
+        status: s.status,
+        lines: s.lines,
+        homingAvailable: s.homingAvailable,
+        homed: s.homed,
+        maxSpindleRpm: s.maxSpindleRpm,
+      })),
+    // Append relay line deltas to the log, capped at MAX_LINES (console window only).
+    appendRelayLines: (incoming) =>
+      set((st) => ({ lines: [...st.lines, ...incoming].slice(-(MAX_LINES)) })),
     // GRBL stays silent during the cycle, so completion can't be read from the
     // status stream — homeAwait resolves on the `$H` ok (homed) and rejects on
     // failure/abort. The overlay tracks `homing`.
