@@ -98,6 +98,8 @@
     "title": "Soft limits",
     "disabled": "GRBL soft limits are off — manual jog can hit a limit switch.",
     "mismatch": "GRBL soft limits don't match the work area — manual jog can hit a limit switch.",
-    "configure": "Configure soft limits"
+    "configure": "Configure soft limits",
+    "configuring": "Writing to machine…",
+    "error": "Couldn't write to the machine: {{error}}"
   }
 }
