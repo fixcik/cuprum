@@ -8,8 +8,7 @@ import { useDrillRun } from "@/hooks/useDrillRun";
 import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute } from "@/lib/drillRoute";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { filterPlanByClasses, classCounts, passToClasses, DRILL_CLASSES, DRILL_PASSES } from "@/lib/drillPasses";
-import type { DrillPass } from "@/lib/drillPasses";
+import { filterPlanByClasses, classCounts, DRILL_CLASSES, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
 import { estimateDrill } from "@/lib/drillEstimate";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
@@ -66,9 +65,9 @@ export function DrillOperationEditor() {
     [snap?.manifest?.panel?.keep_out_zones],
   );
 
-  // Drill-window-owned active pass; selected class set is derived from it.
-  const [activePassId, setActivePassId] = useState<DrillPass["id"]>("alignment");
-  const selected = useMemo(() => passToClasses(activePassId), [activePassId]);
+  // Free class selection — persists across runs (the board hasn't moved).
+  const [selectedClasses, setSelectedClasses] = useState<Set<DrillClass>>(DEFAULT_SELECTED_CLASSES());
+  const selected = selectedClasses;
 
   // Visibility (which classes are shown on the canvas). Independent of run-selection.
   const [visibleClasses, setVisibleClasses] = useState<Set<DrillClass>>(new Set(DRILL_CLASSES));
@@ -93,8 +92,6 @@ export function DrillOperationEditor() {
   // Feed override % sent via UI (100 = nominal). Applied by sending GRBL real-time commands.
   const [feedOverridePct, setFeedOverridePct] = useState(100);
 
-  // Completed pass ids for this session (used by the stepper checkmarks).
-  const [passDone, setPassDone] = useState<Set<DrillPass["id"]>>(new Set());
   // Monotonic token to cancel a superseded feed-override step sequence.
   const feedSeqRef = useRef(0);
 
@@ -238,18 +235,11 @@ export function DrillOperationEditor() {
     while (diff <= -1) { if (!(await step("-1"))) return; diff += 1; }
   }, []);
 
-  // Called when the operator finishes a pass: mark it done, reset work zero,
-  // advance pass, and return the run to idle (so the inspector leaves RUN mode).
-  const handlePassDone = useCallback(() => {
-    setPassDone((prev) => new Set([...prev, activePassId]));
-    setWorkZeroMachineZ(null);
-    // Advance to the next pass in DRILL_PASSES order that has not been completed yet.
-    const nextPass = DRILL_PASSES.find(
-      (p) => p.id !== activePassId && !passDone.has(p.id),
-    );
-    if (nextPass) setActivePassId(nextPass.id);
+  // Run finished: keep the work zero (the board hasn't moved) and reset only the
+  // transient run machine so the inspector returns to PLAN mode.
+  const handleRunDone = useCallback(() => {
     run.reset();
-  }, [activePassId, passDone, run]);
+  }, [run]);
 
   // Three-phase progress ring (descent / drilling / retract) for the
   // currently-drilling hole.
@@ -337,8 +327,8 @@ export function DrillOperationEditor() {
             plan={filteredPlanWithOverrides}
             route={route}
             counts={counts}
-            activePassId={activePassId}
-            onPassChange={setActivePassId}
+            selectedClasses={selectedClasses}
+            onSelectedClassesChange={setSelectedClasses}
             run={run}
             onStart={handleStart}
             onSetClass={(dMm, klass) =>
@@ -370,9 +360,8 @@ export function DrillOperationEditor() {
             feedOverridePct={feedOverridePct}
             grblFeedPct={grblFeedPct}
             onFeedChange={handleFeedChange}
-            onPassDone={handlePassDone}
+            onRunDone={handleRunDone}
             totalEstimateSec={totalEstimateSec}
-            passDone={passDone}
           />
         )}
       </div>
