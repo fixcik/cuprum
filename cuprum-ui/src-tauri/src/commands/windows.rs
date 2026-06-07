@@ -119,6 +119,9 @@ pub(crate) fn take_pending_open(state: tauri::State<PendingOpen>) -> Option<Stri
 pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if let Some(w) = app.get_webview_window("add-design") {
+        // May still be hidden (first snapshot pending) — show before focusing so a
+        // repeat open reveals it immediately instead of waiting on the JS path.
+        let _ = w.show();
         return w.set_focus().map_err(|e| e.to_string());
     }
     let win = WebviewWindowBuilder::new(&app, "add-design", WebviewUrl::App("index.html".into()))
@@ -128,6 +131,9 @@ pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
         .resizable(true)
         .center()
         .focused(true)
+        // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
+        // so it never flashes the blank webview + boot spinner.
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
     // Center the window over the main window so on multi-monitor setups it opens
@@ -159,6 +165,9 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result
     // in main.tsx / main.rs and the capability glob in capabilities/default.json.
     let label = format!("inspector-{design_id}");
     if let Some(w) = app.get_webview_window(&label) {
+        // May still be hidden (first snapshot pending) — show before focusing so a
+        // repeat open reveals it immediately instead of waiting on the JS path.
+        let _ = w.show();
         return w.set_focus().map_err(|e| e.to_string());
     }
     let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
@@ -168,6 +177,9 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result
         .resizable(true)
         .center()
         .focused(true)
+        // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
+        // so it never flashes the blank webview + boot spinner.
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
     // Center over the main window so it opens on the screen the user is on.

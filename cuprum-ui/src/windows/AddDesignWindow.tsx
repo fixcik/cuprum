@@ -17,6 +17,7 @@ import { NestingControls } from "@/components/panel/NestingControls";
 import { packLayoutAvoiding, panelObstacles, boxesForInstances } from "@/lib/panelPlacement";
 import { usePreviewData } from "@/hooks/usePreviewData";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
+import { useShowWindowWhenReady } from "@/hooks/useShowWindowWhenReady";
 
 /** Root of the separate "Add design to panel" window (label "add-design"). */
 export function AddDesignWindow() {
@@ -24,6 +25,9 @@ export function AddDesignWindow() {
   // Subscribe to project snapshots, announcing readiness only after the listener
   // is live (so the main window's reply can't land before it and be dropped).
   const snap = useSnapshotSubscription<AddDesignSnapshot>(api.onAddDesignSnapshot, api.emitAddDesignReady);
+  // Window is created hidden; reveal it once the first snapshot has rendered so it
+  // never flashes the blank webview + boot spinner.
+  useShowWindowWhenReady(snap !== null);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
