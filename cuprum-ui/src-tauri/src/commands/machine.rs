@@ -251,7 +251,7 @@ pub fn machine_connect(
                             feed: s.feed,
                             spindle: s.spindle,
                             overrides: s.overrides,
-                            pins: s.pins.clone().into(),
+                            pins: s.pins.into(),
                         });
                         // Global broadcast for other windows (drill webview) — full
                         // status (not just position) so a follower window has parity.
