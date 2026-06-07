@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { RULER_TOP, RULER_LEFT } from "@/components/editor/canvasStyle";
 import { gridSteps, ticksFor } from "@/lib/canvasTicks";
 
@@ -121,9 +121,22 @@ export function RulersOverlay({
   const mmFromX = (px: number) => (px - originX) / pxPerMm;
   const mmFromY = (px: number) => (px - originY) / pxPerMm;
 
-  const { minor, labelEvery } = ready ? gridSteps(pxPerMm) : { minor: 0, labelEvery: 1 };
-  const vTicks = ready ? ticksFor(anchorMm.x, mmFromX(rulerLeft), mmFromX(size.w), minor, labelEvery) : [];
-  const hTicks = ready ? ticksFor(anchorMm.y, mmFromY(rulerTop), mmFromY(size.h), minor, labelEvery) : [];
+  const { minor, labelEvery } = useMemo(
+    () => (ready ? gridSteps(pxPerMm) : { minor: 0, labelEvery: 1 }),
+    [ready, pxPerMm],
+  );
+  // Tick arrays depend only on the viewport/size/anchor — NOT on the cursor — so
+  // memoise them (and the tick JSX below). On a bare hover the parent re-renders
+  // but the dozens of tick <g>/<line>/<text> elements keep stable identity and
+  // React skips reconciling that subtree (the dominant per-frame cost otherwise).
+  const vTicks = useMemo(
+    () => (ready ? ticksFor(anchorMm.x, mmFromX(rulerLeft), mmFromX(size.w), minor, labelEvery) : []),
+    [ready, anchorMm.x, originX, pxPerMm, rulerLeft, size.w, minor, labelEvery],
+  );
+  const hTicks = useMemo(
+    () => (ready ? ticksFor(anchorMm.y, mmFromY(rulerTop), mmFromY(size.h), minor, labelEvery) : []),
+    [ready, anchorMm.y, originY, pxPerMm, rulerTop, size.h, minor, labelEvery],
+  );
 
   // Screen span of an mm interval (left edge + positive width).
   const spanX = (a: number, b: number) => ({ x: screenX(a), w: (b - a) * pxPerMm });
@@ -149,6 +162,66 @@ export function RulersOverlay({
   // anchor is on the right/bottom). Non-flipped axes display the offset as-is.
   const displayX = (d: number) => (axisFlip.x ? -d : d);
   const displayY = (d: number) => (axisFlip.y ? -d : d);
+
+  // Memoised tick JSX — stable across cursor-only re-renders (see vTicks note).
+  const topTicksEls = useMemo(
+    () =>
+      vTicks.map((tk) => {
+        const x = screenX(tk.mm);
+        if (x < rulerLeft || x > size.w) return null;
+        return (
+          <g key={`tv${tk.mm}`}>
+            <line
+              x1={x}
+              y1={tk.major ? rulerTop - 9 : rulerTop - 5}
+              x2={x}
+              y2={rulerTop}
+              style={{ stroke: `hsl(var(--muted-foreground) / ${tk.major ? 0.7 : 0.4})` }}
+              strokeWidth={1}
+            />
+            {tk.major && x > rulerLeft + 6 && (
+              <text x={x + 3} y={9} style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}>
+                {fmtTick(displayX(tk.label))}
+              </text>
+            )}
+          </g>
+        );
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [vTicks, originX, pxPerMm, rulerLeft, rulerTop, size.w, axisFlip.x],
+  );
+  const leftTicksEls = useMemo(
+    () =>
+      hTicks.map((tk) => {
+        const y = screenY(tk.mm);
+        if (y < rulerTop || y > size.h) return null;
+        return (
+          <g key={`th${tk.mm}`}>
+            <line
+              x1={tk.major ? rulerLeft - 9 : rulerLeft - 5}
+              y1={y}
+              x2={rulerLeft}
+              y2={y}
+              style={{ stroke: `hsl(var(--muted-foreground) / ${tk.major ? 0.7 : 0.4})` }}
+              strokeWidth={1}
+            />
+            {tk.major && y > rulerTop + 6 && (
+              <text
+                x={9}
+                y={y + 3}
+                transform={`rotate(-90 9 ${y + 3})`}
+                textAnchor="start"
+                style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
+              >
+                {fmtTick(displayY(tk.label))}
+              </text>
+            )}
+          </g>
+        );
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hTicks, originY, pxPerMm, rulerLeft, rulerTop, size.h, axisFlip.y],
+  );
 
   // Readout chip placement: nudge off the cursor, flip near the right/bottom edge.
   let readout: { x: number; y: number; w: number; text: string } | null = null;
@@ -235,57 +308,11 @@ export function RulersOverlay({
         );
       })()}
 
-      {/* Top ruler ticks + labels. */}
-      {vTicks.map((tk) => {
-        const x = screenX(tk.mm);
-        if (x < rulerLeft || x > size.w) return null;
-        return (
-          <g key={`tv${tk.mm}`}>
-            <line
-              x1={x}
-              y1={tk.major ? rulerTop - 9 : rulerTop - 5}
-              x2={x}
-              y2={rulerTop}
-              style={{ stroke: `hsl(var(--muted-foreground) / ${tk.major ? 0.7 : 0.4})` }}
-              strokeWidth={1}
-            />
-            {tk.major && x > rulerLeft + 6 && (
-              <text x={x + 3} y={9} style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}>
-                {fmtTick(displayX(tk.label))}
-              </text>
-            )}
-          </g>
-        );
-      })}
+      {/* Top ruler ticks + labels (memoised — see topTicksEls). */}
+      {topTicksEls}
 
-      {/* Left ruler ticks + labels (rotated). */}
-      {hTicks.map((tk) => {
-        const y = screenY(tk.mm);
-        if (y < rulerTop || y > size.h) return null;
-        return (
-          <g key={`th${tk.mm}`}>
-            <line
-              x1={tk.major ? rulerLeft - 9 : rulerLeft - 5}
-              y1={y}
-              x2={rulerLeft}
-              y2={y}
-              style={{ stroke: `hsl(var(--muted-foreground) / ${tk.major ? 0.7 : 0.4})` }}
-              strokeWidth={1}
-            />
-            {tk.major && y > rulerTop + 6 && (
-              <text
-                x={9}
-                y={y + 3}
-                transform={`rotate(-90 9 ${y + 3})`}
-                textAnchor="start"
-                style={{ fill: "hsl(var(--muted-foreground))", fontSize: "9px" }}
-              >
-                {fmtTick(displayY(tk.label))}
-              </text>
-            )}
-          </g>
-        );
-      })}
+      {/* Left ruler ticks + labels, rotated (memoised — see leftTicksEls). */}
+      {leftTicksEls}
 
       {/* Cursor arrow markers on the rulers. */}
       {inPlot && hover && (
