@@ -26,6 +26,7 @@ import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
+import { type ZGateResult, checkZGate } from "@/lib/zGate";
 
 /** Drill operation editor. Renders the hole map, pass selector, summary, and run
  *  panel from a pushed `DrillSnapshot` (the editor lives in the separate drill
@@ -185,6 +186,18 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   // surfaces the gate only renders once a profile is present anyway.
   const xyGate: XYGateResult = cncProfile
     ? checkXYGate(workZeroMachineXY, workExtent, cncProfile.workEnvelopeMm.x, cncProfile.workEnvelopeMm.y)
+    : { valid: true };
+
+  // Z feasibility: depth / tool-change retract / their span must fit the Z travel.
+  // (Z work-zero is bound per tool during the run, so this gates on travel size,
+  // not on a known zero.)
+  const zGate: ZGateResult = cncProfile
+    ? checkZGate({
+        safeZMm: cncProfile.safeZMm,
+        toolChangeZMm: cncProfile.toolChangeZMm,
+        depthMm: substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM,
+        envZMm: cncProfile.workEnvelopeMm.z,
+      })
     : { valid: true };
 
   const buildProgram = useCallback(
@@ -393,6 +406,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             maxZMm={cncProfile.workEnvelopeMm.z}
             zeroError={zeroError}
             xyGate={xyGate}
+            zGate={zGate}
             connected={machineConnected}
             spindleControllable={cncProfile.spindleControllable ?? false}
             hasHoles={selectedHoleIds.size > 0}

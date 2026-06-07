@@ -79,6 +79,7 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
   const breakthrough = ctx.opts?.breakthroughMm ?? DEFAULT_BREAKTHROUGH_MM;
   const peck = ctx.opts?.peckDepthMm ?? 0;
   const safeZ = profile.safeZMm;
+  const toolChangeZ = profile.toolChangeZMm; // higher park for a manual bit swap
   const depth = substrateThicknessMm + breakthrough; // positive magnitude; drill to -depth
   const toolById = new Map(tools.map((t) => [t.id, t]));
 
@@ -106,7 +107,9 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
   const preambleLines: string[] = [];
   if (profile.prependGcode.trim()) preambleLines.push(profile.prependGcode.trim());
   preambleLines.push("G21 G90 G94 G17");
-  preambleLines.push(`G0 Z${fmt(safeZ)}`);
+  // Park high for the first bit insertion (the first group's tool-change step skips
+  // its own retract since we're already here).
+  preambleLines.push(`G0 Z${fmt(toolChangeZ)}`);
   for (const l of preambleLines) allLines.push(l);
   steps.push({ kind: "preamble", lines: preambleLines });
 
@@ -137,11 +140,12 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
     tcLines.push("M5");
     allLines.push("M5");
 
-    // The preamble already retracted to safe Z (and every hole ends at safe Z),
-    // so the first group is already there; retract defensively before later ones.
+    // The preamble already parked at the tool-change Z, so the first group is there;
+    // later groups end at safe Z after their last hole, so retract to the high
+    // tool-change Z before pausing for the swap.
     if (!firstGroup) {
-      tcLines.push(`G0 Z${fmt(safeZ)}`);
-      allLines.push(`G0 Z${fmt(safeZ)}`);
+      tcLines.push(`G0 Z${fmt(toolChangeZ)}`);
+      allLines.push(`G0 Z${fmt(toolChangeZ)}`);
     }
     firstGroup = false;
 

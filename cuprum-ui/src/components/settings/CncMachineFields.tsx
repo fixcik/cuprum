@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/settingsStore";
 import { NumberField, BoolField } from "@/components/settings/fields";
 import type { CncMachine } from "@/lib/machine";
+import { toolChangeZWarning } from "@/lib/machine";
 
 /** Field editor for a single CNC machine. Reads/writes the machine directly via
  *  `updateMachine`. Exposes the persistent configuration fields; runtime-tunable
@@ -9,6 +10,11 @@ import type { CncMachine } from "@/lib/machine";
 export function CncMachineFields({ machine }: { machine: CncMachine }) {
   const { t } = useTranslation("settings");
   const update = useSettings((s) => s.updateMachine);
+  const tcWarn = toolChangeZWarning({
+    safeZMm: machine.safeZMm,
+    toolChangeZMm: machine.toolChangeZMm,
+    envZMm: machine.workEnvelopeMm.z,
+  });
   return (
     <div className="divide-y divide-border/60">
       <NumberField
@@ -60,6 +66,14 @@ export function CncMachineFields({ machine }: { machine: CncMachine }) {
         help={t("cnc.machineSafeZHelp")}
         onChange={(machineSafeZMm) => update(machine.id, { machineSafeZMm })}
       />
+      <NumberField
+        label={t("cnc.toolChangeZ")}
+        value={machine.toolChangeZMm}
+        dim="coarse"
+        help={t("cnc.toolChangeZHelp")}
+        onChange={(toolChangeZMm) => update(machine.id, { toolChangeZMm })}
+      />
+      {tcWarn && <p className="px-1 pb-2 text-[11px] text-amber-400">{t(`cnc.toolChangeZWarn.${tcWarn}`)}</p>}
       <NumberField
         label={t("cnc.runout")}
         value={machine.runoutMm}

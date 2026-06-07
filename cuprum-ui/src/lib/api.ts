@@ -666,8 +666,8 @@ export const api = {
     spindle: (on: boolean, rpm: number) => invoke<void>("machine_spindle", { on, rpm }),
     /** Probe Z onto the work surface and set the G54 Z-zero at contact, then retract
      *  to safe Z. Rejects (Err) on no contact / ALARM — the caller leaves Z unset. */
-    probeZ: (maxDistMm: number, feedMmMin: number, offsetMm: number, safeZMm: number) =>
-      invoke<void>("machine_probe_z", { maxDistMm, feedMmMin, offsetMm, safeZMm }),
+    probeZ: (maxDistMm: number, feedMmMin: number, offsetMm: number, safeZMm: number, approachZMm?: number) =>
+      invoke<void>("machine_probe_z", { maxDistMm, feedMmMin, offsetMm, safeZMm, approachZMm: approachZMm ?? null }),
     send: (line: string) => invoke<void>("machine_send", { line }),
     /** Write a line and reject if GRBL answers error/ALARM — used for firmware
      *  settings writes whose acceptance the UI must confirm. */

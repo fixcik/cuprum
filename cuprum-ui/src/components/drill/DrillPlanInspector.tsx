@@ -9,6 +9,7 @@ import type { DatumCorner } from "@/lib/datum";
 import type { Tool } from "@/lib/toolLibrary";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { XYGateResult } from "@/lib/xyGate";
+import type { ZGateResult } from "@/lib/zGate";
 import { Button } from "@/components/ui/Button";
 import { DrillSelectionControls } from "@/components/drill/DrillSelectionControls";
 import { DrillRunInspector } from "@/components/drill/DrillRunInspector";
@@ -20,6 +21,7 @@ import { WorkZeroStatusCard } from "@/components/drill/WorkZeroStatusCard";
 import { ConnBar } from "@/components/machine/ConnBar";
 import { DrillZeroInspector } from "@/components/drill/DrillZeroInspector";
 import { formatXYViolations } from "@/lib/xyGate";
+import { formatZReasons } from "@/lib/zGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export interface DrillPlanInspectorProps {
@@ -69,6 +71,8 @@ export interface DrillPlanInspectorProps {
   zeroError: string | null;
   /** Pre-computed XY gate result (hole bbox vs machine envelope) for the start button. */
   xyGate: XYGateResult;
+  /** Pre-computed Z gate result (depth / tool-change retract vs Z travel). */
+  zGate: ZGateResult;
   /** Whether the machine is connected (for footer start gate). */
   connected: boolean;
   /** Whether the spindle is software-controllable (false = 3018 manual dial). */
@@ -119,6 +123,7 @@ export function DrillPlanInspector({
   maxZMm,
   zeroError,
   xyGate,
+  zGate,
   connected,
   spindleControllable,
   hasHoles,
@@ -149,7 +154,7 @@ export function DrillPlanInspector({
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
-    !connected || !hasHoles || xyGate.valid === false || isRunActive;
+    !connected || !hasHoles || xyGate.valid === false || zGate.valid === false || isRunActive;
 
   // Hint shown below the start button when a gate condition blocks the run.
   // While disconnected, the footer shows <ConnBar> instead of a text hint — this
@@ -165,6 +170,10 @@ export function DrillPlanInspector({
       xyGate.reason === "out-of-bounds"
         ? t("workzero.xyOutOfBounds", { detail: formatXYViolations(xyGate.violations, fmtLen) })
         : t("workzero.notZeroedHint");
+  } else if (zGate.valid === false) {
+    startHint = t("workzero.zDoesNotFit", {
+      detail: formatZReasons(zGate.reasons, (r) => t(`workzero.zReason.${r}`)),
+    });
   }
 
   return (

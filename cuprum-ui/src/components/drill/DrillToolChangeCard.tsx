@@ -70,7 +70,9 @@ export function DrillToolChangeCard({
     setBusy(true);
     setError(null);
     try {
-      await api.machine.probeZ(probe.maxDistMm, probe.feedMmMin, probe.offsetMm, probe.safeZMm);
+      // Approach down to safe-Z first: the tool-change park sits high (room to swap),
+      // so descend to safe-Z before the short G38.2 probe reaches the surface.
+      await api.machine.probeZ(probe.maxDistMm, probe.feedMmMin, probe.offsetMm, probe.safeZMm, probe.safeZMm);
       onZBound();
     } catch {
       setError(t("toolChange.probeFail"));

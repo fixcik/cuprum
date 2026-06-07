@@ -73,7 +73,8 @@ export function machinesFromPersisted(p: PersistedLegacy): MachinesResult {
         const cnc = m as CncMachine;
         const needsPatch =
           cnc.machineSafeZMm === undefined ||
-          cnc.probeFeedMmMin === undefined;
+          cnc.probeFeedMmMin === undefined ||
+          cnc.toolChangeZMm === undefined;
         if (needsPatch) {
           patched = true;
           return {
@@ -119,6 +120,7 @@ export function machinesFromPersisted(p: PersistedLegacy): MachinesResult {
       gcodeDialect: legacy.gcodeDialect ?? DEFAULT_CNC_MACHINE.gcodeDialect,
       safeZMm: legacy.safeZMm ?? DEFAULT_CNC_MACHINE.safeZMm,
       machineSafeZMm: legacy.machineSafeZMm ?? DEFAULT_CNC_MACHINE.machineSafeZMm,
+      toolChangeZMm: legacy.toolChangeZMm ?? DEFAULT_CNC_MACHINE.toolChangeZMm,
       runoutMm: legacy.runoutMm ?? DEFAULT_CNC_MACHINE.runoutMm,
       backlashMm: legacy.backlashMm ?? DEFAULT_CNC_MACHINE.backlashMm,
       prependGcode: legacy.prependGcode ?? DEFAULT_CNC_MACHINE.prependGcode,

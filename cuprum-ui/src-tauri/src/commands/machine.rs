@@ -637,7 +637,23 @@ fn do_probe_z(
     feed_mm_min: f32,
     offset_mm: f32,
     safe_z_mm: f32,
+    approach_z_mm: Option<f32>,
 ) -> Result<(), String> {
+    // Optional rapid descent to the approach height (work frame) before probing — lets
+    // the tool-change park sit high (room to swap the bit) while the probe still
+    // reaches the surface. Absolute (G90) so a high park descends correctly. The
+    // bit-length tolerance is the approach height itself: contact during this G0
+    // happens only if the new bit is longer than the previous by more than it.
+    if let Some(z) = approach_z_mm {
+        await_terminal_owned(
+            writer.clone(),
+            ack_slot.clone(),
+            activity.clone(),
+            telemetry.clone(),
+            &format!("G90 G0 Z{z}"),
+            false,
+        )?;
+    }
     await_terminal_owned(
         writer.clone(),
         ack_slot.clone(),
@@ -685,6 +701,7 @@ pub async fn machine_probe_z(
     feed_mm_min: f32,
     offset_mm: f32,
     safe_z_mm: f32,
+    approach_z_mm: Option<f32>,
 ) -> Result<(), String> {
     let writer = state.writer().ok_or("not connected")?;
     let ack_slot = state.ack_slot().ok_or("not connected")?;
@@ -700,6 +717,7 @@ pub async fn machine_probe_z(
             feed_mm_min,
             offset_mm,
             safe_z_mm,
+            approach_z_mm,
         )
     })
     .await

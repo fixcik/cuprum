@@ -142,6 +142,21 @@ describe("machinesFromPersisted (settings migration)", () => {
     }
   });
 
+  it("patches toolChangeZMm onto an older persisted CNC machine that predates the field", () => {
+    const legacyCnc = { ...DEFAULT_CNC_MACHINE } as Partial<CncMachine> & CncMachine;
+    delete (legacyCnc as { toolChangeZMm?: number }).toolChangeZMm;
+    const result = machinesFromPersisted({
+      machines: [legacyCnc, DEFAULT_UV_MACHINE],
+      activeCncMachineId: "machine-1",
+      activeUvMachineId: "machine-2",
+    });
+    const cnc = result.machines.find((m) => m.kind === "cnc");
+    expect(cnc!.kind).toBe("cnc");
+    if (cnc!.kind === "cnc") {
+      expect(cnc!.toolChangeZMm).toBe(DEFAULT_CNC_MACHINE.toolChangeZMm);
+    }
+  });
+
   it("migrates UV profile (with screenWidthMm/screenHeightMm) into uvlcd machine", () => {
     const result = machinesFromPersisted({});
     const uv = result.machines.find((m) => m.kind === "uvlcd");
