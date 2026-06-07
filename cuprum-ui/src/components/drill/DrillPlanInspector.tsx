@@ -229,6 +229,13 @@ export function DrillPlanInspector({
           grblFeedPct={grblFeedPct}
           onFeedChange={onFeedChange}
           onRunDone={onRunDone}
+          hasProbe={cncProfile.hasProbe}
+          probe={{
+            maxDistMm: cncProfile.probeMaxDistMm,
+            feedMmMin: cncProfile.probeFeedMmMin,
+            offsetMm: cncProfile.probePlateOffsetMm,
+            safeZMm: cncProfile.safeZMm,
+          }}
         />
       ) : panelMode === "zero" ? (
         /* ── ZERO-BINDING mode ── */

@@ -22,6 +22,8 @@ export interface DrillRunInspectorProps {
   grblFeedPct: number | undefined;
   onFeedChange: (pct: number) => void;
   onRunDone: () => void;
+  hasProbe: boolean;
+  probe: { maxDistMm: number; feedMmMin: number; offsetMm: number; safeZMm: number };
 }
 
 /** RUN-mode inspector: progress header, tool-change/finish cards, feed slider, and
@@ -37,6 +39,8 @@ export function DrillRunInspector({
   grblFeedPct,
   onFeedChange,
   onRunDone,
+  hasProbe,
+  probe,
 }: DrillRunInspectorProps) {
   const { t } = useTranslation("drill");
   const { state } = run;
@@ -75,6 +79,10 @@ export function DrillRunInspector({
             toolName={state.toolChange.toolName}
             diameterMm={state.toolChange.diameterMm}
             nextColor={nextColor}
+            hasProbe={hasProbe}
+            probe={probe}
+            zBound={state.zBound}
+            onZBound={run.markZBound}
             onConfirm={run.confirmToolChange}
           />
         </div>
