@@ -407,6 +407,79 @@ fn send_line_await_ok(state: &State<MachineState>, line: &str) -> Result<(), Str
     result
 }
 
+/// Send a `G38.2` probe and BLOCK until it resolves: a `[PRB:...:1]` + `ok`
+/// (contact → success) or an `ALARM` / `[PRB:...:0]` (no contact → failure). Mirrors
+/// `send_line_await_ok`'s ack-slot + liveness-timeout pattern, but tracks the probe
+/// report so the success flag is explicit rather than inferred. Returns Ok(()) on a
+/// confirmed contact; Err on no-contact, reject, reset, or a dead link.
+fn probe_z_await(state: &State<MachineState>, line: &str) -> Result<(), String> {
+    let writer = state.writer().ok_or("not connected")?;
+    let ack_slot = state.ack_slot().ok_or("not connected")?;
+    let activity = state.activity().ok_or("not connected")?;
+    let telemetry = state.telemetry();
+
+    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
+    {
+        let mut slot = ack_slot.lock().unwrap();
+        if slot.is_some() {
+            return Err("machine busy".into());
+        }
+        *slot = Some(tx);
+    }
+
+    let result = (|| {
+        writer
+            .lock()
+            .unwrap()
+            .write_line(line)
+            .map_err(|e| e.to_string())?;
+        if let Some(t) = &telemetry {
+            let _ = t.send(Telemetry::Line {
+                dir: "tx".into(),
+                text: line.to_string(),
+            });
+        }
+        let sent = std::time::Instant::now();
+        let mut contacted: Option<bool> = None;
+        loop {
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(grbl::Line::Probe { success, .. }) => contacted = Some(success),
+                // `ok` is the terminal after a successful probe. If GRBL never
+                // flagged contact (G38.3-style 0, or a bare ok), treat as no-contact.
+                Ok(grbl::Line::Ok) => {
+                    return match contacted {
+                        Some(true) => Ok(()),
+                        _ => Err("no contact".into()),
+                    };
+                }
+                // G38.2 strict raises an ALARM on no contact within travel.
+                Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
+                Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
+                Ok(grbl::Line::Welcome(_)) => return Err("reset".into()),
+                Ok(_) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let (silent, idle) = {
+                        let a = activity.lock().unwrap();
+                        (a.last.elapsed(), a.idle)
+                    };
+                    if silent > SYNC_STALL_SILENCE {
+                        return Err("no response from machine".into());
+                    }
+                    if idle && sent.elapsed() > SYNC_IDLE_NO_ACK {
+                        return Err("machine idle, no ack".into());
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("connection lost".into());
+                }
+            }
+        }
+    })();
+
+    *ack_slot.lock().unwrap() = None;
+    result
+}
+
 /// Overall ceiling for a homing cycle. GRBL stays silent for the whole cycle and
 /// then answers `ok` (done) or `ALARM` (switch not found within max travel), so
 /// the usual silence/idle aborts of `send_line_await_ok` don't apply — only a
@@ -568,6 +641,27 @@ pub fn machine_spindle(state: State<MachineState>, on: bool, rpm: u32) -> Result
         grbl::spindle_off().to_string()
     };
     send_line(&state, &line)
+}
+
+/// Probe Z down onto the work surface and set the G54 Z work-zero at contact
+/// (`G10 L20 P1 Z<offset_mm>`), then retract Z to `safe_z_mm` (work coord). On no
+/// contact / reject the Z-zero is left untouched. The caller (frontend) is
+/// responsible for the probe-pin pre-check and the connectivity self-test.
+#[tauri::command]
+pub fn machine_probe_z(
+    state: State<MachineState>,
+    max_dist_mm: f32,
+    feed_mm_min: f32,
+    offset_mm: f32,
+    safe_z_mm: f32,
+) -> Result<(), String> {
+    probe_z_await(&state, &grbl::probe_z(max_dist_mm, feed_mm_min))?;
+    // Contact confirmed: zero Z here (board top + plate offset), then lift clear.
+    send_line_await_ok(&state, &format!("G10 L20 P1 Z{offset_mm}"))?;
+    send_line(
+        &state,
+        &grbl::jog_to(None, None, Some(safe_z_mm), feed_mm_min),
+    )
 }
 
 #[tauri::command]

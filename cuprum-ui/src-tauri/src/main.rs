@@ -197,6 +197,7 @@ fn main() {
             commands::machine::machine_home_await,
             commands::machine::machine_unlock,
             commands::machine::machine_spindle,
+            commands::machine::machine_probe_z,
             commands::machine::machine_send,
             commands::machine::machine_send_await_ok,
             commands::machine::machine_soft_reset,
