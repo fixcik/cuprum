@@ -384,6 +384,12 @@ export function WorkField({
       ref={wrapRef}
       className={`relative h-full w-full overflow-hidden rounded-lg border border-border ${className ?? ""}`}
     >
+      {/* Absolutely positioned so the canvas's explicit pixel size (set from the
+       *  wrap's clientWidth in draw()) never feeds back into layout: an in-flow
+       *  canvas would force its flex ancestors at least as wide as its last drawn
+       *  width, so shrinking the window could never shrink the field (it pushed
+       *  the whole panel past the viewport). Out of flow, the wrap is sized purely
+       *  by flex and the canvas just fills it. */}
       <canvas
         ref={canRef}
         onMouseMove={(e) => allowPick && setHover(toWorld(e))}
@@ -393,6 +399,7 @@ export function WorkField({
           const w = toWorld(e);
           onPick?.(w.x - wco.x, w.y - wco.y);
         }}
+        className="absolute inset-0"
         style={{ cursor: allowPick ? "crosshair" : "default", display: "block" }}
       />
       {hover && allowPick && (
