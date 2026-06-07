@@ -30,7 +30,7 @@ export function useDrillPhaseProgress(args: {
   const holeIndexRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   // Track the last pushed phase so a label-only change still re-renders.
-  const displayedPhaseRef = useRef<DrillHolePhase>("descent");
+  const displayedPhaseRef = useRef<DrillHolePhase>("traverse");
 
   const [displayed, setDisplayed] = useState<PhaseProgress>(ZERO_PHASE_PROGRESS);
 
@@ -67,7 +67,7 @@ export function useDrillPhaseProgress(args: {
       truthRef.current = ZERO_PHASE_PROGRESS;
       dispRef.current = { descent: 0, drilling: 0, retract: 0 };
       holeIndexRef.current = null;
-      displayedPhaseRef.current = "descent";
+      displayedPhaseRef.current = "traverse";
       setDisplayed(ZERO_PHASE_PROGRESS);
       return;
     }
@@ -78,7 +78,7 @@ export function useDrillPhaseProgress(args: {
       truthRef.current = ZERO_PHASE_PROGRESS;
       dispRef.current = { descent: 0, drilling: 0, retract: 0 };
       holeIndexRef.current = currentHoleIndex;
-      displayedPhaseRef.current = "descent";
+      displayedPhaseRef.current = "traverse";
       setDisplayed(ZERO_PHASE_PROGRESS);
     }
 

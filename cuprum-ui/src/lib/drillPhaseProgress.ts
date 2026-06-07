@@ -1,7 +1,8 @@
 import { holeDepthFraction } from "@/lib/drillProgress";
 
-/** The three phases of a single hole's drilling cycle. */
-export type DrillHolePhase = "descent" | "drilling" | "retract";
+/** Phases shown on the marker. `traverse` is the between-holes move at safe-Z (no
+ *  cutting); the other three are the single hole's drilling cycle. */
+export type DrillHolePhase = "traverse" | "descent" | "drilling" | "retract";
 
 /** Per-hole, three-phase progress. Each fraction is a monotonic 0..1 high-water
  *  mark for its phase, so the ring never empties between samples or peck passes. */
@@ -20,6 +21,7 @@ export interface PhaseProgress {
  *  Handoff palette: descent cyan, drilling amber (fallback — overridden by the
  *  actual bit colour at render time), retract green. */
 export const PHASE_COLORS: Record<DrillHolePhase, string> = {
+  traverse: "#9aa3af", // muted slate — moving at safe-Z, not cutting
   descent: "#46e0ff", // cyan — approach to the surface
   drilling: "#fbbf24", // amber — fallback; phaseColor() prefers the bit colour
   retract: "#3fbf6f", // green — returning to safe-Z
@@ -31,6 +33,7 @@ export const IDLE_COLOR = "#8a929e";
 /** Fraction of the full cycle each phase occupies on the ring (descent 28%,
  *  drilling 50%, retract 22%) — drilling reads as the main motion. Sums to 1. */
 export const PHASE_WEIGHTS: Record<DrillHolePhase, number> = {
+  traverse: 0, // not part of the hole cycle — the ring is empty while traversing
   descent: 0.28,
   drilling: 0.5,
   retract: 0.22,
@@ -59,7 +62,7 @@ export function phaseColor(
 
 /** A hole that has not started: every phase empty, current phase = descent. */
 export const ZERO_PHASE_PROGRESS: PhaseProgress = {
-  phase: "descent",
+  phase: "traverse",
   descent: 0,
   drilling: 0,
   retract: 0,
@@ -115,9 +118,10 @@ export function nextPhaseProgress(
   }
 
   // Current phase for labelling: retract wins once it has begun, else drilling
-  // once the bit is in the material, else descent.
+  // once the bit is in the material, else descent once it has dropped below
+  // safe-Z, else traverse (still at safe-Z, moving between holes — not cutting).
   const phase: DrillHolePhase =
-    retract > 0 ? "retract" : drilling > 0 ? "drilling" : "descent";
+    retract > 0 ? "retract" : drilling > 0 ? "drilling" : descent > 0 ? "descent" : "traverse";
 
   return { phase, descent, drilling, retract };
 }

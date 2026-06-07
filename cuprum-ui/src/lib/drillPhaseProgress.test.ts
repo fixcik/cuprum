@@ -22,11 +22,17 @@ function fold(zs: number[], depth = DEPTH, safe = SAFE): PhaseProgress {
 }
 
 describe("nextPhaseProgress — descent", () => {
-  it("is 0 at safe-Z, phase=descent", () => {
+  it("is 0 at safe-Z, phase=traverse (moving, not yet descending)", () => {
     const p = nextPhaseProgress(ZERO_PHASE_PROGRESS, SAFE, DEPTH, SAFE);
     expect(p.descent).toBe(0);
     expect(p.drilling).toBe(0);
     expect(p.retract).toBe(0);
+    expect(p.phase).toBe("traverse");
+  });
+
+  it("switches to descent once z drops below safe-Z", () => {
+    const p = nextPhaseProgress(ZERO_PHASE_PROGRESS, SAFE - 0.1, DEPTH, SAFE);
+    expect(p.descent).toBeGreaterThan(0);
     expect(p.phase).toBe("descent");
   });
 
@@ -154,6 +160,11 @@ describe("phaseColor", () => {
     expect(phaseColor("retract", "#e8893a", false)).toBe(PHASE_COLORS.retract);
     expect(PHASE_COLORS.descent).toBe("#46e0ff");
     expect(PHASE_COLORS.retract).toBe("#3fbf6f");
+  });
+
+  it("uses muted slate for the traverse phase", () => {
+    expect(phaseColor("traverse", "#e8893a", false)).toBe(PHASE_COLORS.traverse);
+    expect(PHASE_COLORS.traverse).toBe("#9aa3af");
   });
 
   it("returns idle grey regardless of phase when idle", () => {
