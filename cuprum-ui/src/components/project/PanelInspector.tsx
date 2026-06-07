@@ -10,6 +10,7 @@ import {
   ChevronDown,
   RotateCw,
   Save,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useSettings } from "@/settingsStore";
@@ -113,6 +114,7 @@ interface PanelInspectorProps {
   presets: PanelPreset[];
   onApplyPreset: (id: string) => void;
   onSavePreset: () => void;
+  onDeletePreset: (id: string) => void;
   onRotate: () => void;
 }
 
@@ -134,6 +136,7 @@ export function PanelInspector({
   presets,
   onApplyPreset,
   onSavePreset,
+  onDeletePreset,
   onRotate,
 }: PanelInspectorProps) {
   const { t } = useTranslation("project");
@@ -248,19 +251,34 @@ export function PanelInspector({
                     p.stackup.substrate_thickness_mm === substrate &&
                     (p.stackup.double_sided ?? false) === doubleSided;
                   return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => onApplyPreset(p.id)}
-                      className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[11px] ${
-                        active
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:border-primary/50"
-                      }`}
-                    >
-                      <PresetMini w={p.widthMm} h={p.heightMm} />
-                      <span className="truncate tabular-nums">{p.name}</span>
-                    </button>
+                    <div key={p.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => onApplyPreset(p.id)}
+                        className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 pr-6 text-left text-[11px] ${
+                          active
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border text-muted-foreground hover:border-primary/50"
+                        }`}
+                      >
+                        <PresetMini w={p.widthMm} h={p.heightMm} />
+                        <span className="truncate tabular-nums">{p.name}</span>
+                      </button>
+                      {/* Delete affordance — appears on hover; built-ins are hidden,
+                          user presets removed (handled by the parent). */}
+                      <button
+                        type="button"
+                        title={t("setup.deletePreset")}
+                        aria-label={t("setup.deletePreset")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeletePreset(p.id);
+                        }}
+                        className="absolute right-1 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded text-muted-foreground opacity-0 hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
