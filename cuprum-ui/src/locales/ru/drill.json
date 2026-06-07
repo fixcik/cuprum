@@ -127,6 +127,7 @@
     "elapsed": "{{elapsed}} · ~{{remaining}}"
   },
   "phase": {
+    "traverse": "Перемещение",
     "descent": "Опускание",
     "drilling": "Сверловка",
     "retract": "Подъём",

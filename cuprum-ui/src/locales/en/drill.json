@@ -127,6 +127,7 @@
     "elapsed": "{{elapsed}} · ~{{remaining}}"
   },
   "phase": {
+    "traverse": "Traverse",
     "descent": "Descent",
     "drilling": "Drilling",
     "retract": "Retract",
