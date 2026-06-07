@@ -308,33 +308,43 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
   const panMode = tool === "pan" || spaceDown;
   const { fmtLen } = useUnitFormat();
 
-  // RAF-coalesced hovered hole key for the highlight ring.
+  // Hover state: screen-px position (rulers crosshair/readout) + hovered hole key
+  // (highlight ring). Both are driven by a SINGLE rAF coalescer below.
   const [hoveredHoleKey, setHoveredHoleKey] = useState<string | null>(null);
-  const hoveredHoleRaf = useRef<number | null>(null);
-  const pendingHoveredKey = useRef<string | null>(null);
-
-  // RAF-coalesced hover position in screen px (for the rulers crosshair/readout).
   const [hoverPx, setHoverPx] = useState<{ x: number; y: number } | null>(null);
   const hoverRaf = useRef<number | null>(null);
-  const pendingHover = useRef<{ x: number; y: number } | null>(null);
-  const queueHover = useCallback((p: { x: number; y: number } | null) => {
-    pendingHover.current = p;
-    if (p === null) {
-      if (hoverRaf.current != null) {
-        cancelAnimationFrame(hoverRaf.current);
-        hoverRaf.current = null;
-      }
-      setHoverPx(null);
-      return;
-    }
+
+  // Coalesce ALL hover work into one frame: regardless of how fast the mouse
+  // moves, we read the latest pointer once per frame and do at most one hit-test
+  // and one paired state update. This keeps the cursor smooth on dense plans.
+  const scheduleHover = useCallback(() => {
     if (hoverRaf.current != null) return;
     hoverRaf.current = requestAnimationFrame(() => {
       hoverRaf.current = null;
-      setHoverPx(pendingHover.current);
+      const stage = stageRef.current;
+      const pos = stage?.getPointerPosition() ?? null;
+      setHoverPx(pos ? { x: pos.x, y: pos.y } : null);
+      const fitGroup = fitGroupRef.current;
+      const pxPerMm = viewport.pxPerMm;
+      if (pos && fitGroup && pxPerMm > 0) {
+        const rel = fitGroup.getRelativePointerPosition();
+        const hit = rel ? nearestPlanHole({ x: rel.x, y: rel.y }, plan, pxPerMm) : null;
+        setHoveredHoleKey(hit ? hit.id : null);
+      } else {
+        setHoveredHoleKey(null);
+      }
     });
+  }, [plan, viewport]);
+
+  const clearHover = useCallback(() => {
+    if (hoverRaf.current != null) {
+      cancelAnimationFrame(hoverRaf.current);
+      hoverRaf.current = null;
+    }
+    setHoverPx(null);
+    setHoveredHoleKey(null);
   }, []);
   useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
-  useEffect(() => () => { if (hoveredHoleRaf.current != null) cancelAnimationFrame(hoveredHoleRaf.current); }, []);
 
   // Track container size.
   useLayoutEffect(() => {
@@ -507,36 +517,8 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
         onWheel={onWheel}
         onDragMove={syncViewport}
         onDragEnd={syncViewport}
-        onMouseMove={() => {
-          const pos = stageRef.current?.getPointerPosition() ?? null;
-          queueHover(pos ? { x: pos.x, y: pos.y } : null);
-
-          // Compute hovered hole id via fit-group relative pointer → mm (all plan holes).
-          const fitGroup = fitGroupRef.current;
-          if (fitGroup && viewport.pxPerMm > 0) {
-            const rel = fitGroup.getRelativePointerPosition();
-            if (rel) {
-              const hit = nearestPlanHole({ x: rel.x, y: rel.y }, plan, viewport.pxPerMm);
-              const nextKey = hit ? hit.id : null;
-              pendingHoveredKey.current = nextKey;
-              if (hoveredHoleRaf.current == null) {
-                hoveredHoleRaf.current = requestAnimationFrame(() => {
-                  hoveredHoleRaf.current = null;
-                  setHoveredHoleKey(pendingHoveredKey.current);
-                });
-              }
-            }
-          }
-        }}
-        onMouseLeave={() => {
-          queueHover(null);
-          // Cancel a pending hover-hole rAF so it can't re-set the key after we clear it.
-          if (hoveredHoleRaf.current != null) {
-            cancelAnimationFrame(hoveredHoleRaf.current);
-            hoveredHoleRaf.current = null;
-          }
-          setHoveredHoleKey(null);
-        }}
+        onMouseMove={scheduleHover}
+        onMouseLeave={clearHover}
         onClick={() => {
           if (tool === "pan" || spaceDown) return;
           const fitGroup = fitGroupRef.current;

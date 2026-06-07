@@ -17,7 +17,6 @@ import { useJog } from "@/hooks/useJog";
 import { machineZFromFraction } from "@/lib/zbar";
 import { checkZGate } from "@/lib/zGate";
 import { type XYGateResult, formatXYViolations } from "@/lib/xyGate";
-import { Button } from "@/components/ui/Button";
 import { JogStepControl } from "@/components/machine/JogStepControl";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -31,8 +30,6 @@ export interface WorkZeroCardProps {
   maxZMm: number;
   /** XY gate result (hole bbox vs machine envelope) — drives the XY overrun banner. */
   xyGate: XYGateResult;
-  onBind: () => void;
-  onClear: () => void;
 }
 
 /** Shared button style for the XY jog pad arrows. */
@@ -43,10 +40,10 @@ const padBtn =
 const zBtn =
   "grid h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground active:scale-95 active:text-primary disabled:opacity-30 disabled:pointer-events-none";
 
-/** Unified XYZ work-zero card: machine-frame jog (XY pad + Z scale + Z± buttons),
- *  a "Set zero here" action that binds all three axes at once, a retract preview,
- *  an amber gate banner when the retract would exceed the machine ceiling, and a
- *  compact clickable Z scale for click-to-level. */
+/** Machine-frame jog body for binding the work zero: a three-axis DRO, an XY pad,
+ *  a compact clickable Z scale with Z± buttons, a step selector, the bound-zero /
+ *  retract-preview status line, and the amber Z/XY gate banners. The bind/reset
+ *  actions live in the inspector's sticky footer (DrillZeroInspector), not here. */
 export function WorkZeroCard({
   workZeroMachineZ,
   safeZMm,
@@ -54,8 +51,6 @@ export function WorkZeroCard({
   maxYMm,
   maxZMm,
   xyGate,
-  onBind,
-  onClear,
 }: WorkZeroCardProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -301,16 +296,6 @@ export function WorkZeroCard({
         continuous={continuous}
         onBeforeChange={stopContinuous}
       />
-
-      {/* Bind / reset actions */}
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={!enabled} onClick={onBind}>
-          {t("workzero.bind")}
-        </Button>
-        <Button size="sm" variant="secondary" disabled={workZeroMachineZ === null} onClick={onClear}>
-          {t("workzero.reset")}
-        </Button>
-      </div>
 
       {/* Status line: bound (captured Z + retract preview) or not-bound hint */}
       {workZeroMachineZ !== null ? (

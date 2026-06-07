@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
@@ -151,6 +151,17 @@ export function DrillPlanInspector({
   }, [isRunActive]);
 
   const workZeroSet = workZeroMachineZ !== null;
+
+  // Auto-return to the plan once the zero is bound from the zero mode. Track the
+  // previous bound state so entering zero mode with an ALREADY-bound zero doesn't
+  // bounce straight back — only a fresh bind (false→true while in zero) returns.
+  const prevWorkZeroSet = useRef(workZeroSet);
+  useEffect(() => {
+    if (panelMode === "zero" && !prevWorkZeroSet.current && workZeroSet) {
+      setPanelMode("plan");
+    }
+    prevWorkZeroSet.current = workZeroSet;
+  }, [workZeroSet, panelMode]);
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =

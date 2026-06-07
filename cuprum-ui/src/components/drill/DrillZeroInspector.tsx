@@ -3,6 +3,9 @@ import { AlertTriangle, CheckCircle2, ChevronLeft } from "lucide-react";
 import type { DatumCorner } from "@/lib/datum";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { XYGateResult } from "@/lib/xyGate";
+import { useMachine } from "@/machineStore";
+import { canMove } from "@/lib/machineControls";
+import { Button } from "@/components/ui/Button";
 import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
 import { DrillTableMap } from "@/components/drill/DrillTableMap";
 import { DatumCornerPicker } from "@/components/ui/DatumCornerPicker";
@@ -55,6 +58,8 @@ export function DrillZeroInspector({
   zeroError,
 }: DrillZeroInspectorProps) {
   const { t } = useTranslation("drill");
+  // Whether the machine can move (connected + idle/jog-safe) — gates the bind action.
+  const canBind = useMachine((s) => canMove(s.status.state, s.connected));
 
   return (
     <>
@@ -102,7 +107,7 @@ export function DrillZeroInspector({
           />
         </div>
 
-        {/* Jog + Z + bind controls */}
+        {/* Jog + Z controls (the bind/reset actions live in the sticky footer) */}
         <WorkZeroCard
           workZeroMachineZ={workZeroMachineZ}
           safeZMm={safeZMm}
@@ -110,8 +115,6 @@ export function DrillZeroInspector({
           maxYMm={maxYMm}
           maxZMm={maxZMm}
           xyGate={xyGate}
-          onBind={onBind}
-          onClear={onClear}
         />
 
         {/* Work-zero bind error from GRBL (command rejected → zero NOT set). */}
@@ -121,6 +124,16 @@ export function DrillZeroInspector({
             <span>{t("zero.bindRejected", { error: zeroError })}</span>
           </div>
         )}
+      </div>
+
+      {/* Sticky footer: bind / reset actions pinned to the bottom */}
+      <div className="sticky bottom-0 mt-auto flex shrink-0 gap-2 border-t border-border bg-panel p-3">
+        <Button size="sm" disabled={!canBind} onClick={onBind} className="flex-1">
+          {t("workzero.bind")}
+        </Button>
+        <Button size="sm" variant="secondary" disabled={!isSet} onClick={onClear}>
+          {t("workzero.reset")}
+        </Button>
       </div>
     </>
   );

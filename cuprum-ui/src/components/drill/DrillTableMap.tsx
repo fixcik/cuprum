@@ -1,21 +1,13 @@
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import type { DrillClass } from "@/lib/api";
 import type { DatumCorner } from "@/lib/datum";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import { useMachine } from "@/machineStore";
 import { useJog } from "@/hooks/useJog";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { envelopeFit, holeTablePoints, panelOnTable } from "@/lib/tableMap";
-
-/** Category dot colours for the table map (mirrors the handoff palette). */
-const CLASS_DOT_COLOR: Record<DrillClass, string> = {
-  registration: "#3b9eff",
-  pth: "#e8893a",
-  npth: "#9aa3af",
-  mechanical: "#3fbf6f",
-};
+import { DRILL_CLASS_COLOR } from "@/lib/drillClassColor";
 
 /** Margin (mm) around the travel rect in the viewBox, so overflow bars and a
  *  datum sitting on the edge stay visible. */
@@ -131,7 +123,7 @@ export function DrillTableMap({
         ref={svgRef}
         viewBox={`${-MARGIN_MM} ${-MARGIN_MM} ${vbW} ${vbH}`}
         onClick={onClick}
-        className={`block w-full rounded-lg border border-border bg-[#0c0e11] ${enabled ? "cursor-pointer" : ""}`}
+        className={`block w-full rounded-lg border border-border bg-[#0c0e11] ${enabled ? "cursor-pointer" : "cursor-not-allowed"}`}
         style={{ height: "auto" }}
       >
         {/* Machine travel rect (dashed) */}
@@ -174,7 +166,7 @@ export function DrillTableMap({
             cx={sx(h.x)}
             cy={sy(h.y)}
             r={dotR}
-            fill={CLASS_DOT_COLOR[h.class]}
+            fill={DRILL_CLASS_COLOR[h.class]}
             opacity={0.7}
           />
         ))}

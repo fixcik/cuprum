@@ -286,7 +286,7 @@ export function DrillOperationEditor() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#0a0c10]">
+    <div className="relative flex h-full w-full bg-[#0a0c10]">
       {/* Loading spinner overlay */}
       {loading && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0a0c10]/70">
@@ -294,16 +294,16 @@ export function DrillOperationEditor() {
         </div>
       )}
 
-      {/* Top toolbar: view toggles + selection hint */}
-      <DrillCanvasTopBar
-        showPath={showPath}
-        onShowPathChange={setShowPath}
-        showDiameters={showDiameters}
-        onShowDiametersChange={setShowDiameters}
-      />
+      {/* Canvas column: toolbar (over the canvas only) + drill map */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Top toolbar: view toggles + selection hint */}
+        <DrillCanvasTopBar
+          showPath={showPath}
+          onShowPathChange={setShowPath}
+          showDiameters={showDiameters}
+          onShowDiametersChange={setShowDiameters}
+        />
 
-      {/* Main layout: canvas hero + inspector sidebar */}
-      <div className="flex flex-1 overflow-hidden">
         {/* Drill map — renders all holes; unselected appear dimmed */}
         <div className="relative flex-1 overflow-hidden">
           {plan && subPlan && route && panel && (
@@ -333,9 +333,10 @@ export function DrillOperationEditor() {
             />
           )}
         </div>
+      </div>
 
-        {/* Inspector sidebar; always shown once plan is available */}
-        {subPlanWithOverrides && route && counts && panel && cncProfile && plan && (
+      {/* Inspector sidebar; always shown once plan is available, full height */}
+      {subPlanWithOverrides && route && counts && panel && cncProfile && plan && (
           <DrillPlanInspector
             fullPlan={plan}
             plan={subPlanWithOverrides}
@@ -378,8 +379,7 @@ export function DrillOperationEditor() {
             onRunDone={handleRunDone}
             totalEstimateSec={totalEstimateSec}
           />
-        )}
-      </div>
+      )}
     </div>
   );
 }
