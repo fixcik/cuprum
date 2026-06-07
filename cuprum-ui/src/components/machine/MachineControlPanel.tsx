@@ -6,6 +6,10 @@ import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { api } from "@/lib/api";
+import {
+  MachineActionsProvider,
+  mainMachineActions,
+} from "@/components/machine/MachineActionsContext";
 import { MachineToolbar } from "@/components/machine/MachineToolbar";
 import { AlarmBanner } from "@/components/machine/AlarmBanner";
 import { SoftLimitsNotice } from "@/components/machine/SoftLimitsNotice";
@@ -77,6 +81,7 @@ export function MachineControlPanel({
   const retractZ = safeRetractMachineZ(machineZ - workZ, safeZMm, machineSafeZMm);
 
   return (
+    <MachineActionsProvider value={mainMachineActions()}>
     <div className="flex min-h-0 flex-1 flex-col">
       <MachineToolbar />
       {/* relative anchors the console drawer; on narrow widths the column and
@@ -131,5 +136,6 @@ export function MachineControlPanel({
         />
       </div>
     </div>
+    </MachineActionsProvider>
   );
 }
