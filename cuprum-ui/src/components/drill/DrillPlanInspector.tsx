@@ -8,7 +8,6 @@ import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
 import type { Tool } from "@/lib/toolLibrary";
 import type { CncProfile } from "@/lib/cncProfile";
-import type { ZGateResult } from "@/lib/zGate";
 import type { XYGateResult } from "@/lib/xyGate";
 import { Button } from "@/components/ui/Button";
 import { DrillSelectionControls } from "@/components/drill/DrillSelectionControls";
@@ -56,20 +55,18 @@ export interface DrillPlanInspectorProps {
   cncProfile: CncProfile;
   /** Substrate thickness in mm (for preflight time estimate). */
   substrateThicknessMm: number;
-  /** MPos Z captured at bind (null = not yet bound). Drives the Z gate. */
-  workZeroMachineZ: number | null;
+  /** Whether the XY work zero has been bound. Drives the gate + zero-mode badge. */
+  workZeroSet: boolean;
   /** Bind the work zero. Returns true on success so the zero mode can close. */
   onBind: () => boolean | Promise<boolean>;
   /** Called when operator resets the captured work zero. */
   onClear: () => void;
-  /** Machine travel limits (mm) forwarded to WorkZeroCard for jog clamping. */
+  /** Machine travel limits (mm) forwarded to DrillZeroInspector for jog clamping. */
   maxXMm: number;
   maxYMm: number;
   maxZMm: number;
   /** Last work-zero bind error from GRBL (null = none). Shown as a banner. */
   zeroError: string | null;
-  /** Pre-computed Z gate result for the start button. */
-  zGate: ZGateResult;
   /** Pre-computed XY gate result (hole bbox vs machine envelope) for the start button. */
   xyGate: XYGateResult;
   /** Whether the machine is connected (for footer start gate). */
@@ -92,7 +89,7 @@ export interface DrillPlanInspectorProps {
 
 /** Right-panel inspector for the drill operation.
  *  Header + process stepper + selected-hole card + preflight summary +
- *  datum grid + Z touch-off + run panel (only when active) + tools order +
+ *  datum grid + XY touch-off + run panel (only when active) + tools order +
  *  warnings + sticky start footer. */
 export function DrillPlanInspector({
   fullPlan,
@@ -114,14 +111,13 @@ export function DrillPlanInspector({
   tools,
   cncProfile,
   substrateThicknessMm,
-  workZeroMachineZ,
+  workZeroSet,
   onBind,
   onClear,
   maxXMm,
   maxYMm,
   maxZMm,
   zeroError,
-  zGate,
   xyGate,
   connected,
   spindleControllable,
@@ -151,36 +147,20 @@ export function DrillPlanInspector({
     if (isRunActive) setPanelMode("plan");
   }, [isRunActive]);
 
-  const workZeroSet = workZeroMachineZ !== null;
-  // Returning to the plan after a bind is driven explicitly by the zero mode's
-  // bind button (await onBind → onBack), so it also fires on a re-bind when the
-  // zero was already set (no false→true transition to observe).
-
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
-    !connected || !hasHoles || zGate.valid === false || xyGate.valid === false || isRunActive;
+    !connected || !hasHoles || xyGate.valid === false || isRunActive;
 
   // Hint shown below the start button when a gate condition blocks the run.
-  // Z gate (touch-off) takes priority over the XY gate: the operator binds zero
-  // first, and a missing bind closes both — show the bind hint, not an XY overrun.
-  // While disconnected, the footer shows <ConnBar> instead of a text hint — and
-  // this guard short-circuits the chain so downstream hints ("set zero", "no
-  // holes") don't pile on with guidance the operator can't act on until connected.
+  // While disconnected, the footer shows <ConnBar> instead of a text hint — this
+  // guard short-circuits the chain so downstream hints ("bind XY", "no holes")
+  // don't pile on with guidance the operator can't act on until connected.
   let startHint: string | null = null;
   if (!connected) {
     startHint = null;
   } else if (!hasHoles) {
     startHint = t("run.noHolesSelected");
-  } else if (zGate.valid === false) {
-    if (zGate.reason === "not-zeroed") {
-      startHint = t("workzero.notZeroedHint");
-    } else {
-      startHint = t("workzero.tooHigh");
-    }
   } else if (xyGate.valid === false) {
-    // "out-of-bounds" → overrun detail; "not-zeroed" → fall back to the bind hint
-    // (today this coincides with the zGate not-zeroed case above, but stay robust
-    // if Z/XY binding ever splits).
     startHint =
       xyGate.reason === "out-of-bounds"
         ? t("workzero.xyOutOfBounds", { detail: formatXYViolations(xyGate.violations, fmtLen) })
@@ -247,12 +227,10 @@ export function DrillPlanInspector({
           datum={datum}
           onDatumChange={onDatumChange}
           onBack={() => setPanelMode("plan")}
-          isSet={workZeroSet}
+          workZeroSet={workZeroSet}
           plan={plan}
           panelWidthMm={panelWidthMm}
           panelHeightMm={panelHeightMm}
-          workZeroMachineZ={workZeroMachineZ}
-          safeZMm={cncProfile.safeZMm}
           maxXMm={maxXMm}
           maxYMm={maxYMm}
           maxZMm={maxZMm}
