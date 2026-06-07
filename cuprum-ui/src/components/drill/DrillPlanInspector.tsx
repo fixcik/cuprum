@@ -163,8 +163,9 @@ export function DrillPlanInspector({
   // Hint shown below the start button when a gate condition blocks the run.
   // Z gate (touch-off) takes priority over the XY gate: the operator binds zero
   // first, and a missing bind closes both — show the bind hint, not an XY overrun.
-  // Note: the !connected case is handled by rendering <ConnBar> in the footer
-  // (the operator connects right here), so it has no text hint below the button.
+  // While disconnected, the footer shows <ConnBar> instead of a text hint — and
+  // this guard short-circuits the chain so downstream hints ("set zero", "no
+  // holes") don't pile on with guidance the operator can't act on until connected.
   let startHint: string | null = null;
   if (!connected) {
     startHint = null;

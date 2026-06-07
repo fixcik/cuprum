@@ -112,7 +112,9 @@ export function ConnBar({ compact = false }: ConnBarProps = {}) {
           title={t("connection.refresh")}
           onClick={refresh}
           disabled={connected}
-          className="grid size-9 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-50"
+          className={`grid size-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-50 ${
+            compact ? "shrink-0" : ""
+          }`}
         >
           <RefreshCw className="size-4" />
         </button>
