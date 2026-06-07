@@ -97,6 +97,11 @@ struct MachineConn {
     poller_handle: Option<JoinHandle<()>>,
     ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
     activity: Arc<Mutex<Activity>>,
+    /// One-shot: armed when the user types `?` in the console so the reader echoes
+    /// the next status report back to them. Status replies are otherwise filtered
+    /// from the console (the 5 Hz poll would flood it), making a manual `?` look
+    /// like it did nothing.
+    echo_status: Arc<AtomicBool>,
 }
 
 /// Returned by `machine_reattach` when the backend still holds a live connection.
@@ -176,10 +181,12 @@ pub fn machine_connect(
         idle: false,
         hold: false,
     }));
+    let echo_status = Arc::new(AtomicBool::new(false));
 
     // Reader thread: parse lines, push status + raw rx lines.
     let r_stop = stop.clone();
     let r_tel = telemetry.clone();
+    let r_echo = echo_status.clone();
     let r_app = app.clone();
     let r_ack = ack_tx.clone();
     let r_activity = activity.clone();
@@ -196,8 +203,12 @@ pub fn machine_connect(
                     // which arrive at ~5 Hz from the 200 ms poller and would flood the
                     // log, thrash the console (auto-scroll + full re-render of the line
                     // list), and bury real traffic. Status is forwarded separately as
-                    // Telemetry::Status below.
-                    if !matches!(parsed, grbl::Line::Status(_)) {
+                    // Telemetry::Status below. Exception: when the user types `?` in the
+                    // console, `echo_status` is armed so the NEXT status line is echoed
+                    // once (otherwise a manual `?` looks like it did nothing). The swap
+                    // is short-circuited for non-status lines so it can't consume the arm.
+                    let is_status = matches!(parsed, grbl::Line::Status(_));
+                    if !is_status || r_echo.swap(false, Ordering::Acquire) {
                         let _ = r_tel.lock().unwrap().send(Telemetry::Line {
                             dir: "rx".into(),
                             text: line.clone(),
@@ -279,6 +290,7 @@ pub fn machine_connect(
         poller_handle: Some(poller_handle),
         ack_tx,
         activity,
+        echo_status,
     });
     drop(guard);
     let _ = app.emit("machine://connected", ());
@@ -559,6 +571,24 @@ pub fn machine_spindle(state: State<MachineState>, on: bool, rpm: u32) -> Result
 
 #[tauri::command]
 pub fn machine_send(state: State<MachineState>, line: String) -> Result<(), String> {
+    // A bare `?` is the status query; GRBL's `<...>` reply is normally filtered from
+    // the console (5 Hz poll noise). When the user types it explicitly, arm a
+    // one-shot so the reader echoes the next status report back to them. Send it as
+    // a real-time byte (no `\n`), matching the poller — a `?\n` line would also draw
+    // a spurious `ok`. Arm before the write (so the reply can't beat the arm), and
+    // disarm if the write fails so a stale arm can't later swallow a poll line.
+    if line.trim() == "?" {
+        if let Some(conn) = state.0.lock().unwrap().as_ref() {
+            conn.echo_status.store(true, Ordering::Release);
+        }
+        let r = send_realtime(&state, grbl::STATUS_QUERY, "?");
+        if r.is_err() {
+            if let Some(conn) = state.0.lock().unwrap().as_ref() {
+                conn.echo_status.store(false, Ordering::Relaxed);
+            }
+        }
+        return r;
+    }
     send_line(&state, &line)
 }
 
