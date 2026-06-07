@@ -33,6 +33,9 @@
     "postplating": "After plating",
     "all": "All"
   },
+  "selection": {
+    "title": "What to drill"
+  },
   "empty": {
     "noProject": "No project open",
     "noHoles": "No drill holes found",
@@ -63,10 +66,14 @@
   },
   "preflight": {
     "holes": "Holes",
+    "holesSub": "categories: {{count}}",
     "time": "Est. time",
+    "timeSub": "~ at current feed",
     "travel": "Jog distance",
+    "travelSub": "optimised",
     "changes": "Bit changes",
-    "minAbbr": "m",
+    "changesSub": "manual pauses",
+    "minAbbr": "min",
     "secAbbr": "s"
   },
   "toolsOrder": {

@@ -28,30 +28,38 @@ export function DrillPreflightSummary({
     [route, tools, cncProfile, substrateThicknessMm],
   );
 
-  // Format timeSec as "Xm Ys" / "Ys" using localised minute/second abbreviations.
+  // Format timeSec as "X мин YY с" / "Y с" with localised abbreviations; seconds
+  // are zero-padded to two digits once there's a minutes part.
   const timeFmt = (() => {
     const m = Math.floor(est.timeSec / 60);
     const s = est.timeSec % 60;
-    const sec = `${s}${t("preflight.secAbbr")}`;
-    return m > 0 ? `${m}${t("preflight.minAbbr")} ${sec}` : sec;
+    const sec = `${String(s).padStart(m > 0 ? 2 : 1, "0")} ${t("preflight.secAbbr")}`;
+    return m > 0 ? `${m} ${t("preflight.minAbbr")} ${sec}` : sec;
   })();
 
-  const cells: { label: string; value: string }[] = [
+  // Distinct categories in the selected run (for the holes sub-caption).
+  const categoryCount = new Set(route.groups.map((g) => g.class)).size;
+
+  const cells: { label: string; value: string; sub: string }[] = [
     {
       label: t("preflight.holes"),
       value: String(route.totalHoles),
+      sub: t("preflight.holesSub", { count: categoryCount }),
     },
     {
       label: t("preflight.time"),
-      value: `~${timeFmt}`,
+      value: timeFmt,
+      sub: t("preflight.timeSub"),
     },
     {
       label: t("preflight.travel"),
       value: fmtLen(est.travelMm),
+      sub: t("preflight.travelSub"),
     },
     {
       label: t("preflight.changes"),
       value: String(est.toolChanges),
+      sub: t("preflight.changesSub"),
     },
   ];
 
@@ -62,12 +70,11 @@ export function DrillPreflightSummary({
           key={cell.label}
           className="rounded-lg border border-border bg-card/40 p-2.5"
         >
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            {cell.label}
-          </div>
-          <div className="mt-1 text-sm font-semibold tabular-nums text-slate-100">
+          <div className="text-[11px] text-muted-foreground">{cell.label}</div>
+          <div className="mt-0.5 text-sm font-semibold tabular-nums text-slate-100">
             {cell.value}
           </div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground/70">{cell.sub}</div>
         </div>
       ))}
     </div>

@@ -33,6 +33,9 @@
     "postplating": "После меднения",
     "all": "Всё"
   },
+  "selection": {
+    "title": "Что сверлим"
+  },
   "empty": {
     "noProject": "Нет открытого проекта",
     "noHoles": "Отверстия не найдены",
@@ -63,10 +66,14 @@
   },
   "preflight": {
     "holes": "Отверстий",
+    "holesSub": "категории: {{count}}",
     "time": "Оценка",
+    "timeSub": "~ при текущей подаче",
     "travel": "Холостой ход",
+    "travelSub": "оптимизирован",
     "changes": "Смен сверла",
-    "minAbbr": "м",
+    "changesSub": "ручные паузы",
+    "minAbbr": "мин",
     "secAbbr": "с"
   },
   "toolsOrder": {
