@@ -114,6 +114,12 @@ const HolesLayer = memo(function HolesLayer({
             strokeScaleEnabled={false}
             fill={holeFill}
             opacity={isSelected ? 1 : 0.25}
+            // A fill+stroke shape with opacity<1 makes Konva render each one to an
+            // offscreen buffer canvas (perfect-draw, to avoid edge double-blending).
+            // With ~100 dimmed unselected holes that buffering dominated each redraw
+            // (~80ms → ~11fps). The thin stroke makes the double-blend imperceptible,
+            // so disable it and draw directly.
+            perfectDrawEnabled={false}
             listening={false}
           />
         );
