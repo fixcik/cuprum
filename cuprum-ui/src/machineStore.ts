@@ -30,10 +30,19 @@ interface MachineStore {
    *  Cleared on connect, alarm, and disconnect/reset. Gates machine-coordinate
    *  auto-moves (G53 retracts) so they never run against an unreferenced frame. */
   homed: boolean;
+  /** True while a homing cycle launched from the app is in progress. Drives the
+   *  control-panel "homing…" overlay. GRBL is silent during the cycle, so this is
+   *  bracketed by the homeAwait command, not the status stream. */
+  homing: boolean;
   connect: (port: string, baud: number) => Promise<void>;
   disconnect: () => Promise<void>;
   pushLine: (line: Omit<ConsoleLine, "ts">) => void;
   setStatus: (status: MachineStatus) => void;
+  /** Run a homing cycle ($H), waiting for GRBL to confirm completion. Marks the
+   *  frame homed on success; surfaces failure/abort to the console. */
+  runHoming: () => Promise<void>;
+  /** Abort an in-progress homing cycle: soft-reset GRBL and drop the overlay. */
+  cancelHoming: () => void;
   reset: () => void;
 }
 
@@ -50,6 +59,7 @@ export const useMachine = create<MachineStore>((set, get) => ({
   softLimitsEnabled: null,
   maxTravelMm: null,
   homed: false,
+  homing: false,
   connect: async (port, baud) => {
     const ch = new Channel<Telemetry>();
     ch.onmessage = (msg) => {
@@ -82,7 +92,7 @@ export const useMachine = create<MachineStore>((set, get) => ({
     // machine-coordinate auto-moves are allowed. Soft-limit state is unknown
     // until the following $$ query reports it.
     travelBuf = [null, null, null];
-    set({ connected: true, port, homed: false, softLimitsEnabled: null, maxTravelMm: null });
+    set({ connected: true, port, homed: false, homing: false, softLimitsEnabled: null, maxTravelMm: null });
     // Query firmware settings to detect homing support ($22).
     await api.machine.send("$$");
   },
@@ -106,6 +116,27 @@ export const useMachine = create<MachineStore>((set, get) => ({
       else if (status.state === "alarm") homed = false;
       return homed === s.homed ? { status } : { status, homed };
     }),
+  // GRBL stays silent during the cycle, so completion can't be read from the
+  // status stream — homeAwait resolves on the `$H` ok (homed) and rejects on
+  // failure/abort. The overlay tracks `homing`.
+  runHoming: async () => {
+    if (get().homing) return;
+    set({ homing: true });
+    try {
+      await api.machine.homeAwait();
+      set({ homed: true, homing: false });
+    } catch (e) {
+      // cancelHoming already cleared `homing`; an "aborted" reject is expected
+      // then. Only surface the reason; the alarm banner covers genuine failures.
+      get().pushLine({ dir: "rx", text: `homing: ${String(e)}` });
+      set({ homing: false });
+    }
+  },
+  cancelHoming: () => {
+    if (!get().homing) return;
+    void api.machine.softReset();
+    set({ homing: false });
+  },
   // Keep `lines` so the user still sees why the connection dropped (e.g. the
   // error line pushed just before an unplug). Connection state + DRO reset.
   reset: () => {
@@ -118,6 +149,7 @@ export const useMachine = create<MachineStore>((set, get) => ({
       softLimitsEnabled: null,
       maxTravelMm: null,
       homed: false,
+      homing: false,
     });
   },
 }));

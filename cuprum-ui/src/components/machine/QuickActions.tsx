@@ -13,6 +13,8 @@ export function QuickActions({ className }: { className?: string }) {
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
   const homingAvailable = useMachine((s) => s.homingAvailable);
+  const homing = useMachine((s) => s.homing);
+  const runHoming = useMachine((s) => s.runHoming);
   const movable = canMove(state, connected);
   const isHold = state === "hold";
   // Feed-hold only makes sense while the machine is actively moving.
@@ -22,8 +24,8 @@ export function QuickActions({ className }: { className?: string }) {
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
       <Button
         variant="warn"
-        disabled={!movable || !homingAvailable}
-        onClick={() => void api.machine.home()}
+        disabled={!movable || !homingAvailable || homing}
+        onClick={() => void runHoming()}
       >
         <Home />
         {t("controls.home")}
