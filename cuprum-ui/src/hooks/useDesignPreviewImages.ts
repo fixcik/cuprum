@@ -21,13 +21,12 @@ export function useDesignPreviewImages(): Record<string, HTMLImageElement> {
   const designs = useShell((s) => s.currentManifest?.designs ?? EMPTY);
   const workingDir = useShell((s) => s.workingDir);
   const [images, setImages] = useState<Record<string, HTMLImageElement>>({});
-  // In-flight ids: the instances array changes on every placement edit, so without
-  // this an in-flight design would be re-fetched/re-decoded before its first load.
+  // Ids with a fetch currently running, so a re-run (the instances array changes on
+  // every placement edit) doesn't re-issue an in-flight fetch.
   const inFlight = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!workingDir) return;
-    let cancelled = false;
     const known: Record<string, unknown> = { ...images };
     inFlight.current.forEach((id) => (known[id] = true));
     designIdsToLoad(instances, known).forEach((id) => {
@@ -41,14 +40,15 @@ export function useDesignPreviewImages(): Record<string, HTMLImageElement> {
           d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
         )
         .then(({ pngDataUrl }) => {
-          if (cancelled) {
-            inFlight.current.delete(id);
-            return;
-          }
           const img = new Image();
+          // Populate id-keyed regardless of later dep changes: a design's image is
+          // valid whoever fetched it, and the prune step below drops any entry whose
+          // design is no longer placed. No cancel guard — bailing on cancellation
+          // would release the in-flight id while the next run already skipped it,
+          // leaving the design unloaded until the next dependency change.
           img.onload = () => {
             inFlight.current.delete(id);
-            if (!cancelled) setImages((prev) => ({ ...prev, [id]: img }));
+            setImages((prev) => ({ ...prev, [id]: img }));
           };
           img.onerror = () => inFlight.current.delete(id);
           img.src = pngDataUrl;
@@ -64,9 +64,6 @@ export function useDesignPreviewImages(): Record<string, HTMLImageElement> {
       const entries = Object.entries(prev).filter(([id]) => liveIds.has(id));
       return entries.length === Object.keys(prev).length ? prev : Object.fromEntries(entries);
     });
-    return () => {
-      cancelled = true;
-    };
     // `images` read inside only to skip already-loaded ids; omitting it avoids
     // re-running on every fetch completion (mirrors usePlacedBoardSizes).
     // eslint-disable-next-line react-hooks/exhaustive-deps
