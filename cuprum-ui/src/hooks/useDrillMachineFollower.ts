@@ -1,6 +1,6 @@
-import { useEffect } from "react";
 import { api, type MachineStatus } from "@/lib/api";
 import { useMachine } from "@/machineStore";
+import { useBridgeListeners } from "@/hooks/useTauriListeners";
 
 const PINS_CLEAR = { x: false, y: false, z: false, probe: false } as const;
 
@@ -25,36 +25,24 @@ const IDLE_STATUS: MachineStatus = {
  *  tear down the real connection the main window owns. Commands (jog, run, zero) are
  *  sent straight to the backend via invoke; those are process-global. */
 export function useDrillMachineFollower(): void {
-  useEffect(() => {
-    let active = true;
-    const subs = [
-      api.machine.onStatus((s) => {
-        if (!active) return;
-        // A status report implies the connection is live.
-        useMachine.setState({ connected: true });
-        useMachine.getState().setStatus({
-          state: s.state,
-          mpos: s.mpos,
-          wpos: s.wpos,
-          feed: s.feed,
-          spindle: s.spindle,
-          overrides: s.overrides,
-          pins: s.pins,
-        });
-      }),
-      api.machine.onConnected(() => {
-        if (active) useMachine.setState({ connected: true });
-      }),
-      api.machine.onDisconnected(() => {
-        if (active) useMachine.setState({ connected: false, status: IDLE_STATUS, homed: false });
-      }),
-      api.onMachineDerived(({ homed }) => {
-        if (active) useMachine.setState({ homed });
-      }),
-    ];
-    return () => {
-      active = false;
-      for (const p of subs) void p.then((un) => un());
-    };
-  }, []);
+  useBridgeListeners(() => [
+    api.machine.onStatus((s) => {
+      // A status report implies the connection is live.
+      useMachine.setState({ connected: true });
+      useMachine.getState().setStatus({
+        state: s.state,
+        mpos: s.mpos,
+        wpos: s.wpos,
+        feed: s.feed,
+        spindle: s.spindle,
+        overrides: s.overrides,
+        pins: s.pins,
+      });
+    }),
+    api.machine.onConnected(() => useMachine.setState({ connected: true })),
+    api.machine.onDisconnected(() =>
+      useMachine.setState({ connected: false, status: IDLE_STATUS, homed: false }),
+    ),
+    api.onMachineDerived(({ homed }) => useMachine.setState({ homed })),
+  ]);
 }

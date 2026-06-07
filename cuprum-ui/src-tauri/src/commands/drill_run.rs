@@ -255,7 +255,9 @@ pub struct DrillRunStatus {
 pub fn drill_run_status(job: State<DrillJob>) -> DrillRunStatus {
     let slot = job.0.lock().unwrap();
     match slot.as_ref() {
-        Some(h) if !h.ctrl.finished.load(Relaxed) => {
+        // An aborted run (estop) is finishing — report it inactive so a re-attaching
+        // window doesn't briefly show a stale live phase before `finished` is set.
+        Some(h) if !h.ctrl.finished.load(Relaxed) && !h.ctrl.abort.load(Relaxed) => {
             let c = &h.ctrl;
             let phase = if c.stopping.load(Relaxed) {
                 "stopping"
