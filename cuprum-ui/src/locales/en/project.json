@@ -51,7 +51,31 @@
   "tab": {
     "panel": "Panel",
     "designs": "Designs",
-    "operations": "Operations"
+    "operations": "Operations",
+    "history": "History"
+  },
+  "runHistory": {
+    "title": "Run history",
+    "empty": "No runs yet.",
+    "noProject": "Save the project to keep a run history.",
+    "filterAll": "All",
+    "holesLabel": "Holes:",
+    "toolsLabel": "Bits:",
+    "minShort": "m",
+    "secShort": "s",
+    "type": {
+      "drill": "Drill",
+      "expose": "Exposure",
+      "isolation": "Isolation",
+      "contour": "Contour",
+      "unknown": "{{op}}"
+    },
+    "outcome": {
+      "completed": "Completed",
+      "stopped": "Stopped",
+      "error": "Error",
+      "running": "Running"
+    }
   },
   "panel": {
     "canvas": {

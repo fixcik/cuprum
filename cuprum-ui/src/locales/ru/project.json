@@ -51,7 +51,31 @@
   "tab": {
     "panel": "Панель",
     "designs": "Дизайны",
-    "operations": "Операции"
+    "operations": "Операции",
+    "history": "История"
+  },
+  "runHistory": {
+    "title": "История прогонов",
+    "empty": "Прогонов пока нет.",
+    "noProject": "Сохраните проект, чтобы вести историю прогонов.",
+    "filterAll": "Все",
+    "holesLabel": "Отв.:",
+    "toolsLabel": "Свёрла:",
+    "minShort": "м",
+    "secShort": "с",
+    "type": {
+      "drill": "Сверловка",
+      "expose": "Засветка",
+      "isolation": "Изоляция",
+      "contour": "Контур",
+      "unknown": "{{op}}"
+    },
+    "outcome": {
+      "completed": "Завершён",
+      "stopped": "Остановлен",
+      "error": "Ошибка",
+      "running": "Идёт"
+    }
   },
   "panel": {
     "canvas": {
