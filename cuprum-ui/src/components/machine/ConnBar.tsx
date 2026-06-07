@@ -111,7 +111,7 @@ export function ConnBar({
       <div className="flex items-center gap-2">
         <span className="size-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
-          {cnc.name} · {connectedPort ?? cnc.port}
+          {(cnc.name || t("connection.machine")) + " · " + (connectedPort ?? cnc.port ?? "—")}
         </span>
         <Button
           variant="outline"
