@@ -18,6 +18,7 @@ import { DrillWarnings } from "@/components/drill/DrillWarnings";
 import { DrillHoleCard } from "@/components/drill/DrillHoleCard";
 import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary";
 import { WorkZeroStatusCard } from "@/components/drill/WorkZeroStatusCard";
+import { ConnBar } from "@/components/machine/ConnBar";
 import { DrillZeroInspector } from "@/components/drill/DrillZeroInspector";
 import { formatXYViolations } from "@/lib/xyGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
@@ -162,9 +163,12 @@ export function DrillPlanInspector({
   // Hint shown below the start button when a gate condition blocks the run.
   // Z gate (touch-off) takes priority over the XY gate: the operator binds zero
   // first, and a missing bind closes both — show the bind hint, not an XY overrun.
+  // While disconnected, the footer shows <ConnBar> instead of a text hint — and
+  // this guard short-circuits the chain so downstream hints ("set zero", "no
+  // holes") don't pile on with guidance the operator can't act on until connected.
   let startHint: string | null = null;
   if (!connected) {
-    startHint = t("run.notConnected");
+    startHint = null;
   } else if (!hasHoles) {
     startHint = t("run.noHolesSelected");
   } else if (zGate.valid === false) {
@@ -338,6 +342,11 @@ export function DrillPlanInspector({
                 {t("run.spindleHint")}
               </p>
             )}
+
+            {/* Inline machine connect — gate the run right here instead of sending
+                the operator to Equipment → Control. Shown only while disconnected;
+                once connected the bar disappears and the start button unlocks. */}
+            {!connected && <ConnBar compact />}
 
             {/* Start button */}
             <Button
