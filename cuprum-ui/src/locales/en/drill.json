@@ -152,6 +152,7 @@
     "probeFail": "No contact — check the probe",
     "manualHint": "Jog the bit down to the copper, then set Z",
     "manualBind": "Set Z here",
+    "manualFail": "Couldn't set Z — check the machine connection",
     "zBound": "Z set",
     "confirmHint": "Set Z first"
   },

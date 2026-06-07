@@ -17,6 +17,10 @@ export interface DrillRunState {
   /** Whether Z has been re-bound for the CURRENT bit (probe or manual touch-off).
    *  Resets when a tool change begins; gates "Продолжить"/"Начать". Frontend-only. */
   zBound: boolean;
+  /** Monotonic counter incremented on every tool-change pause. Used only as a React
+   *  remount key for the tool-change card so its local state (probe self-test, tab,
+   *  busy, error) resets each pause — even on back-to-back tool changes. */
+  toolChangeSeq: number;
   error: string | null;
   runStartedAt: number | null;
 }
@@ -38,6 +42,7 @@ export const initialDrillRunState: DrillRunState = {
   currentHoleIndex: null,
   toolChange: null,
   zBound: false,
+  toolChangeSeq: 0,
   error: null,
   runStartedAt: null,
 };
@@ -73,6 +78,7 @@ export function drillRunReducer(
         phase: "awaitingToolChange",
         toolChange: { toolName: e.toolName, diameterMm: e.diameterMm },
         zBound: false,
+        toolChangeSeq: s.toolChangeSeq + 1,
       };
 
     case "zbound":

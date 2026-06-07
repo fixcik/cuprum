@@ -86,7 +86,7 @@ export function DrillToolChangeCard({
       await api.machine.setZero(false, false, true);
       onZBound();
     } catch {
-      setError(t("toolChange.probeFail"));
+      setError(t("toolChange.manualFail"));
     } finally {
       setBusy(false);
     }

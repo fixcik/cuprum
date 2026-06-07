@@ -76,6 +76,7 @@ export function DrillRunInspector({
       {phase === "awaitingToolChange" && state.toolChange && (
         <div className="pt-3">
           <DrillToolChangeCard
+            key={state.toolChangeSeq}
             toolName={state.toolChange.toolName}
             diameterMm={state.toolChange.diameterMm}
             nextColor={nextColor}
