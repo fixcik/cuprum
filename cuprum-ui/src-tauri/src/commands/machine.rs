@@ -223,6 +223,7 @@ pub fn machine_connect(
                             | grbl::Line::Error(_)
                             | grbl::Line::Alarm(_)
                             | grbl::Line::Welcome(_)
+                            | grbl::Line::Probe { .. }
                     ) {
                         if let Some(tx) = r_ack.lock().unwrap().as_ref() {
                             let _ = tx.send(parsed.clone());
