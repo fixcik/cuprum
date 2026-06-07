@@ -550,5 +550,34 @@ cuprum-ui/src/
   и теперь питает и `ProjectPage`, и инспектор — раскладка шапок совпадает (табы слева,
   шестерёнка справа).
 
+- **Консоль станка в отдельном OS-окне (Фазы 1–3).** Отдельное окно `console` (Tauri-ярлык)
+  дублирует лог GRBL-трафика и панель управления. Архитектурное решение: **главное окно
+  остаётся единственным владельцем** соединения, Telemetry-канала и авторитетного `useMachine`;
+  окно консоли — **read-model**: его локальный `useMachine` наполняется реле-событиями
+  (`console:snapshot` при ready-рукопожатии, `console:status` на каждый тик статуса,
+  `console:lines` дельтами строк). Статические write-операции (`send`, `unlock`, `feedHold`,
+  `cycleStart`, `softReset`, `override`) окно консоли шлёт напрямую к бэкенду
+  (`api.machine.*` — синглтон порта, безопасно из любого окна); операции с владением
+  каналом/стором (`connect`, `disconnect`, `home`) идут как **интенты** (`console:connect`,
+  `console:disconnect`, `console:home`) → главное окно их перехватывает в `useConsoleBridge`
+  и выполняет через свой стор.
+  - **DRY действий — `MachineActionsProvider` / `useMachineActions()`.** Узкий контекст с
+    поверхностью `MachineActions` (send/unlock/feedHold/cycleStart/softReset/override/home/connect/disconnect).
+    Два заводских набора: `mainMachineActions()` (для главного окна и окна сверловки) — store-логика
+    для connect/disconnect/home, прямые `api.machine.*` для остального; `consoleMachineActions()` —
+    интенты для connect/disconnect/home, прямые `api.machine.*` для остального. `ConnBar`,
+    `QuickActions`, `EStop`, `Overrides`, `ConsoleBody` читают `useMachineActions()` — поведение
+    в главном окне идентично прежнему, в окне консоли прозрачно маршрутизируется через интенты.
+  - **Pop-out + заглушка дровера.** Кнопка pop-out в шапке `ConsoleBody` (`ExternalLink`)
+    открывает окно. Пока окно открыто, дровер в главном окне сворачивается в заглушку
+    «Консоль открыта в отдельном окне» с кнопкой «На передний план». Флаг `consoleWindowOpen`
+    управляется авторитетными событиями: `console:ready` (ставит, покрывает и pop-out, и
+    перезагрузку webview) и `console:closed` (Rust Destroyed-событие, снимает; JS-unmount
+    не используется — OS-close убивает контекст до размонтирования).
+  - **ConnBar в окне консоли.** Окно консоль рендерит полный `MachineToolbar` (включая
+    `ConnBar`) внутри провайдера `consoleMachineActions`. Список портов получает прямым
+    `api.machine.listPorts()`; состояние connected/port — из relay-read-model; connect/disconnect
+    маршрутизируются как интенты к главному окну.
+
 *Ревизия 2026-06-07. Обновлять при изменении дизайн-системы и принятии новых
 дизайн-решений (добавляй запись в лог выше).*
