@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { api, type InspectorSnapshot } from "@/lib/api";
 import { DesignInspector } from "@/components/project/DesignInspector";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
+import { useShowWindowWhenReady } from "@/hooks/useShowWindowWhenReady";
 
 /** Root of a per-design inspector window (label `inspector-<designId>`). Thin
  *  remote view: it receives live project snapshots from the main window and sends
@@ -14,6 +15,9 @@ export function InspectorWindow({ designId }: { designId: string }) {
   // Subscribe first, then announce readiness so the main window's reply can't beat
   // the listener (same ordering as the add-design window).
   const snap = useSnapshotSubscription<InspectorSnapshot>(api.onInspectorSnapshot, api.emitInspectorReady);
+  // Window is created hidden; reveal it once the first snapshot has rendered so it
+  // never flashes the blank webview + boot spinner.
+  useShowWindowWhenReady(snap !== null);
 
   const manifest = snap?.manifest ?? null;
   const workingDir = snap?.workingDir ?? null;

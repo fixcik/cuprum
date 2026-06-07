@@ -128,6 +128,9 @@ pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
         .resizable(true)
         .center()
         .focused(true)
+        // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
+        // so it never flashes the blank webview + boot spinner.
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
     // Center the window over the main window so on multi-monitor setups it opens
@@ -168,6 +171,9 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result
         .resizable(true)
         .center()
         .focused(true)
+        // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
+        // so it never flashes the blank webview + boot spinner.
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
     // Center over the main window so it opens on the screen the user is on.
