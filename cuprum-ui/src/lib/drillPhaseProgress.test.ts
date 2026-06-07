@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   nextPhaseProgress,
   ZERO_PHASE_PROGRESS,
+  PHASE_COLORS,
+  PHASE_WEIGHTS,
+  sweepFraction,
+  phaseColor,
   type PhaseProgress,
 } from "@/lib/drillPhaseProgress";
 
@@ -112,5 +116,47 @@ describe("nextPhaseProgress — degenerate config", () => {
   it("returns prev unchanged for non-positive safe-Z", () => {
     const p = nextPhaseProgress(ZERO_PHASE_PROGRESS, -1, DEPTH, 0);
     expect(p).toBe(ZERO_PHASE_PROGRESS);
+  });
+});
+
+describe("sweepFraction", () => {
+  it("is 0 for an untouched hole", () => {
+    expect(sweepFraction(ZERO_PHASE_PROGRESS)).toBe(0);
+  });
+
+  it("is 1 when all three phases are complete", () => {
+    expect(
+      sweepFraction({ phase: "retract", descent: 1, drilling: 1, retract: 1 }),
+    ).toBeCloseTo(1, 6);
+  });
+
+  it("weights the phases 28/50/22", () => {
+    expect(PHASE_WEIGHTS.descent + PHASE_WEIGHTS.drilling + PHASE_WEIGHTS.retract).toBeCloseTo(1, 6);
+    expect(
+      sweepFraction({ phase: "drilling", descent: 1, drilling: 0.5, retract: 0 }),
+    ).toBeCloseTo(0.28 + 0.5 * 0.5, 6);
+  });
+
+  it("clamps to [0,1]", () => {
+    expect(
+      sweepFraction({ phase: "descent", descent: -2, drilling: 0, retract: 0 }),
+    ).toBe(0);
+  });
+});
+
+describe("phaseColor", () => {
+  it("uses the bit colour for the drilling phase", () => {
+    expect(phaseColor("drilling", "#e8893a", false)).toBe("#e8893a");
+  });
+
+  it("uses handoff cyan/green for descent/retract", () => {
+    expect(phaseColor("descent", "#e8893a", false)).toBe(PHASE_COLORS.descent);
+    expect(phaseColor("retract", "#e8893a", false)).toBe(PHASE_COLORS.retract);
+    expect(PHASE_COLORS.descent).toBe("#46e0ff");
+    expect(PHASE_COLORS.retract).toBe("#3fbf6f");
+  });
+
+  it("returns idle grey regardless of phase when idle", () => {
+    expect(phaseColor("drilling", "#e8893a", true)).toBe("#8a929e");
   });
 });
