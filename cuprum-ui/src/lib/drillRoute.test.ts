@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderNearest, planDrillRoute, orderedHoleList, buildHoleToPathIndex, activeGroupForHole } from "@/lib/drillRoute";
+import { orderNearest, planDrillRoute, orderedHoleList, buildHoleToPathIndex, activeGroupForHole, classAtRunIndex } from "@/lib/drillRoute";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import { segIntersectsRect } from "@/lib/keepoutGeometry";
@@ -345,5 +345,42 @@ describe("activeGroupForHole", () => {
   it("returns null for empty route", () => {
     const empty: DrillRoute = { groups: [], pathPoints: [], totalHoles: 0, toolCount: 0 };
     expect(activeGroupForHole(empty, 0)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classAtRunIndex
+// ---------------------------------------------------------------------------
+
+describe("classAtRunIndex", () => {
+  // Build a plan with 2 registration holes + 3 pth holes.
+  // planDrillRoute sorts registration (CLASS_ORDER=0) before pth (CLASS_ORDER=1),
+  // so run indices 0,1 → "registration" and 2,3,4 → "pth".
+  const plan = makePlan([
+    {
+      diameterMm: 0.8,
+      class: "pth",
+      toolId: "t1",
+      holes: [{ xMm: 10, yMm: 0 }, { xMm: 20, yMm: 0 }, { xMm: 30, yMm: 0 }],
+    },
+    {
+      diameterMm: 3.2,
+      class: "registration",
+      toolId: "tr",
+      holes: [{ xMm: 0, yMm: 0 }, { xMm: 5, yMm: 0 }],
+    },
+  ]);
+  const route = planDrillRoute(plan, { xMm: 0, yMm: 0 });
+
+  it("returns the class of the group the run index falls into", () => {
+    expect(classAtRunIndex(route, 0)).toBe("registration");
+    expect(classAtRunIndex(route, 1)).toBe("registration");
+    expect(classAtRunIndex(route, 2)).toBe("pth");
+    expect(classAtRunIndex(route, 4)).toBe("pth");
+  });
+
+  it("returns null for an out-of-range index", () => {
+    expect(classAtRunIndex(route, 99)).toBeNull();
+    expect(classAtRunIndex(route, -1)).toBeNull();
   });
 });

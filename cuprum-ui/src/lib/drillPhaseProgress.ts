@@ -16,12 +16,46 @@ export interface PhaseProgress {
   retract: number;
 }
 
-/** Segment colours for the three phases (single source of truth for the ring). */
+/** Segment colours for the three phases (single source of truth for the ring).
+ *  Handoff palette: descent cyan, drilling amber (fallback — overridden by the
+ *  actual bit colour at render time), retract green. */
 export const PHASE_COLORS: Record<DrillHolePhase, string> = {
-  descent: "#38bdf8", // sky — approach to the surface
-  drilling: "#fbbf24", // amber — cutting into the material
-  retract: "#34d399", // emerald — returning to safe-Z
+  descent: "#46e0ff", // cyan — approach to the surface
+  drilling: "#fbbf24", // amber — fallback; phaseColor() prefers the bit colour
+  retract: "#3fbf6f", // green — returning to safe-Z
 };
+
+/** Idle (paused / awaiting tool change) ring + label colour. */
+export const IDLE_COLOR = "#8a929e";
+
+/** Fraction of the full cycle each phase occupies on the ring (descent 28%,
+ *  drilling 50%, retract 22%) — drilling reads as the main motion. Sums to 1. */
+export const PHASE_WEIGHTS: Record<DrillHolePhase, number> = {
+  descent: 0.28,
+  drilling: 0.5,
+  retract: 0.22,
+};
+
+/** Collapse the three monotonic phase fractions into a single 0..1 cycle
+ *  progress, weighting each phase by its share of the ring. */
+export function sweepFraction(p: PhaseProgress): number {
+  const raw =
+    PHASE_WEIGHTS.descent * p.descent +
+    PHASE_WEIGHTS.drilling * p.drilling +
+    PHASE_WEIGHTS.retract * p.retract;
+  return raw <= 0 ? 0 : raw > 1 ? 1 : raw;
+}
+
+/** Arc colour for a phase. Drilling takes the active bit's colour; descent and
+ *  retract take the handoff palette; idle overrides everything to grey. */
+export function phaseColor(
+  phase: DrillHolePhase,
+  bitColor: string,
+  idle: boolean,
+): string {
+  if (idle) return IDLE_COLOR;
+  return phase === "drilling" ? bitColor : PHASE_COLORS[phase];
+}
 
 /** A hole that has not started: every phase empty, current phase = descent. */
 export const ZERO_PHASE_PROGRESS: PhaseProgress = {

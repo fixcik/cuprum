@@ -128,6 +128,12 @@
     "done": "Done",
     "elapsed": "{{elapsed}} · ~{{remaining}}"
   },
+  "phase": {
+    "descent": "Descent",
+    "drilling": "Drilling",
+    "retract": "Retract",
+    "idle": "Paused"
+  },
   "toolChange": {
     "title": "Insert next drill bit",
     "install": "Install Ø{{diameter}}",

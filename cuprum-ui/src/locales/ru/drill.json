@@ -128,6 +128,12 @@
     "done": "Готово",
     "elapsed": "{{elapsed}} · ~{{remaining}}"
   },
+  "phase": {
+    "descent": "Опускание",
+    "drilling": "Сверловка",
+    "retract": "Подъём",
+    "idle": "Пауза"
+  },
   "toolChange": {
     "title": "Установите следующее сверло",
     "install": "Установите Ø{{diameter}}",
