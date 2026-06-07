@@ -17,15 +17,12 @@ export interface DrillZeroInspectorProps {
   onDatumChange: (d: DatumCorner) => void;
   /** Back to the plan inspector. */
   onBack: () => void;
-  /** Whether the work zero is bound (drives the "set" header badge). */
-  isSet: boolean;
+  /** Whether the XY work zero is bound (drives the "set" header badge). */
+  workZeroSet: boolean;
   /** Selected sub-plan — holes drawn as dots on the board-on-bed map. */
   plan: PanelDrillPlan;
   panelWidthMm: number;
   panelHeightMm: number;
-  /** MPos Z captured at bind (null = not bound). */
-  workZeroMachineZ: number | null;
-  safeZMm: number;
   maxXMm: number;
   maxYMm: number;
   maxZMm: number;
@@ -39,18 +36,16 @@ export interface DrillZeroInspectorProps {
 
 /** Inspector mode for binding the work zero. Lives inside the right sidebar — the
  *  canvas stays put when switching to/from this mode. Holds the datum-corner grid,
- *  the board-on-bed mini-map (travel-fit check + click-to-move), the jog/Z/bind
+ *  the board-on-bed mini-map (travel-fit check + click-to-move), the XY jog/bind
  *  controls (WorkZeroCard), and the GRBL bind-error banner. */
 export function DrillZeroInspector({
   datum,
   onDatumChange,
   onBack,
-  isSet,
+  workZeroSet,
   plan,
   panelWidthMm,
   panelHeightMm,
-  workZeroMachineZ,
-  safeZMm,
   maxXMm,
   maxYMm,
   maxZMm,
@@ -79,7 +74,7 @@ export function DrillZeroInspector({
           {t("zeroMode.back")}
         </button>
         <span className="text-sm font-semibold text-foreground">{t("zeroMode.title")}</span>
-        {isSet && (
+        {workZeroSet && (
           <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">
             <CheckCircle2 className="size-3" />
             {t("zeroMode.bound")}
@@ -112,13 +107,11 @@ export function DrillZeroInspector({
           />
         </div>
 
-        {/* Jog + Z controls (the bind/reset actions live in the sticky footer) */}
+        {/* XY jog controls (the bind/reset actions live in the sticky footer) */}
         <WorkZeroCard
-          workZeroMachineZ={workZeroMachineZ}
-          safeZMm={safeZMm}
+          workZeroSet={workZeroSet}
           maxXMm={maxXMm}
           maxYMm={maxYMm}
-          maxZMm={maxZMm}
           xyGate={xyGate}
         />
 
@@ -150,7 +143,7 @@ export function DrillZeroInspector({
         >
           {t("workzero.bind")}
         </Button>
-        <Button size="sm" variant="secondary" disabled={!isSet} onClick={onClear}>
+        <Button size="sm" variant="secondary" disabled={!workZeroSet} onClick={onClear}>
           {t("workzero.reset")}
         </Button>
       </div>
