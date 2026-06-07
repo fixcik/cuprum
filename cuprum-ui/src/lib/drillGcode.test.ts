@@ -15,7 +15,7 @@ const profile = (over: Partial<CncProfile> = {}): CncProfile => ({
   spindleControllable: true, spindleHasPwm: true,
   probeFeedMmMin: 50, probeMaxDistMm: 8, probePlateOffsetMm: 0, hasProbe: true,
   gcodeDialect: "grbl_1_1",
-  safeZMm: 5, machineSafeZMm: -1, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+  safeZMm: 5, machineSafeZMm: -1, toolChangeZMm: 20, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
   prependGcode: "", appendGcode: "", workZeroMm: null, ...over,
 });
 
@@ -45,6 +45,24 @@ describe("emitDrillGcode", () => {
     expect(gcode).toContain("M3 S9000");
     expect(gcode).toContain("M0");
     expect(gcode.trimEnd().endsWith("M2")).toBe(true);
+  });
+
+  it("retracts to tool-change Z before each tool change, safe-Z between holes", () => {
+    const p = plan([
+      { diameterMm: 0.8, class: "pth", toolId: "t1", holes: [{ xMm: 1, yMm: 1 }] },
+      { diameterMm: 1.0, class: "pth", toolId: "t2", holes: [{ xMm: 2, yMm: 2 }] },
+    ]);
+    const { gcode } = emitDrillGcode(p, {
+      panelHeightMm: 10, profile: profile({ safeZMm: 3, toolChangeZMm: 25 }),
+      tools: [tool("t1", 0.8), tool("t2", 1.0)], substrateThicknessMm: 1.6,
+    });
+    // First-bit park + the second group's tool-change retract to tool-change Z.
+    expect(gcode).toContain("G0 Z25.000");
+    // Per-hole retract stays at safe-Z.
+    expect(gcode).toContain("G0 Z3.000");
+    // The very first Z move (preamble) is the high park, not safe-Z.
+    const firstZ = gcode.indexOf("G0 Z");
+    expect(gcode.slice(firstZ, firstZ + 9)).toBe("G0 Z25.00");
   });
 
   it("orders groups registration-first then by ascending diameter", () => {

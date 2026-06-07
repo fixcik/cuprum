@@ -17,7 +17,7 @@ const profile = (over: Partial<CncProfile> = {}): CncProfile => ({
   spindleControllable: true, spindleHasPwm: true,
   probeFeedMmMin: 50, probeMaxDistMm: 8, probePlateOffsetMm: 0, hasProbe: true,
   gcodeDialect: "grbl_1_1",
-  safeZMm: 5, machineSafeZMm: -1, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+  safeZMm: 5, machineSafeZMm: -1, toolChangeZMm: 20, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
   prependGcode: "", appendGcode: "", workZeroMm: null, ...over,
 });
 const plan = (groups: PanelDrillPlan["groups"]): PanelDrillPlan => ({
@@ -111,7 +111,7 @@ describe("emitDrillGcode keepOutZones", () => {
     spindleControllable: true, spindleHasPwm: true,
     probeFeedMmMin: 50, probeMaxDistMm: 8, probePlateOffsetMm: 0, hasProbe: true,
     gcodeDialect: "grbl_1_1",
-    safeZMm: 5, machineSafeZMm: -1, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+    safeZMm: 5, machineSafeZMm: -1, toolChangeZMm: 20, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
     prependGcode: "", appendGcode: "", workZeroMm: null, ...over,
   });
 
@@ -213,7 +213,7 @@ describe("emitDrillGcode datum corner", () => {
     spindleControllable: true, spindleHasPwm: true,
     probeFeedMmMin: 50, probeMaxDistMm: 8, probePlateOffsetMm: 0, hasProbe: true,
     gcodeDialect: "grbl_1_1",
-    safeZMm: 5, machineSafeZMm: -1, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
+    safeZMm: 5, machineSafeZMm: -1, toolChangeZMm: 20, runoutMm: 0.15, backlashMm: { x: 0, y: 0, z: 0 },
     prependGcode: "", appendGcode: "", workZeroMm: null,
   });
   const tp = (holes: { xMm: number; yMm: number }[]): PanelDrillPlan => ({
