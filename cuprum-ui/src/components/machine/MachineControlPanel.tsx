@@ -51,10 +51,13 @@ export function MachineControlPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <MachineToolbar />
       {/* relative anchors the console drawer; on narrow widths the column and
-       *  field stack and scroll, on wide (xl) they sit side by side and fill. */}
-      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 xl:flex-row xl:overflow-hidden">
+       *  field stack and scroll, from lg up they sit side by side and fill. lg
+       *  (not xl) keeps the work-field visible beside the column down to ~1024px,
+       *  so a moderate window doesn't drop the field below and blow the column to
+       *  full width. */}
+      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:flex-row lg:overflow-hidden">
         {homing && <HomingOverlay />}
-        <div className="flex flex-col gap-3 xl:w-[440px] xl:flex-none xl:overflow-auto">
+        <div className="flex flex-col gap-3 lg:w-[440px] lg:flex-none lg:overflow-auto">
           <AlarmBanner />
           <SoftLimitsNotice />
           <Card
@@ -85,7 +88,7 @@ export function MachineControlPanel({
             <Overrides />
           </Card>
         </div>
-        <FieldPanel className="min-h-[20rem] flex-1 xl:min-h-0" />
+        <FieldPanel className="min-h-[20rem] min-w-0 flex-1 lg:min-h-0" />
         <ConsoleDrawer open={consoleOpen} onClose={() => onCloseConsole?.()} />
       </div>
     </div>
