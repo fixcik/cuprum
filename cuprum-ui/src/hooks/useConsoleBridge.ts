@@ -45,6 +45,20 @@ export function useConsoleBridge(): void {
     };
   }, []);
 
+  // Execute connect/disconnect/home intents from the console window against the
+  // main-window store. These run regardless of the activeRef gate: the intent
+  // can arrive before the ready→snapshot round-trip fully completes.
+  useEffect(() => {
+    const ps = [
+      api.onConsoleConnect(({ port, baud }) => void useMachine.getState().connect(port, baud)),
+      api.onConsoleDisconnect(() => void useMachine.getState().disconnect()),
+      api.onConsoleHome(() => void useMachine.getState().runHoming()),
+    ];
+    return () => {
+      void Promise.all(ps).then((fns) => fns.forEach((f) => f()));
+    };
+  }, []);
+
   // Live status updates (small payload). Skip when no console window is listening.
   useEffect(() => {
     if (!activeRef.current) return;
