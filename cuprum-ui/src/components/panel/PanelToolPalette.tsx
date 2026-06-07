@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { MousePointer2, Hand, FilePlus2, Copy, Trash2, Target, Grid2x2, CirclePlus, OctagonAlert, type LucideIcon } from "lucide-react";
-import { RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
+import { rulerCornerOffset } from "@/components/editor/canvasStyle";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
@@ -90,7 +90,7 @@ export function PanelToolPalette({
   return (
     <div
       className="absolute z-10 flex flex-col items-center gap-1 rounded-lg border border-border bg-card/90 p-1.5 shadow-lg backdrop-blur"
-      style={{ left: RULER_LEFT + 6, top: RULER_TOP + 6 }}
+      style={rulerCornerOffset()}
     >
       {toolBtn("select", MousePointer2, t("panel.tool.select"))}
       {toolBtn("pan", Hand, t("panel.tool.pan"))}
