@@ -4,6 +4,8 @@ import {
   DEFAULT_STACKUP,
   BUILTIN_PANEL_PRESETS,
   COPPER_WEIGHTS,
+  panelPresetLabel,
+  panelPresetId,
 } from "@/lib/panel";
 
 describe("newPanelDoc", () => {
@@ -57,5 +59,37 @@ describe("BUILTIN_PANEL_PRESETS", () => {
       expect(p.stackup.substrate_thickness_mm).toBeGreaterThan(0);
       expect(COPPER_WEIGHTS).toContain(p.stackup.copper_weight_oz);
     }
+  });
+});
+
+describe("panelPresetLabel", () => {
+  it("mirrors the built-in label format", () => {
+    expect(panelPresetLabel(100, 100, { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: true })).toBe(
+      "100 × 100 · 1oz · 1.6 mm",
+    );
+  });
+
+  it("drops trailing zeros from fractional values", () => {
+    expect(panelPresetLabel(80, 60, { copper_weight_oz: 0.5, substrate_thickness_mm: 0.8, double_sided: false })).toBe(
+      "80 × 60 · 0.5oz · 0.8 mm",
+    );
+  });
+});
+
+describe("panelPresetId", () => {
+  it("is deterministic for identical params (so re-saving updates in place)", () => {
+    const s = { copper_weight_oz: 1, substrate_thickness_mm: 1.6, double_sided: true };
+    expect(panelPresetId(100, 100, s)).toBe(panelPresetId(100, 100, s));
+  });
+
+  it("distinguishes single- from double-sided blanks of the same size", () => {
+    const base = { copper_weight_oz: 1, substrate_thickness_mm: 1.6 };
+    expect(panelPresetId(100, 100, { ...base, double_sided: true })).not.toBe(
+      panelPresetId(100, 100, { ...base, double_sided: false }),
+    );
+  });
+
+  it("namespaces under the user- prefix (never collides with built-ins)", () => {
+    expect(panelPresetId(100, 100, DEFAULT_STACKUP).startsWith("user-")).toBe(true);
   });
 });

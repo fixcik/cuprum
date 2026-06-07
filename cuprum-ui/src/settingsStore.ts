@@ -170,6 +170,10 @@ interface SettingsStore {
   panelPresets: PanelPreset[];
   addPanelPreset: (preset: PanelPreset) => void;
   removePanelPreset: (id: string) => void;
+  /** Built-in preset ids the user has dismissed — filtered out of the chip list,
+   *  so the built-ins are deletable too. */
+  hiddenPanelPresetIds: string[];
+  hidePanelPreset: (id: string) => void;
   /** Last-used auto-placement (nesting) recipe; defaults for the add-design window. */
   nest: NestSettings;
   /** Patch one or more nesting fields. */
@@ -293,6 +297,13 @@ export const useSettings = create<SettingsStore>()(
         })),
       removePanelPreset: (id) =>
         set((s) => ({ panelPresets: s.panelPresets.filter((p) => p.id !== id) })),
+      hiddenPanelPresetIds: [],
+      hidePanelPreset: (id) =>
+        set((s) => ({
+          hiddenPanelPresetIds: s.hiddenPanelPresetIds.includes(id)
+            ? s.hiddenPanelPresetIds
+            : [...s.hiddenPanelPresetIds, id],
+        })),
       nest: DEFAULT_NEST,
       setNest: (patch) => set((s) => ({ nest: { ...s.nest, ...patch } })),
       panelInspector: {
@@ -388,6 +399,7 @@ export const useSettings = create<SettingsStore>()(
           language: p?.language ?? "auto",
           units: p?.units ?? "mm",
           panelPresets: p?.panelPresets ?? [],
+          hiddenPanelPresetIds: p?.hiddenPanelPresetIds ?? [],
           nest: { ...DEFAULT_NEST, ...(p?.nest ?? {}) },
           panelInspector: {
             width: 330,

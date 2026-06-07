@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/Button";
-import { TextInput } from "@/components/ui/TextInput";
-import { Modal } from "@/components/ui/Modal";
 import { PanelBlankCanvas } from "@/components/panel/PanelBlankCanvas";
 import { PanelInspector } from "@/components/project/PanelInspector";
-import { BUILTIN_PANEL_PRESETS, DEFAULT_STACKUP, newPanelDoc, type PanelPreset } from "@/lib/panel";
+import {
+  BUILTIN_PANEL_PRESETS,
+  DEFAULT_STACKUP,
+  newPanelDoc,
+  panelPresetId,
+  panelPresetLabel,
+  type PanelPreset,
+} from "@/lib/panel";
 import { clampDeltaToPanel, boxesForInstances } from "@/lib/panelPlacement";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
@@ -19,12 +22,14 @@ import { useSettings } from "@/settingsStore";
  *  tab; there is no gating, so a fresh project shows defaults and persists on the
  *  first edit. */
 export function PanelEditor() {
-  const { t } = useTranslation("project");
   const currentPath = useShell((s) => s.currentPath);
   const savePanelConfig = useShell((s) => s.savePanelConfig);
   const docNonce = useShell((s) => s.docNonce);
   const userPresets = useSettings((s) => s.panelPresets);
   const addPanelPreset = useSettings((s) => s.addPanelPreset);
+  const removePanelPreset = useSettings((s) => s.removePanelPreset);
+  const hiddenPresetIds = useSettings((s) => s.hiddenPanelPresetIds);
+  const hidePanelPreset = useSettings((s) => s.hidePanelPreset);
   const profile = useSettings((s) => s.profile);
 
   const [width, setWidth] = useState(100);
@@ -33,8 +38,6 @@ export function PanelEditor() {
   const [substrate, setSubstrate] = useState(DEFAULT_STACKUP.substrate_thickness_mm);
   const [doubleSided, setDoubleSided] = useState(DEFAULT_STACKUP.double_sided);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [presetOpen, setPresetOpen] = useState(false);
-  const [presetName, setPresetName] = useState("");
   // Board extents (mm) per placed design — shared hook, fetched once per design.
   // Used for the keyboard clamp (nudge + duplicate).
   const sizes = usePlacedBoardSizes();
@@ -186,7 +189,12 @@ export function PanelEditor() {
     setHeight(width);
   };
 
-  const presets: PanelPreset[] = [...BUILTIN_PANEL_PRESETS, ...userPresets];
+  // Built-ins minus the ones the user dismissed, then user presets. Hiding a
+  // built-in is how built-ins become deletable.
+  const presets: PanelPreset[] = [
+    ...BUILTIN_PANEL_PRESETS.filter((p) => !hiddenPresetIds.includes(p.id)),
+    ...userPresets,
+  ];
 
   const applyPreset = (id: string) => {
     const p = presets.find((x) => x.id === id);
@@ -198,18 +206,35 @@ export function PanelEditor() {
     setDoubleSided(p.stackup.double_sided ?? false);
   };
 
-  const confirmSavePreset = () => {
-    const name = presetName.trim();
-    if (!name) return;
+  // Save the current blank as a preset — name and id are derived from the params,
+  // so there is no name prompt and re-saving the same blank updates in place.
+  // No-op if a visible preset (built-in or user) already matches these params, so
+  // Save can't spawn a duplicate chip of an existing built-in.
+  const savePreset = () => {
+    const stackup = { copper_weight_oz: copperWeight, substrate_thickness_mm: substrate, double_sided: doubleSided };
+    const already = presets.some(
+      (p) =>
+        p.widthMm === width &&
+        p.heightMm === height &&
+        p.stackup.copper_weight_oz === copperWeight &&
+        p.stackup.substrate_thickness_mm === substrate &&
+        (p.stackup.double_sided ?? false) === doubleSided,
+    );
+    if (already) return;
     addPanelPreset({
-      id: `user-${name}-${width}x${height}`,
-      name,
+      id: panelPresetId(width, height, stackup),
+      name: panelPresetLabel(width, height, stackup),
       widthMm: width,
       heightMm: height,
-      stackup: { copper_weight_oz: copperWeight, substrate_thickness_mm: substrate, double_sided: doubleSided },
+      stackup,
     });
-    setPresetOpen(false);
-    setPresetName("");
+  };
+
+  // Delete a preset: user presets are removed outright; built-ins can't be
+  // removed, so dismissing one hides it from the chip list.
+  const deletePreset = (id: string) => {
+    if (id.startsWith("builtin-")) hidePanelPreset(id);
+    else removePanelPreset(id);
   };
 
   return (
@@ -238,37 +263,10 @@ export function PanelEditor() {
         offPanelCount={offPanelCount}
         presets={presets}
         onApplyPreset={applyPreset}
-        onSavePreset={() => setPresetOpen(true)}
+        onSavePreset={savePreset}
+        onDeletePreset={deletePreset}
         onRotate={rotate}
       />
-
-      {/* Preset save modal — unchanged */}
-      <Modal
-        open={presetOpen}
-        onClose={() => setPresetOpen(false)}
-        title={t("setup.presetModalTitle")}
-        footer={
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setPresetOpen(false)}>
-              {t("settings.cancel")}
-            </Button>
-            <Button size="sm" disabled={!presetName.trim()} onClick={confirmSavePreset}>
-              {t("settings.save")}
-            </Button>
-          </>
-        }
-      >
-        <TextInput
-          autoFocus
-          value={presetName}
-          onChange={(e) => setPresetName(e.target.value)}
-          placeholder={t("setup.presetNamePlaceholder")}
-          className="w-full"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") confirmSavePreset();
-          }}
-        />
-      </Modal>
     </div>
   );
 }
