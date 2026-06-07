@@ -27,7 +27,7 @@ import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { checkZGate } from "@/lib/zGate";
-import { checkXYGate, planWorkExtent } from "@/lib/xyGate";
+import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
 
 /** Drill operation editor — sourceable inline (no IPC).
  *  Builds the drill snapshot directly from stores via useDrillScreenData,
@@ -188,12 +188,12 @@ export function DrillOperationEditor() {
 
   // XY gate: at the bound work zero, does the whole hole bbox fit inside the
   // machine travel? Blocks the run (and shows a banner) when it would overrun.
-  const xyGate = checkXYGate(
-    workZeroMachineXY,
-    workExtent,
-    cncProfile?.workEnvelopeMm.x ?? 0,
-    cncProfile?.workEnvelopeMm.y ?? 0,
-  );
+  // Without a CNC profile the travel is unknown — skip the gate (defaults valid)
+  // rather than gating against a degenerate 0-travel envelope. The inspector that
+  // surfaces the gate only renders once a profile is present anyway.
+  const xyGate: XYGateResult = cncProfile
+    ? checkXYGate(workZeroMachineXY, workExtent, cncProfile.workEnvelopeMm.x, cncProfile.workEnvelopeMm.y)
+    : { valid: true };
 
   const buildProgram = useCallback(
     (startMachineXY?: { x: number; y: number }) => {
