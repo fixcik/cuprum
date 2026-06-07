@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ArrowRight, Scissors } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
+import { OperationHistory } from "@/components/operations/OperationHistory";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
@@ -11,7 +12,7 @@ import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
 
-type ProjectTab = "panel" | "designs" | "operations";
+type ProjectTab = "panel" | "designs" | "operations" | "history";
 
 export function ProjectPage() {
   const { t, i18n } = useTranslation("project");
@@ -75,6 +76,7 @@ export function ProjectPage() {
     { id: "panel", label: t("tab.panel"), icon: <LayoutGrid className="size-4" /> },
     { id: "designs", label: t("tab.designs"), icon: <Layers className="size-4" /> },
     { id: "operations", label: t("tab.operations"), icon: <ListChecks className="size-4" /> },
+    { id: "history", label: t("tab.history"), icon: <History className="size-4" /> },
   ];
 
   return (
@@ -182,6 +184,7 @@ export function ProjectPage() {
       <div className="min-h-0 flex-1">
         {tab === "panel" && <PanelEditor />}
         {tab === "designs" && <DesignsGallery />}
+        {tab === "history" && <OperationHistory />}
         {tab === "operations" && (
           /* Operations list view */
           <div className="flex h-full flex-col overflow-y-auto p-6">

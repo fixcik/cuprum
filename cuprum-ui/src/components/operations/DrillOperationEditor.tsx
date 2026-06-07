@@ -8,7 +8,7 @@ import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
 import { planDrillRoute, classAtRunIndex } from "@/lib/drillRoute";
 import { DRILL_CLASS_COLOR } from "@/lib/drillClassColor";
 import { datumCornerPanelPoint } from "@/lib/datum";
-import { classCounts, DEFAULT_SELECTED_CLASSES } from "@/lib/drillPasses";
+import { classCounts, DEFAULT_SELECTED_CLASSES, DRILL_CLASSES } from "@/lib/drillPasses";
 import {
   holesForClasses,
   subPlanForSelection,
@@ -78,12 +78,65 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   // Drilled holes tracking (session-scoped; cleared when plan changes).
   const [drilledHoleIds, setDrilledHoleIds] = useState<Set<string>>(new Set());
 
-  // Seed the selection with the alignment preset once the plan is ready; reset on plan change.
+  // Last run's config for this saved project, used to prefill on open (null = none).
+  const [lastDrillParams, setLastDrillParams] = useState<{
+    selectedHoleIds?: string[];
+    bitOverrides?: Record<string, string>;
+    feedOverridePct?: number;
+  } | null>(null);
+  const prefillAppliedRef = useRef(false);
+
+  // Fetch the most recent drill run's params once per project (saved path only).
   useEffect(() => {
-    if (plan) setSelectedHoleIds(holesForClasses(plan, DEFAULT_SELECTED_CLASSES()));
-    else setSelectedHoleIds(new Set());
+    prefillAppliedRef.current = false;
+    setLastDrillParams(null);
+    const path = snap.currentPath;
+    if (!path) return;
+    let active = true;
+    void api.operationLog
+      .lastParams(path, "drill")
+      .then((json) => {
+        if (!active || !json) return;
+        try {
+          setLastDrillParams(JSON.parse(json));
+        } catch {
+          /* malformed params — ignore, fall back to defaults */
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [snap.currentPath]);
+
+  // Seed the selection once the plan is ready: prefer the last run's config (filtered
+  // to holes that still exist on the panel), applied once per project; otherwise the
+  // default alignment preset. Reset drilled-tracking on every plan change.
+  useEffect(() => {
+    if (!plan) {
+      setSelectedHoleIds(new Set());
+      setDrilledHoleIds(new Set());
+      return;
+    }
+    if (lastDrillParams && !prefillAppliedRef.current) {
+      prefillAppliedRef.current = true;
+      const planIds = holesForClasses(plan, new Set(DRILL_CLASSES));
+      const restored = new Set(
+        (lastDrillParams.selectedHoleIds ?? []).filter((id) => planIds.has(id)),
+      );
+      // If the panel changed so much that nothing matches, fall back to the preset.
+      setSelectedHoleIds(restored.size ? restored : holesForClasses(plan, DEFAULT_SELECTED_CLASSES()));
+      if (lastDrillParams.bitOverrides) {
+        setBitOverrides(new Map(Object.entries(lastDrillParams.bitOverrides)));
+      }
+      if (typeof lastDrillParams.feedOverridePct === "number") {
+        setFeedOverridePct(lastDrillParams.feedOverridePct);
+      }
+    } else {
+      setSelectedHoleIds(holesForClasses(plan, DEFAULT_SELECTED_CLASSES()));
+    }
     setDrilledHoleIds(new Set());
-  }, [plan]);
+  }, [plan, lastDrillParams]);
 
   // Canvas view toggles.
   const [showPath, setShowPath] = useState(true);
@@ -251,6 +304,8 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
         feedOverridePct,
         workZeroMachineXY,
         estimateSec: totalEstimateSec,
+        // Distinct tools (bit groups) — for the history summary.
+        toolCount: subPlanWithOverrides?.groups.length ?? 0,
       };
       void api.operationLog
         .start({ runUid: uid, projectPath, opType: "drill", progressTotal: holesTotal, paramsJson: JSON.stringify(params) })
@@ -267,6 +322,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     feedOverridePct,
     workZeroMachineXY,
     totalEstimateSec,
+    subPlanWithOverrides,
   ]);
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
