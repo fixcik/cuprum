@@ -234,6 +234,9 @@ export function DrillPlanInspector({
           onDatumChange={onDatumChange}
           onBack={() => setPanelMode("plan")}
           isSet={workZeroSet}
+          plan={plan}
+          panelWidthMm={panelWidthMm}
+          panelHeightMm={panelHeightMm}
           workZeroMachineZ={workZeroMachineZ}
           safeZMm={cncProfile.safeZMm}
           maxXMm={maxXMm}
