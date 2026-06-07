@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Settings, Trash2, Plus, Maximize2, LayoutGrid } from "lucide-react";
+import { Settings, Trash2, LayoutGrid } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, type ProjectDesign } from "@/lib/api";
 import { type Verdict, VERDICT_KEY } from "@/lib/feasibility";
@@ -34,7 +34,6 @@ export function DesignCard({
   const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
   const reportArtifactProgress = useShell((s) => s.reportArtifactProgress);
   const clearArtifactProgress = useShell((s) => s.clearArtifactProgress);
-  const openAddDesignForDesign = useShell((s) => s.openAddDesignForDesign);
   // Opaque trace-session token set at import time; undefined for disk-opened designs.
   const traceSession = useShell((s) => s.traceSessions[design.id]);
   const profile = useSettings((s) => s.profile);
@@ -212,35 +211,6 @@ export function DesignCard({
             {t("designs.onPanel", { count: placedCount })}
           </span>
         )}
-
-        {/* Hover action row — bottom-right; visible on group hover or focus-within */}
-        <div className="pointer-events-auto absolute inset-x-2 bottom-2 flex items-center justify-end gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          {/* "To panel" primary action */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void openAddDesignForDesign(design.id);
-            }}
-            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-medium text-primary-foreground shadow-lg transition-colors hover:bg-primary/90"
-          >
-            <Plus className="size-3.5" />
-            {t("designs.toPanel")}
-          </button>
-
-          {/* "Open" secondary action */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen();
-            }}
-            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-card/90 px-2.5 text-[11px] font-medium text-foreground shadow-lg ring-1 ring-border transition-colors hover:bg-muted"
-          >
-            <Maximize2 className="size-3.5" />
-            {t("designs.open")}
-          </button>
-        </div>
       </div>
 
       {/* Rename / delete controls — top-left corner, siblings to the card button */}
