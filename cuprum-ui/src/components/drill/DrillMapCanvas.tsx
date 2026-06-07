@@ -301,6 +301,9 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
   const fitGroupRef = useRef<Konva.Group>(null);
   const [size, setSize] = useState({ w: 400, h: 300 });
   const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
+  // Live mirror of `viewport` so the hover rAF (scheduled a frame ahead) reads the
+  // current scale, not a value captured one render behind during a zoom animation.
+  const viewportRef = useRef<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
   const [zoomPct, setZoomPct] = useState(100);
   const [spaceDown, setSpaceDown] = useState(false);
   // Internal tool: "select" or "pan". Space held → pan regardless.
@@ -325,7 +328,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
       const pos = stage?.getPointerPosition() ?? null;
       setHoverPx(pos ? { x: pos.x, y: pos.y } : null);
       const fitGroup = fitGroupRef.current;
-      const pxPerMm = viewport.pxPerMm;
+      const pxPerMm = viewportRef.current.pxPerMm;
       if (pos && fitGroup && pxPerMm > 0) {
         const rel = fitGroup.getRelativePointerPosition();
         const hit = rel ? nearestPlanHole({ x: rel.x, y: rel.y }, plan, pxPerMm) : null;
@@ -334,7 +337,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
         setHoveredHoleKey(null);
       }
     });
-  }, [plan, viewport]);
+  }, [plan]);
 
   const clearHover = useCallback(() => {
     if (hoverRaf.current != null) {
@@ -391,6 +394,7 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
     const stage = stageRef.current;
     if (!stage) return;
     const v: Viewport = { pxPerMm: stage.scaleX() * fit, originX: stage.x(), originY: stage.y() };
+    viewportRef.current = v;
     setViewport(v);
     onViewportChange?.(v);
   }, [fit, onViewportChange]);
