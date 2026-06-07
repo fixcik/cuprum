@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowDown,
@@ -17,19 +17,11 @@ import {
 import type { ReactNode } from "react";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
-import { api } from "@/lib/api";
-import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
-import { clampJogDelta } from "@/lib/jogClamp";
+import { useJog } from "@/hooks/useJog";
 
 const jogBtn =
   "group relative grid h-12 place-items-center rounded-lg border border-border bg-background text-muted-foreground transition-all hover:border-primary/50 hover:text-foreground active:scale-[0.96] active:bg-primary/10 active:text-primary disabled:opacity-30 disabled:pointer-events-none";
-
-/** Below this many mm of room to the envelope edge a continuous jog is a no-op
- *  (already parked at the edge). */
-const MIN_CONT_MM = 0.01;
-
-type Step = number | "cont";
 
 /** Redesigned jog pad: 3×3 XY grid with diagonals, a centre go-to-work-zero
  *  button, a Z column, a step segmented control (with a continuous "hold" mode)
@@ -39,96 +31,22 @@ export function JogPad() {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
   const setCnc = useSettings((s) => s.setCncProfile);
-  const connected = useMachine((s) => s.connected);
-  const state = useMachine((s) => s.status.state);
   const machineZ = useMachine((s) => s.status.mpos[2]);
   const workZ = useMachine((s) => s.status.wpos[2]);
   const homed = useMachine((s) => s.homed);
-  const enabled = canMove(state, connected);
+  // Shared jog controller (step + step/continuous moves), so the Z-bar Z± buttons
+  // stay in sync with the step picked here.
+  const { enabled, step, setStep, continuous, go, startContinuous, stopContinuous } = useJog();
   // The centre go-to-work-zero does a machine-frame (G53) safe-Z retract, so it
   // additionally requires a homed frame. Manual jog stays ungated.
   const canAutoMove = enabled && homed;
   // Safe retract: a clearance above the work-zero surface, capped at the machine
   // ceiling. wcoZ = machine Z of work zero (mpos.z − wpos.z).
   const retractZ = safeRetractMachineZ(machineZ - workZ, cnc.safeZMm, cnc.machineSafeZMm);
-  // Active jog step — transient UI choice (not persisted); default to the middle
-  // step if present, else the first.
-  const [step, setStep] = useState<Step>(
-    cnc.jogStepsMm[Math.min(1, cnc.jogStepsMm.length - 1)] ?? 1,
-  );
-  const continuous = step === "cont";
 
-  // Whether a continuous jog is currently in flight. Guards against starting a
-  // second move (multiple pointers / key + pointer) and makes stop idempotent.
-  const movingRef = useRef(false);
-
-  // Step jog: one relative move per click/keypress. The requested delta is
-  // clamped to the work envelope (X∈[0,x], Y∈[0,y], Z∈[-z,0]) measured from the
-  // live machine position (`mpos`), so a step never crosses the edge — a UX
-  // safeguard layered over GRBL's own soft limits. If the clamped move is a no-op
-  // on every axis (already parked at the edge) nothing is sent.
-  const go = useCallback(
-    (dx: number, dy: number, dz: number) => {
-      if (!enabled || typeof step !== "number") return;
-      const mpos = useMachine.getState().status.mpos;
-      const env = cnc.workEnvelopeMm;
-      const ax = clampJogDelta(dx * step, mpos[0], 0, env.x);
-      const ay = clampJogDelta(dy * step, mpos[1], 0, env.y);
-      const az = clampJogDelta(dz * step, mpos[2], -env.z, 0);
-      if (Math.abs(ax) < MIN_CONT_MM && Math.abs(ay) < MIN_CONT_MM && Math.abs(az) < MIN_CONT_MM)
-        return;
-      void api.machine.jog(ax, ay, az, cnc.jogFeedMmMin);
-    },
-    [enabled, step, cnc.jogFeedMmMin, cnc.workEnvelopeMm],
-  );
-
-  // Continuous jog: send a single jog toward the envelope edge along the chosen
-  // direction; the trailing jog-cancel on release stops it early. Distance to the
-  // edge is measured from the live machine position (`mpos`) against the work
-  // envelope (X∈[0,x], Y∈[0,y], Z∈[-z,0]). For diagonals we clamp every active
-  // axis to the smallest available room so motion stays on a true 45° line and
-  // never leaves the envelope.
-  const startContinuous = useCallback(
-    async (sx: number, sy: number, sz: number) => {
-      if (!enabled) return;
-      if (movingRef.current) {
-        // Another direction is already in flight (e.g. a second key/pointer):
-        // cancel it and AWAIT it so the new jog can't reach GRBL's planner
-        // before the cancel (which would stack the two moves).
-        movingRef.current = false;
-        await api.machine.jogCancel();
-      }
-      const mpos = useMachine.getState().status.mpos;
-      const env = cnc.workEnvelopeMm;
-      // Room available toward the edge for each requested axis (always ≥ 0).
-      const roomX = sx > 0 ? env.x - mpos[0] : sx < 0 ? mpos[0] : Infinity;
-      const roomY = sy > 0 ? env.y - mpos[1] : sy < 0 ? mpos[1] : Infinity;
-      const roomZ = sz > 0 ? 0 - mpos[2] : sz < 0 ? mpos[2] - -env.z : Infinity;
-      // Smallest room among the active axes → keeps diagonals straight.
-      const room = Math.min(
-        sx !== 0 ? Math.max(0, roomX) : Infinity,
-        sy !== 0 ? Math.max(0, roomY) : Infinity,
-        sz !== 0 ? Math.max(0, roomZ) : Infinity,
-      );
-      if (!Number.isFinite(room) || room <= MIN_CONT_MM) return;
-      movingRef.current = true;
-      void api.machine.jog(sx * room, sy * room, sz * room, cnc.jogFeedMmMin);
-    },
-    [enabled, cnc.workEnvelopeMm, cnc.jogFeedMmMin],
-  );
-
-  const stopContinuous = useCallback(() => {
-    if (!movingRef.current) return;
-    movingRef.current = false;
-    void api.machine.jogCancel();
-  }, []);
-
-  // Cancel any in-flight continuous jog if motion becomes disallowed
-  // (disconnect, alarm, …) or the component unmounts, so the machine never
-  // keeps running after the controls go dead.
-  useEffect(() => {
-    if (!enabled && movingRef.current) stopContinuous();
-  }, [enabled, stopContinuous]);
+  // Cancel any in-flight continuous jog on unmount so the machine never keeps
+  // running after the controls go away (the hook handles the motion-disallowed
+  // case itself).
   useEffect(() => () => stopContinuous(), [stopContinuous]);
 
   // Keyboard jog: skip while typing in an input/textarea/select. In step mode a
