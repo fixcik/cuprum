@@ -13,7 +13,7 @@ function formatDuration(sec: number, minShort: string, secShort: string): string
   return s ? `${m}${minShort} ${s}${secShort}` : `${m}${minShort}`;
 }
 
-/** Drill summary parsed from params_json — only the bits the history row shows. */
+/** Distinct tool count parsed from a drill run's params_json (history summary). */
 function drillToolCount(paramsJson: string): number | null {
   try {
     const p = JSON.parse(paramsJson) as { toolCount?: number };
@@ -23,8 +23,14 @@ function drillToolCount(paramsJson: string): number | null {
   }
 }
 
-/** Project-level operation history — every journalled run across all op types, newest
- *  first, filterable by type. Reads the global journal keyed on the saved project. */
+/** Op types that have a window to (re)open from a history card. */
+const OPENABLE: Record<string, () => void> = {
+  drill: () => void api.openDrillWindow(),
+};
+
+/** Operation history as a card list — every journalled run across all op types,
+ *  newest first, filterable by type. Lives in the Operations view beside the
+ *  operation buttons; clicking a run reopens its operation window. */
 export function OperationHistory() {
   const { t } = useTranslation("project");
   const currentPath = useShell((s) => s.currentPath);
@@ -32,8 +38,8 @@ export function OperationHistory() {
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
-    // Reset the type filter on project change — a filter set for the previous
-    // project could hide the new project's runs behind an empty state.
+    // Reset the type filter on project change — a stale filter could hide the new
+    // project's runs behind an empty state.
     setFilter("all");
     if (!currentPath) {
       setRuns([]);
@@ -53,11 +59,7 @@ export function OperationHistory() {
     };
   }, [currentPath]);
 
-  // Distinct op types present, for the filter chips.
-  const types = useMemo(
-    () => [...new Set((runs ?? []).map((r) => r.opType))],
-    [runs],
-  );
+  const types = useMemo(() => [...new Set((runs ?? []).map((r) => r.opType))], [runs]);
   const shown = useMemo(
     () => (filter === "all" ? (runs ?? []) : (runs ?? []).filter((r) => r.opType === filter)),
     [runs, filter],
@@ -65,32 +67,16 @@ export function OperationHistory() {
 
   const typeLabel = (op: string) => t([`runHistory.type.${op}`, "runHistory.type.unknown"], { op });
 
-  if (!currentPath) {
-    return (
-      <div className="flex h-full w-full items-center justify-center text-[13px] text-muted-foreground">
-        {t("runHistory.noProject")}
-      </div>
-    );
-  }
-
-  if (runs === null) {
-    return (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" />
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Header + filter chips */}
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-widest text-muted-foreground">
-          <HistoryIcon className="size-4" />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          <HistoryIcon className="size-3.5" />
           {t("runHistory.title")}
         </div>
-        {types.length > 0 && (
-          <div className="flex items-center gap-1.5">
+        {types.length > 1 && (
+          <div className="flex items-center gap-1">
             {["all", ...types].map((op) => (
               <button
                 key={op}
@@ -109,59 +95,102 @@ export function OperationHistory() {
         )}
       </div>
 
-      {/* Rows */}
-      {shown.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center text-[13px] text-muted-foreground">
+      {/* Card list */}
+      {runs === null ? (
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      ) : !currentPath ? (
+        <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
+          {t("runHistory.noProject")}
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
           {t("runHistory.empty")}
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full text-[12px]">
-            <tbody>
-              {shown.map((r) => {
-                const rel = relativeTime(r.startedAt);
-                const dur =
-                  r.endedAt != null
-                    ? formatDuration(
-                        Math.max(0, r.endedAt - r.startedAt),
-                        t("runHistory.minShort"),
-                        t("runHistory.secShort"),
-                      )
-                    : null;
-                const tools = r.opType === "drill" ? drillToolCount(r.paramsJson) : null;
-                return (
-                  <tr key={r.runUid} className="border-b border-border/60">
-                    <td className="whitespace-nowrap px-4 py-2 tabular-nums text-muted-foreground">
-                      {t(rel.key, rel.params)}
-                    </td>
-                    <td className="px-3 py-2 font-medium text-foreground">{typeLabel(r.opType)}</td>
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                      {r.progressTotal != null && (
-                        <span>
-                          {t("runHistory.holesLabel")} {r.progressTotal}
-                        </span>
-                      )}
-                      {tools != null && (
-                        <span>
-                          {" · "}
-                          {t("runHistory.toolsLabel")} {tools}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <OutcomeBadge outcome={r.outcome} t={t} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-muted-foreground">
-                      {dur ?? "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+          {shown.map((r) => {
+            const rel = relativeTime(r.startedAt);
+            const dur =
+              r.endedAt != null
+                ? formatDuration(
+                    Math.max(0, r.endedAt - r.startedAt),
+                    t("runHistory.minShort"),
+                    t("runHistory.secShort"),
+                  )
+                : null;
+            const tools = r.opType === "drill" ? drillToolCount(r.paramsJson) : null;
+            const open = OPENABLE[r.opType];
+            const summary = (
+              <>
+                {r.progressTotal != null && (
+                  <span>
+                    {t("runHistory.holesLabel")} {r.progressTotal}
+                  </span>
+                )}
+                {tools != null && (
+                  <span>
+                    {" · "}
+                    {t("runHistory.toolsLabel")} {tools}
+                  </span>
+                )}
+              </>
+            );
+            return (
+              <RunCard
+                key={r.runUid}
+                onOpen={open}
+                title={typeLabel(r.opType)}
+                outcome={<OutcomeBadge outcome={r.outcome} t={t} />}
+                summary={summary}
+                meta={`${t(rel.key, rel.params)}${dur ? ` · ${dur}` : ""}`}
+              />
+            );
+          })}
         </div>
       )}
     </div>
+  );
+}
+
+/** A single history card — a button when the op can be reopened, else a plain box. */
+function RunCard({
+  onOpen,
+  title,
+  outcome,
+  summary,
+  meta,
+}: {
+  onOpen?: () => void;
+  title: string;
+  outcome: React.ReactNode;
+  summary: React.ReactNode;
+  meta: string;
+}) {
+  const inner = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] font-medium text-foreground">{title}</span>
+        {outcome}
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span className="tabular-nums">{summary}</span>
+        <span className="shrink-0 tabular-nums">{meta}</span>
+      </div>
+    </>
+  );
+  const base = "rounded-lg border border-border bg-card/50 px-3 py-2 text-left";
+  return onOpen ? (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`${base} w-full transition-colors hover:border-primary/50 hover:bg-card`}
+    >
+      {inner}
+    </button>
+  ) : (
+    <div className={base}>{inner}</div>
   );
 }
 
@@ -174,7 +203,7 @@ function OutcomeBadge({
 }) {
   if (outcome === "completed") {
     return (
-      <span className="inline-flex items-center gap-1 text-success">
+      <span className="inline-flex items-center gap-1 text-[11px] text-success">
         <CheckCircle2 className="size-3.5" />
         {t("runHistory.outcome.completed")}
       </span>
@@ -182,7 +211,7 @@ function OutcomeBadge({
   }
   if (outcome === "stopped") {
     return (
-      <span className="inline-flex items-center gap-1 text-warning">
+      <span className="inline-flex items-center gap-1 text-[11px] text-warning">
         <XCircle className="size-3.5" />
         {t("runHistory.outcome.stopped")}
       </span>
@@ -190,15 +219,14 @@ function OutcomeBadge({
   }
   if (outcome === "error") {
     return (
-      <span className="inline-flex items-center gap-1 text-destructive">
+      <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
         <XCircle className="size-3.5" />
         {t("runHistory.outcome.error")}
       </span>
     );
   }
-  // No outcome yet → still running.
   return (
-    <span className="inline-flex items-center gap-1 text-muted-foreground">
+    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
       <Loader2 className="size-3.5 animate-spin" />
       {t("runHistory.outcome.running")}
     </span>

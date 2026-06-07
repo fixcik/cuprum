@@ -12,7 +12,7 @@ import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
 
-type ProjectTab = "panel" | "designs" | "operations" | "history";
+type ProjectTab = "panel" | "designs" | "operations";
 
 export function ProjectPage() {
   const { t, i18n } = useTranslation("project");
@@ -76,7 +76,6 @@ export function ProjectPage() {
     { id: "panel", label: t("tab.panel"), icon: <LayoutGrid className="size-4" /> },
     { id: "designs", label: t("tab.designs"), icon: <Layers className="size-4" /> },
     { id: "operations", label: t("tab.operations"), icon: <ListChecks className="size-4" /> },
-    { id: "history", label: t("tab.history"), icon: <History className="size-4" /> },
   ];
 
   return (
@@ -184,10 +183,9 @@ export function ProjectPage() {
       <div className="min-h-0 flex-1">
         {tab === "panel" && <PanelEditor />}
         {tab === "designs" && <DesignsGallery />}
-        {tab === "history" && <OperationHistory />}
         {tab === "operations" && (
-          /* Operations list view */
-          <div className="flex h-full flex-col overflow-y-auto p-6">
+          /* Operations view: operation buttons (left) + run history (right). */
+          <div className="flex h-full flex-col overflow-hidden p-6">
             {/* Section heading */}
             <div className="mb-5 flex items-center gap-3">
               <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -200,49 +198,55 @@ export function ProjectPage() {
               )}
             </div>
 
-            {/* Operation cards */}
-            <div className="flex max-w-2xl flex-col gap-3">
-              {/* Drill card — active */}
-              <button
-                type="button"
-                onClick={() => void api.openDrillWindow()}
-                className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
-              >
-                <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
-                  <Drill className="size-6" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[16px] font-semibold text-foreground">
-                      {t("operations.drill.title")}
-                    </span>
-                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
-                      {t("operations.drill.status")}
-                    </span>
+            <div className="flex min-h-0 flex-1 gap-6">
+              {/* Operation cards (left) */}
+              <div className="flex w-full max-w-md shrink-0 flex-col gap-3 overflow-y-auto pr-1">
+                {/* Drill card — active */}
+                <button
+                  type="button"
+                  onClick={() => void api.openDrillWindow()}
+                  className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
+                >
+                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
+                    <Drill className="size-6" />
                   </div>
-                  {/* TODO: add hole counts once cheaply available from the store */}
-                  <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                    {t("operations.drill.desc")}
-                  </p>
-                </div>
-                <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-              </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[16px] font-semibold text-foreground">
+                        {t("operations.drill.title")}
+                      </span>
+                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+                        {t("operations.drill.status")}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                      {t("operations.drill.desc")}
+                    </p>
+                  </div>
+                  <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                </button>
 
-              {/* Milling card — placeholder */}
-              <div className="flex items-start gap-4 rounded-xl border border-dashed border-border/70 bg-card/25 p-4 opacity-70">
-                <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
-                  <Scissors className="size-6" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[16px] font-semibold text-foreground">
-                      {t("operations.future.title")}
-                    </span>
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {t("operations.future.badge")}
-                    </span>
+                {/* Milling card — placeholder */}
+                <div className="flex items-start gap-4 rounded-xl border border-dashed border-border/70 bg-card/25 p-4 opacity-70">
+                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+                    <Scissors className="size-6" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[16px] font-semibold text-foreground">
+                        {t("operations.future.title")}
+                      </span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {t("operations.future.badge")}
+                      </span>
+                    </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Run history (right) */}
+              <div className="min-w-0 flex-1 border-l border-border pl-6">
+                <OperationHistory />
               </div>
             </div>
           </div>
