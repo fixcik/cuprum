@@ -37,16 +37,23 @@ export function MachineControlPanel({
   const { t } = useTranslation("machine");
 
   // Track whether the console OS window is open so the drawer shows a stub.
+  // Driven by authoritative signals, not JS unmount: console:ready (covers
+  // pop-out AND a webview reload remount) sets it true; console:closed (the Rust
+  // Destroyed event) sets it false.
   const [consoleWindowOpen, setConsoleWindowOpen] = useState(false);
   useEffect(() => {
-    const p = api.onConsoleClosed(() => setConsoleWindowOpen(false));
+    const ps = [
+      api.onConsoleReady(() => setConsoleWindowOpen(true)),
+      api.onConsoleClosed(() => setConsoleWindowOpen(false)),
+    ];
     return () => {
-      void p.then((f) => f());
+      ps.forEach((p) => void p.then((f) => f()));
     };
   }, []);
 
   const popOutConsole = () => {
     void api.openConsoleWindow();
+    // Optimistic: instant stub feedback before the ready handshake lands.
     setConsoleWindowOpen(true);
   };
   // Datum-corner labels live in the `drill` namespace (shared work-zero vocabulary).

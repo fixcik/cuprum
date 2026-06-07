@@ -131,6 +131,15 @@ fn main() {
                     }
                 }
             }
+            // The console window is gone (OS-close, app quit, or any teardown):
+            // tell the main window so it can revert the in-app drawer stub. Driven
+            // by the authoritative Destroyed event, not a JS unmount — OS-close
+            // kills the webview's JS context before any React cleanup runs.
+            if window.label() == "console" {
+                if let WindowEvent::Destroyed = event {
+                    let _ = window.app_handle().emit("console:closed", ());
+                }
+            }
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

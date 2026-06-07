@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Fan, Gauge, Loader2 } from "lucide-react";
-import { api } from "@/lib/api";
 import { useMachine } from "@/machineStore";
 import { useConsoleClient } from "@/hooks/useConsoleClient";
 import { useShowWindowWhenReady } from "@/hooks/useShowWindowWhenReady";
@@ -28,10 +27,9 @@ export function ConsoleWindow() {
     void getCurrentWindow().setTitle(t("console.windowTitle"));
   }, [t]);
 
-  // Tell the main window when this window goes away (revert the drawer stub).
-  useEffect(() => () => {
-    void api.emitConsoleClosed();
-  }, []);
+  // Note: the main window learns this window is gone from the Rust `Destroyed`
+  // event (console:closed), not from a JS unmount — OS-close kills the JS context
+  // before any unmount effect runs, and a reload unmount would wrongly revert.
 
   if (!seeded) {
     return (
