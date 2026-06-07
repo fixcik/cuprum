@@ -50,6 +50,11 @@ export function SoftLimitsNotice() {
     setError(null);
     const writes = [
       "$20=1",
+      // Also re-enable hard limits: the stuck-switch recovery flow disables $20 and
+      // $21 together, and if the connection drops mid-recovery it can't restore them
+      // (writes fail on a dead port). $20=0 reliably re-surfaces this notice on the
+      // next connect, so restoring $21 here closes that backstop gap too.
+      "$21=1",
       `$130=${env.x.toFixed(3)}`,
       `$131=${env.y.toFixed(3)}`,
       `$132=${env.z.toFixed(3)}`,
