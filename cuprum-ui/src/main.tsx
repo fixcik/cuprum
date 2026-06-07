@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import { AddDesignWindow } from "./windows/AddDesignWindow";
+import { ConsoleWindow } from "./windows/ConsoleWindow";
 import { InspectorWindow } from "./windows/InspectorWindow";
 import { DrillWindow } from "./windows/DrillWindow";
 import "./styles.css";
@@ -48,6 +49,8 @@ if (label === "add-design") {
   windowRoot = <AddDesignWindow />;
 } else if (label === "drill") {
   windowRoot = <DrillWindow />;
+} else if (label === "console") {
+  windowRoot = <ConsoleWindow />;
 } else if (label.startsWith(INSPECTOR_PREFIX)) {
   windowRoot = <InspectorWindow designId={label.slice(INSPECTOR_PREFIX.length)} />;
 } else {

@@ -13,8 +13,8 @@ function fmtTime(ts: number): string {
 }
 
 /** Inner console body: header (title + line count + copy + close), scrolling log
- *  with auto-scroll, and the G-code input. Reused by the drawer. */
-function ConsoleBody({ onClose }: { onClose: () => void }) {
+ *  with auto-scroll, and the G-code input. Reused by the drawer and the console window. */
+export function ConsoleBody({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation("machine");
   const lines = useMachine((s) => s.lines);
   const connected = useMachine((s) => s.connected);
