@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Group, Text, Circle, Line } from "react-konva";
+import { Stage, Layer, Rect, Group, Text, Circle, Line, Image as KonvaImage } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus, LocateFixed } from "lucide-react";
@@ -44,6 +44,7 @@ import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
 import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
 import { ClampZoneLayer } from "@/components/panel/ClampZoneLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
+import { useDesignPreviewImages } from "@/hooks/useDesignPreviewImages";
 import { api, type BoardInstance, type KeepOutZone, type ProjectDesign, type ToolingHole } from "@/lib/api";
 import { useKeepOutSelection } from "@/keepOutSelectionStore";
 import {
@@ -149,6 +150,7 @@ export function PanelBlankCanvas({
   const panMode = tool === "pan" || spaceDown;
   // Resolved board extents (mm) keyed by design id — shared hook, fetched once per design.
   const sizes = usePlacedBoardSizes();
+  const previewImages = useDesignPreviewImages();
   // Panel-level findings from the single source of truth (evaluatePanel).
   // byInstance maps each instance id to its worst severity — drives canvas highlight.
   const { byInstance, byTooling } = usePanelFindings();
@@ -1125,6 +1127,15 @@ export function PanelBlankCanvas({
                     strokeScaleEnabled={false}
                     cornerRadius={0.3}
                   />
+                  {previewImages[inst.design_id] && (
+                    <KonvaImage
+                      image={previewImages[inst.design_id]}
+                      width={sz.w}
+                      height={sz.h}
+                      listening={false}
+                      perfectDrawEnabled={false}
+                    />
+                  )}
                   <Text
                     x={0}
                     y={0}
