@@ -57,8 +57,12 @@
     "empty": "Прогонов пока нет.",
     "noProject": "Сохраните проект, чтобы вести историю прогонов.",
     "filterAll": "Все",
+    "loadMore": "Загрузить ещё",
+    "repeat": "Повторить",
     "holesLabel": "Отв.:",
     "toolsLabel": "Свёрла:",
+    "feedLabel": "Подача:",
+    "estimateLabel": "Оценка:",
     "minShort": "м",
     "secShort": "с",
     "type": {

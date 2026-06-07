@@ -234,14 +234,20 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result
 /// bundle as the main window, the SPA branches on the label. The drill UI drives the
 /// machine directly (events + invoke are process-global) and receives the project as
 /// a pushed snapshot. Title is set (localised) by the JS side.
+///
+/// Returns `true` if the window already existed (was focused) and `false` if it was
+/// freshly created — the caller uses this to route a "repeat run" prefill: an already
+/// open window is listening, so prefill it immediately; a fresh one consumes the
+/// pending prefill on its ready handshake instead.
 #[tauri::command]
-pub(crate) fn open_drill_window(app: AppHandle) -> Result<(), String> {
+pub(crate) fn open_drill_window(app: AppHandle) -> Result<bool, String> {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if let Some(w) = app.get_webview_window("drill") {
         // May still be hidden (first snapshot pending) — show before focusing so a
         // repeat open reveals it immediately instead of waiting on the JS path.
         let _ = w.show();
-        return w.set_focus().map_err(|e| e.to_string());
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(true);
     }
     let win = WebviewWindowBuilder::new(&app, "drill", WebviewUrl::App("index.html".into()))
         .title("Cuprum")
@@ -265,5 +271,5 @@ pub(crate) fn open_drill_window(app: AppHandle) -> Result<(), String> {
             let _ = win.set_position(PhysicalPosition::new(x, y));
         }
     }
-    Ok(())
+    Ok(false)
 }

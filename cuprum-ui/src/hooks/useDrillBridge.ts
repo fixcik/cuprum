@@ -36,6 +36,12 @@ export function useDrillBridge() {
       // Seed a freshly-opened window with the current snapshot + derived flag.
       void api.emitDrillSnapshot(snapRef.current);
       void api.emitMachineDerived({ homed: useMachine.getState().homed });
+      // Hand off a pending "repeat run" prefill to the just-opened window (one-shot).
+      const pending = useShell.getState().pendingDrillPrefill;
+      if (pending) {
+        void api.emitDrillPrefill(pending);
+        useShell.getState().setPendingDrillPrefill(null);
+      }
     }),
     api.onDrillSetClassOverride(({ diameterKey, klass }) =>
       void useShell.getState().setDrillClassOverride(diameterKey, klass),

@@ -174,6 +174,11 @@ interface ShellStore {
   /** Open the add-design window with a specific design pre-selected. */
   openAddDesignForDesign: (designId: string) => Promise<void>;
 
+  /** params_json to prefill the drill window with when it next becomes ready
+   *  ("repeat run"). One-shot: the drill bridge emits it on drill:ready and clears. */
+  pendingDrillPrefill: string | null;
+  setPendingDrillPrefill: (paramsJson: string | null) => void;
+
   /** Add a tooling hole centred at (xMm, yMm) with the default diameter.
    *  Returns the new hole id, or "" when no panel is open. */
   addToolingHole: (xMm: number, yMm: number) => Promise<string>;
@@ -239,6 +244,8 @@ export const useShell = create<ShellStore>((set, get) => ({
   traceSessions: {},
   importingCount: 0,
   pendingAddDesignId: null,
+  pendingDrillPrefill: null,
+  setPendingDrillPrefill: (paramsJson) => set({ pendingDrillPrefill: paramsJson }),
 
   scheduleArtifactFlush: (fresh) => {
     if (!fresh) return;

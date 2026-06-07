@@ -109,6 +109,26 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     };
   }, [snap.currentPath]);
 
+  // "Repeat run": the main window pushes a past run's params to prefill from. Feed it
+  // through the same prefill path (reset the once-per-project guard so the seed effect
+  // re-applies it, filtered to the current plan).
+  useEffect(() => {
+    let active = true;
+    const sub = api.onDrillPrefill((json) => {
+      if (!active) return;
+      try {
+        setLastDrillParams(JSON.parse(json));
+        prefillAppliedRef.current = false;
+      } catch {
+        /* malformed — ignore */
+      }
+    });
+    return () => {
+      active = false;
+      void sub.then((un) => un());
+    };
+  }, []);
+
   // Seed the selection once the plan is ready: prefer the last run's config (filtered
   // to holes that still exist on the panel), applied once per project; otherwise the
   // default alignment preset. Reset drilled-tracking on every plan change.
