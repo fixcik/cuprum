@@ -322,9 +322,11 @@ export function DrillPlanInspector({
             )}
 
             {/* Inline machine connect — gate the run right here instead of sending
-                the operator to Equipment → Control. Shown only while disconnected;
-                once connected the bar disappears and the start button unlocks. */}
-            {!connected && <ConnBar compact />}
+                the operator to Equipment → Control. Always shown: pick the CNC
+                profile + connect while disconnected; once connected it collapses to
+                a slim "● name · port · Disconnect" status row, so the operator can
+                see what's connected and switch machines by disconnecting first. */}
+            <ConnBar compact machinePicker connectedSummary />
 
             {/* Start button */}
             <Button

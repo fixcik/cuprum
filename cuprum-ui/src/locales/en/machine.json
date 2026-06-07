@@ -6,6 +6,7 @@
     "abort": "Stop (abort)"
   },
   "connection": {
+    "machine": "Machine",
     "port": "Port",
     "refresh": "Refresh",
     "noPorts": "No serial ports",

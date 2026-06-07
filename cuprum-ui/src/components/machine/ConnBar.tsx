@@ -11,22 +11,41 @@ export interface ConnBarProps {
    *  select stretches to fill its row and the connect button drops to a full-width
    *  row below, instead of the default single fixed-width row. */
   compact?: boolean;
+  /** Prepend a CNC machine picker (the registry select, bound to the active CNC
+   *  machine) ahead of the port row. For screens without the Equipment master-list
+   *  — e.g. the drill footer — so the operator can choose which CNC to connect to.
+   *  Off in Equipment, where the left-hand machine list already selects the machine. */
+  machinePicker?: boolean;
+  /** When connected, collapse to a slim "● name · port · Disconnect" status row
+   *  instead of the full bar with disabled selects. Lets a screen show what it's
+   *  connected to (and disconnect) without keeping the pickers around. */
+  connectedSummary?: boolean;
 }
 
-/** Connection bar: serial port select + hot-plug refresh + connect/disconnect.
- *  No status pill here — that lives in the toolbar. Live-refreshes the port list
- *  while disconnected (2s poll, paused when the tab is hidden), mirroring the
- *  original ConnectionBar. */
-export function ConnBar({ compact = false }: ConnBarProps = {}) {
+/** Connection bar: serial port select + hot-plug refresh + connect/disconnect,
+ *  optionally a CNC machine picker. No status pill here — that lives in the toolbar.
+ *  Live-refreshes the port list while disconnected (2s poll, paused when the tab is
+ *  hidden), mirroring the original ConnectionBar. */
+export function ConnBar({
+  compact = false,
+  machinePicker = false,
+  connectedSummary = false,
+}: ConnBarProps = {}) {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
   const setCnc = useSettings((s) => s.setCncProfile);
+  const machines = useSettings((s) => s.machines);
+  const activeCncMachineId = useSettings((s) => s.activeCncMachineId);
+  const setActiveCncMachineId = useSettings((s) => s.setActiveCncMachineId);
   const connected = useMachine((s) => s.connected);
+  const connectedPort = useMachine((s) => s.port);
   const connect = useMachine((s) => s.connect);
   const reattach = useMachine((s) => s.reattach);
   const disconnect = useMachine((s) => s.disconnect);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [busy, setBusy] = useState(false);
+
+  const cncMachines = machines.filter((m) => m.kind === "cnc");
 
   // After a webview reload the store resets to "disconnected" while the Rust
   // backend may still hold the serial port. Re-bind on mount so the UI recovers
@@ -85,8 +104,53 @@ export function ConnBar({ compact = false }: ConnBarProps = {}) {
     }
   };
 
+  // Connected slim summary (opt-in): show what we're connected to + a disconnect
+  // button, instead of the full bar. The pickers reappear after disconnecting.
+  if (connectedSummary && connected) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="size-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
+          {cnc.name} · {connectedPort ?? cnc.port}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onToggle}
+          disabled={busy}
+          className="shrink-0"
+        >
+          <Unplug className="size-4" />
+          {t("connection.disconnect")}
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className={compact ? "flex flex-col gap-2" : "flex items-center gap-2"}>
+      {/* Optional CNC machine picker (registry) — bound to the active CNC machine. */}
+      {machinePicker && cncMachines.length > 0 && (
+        <div className={compact ? "relative w-full" : "relative"}>
+          <select
+            value={activeCncMachineId ?? ""}
+            disabled={connected}
+            onChange={(e) => setActiveCncMachineId(e.target.value)}
+            title={t("connection.machine")}
+            aria-label={t("connection.machine")}
+            className={`h-9 appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground outline-none disabled:opacity-50 ${
+              compact ? "w-full" : "w-[230px]"
+            }`}
+          >
+            {cncMachines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        </div>
+      )}
       {/* Row 1 (compact) / inline group: port select + hot-plug refresh. */}
       <div className={compact ? "flex items-center gap-2" : "contents"}>
         <div className={compact ? "relative flex-1" : "relative"}>
