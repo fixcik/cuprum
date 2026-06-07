@@ -3,14 +3,13 @@ import { AlertTriangle, ListChecks } from "lucide-react";
 import type { DrillClass } from "@/lib/api";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute } from "@/lib/drillRoute";
-import type { DrillPass } from "@/lib/drillPasses";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
 import type { Tool } from "@/lib/toolLibrary";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { ZGateResult } from "@/lib/zGate";
 import { Button } from "@/components/ui/Button";
-import { DrillPassStepper } from "@/components/drill/DrillPassStepper";
+import { DrillSelectionControls } from "@/components/drill/DrillSelectionControls";
 import { DrillRunInspector } from "@/components/drill/DrillRunInspector";
 import { DrillToolsOrder } from "@/components/drill/DrillToolsOrder";
 import { DrillWarnings } from "@/components/drill/DrillWarnings";
@@ -22,8 +21,10 @@ export interface DrillPlanInspectorProps {
   plan: PanelDrillPlan;
   route: DrillRoute;
   counts: Record<DrillClass, number>;
-  activePassId: DrillPass["id"];
-  onPassChange: (id: DrillPass["id"]) => void;
+  /** Currently selected drill classes (free selection replaces the pass stepper). */
+  selectedClasses: Set<DrillClass>;
+  /** Called when the user changes the class selection. */
+  onSelectedClassesChange: (s: Set<DrillClass>) => void;
   run: UseDrillRun;
   onStart: () => void;
   /** Set/clear the class override for a diameter (forwarded to DrillToolsOrder). */
@@ -72,12 +73,10 @@ export interface DrillPlanInspectorProps {
   grblFeedPct: number | undefined;
   /** Called when the operator moves the feed slider. */
   onFeedChange: (pct: number) => void;
-  /** Called when the current run pass is completed. */
-  onPassDone: () => void;
+  /** Called when the current run is completed. */
+  onRunDone: () => void;
   /** Total estimated run time in seconds (for the run header). */
   totalEstimateSec: number;
-  /** Pass ids already completed this session (rendered as checks in the stepper). */
-  passDone: Set<DrillPass["id"]>;
 }
 
 /** Right-panel inspector for the drill operation.
@@ -88,8 +87,8 @@ export function DrillPlanInspector({
   plan,
   route,
   counts,
-  activePassId,
-  onPassChange,
+  selectedClasses,
+  onSelectedClassesChange,
   run,
   onStart,
   onSetClass,
@@ -117,9 +116,8 @@ export function DrillPlanInspector({
   feedOverridePct,
   grblFeedPct,
   onFeedChange,
-  onPassDone,
+  onRunDone,
   totalEstimateSec,
-  passDone,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
 
@@ -139,7 +137,7 @@ export function DrillPlanInspector({
   if (!connected) {
     startHint = t("run.notConnected");
   } else if (!hasHoles) {
-    startHint = t("run.noHolesForPass");
+    startHint = t("run.noHolesSelected");
   } else if (zGate.valid === false) {
     if (zGate.reason === "not-zeroed") {
       startHint = t("workzero.notZeroedHint");
@@ -199,18 +197,17 @@ export function DrillPlanInspector({
           feedOverridePct={feedOverridePct}
           grblFeedPct={grblFeedPct}
           onFeedChange={onFeedChange}
-          onPassDone={onPassDone}
+          onPassDone={onRunDone}
         />
       ) : (
         /* ── PLAN mode ── */
         <>
-          {/* Process stepper */}
-          <DrillPassStepper
-            activePassId={activePassId}
+          {/* Class selection presets + per-class chips */}
+          <DrillSelectionControls
             counts={counts}
+            selectedClasses={selectedClasses}
+            onChange={onSelectedClassesChange}
             disabled={isRunActive}
-            onPassChange={onPassChange}
-            donePassIds={passDone}
           />
 
           {/* Divider */}
@@ -321,7 +318,7 @@ export function DrillPlanInspector({
               onClick={onStart}
               className="w-full"
             >
-              {t("run.start")} · {t(`pass.${activePassId}`)}
+              {t("run.start")} · {t("summary.holes", { count: route.totalHoles })}
             </Button>
 
             {/* Gate hint below the button */}

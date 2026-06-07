@@ -27,17 +27,11 @@
     "npth": "NPTH",
     "mechanical": "mech"
   },
-  "pass": {
-    "label": "Pass",
+  "preset": {
     "alignment": "Alignment",
     "preplating": "Before plating",
-    "postplating": "After plating"
-  },
-  "step": {
-    "plating": "Plating",
-    "platingSub": "off-machine",
-    "flip": "Flip & re-align",
-    "flipSub": "planned"
+    "postplating": "After plating",
+    "all": "All"
   },
   "empty": {
     "noProject": "No project open",
@@ -146,6 +140,6 @@
     "errorHint": "Unlock the machine, then start again.",
     "zeroHint": "Work zero (0,0) is the selected datum corner of the panel (marked on the canvas; X right, Y up). Set it by jogging in Equipment → Control tab.",
     "spindleHint": "If the spindle is on a manual dial (3018 default), turn it on by hand — handy during the tool-change pause.",
-    "noHolesForPass": "No holes in this pass"
+    "noHolesSelected": "Select what to drill"
   }
 }
