@@ -38,6 +38,9 @@ export interface CncProfile {
   /** Machine-coordinate (G53) safe retract height (mm), ≤ 0. Used for safe
    *  traverses during manual control. */
   machineSafeZMm: number;
+  /** Work-coordinate (G54) retract height (mm) for a manual tool change — higher
+   *  than safeZMm so there's room to swap the bit. */
+  toolChangeZMm: number;
   // --- mechanics (DFM / future compensation) ---
   runoutMm: number;
   backlashMm: { x: number; y: number; z: number };
@@ -66,6 +69,7 @@ export const DEFAULT_CNC_PROFILE: CncProfile = {
   gcodeDialect: "grbl_1_1",
   safeZMm: 5,
   machineSafeZMm: -1,
+  toolChangeZMm: 20,
   runoutMm: 0.15,
   backlashMm: { x: 0.05, y: 0.1, z: 0.05 },
   prependGcode: "",

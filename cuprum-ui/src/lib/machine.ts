@@ -58,6 +58,9 @@ export interface CncMachine extends MachineBase {
    *  limit). Used for safe traverses during manual control so a low work zero
    *  can't drive Z above the top limit switch. */
   machineSafeZMm: number;
+  /** Work-coordinate (G54) retract height (mm) for a manual tool change — higher
+   *  than safeZMm so there's room to swap the bit. */
+  toolChangeZMm: number;
   // --- mechanics (DFM / future compensation) ---
   runoutMm: number;
   backlashMm: { x: number; y: number; z: number };
@@ -114,6 +117,7 @@ export const DEFAULT_CNC_MACHINE: CncMachine = {
   gcodeDialect: "grbl_1_1",
   safeZMm: 5,
   machineSafeZMm: -1,
+  toolChangeZMm: 20,
   runoutMm: 0.15,
   backlashMm: { x: 0.05, y: 0.1, z: 0.05 },
   prependGcode: "",
@@ -161,4 +165,17 @@ export function newUvMachine(machines: Machine[]): UvLcdMachine {
     id: nextMachineId(machines),
     name: uniqueName(machines, DEFAULT_UV_MACHINE.name),
   };
+}
+
+/** Validation for the tool-change retract height. Returns a warning key or null.
+ *  "below-safe": not above the travel safe-Z (or negative) → no room to swap.
+ *  "over-travel": higher than the machine Z travel → unreachable. */
+export function toolChangeZWarning(p: {
+  safeZMm: number;
+  toolChangeZMm: number;
+  envZMm: number;
+}): "below-safe" | "over-travel" | null {
+  if (p.toolChangeZMm < 0 || p.toolChangeZMm < p.safeZMm) return "below-safe";
+  if (p.toolChangeZMm > p.envZMm) return "over-travel";
+  return null;
 }

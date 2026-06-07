@@ -78,6 +78,12 @@
     "safeZHelp": "How far to lift above the board surface (work zero) for safe traverses — used by both the drilling G-code and manual control.",
     "machineSafeZ": "Retract ceiling (machine Z)",
     "machineSafeZHelp": "Maximum retract height in machine coordinates (G53): the tool never rises above it. Must be ≤ 0 — a little below the top limit switch.",
+    "toolChangeZ": "Tool-change Z (mm)",
+    "toolChangeZHelp": "Work-coordinate retract height for a manual bit swap — higher than the travel safe-Z so there's room for your hands.",
+    "toolChangeZWarn": {
+      "below-safe": "Tool-change Z must be at least the travel safe-Z, with room to swap the bit.",
+      "over-travel": "Tool-change Z is higher than the Z travel — the spindle can't reach it."
+    },
     "runout": "Runout",
     "backlashX": "Backlash X",
     "backlashY": "Backlash Y",
