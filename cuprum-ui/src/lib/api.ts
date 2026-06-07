@@ -272,8 +272,8 @@ export interface AddDesignResult {
 }
 
 /** Data needed to build the drill plan plus the shop settings (CNC profile,
- *  tools, DFM thresholds). Built inline from the stores by useDrillScreenData and
- *  consumed by the drill operation editor. */
+ *  tools, DFM thresholds). Built from the main-window stores by useDrillScreenData
+ *  (in the drill bridge) and pushed over IPC to the drill window. */
 export interface DrillSnapshot {
   workingDir: string | null;
   manifest: Manifest | null;
