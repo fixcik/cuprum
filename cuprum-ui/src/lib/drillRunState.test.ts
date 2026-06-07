@@ -275,6 +275,8 @@ describe("drillRunReducer", () => {
       holesTotal: 10,
       currentHoleIndex: 3,
       toolChange: { toolName: "Сверло 1.2", diameterMm: 1.2 },
+      zBound: true,
+      toolChangeSeq: 3,
       error: "something went wrong",
       runStartedAt: 1234567890,
     };
@@ -307,6 +309,52 @@ describe("drillRunReducer", () => {
       expect(initialDrillRunState.runStartedAt).toBeNull();
     });
   });
+
+describe("drillRunReducer — zBound (per-tool Z gate)", () => {
+  it("starts unbound", () => {
+    expect(initialDrillRunState.zBound).toBe(false);
+    const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+    expect(started.zBound).toBe(false);
+  });
+
+  it("zbound sets zBound true", () => {
+    const s = drillRunReducer(initialDrillRunState, { type: "zbound" });
+    expect(s.zBound).toBe(true);
+  });
+
+  it("entering a tool change clears zBound", () => {
+    const bound = drillRunReducer(initialDrillRunState, { type: "zbound" });
+    const tc = drillRunReducer(bound, { type: "toolchange", toolName: "0.8mm", diameterMm: 0.8 });
+    expect(tc.phase).toBe("awaitingToolChange");
+    expect(tc.zBound).toBe(false);
+  });
+
+  it("reset clears zBound", () => {
+    const bound = drillRunReducer(initialDrillRunState, { type: "zbound" });
+    expect(drillRunReducer(bound, { type: "reset" }).zBound).toBe(false);
+  });
+});
+
+describe("drillRunReducer — toolChangeSeq (per-pause remount key)", () => {
+  it("starts at 0", () => {
+    expect(initialDrillRunState.toolChangeSeq).toBe(0);
+  });
+
+  it("increments on each toolchange event", () => {
+    const first = drillRunReducer(initialDrillRunState, {
+      type: "toolchange",
+      toolName: "0.8mm",
+      diameterMm: 0.8,
+    });
+    expect(first.toolChangeSeq).toBe(1);
+    const second = drillRunReducer(first, {
+      type: "toolchange",
+      toolName: "1.0mm",
+      diameterMm: 1.0,
+    });
+    expect(second.toolChangeSeq).toBe(2);
+  });
+});
 
   // 9. reducer does not mutate the input state object
   it("does not mutate the input state", () => {
