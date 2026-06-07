@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Grid3x3 } from "lucide-react";
 import { useMachine } from "@/machineStore";
@@ -7,23 +6,14 @@ import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
 import { safeRetractMachineZ } from "@/lib/gotoZero";
 import { useJog, RAPID_JOG_FEED } from "@/hooks/useJog";
-import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
 import { WorkField } from "@/components/machine/WorkField";
 import { ZBar } from "@/components/machine/ZBar";
-
-interface PendingMove {
-  x: number;
-  y: number;
-  /** Computed safe retract target (machine Z) shown in the confirm dialog. */
-  retractZ: number;
-}
 
 /** Work-area card: header (envelope size + live work XYZ) over the WorkField +
  *  ZBar. Clicking the field moves to the picked WORK X/Y. If the tool is already
  *  at/above the machine safe-Z it traverses straight away (as a rapid-like jog,
- *  so a fresh click cancels-and-retargets instead of blocking); otherwise it asks
- *  whether to raise Z to the safe height first (raise-then-move) or travel as-is.
+ *  so a fresh click cancels-and-retargets instead of blocking); otherwise it
+ *  raises Z to the safe height first (raise-then-move) — no confirmation prompt.
  *  The field is inert unless the machine is connected and in a movable state. */
 export function FieldPanel({ className }: { className?: string }) {
   const { t } = useTranslation("machine");
@@ -40,12 +30,9 @@ export function FieldPanel({ className }: { className?: string }) {
   const canAutoMove = movable && homed;
   const { jogTo } = useJog();
 
-  // A move awaiting the raise-or-not choice (only set when Z is below safe-Z).
-  const [pending, setPending] = useState<PendingMove | null>(null);
-
   async function move(x: number, y: number, raiseFirst: boolean) {
     // Re-validate live state: the machine may have disconnected / alarmed / lost
-    // homing between the click and the confirm. Bail rather than send into an
+    // homing between the click and the move. Bail rather than send into an
     // unsafe state.
     const m = useMachine.getState();
     if (!m.connected || !m.homed || !canMove(m.status.state, m.connected)) return;
@@ -72,9 +59,9 @@ export function FieldPanel({ className }: { className?: string }) {
     }
   }
 
-  /** Field click: move straight away when already clear of stock (machine
-   *  Z ≥ the safe retract target), otherwise ask whether to lift Z first. Z is
-   *  read live at click time. */
+  /** Field click: traverse straight away when already clear of stock (machine
+   *  Z ≥ the safe retract target), otherwise raise Z to the safe height first.
+   *  Z is read live at click time; no confirmation — the safe action is implicit. */
   function requestMove(x: number, y: number) {
     const m = useMachine.getState();
     const currentMachineZ = m.status.mpos[2];
@@ -83,11 +70,7 @@ export function FieldPanel({ className }: { className?: string }) {
       safeZMm,
       machineSafeZMm,
     );
-    if (currentMachineZ >= retractZ) {
-      void move(x, y, false);
-    } else {
-      setPending({ x, y, retractZ });
-    }
+    void move(x, y, currentMachineZ < retractZ);
   }
 
   const axisLabel = (label: string, tone: string, value: number) => (
@@ -123,47 +106,6 @@ export function FieldPanel({ className }: { className?: string }) {
         <WorkField className="flex-1" disabled={!canAutoMove} onPick={requestMove} />
         <ZBar className="py-1" />
       </div>
-
-      <Modal
-        open={pending !== null}
-        onClose={() => setPending(null)}
-        title={t("field.goConfirm.title")}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setPending(null)}>
-              {t("field.goConfirm.cancel")}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (pending) void move(pending.x, pending.y, false);
-                setPending(null);
-              }}
-            >
-              {t("field.goConfirm.direct")}
-            </Button>
-            <Button
-              variant="default"
-              onClick={() => {
-                if (pending) void move(pending.x, pending.y, true);
-                setPending(null);
-              }}
-            >
-              {t("field.goConfirm.raise")}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-[13px] text-muted-foreground">
-          {pending
-            ? t("field.goConfirm.message", {
-                x: pending.x.toFixed(1),
-                y: pending.y.toFixed(1),
-                z: pending.retractZ.toFixed(1),
-              })
-            : ""}
-        </p>
-      </Modal>
     </section>
   );
 }
