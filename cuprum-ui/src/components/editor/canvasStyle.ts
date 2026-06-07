@@ -42,6 +42,19 @@ export const INSTANCE_WARN_STROKE = "#f59e0b";
 export const RULER_TOP = 16;
 export const RULER_LEFT = 20;
 
+// Gap (px) between a ruler band and any floating overlay tucked into the canvas
+// corner (tool palettes, HUDs). Keeps overlays clear of the rulers.
+export const RULER_OVERLAY_GAP = 8;
+
+/** Absolute offset for a floating overlay pinned to the top-left corner of a
+ *  ruler-bearing canvas, so it clears BOTH ruler bands. Any palette/HUD on a
+ *  canvas that renders <RulersOverlay> MUST position with this — do not hardcode
+ *  `left-2`/`top-2`, which sit *under* the rulers (recurring overlap bug). */
+export const rulerCornerOffset = () => ({
+  left: RULER_LEFT + RULER_OVERLAY_GAP,
+  top: RULER_TOP + RULER_OVERLAY_GAP,
+});
+
 // Keep-out zone palette — a single slate-blue hue distinct from INSTANCE_OFF
 // (red) and INSTANCE_WARN (amber), so zones read as annotations, not errors.
 // Zones are one uniform type (no kind), see #248.

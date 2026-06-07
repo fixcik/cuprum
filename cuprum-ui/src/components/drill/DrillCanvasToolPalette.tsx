@@ -1,7 +1,7 @@
 import { MousePointer2, Hand } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
-import { RULER_TOP } from "@/components/editor/canvasStyle";
+import { rulerCornerOffset } from "@/components/editor/canvasStyle";
 
 export interface DrillCanvasToolPaletteProps {
   tool: "select" | "pan";
@@ -42,9 +42,9 @@ export function DrillCanvasToolPalette({ tool, onToolChange }: DrillCanvasToolPa
 
   return (
     <div
-      className="absolute left-2 flex flex-col gap-0.5 rounded-lg border border-border bg-card/90 p-1 shadow backdrop-blur"
-      // Sit just below the top ruler band
-      style={{ top: RULER_TOP + 8 }}
+      className="absolute flex flex-col gap-0.5 rounded-lg border border-border bg-card/90 p-1 shadow backdrop-blur"
+      // Tucked into the canvas corner, clear of both ruler bands
+      style={rulerCornerOffset()}
     >
       <ToolButton
         icon={MousePointer2}
