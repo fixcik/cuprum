@@ -103,5 +103,6 @@ pub(crate) fn operation_run_last_params(
     op_type: String,
 ) -> Result<Option<String>, String> {
     let db = catalog_db_path(&app)?;
-    cuprum_project::operation_run_last_params(&db, &project_path, &op_type).map_err(|e| e.to_string())
+    cuprum_project::operation_run_last_params(&db, &project_path, &op_type)
+        .map_err(|e| e.to_string())
 }

@@ -283,9 +283,12 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     if (ACTIVE_RUN_PHASES.has(prev) && !ACTIVE_RUN_PHASES.has(cur)) {
       runUidRef.current = null;
       const outcome = cur === "done" ? "completed" : cur === "error" ? "error" : "stopped";
-      void api.operationLog.finish(uid, outcome, run.state.holesCompleted).catch(() => {});
+      // A completed run drilled every selected hole; use the total so a late
+      // final `progress` event racing `done` can't undercount the journal.
+      const done = outcome === "completed" ? run.state.holesTotal : run.state.holesCompleted;
+      void api.operationLog.finish(uid, outcome, done).catch(() => {});
     }
-  }, [run.state.phase, run.state.holesCompleted]);
+  }, [run.state.phase, run.state.holesCompleted, run.state.holesTotal]);
 
   // Mark holes drilled as the run reports progress (route order → stable ids).
   // Robust to partial stops: only the holes actually completed get marked.

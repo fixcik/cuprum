@@ -175,7 +175,14 @@ pub fn operation_run_finish(
     summary_json: Option<&str>,
 ) -> Result<()> {
     let conn = catalog::open(db_path)?;
-    catalog::operation_run_finish(&conn, run_uid, ended_at, outcome, progress_done, summary_json)
+    catalog::operation_run_finish(
+        &conn,
+        run_uid,
+        ended_at,
+        outcome,
+        progress_done,
+        summary_json,
+    )
 }
 
 /// List operation runs for a project (newest first), optionally filtered by type.

@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecentProject {
@@ -215,7 +215,14 @@ pub fn operation_run_start(
         "INSERT INTO operation_runs
             (run_uid, project_path, op_type, started_at, progress_total, params_json)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![run_uid, project_path, op_type, started_at, progress_total, params_json],
+        rusqlite::params![
+            run_uid,
+            project_path,
+            op_type,
+            started_at,
+            progress_total,
+            params_json
+        ],
     )?;
     Ok(())
 }
@@ -295,6 +302,8 @@ pub fn operation_run_last_params(
     project_path: &str,
     op_type: &str,
 ) -> Result<Option<String>> {
+    // `.optional()` maps only "no rows" to None — genuine DB errors propagate
+    // (a silent None on a corrupt/locked DB would hide real failures).
     let r = conn
         .query_row(
             "SELECT params_json FROM operation_runs
@@ -302,7 +311,7 @@ pub fn operation_run_last_params(
             rusqlite::params![project_path, op_type],
             |row| row.get::<_, String>(0),
         )
-        .ok();
+        .optional()?;
     Ok(r)
 }
 
@@ -397,7 +406,16 @@ mod tests {
         let proj = "/tmp/p.cuprum";
 
         // A finished drill run.
-        operation_run_start(&conn, "uid-1", proj, "drill", 100, Some(120), "{\"feed\":100}").unwrap();
+        operation_run_start(
+            &conn,
+            "uid-1",
+            proj,
+            "drill",
+            100,
+            Some(120),
+            "{\"feed\":100}",
+        )
+        .unwrap();
         // Mid-run: ended_at/outcome NULL, progress_done defaults to 0.
         let live = operation_runs_list(&conn, proj, None).unwrap();
         assert_eq!(live.len(), 1);
@@ -426,17 +444,37 @@ mod tests {
         assert_eq!(drills[0].op_type, "drill");
 
         // last_params returns the most recent run's params for that type.
-        operation_run_start(&conn, "uid-3", proj, "drill", 400, Some(80), "{\"feed\":75}").unwrap();
+        operation_run_start(
+            &conn,
+            "uid-3",
+            proj,
+            "drill",
+            400,
+            Some(80),
+            "{\"feed\":75}",
+        )
+        .unwrap();
         assert_eq!(
             operation_run_last_params(&conn, proj, "drill").unwrap(),
             Some("{\"feed\":75}".to_string()) // uid-3 (400) over uid-1 (100)
         );
         // No prior run of this type / project → None.
-        assert_eq!(operation_run_last_params(&conn, proj, "milling").unwrap(), None);
-        assert_eq!(operation_run_last_params(&conn, "/tmp/other.cuprum", "drill").unwrap(), None);
+        assert_eq!(
+            operation_run_last_params(&conn, proj, "milling").unwrap(),
+            None
+        );
+        assert_eq!(
+            operation_run_last_params(&conn, "/tmp/other.cuprum", "drill").unwrap(),
+            None
+        );
 
         // Runs are scoped per project.
-        assert_eq!(operation_runs_list(&conn, "/tmp/other.cuprum", None).unwrap().len(), 0);
+        assert_eq!(
+            operation_runs_list(&conn, "/tmp/other.cuprum", None)
+                .unwrap()
+                .len(),
+            0
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
