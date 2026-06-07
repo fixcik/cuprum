@@ -4,6 +4,12 @@ import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { COPPER_STROKE, CANVAS_BG } from "@/components/editor/canvasStyle";
 
+// CSS has no native "rotate" cursor, so we use a custom one: a circular-arrow glyph
+// (lucide RotateCw shape) drawn white over a dark halo so it reads on both the dark
+// canvas and a green board. Hotspot is the 24×24 centre (12,12). `grab` is the fallback.
+const ROTATE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="#0a0c10" stroke-width="4"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/></g><g stroke="#ffffff" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/></g></svg>`;
+const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ROTATE_SVG)}") 12 12, grab`;
+
 /** Free-rotation knob for the current panel selection. The knob sits just OUTSIDE a
  *  bbox corner (diagonal stub), leaving the top-centre clear for the selection HUD;
  *  rotation is still about the selection-bbox centre `(cx,cy)`. Dragging the knob
@@ -49,6 +55,15 @@ export function RotationHandle({
 }) {
   // Pointer bearing (deg) about the selection centre at the moment the drag began.
   const startAngle = useRef<number | null>(null);
+  // True while a rotation drag is in flight — keeps the rotate cursor pinned even as
+  // the pointer leaves the knob's tiny hit area (the knob is pinned back each move,
+  // so a mouseleave fires mid-drag and would otherwise reset the cursor).
+  const dragging = useRef(false);
+
+  const setCursor = (e: KonvaEventObject<unknown>, value: string) => {
+    const stage = e.target.getStage();
+    if (stage) stage.container().style.cursor = value;
+  };
 
   const bearing = (): number | null => {
     const p = pointerMm();
@@ -58,6 +73,8 @@ export function RotationHandle({
 
   const onDragStart = (e: KonvaEventObject<DragEvent>) => {
     e.cancelBubble = true;
+    dragging.current = true;
+    setCursor(e, ROTATE_CURSOR);
     startAngle.current = bearing();
   };
 
@@ -80,6 +97,10 @@ export function RotationHandle({
     node.x(knobX);
     node.y(knobY);
     startAngle.current = null;
+    dragging.current = false;
+    // Drag released: the pointer is wherever the rotation ended (usually off the
+    // knob), so drop back to the default cursor; re-hovering re-arms it.
+    setCursor(e, "");
     onCommit();
   };
 
@@ -104,13 +125,11 @@ export function RotationHandle({
         onDragStart={onDragStart}
         onDragMove={onDragMove}
         onDragEnd={onDragEnd}
-        onMouseEnter={(e) => {
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = "grab";
-        }}
+        onMouseEnter={(e) => setCursor(e, ROTATE_CURSOR)}
         onMouseLeave={(e) => {
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = "";
+          // Keep the rotate cursor through an active drag (the pointer leaves the
+          // pinned knob's hit area each move); only clear it on a genuine hover-out.
+          if (!dragging.current) setCursor(e, "");
         }}
       />
     </Group>
