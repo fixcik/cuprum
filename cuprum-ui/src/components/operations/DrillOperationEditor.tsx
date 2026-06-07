@@ -27,7 +27,6 @@ import { useShell } from "@/shellStore";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
-import { checkZGate } from "@/lib/zGate";
 import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
 
 /** Drill operation editor — sourceable inline (no IPC).
@@ -89,9 +88,7 @@ export function DrillOperationEditor() {
   // Inspected hole: the last-clicked hole's stable id (for the detail card).
   const [inspectedHoleId, setInspectedHoleId] = useState<string | null>(null);
 
-  // MPos Z captured when the operator binds XYZ work zero (null = not yet bound).
-  const [workZeroMachineZ, setWorkZeroMachineZ] = useState<number | null>(null);
-  // MPos X/Y captured at the same bind — the work-coordinate offset, used by the
+  // MPos X/Y captured at bind — the work-coordinate offset, used by the
   // XY gate to check the hole bbox against the machine envelope (null = not bound).
   const [workZeroMachineXY, setWorkZeroMachineXY] = useState<{ x: number; y: number } | null>(null);
 
@@ -110,7 +107,6 @@ export function DrillOperationEditor() {
   // Homing/disconnect voids the work zero — force re-bind.
   useEffect(() => {
     if (!machineHomed || machineState === "home") {
-      setWorkZeroMachineZ(null);
       setWorkZeroMachineXY(null);
     }
   }, [machineHomed, machineState]);
@@ -121,14 +117,12 @@ export function DrillOperationEditor() {
     if (!canMove(status.state, connected) || bindingRef.current) return false;
     bindingRef.current = true;
     try {
-      await api.machine.setZero(true, true, true);
+      await api.machine.setZero(true, true, false);
       setZeroError(null);
       const mpos = useMachine.getState().status.mpos;
-      setWorkZeroMachineZ(mpos[2]);
       setWorkZeroMachineXY({ x: mpos[0], y: mpos[1] });
       return true;
     } catch (e) {
-      setWorkZeroMachineZ(null);
       setWorkZeroMachineXY(null);
       setZeroError(String(e));
       return false;
@@ -138,11 +132,8 @@ export function DrillOperationEditor() {
   }, []);
 
   const handleClearZero = useCallback(() => {
-    setWorkZeroMachineZ(null);
     setWorkZeroMachineXY(null);
   }, []);
-
-  const zGate = checkZGate(workZeroMachineZ, cncProfile?.safeZMm ?? 5);
 
   // Counts per class over the full (unfiltered) plan; null until plan is ready.
   const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
@@ -393,14 +384,13 @@ export function DrillOperationEditor() {
             tools={tools}
             cncProfile={cncProfile}
             substrateThicknessMm={substrateThicknessMm}
-            workZeroMachineZ={workZeroMachineZ}
+            workZeroSet={workZeroMachineXY !== null}
             onBind={handleBindZero}
             onClear={handleClearZero}
             maxXMm={cncProfile.workEnvelopeMm.x}
             maxYMm={cncProfile.workEnvelopeMm.y}
             maxZMm={cncProfile.workEnvelopeMm.z}
             zeroError={zeroError}
-            zGate={zGate}
             xyGate={xyGate}
             connected={machineConnected}
             spindleControllable={cncProfile.spindleControllable ?? false}
