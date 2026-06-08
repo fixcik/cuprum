@@ -84,8 +84,6 @@ export interface DrillPlanInspectorProps {
   hasHoles: boolean;
   /** Feed override % sent to the machine (100 = nominal). */
   feedOverridePct: number;
-  /** Live feed override % reported by GRBL. */
-  grblFeedPct: number | undefined;
   /** Called when the operator moves the feed slider. */
   onFeedChange: (pct: number) => void;
   /** Called when the current run is completed. */
@@ -131,7 +129,6 @@ export function DrillPlanInspector({
   spindleControllable,
   hasHoles,
   feedOverridePct,
-  grblFeedPct,
   onFeedChange,
   onRunDone,
   totalEstimateSec,
@@ -233,7 +230,6 @@ export function DrillPlanInspector({
           panelHeightMm={panelHeightMm}
           totalEstimateSec={totalEstimateSec}
           feedOverridePct={feedOverridePct}
-          grblFeedPct={grblFeedPct}
           onFeedChange={onFeedChange}
           onRunDone={onRunDone}
           hasProbe={cncProfile.hasProbe}

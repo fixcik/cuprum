@@ -183,8 +183,7 @@
     "heading": "Drilling complete"
   },
   "feed": {
-    "label": "Spindle feed override",
-    "grbl": "GRBL: {{pct}}%"
+    "label": "Spindle feed override"
   },
   "run": {
     "start": "Start",

@@ -8,6 +8,7 @@ import type { DatumCorner } from "@/lib/datum";
 import { machinePoint } from "@/lib/datum";
 import { isActiveRunPhase } from "@/lib/machineMarker";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
+import { formatDuration } from "@/lib/formatDuration";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export interface DrillRunHeaderProps {
@@ -27,11 +28,6 @@ export interface DrillRunHeaderProps {
   totalEstimateSec: number;
 }
 
-function fmtMmSs(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
 
 // Ring geometry — compact 92px so the header reads as one horizontal row.
 const RING = 92;
@@ -70,21 +66,31 @@ export function DrillRunHeader({
   const circumference = 2 * Math.PI * RING_R;
   const offset = circumference * (1 - pct);
 
-  const activeGroup = activeGroupForHole(route, currentHoleIndex);
+  // While awaiting a tool change `currentHoleIndex` still points at the just-finished
+  // hole (null at the very start), so the chip + coords would show the previous bit
+  // or vanish. The bit being installed drills the UPCOMING hole (run-index ===
+  // holesCompleted) — show that one, so the Z touch-off header still reads the new
+  // bit + its coords.
+  const holes = orderedHoleList(route);
+  const displayHoleIndex =
+    phase === "awaitingToolChange" ? holesCompleted : currentHoleIndex;
+
+  const activeGroup = activeGroupForHole(route, displayHoleIndex);
   // Progress arc takes the current bit's colour; falls back to the Z-axis blue.
   const ringColor = activeGroup ? groupColor(activeGroup.gi) : "hsl(var(--axis-z))";
 
-  const holes = orderedHoleList(route);
   const currentHole =
-    currentHoleIndex != null &&
-    currentHoleIndex >= 0 &&
-    currentHoleIndex < holes.length
-      ? holes[currentHoleIndex]
+    displayHoleIndex != null &&
+    displayHoleIndex >= 0 &&
+    displayHoleIndex < holes.length
+      ? holes[displayHoleIndex]
       : null;
 
+  const minAbbr = t("preflight.minAbbr");
+  const secAbbr = t("preflight.secAbbr");
   const remaining = Math.max(0, Math.round(totalEstimateSec * (1 - pct)));
-  const elapsed = fmtMmSs(elapsedSec);
-  const remainingFmt = fmtMmSs(remaining);
+  const elapsed = formatDuration(elapsedSec, minAbbr, secAbbr);
+  const remainingFmt = formatDuration(remaining, minAbbr, secAbbr);
 
   const statusLabel = (): string | null => {
     switch (phase) {

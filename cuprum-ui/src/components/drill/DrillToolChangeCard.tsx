@@ -234,9 +234,9 @@ export function DrillToolChangeCard({
     zBound ? <span className="text-primary">✓</span> : <span className="text-foreground/60">{n}.</span>;
 
   return (
-    <div className="mx-3 mb-3 overflow-hidden rounded-xl border border-warning/40 bg-warning/[0.06]">
+    <div className="mx-3 mb-3 overflow-hidden rounded-xl border border-warning/50 bg-warning/10">
       {/* Card header */}
-      <div className="flex items-center gap-2 border-b border-warning/20 bg-warning/10 px-3 py-2 text-[12px] font-semibold text-warning">
+      <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/[0.16] px-3 py-2 text-[12px] font-semibold text-warning">
         <Pause className="size-4" />
         {firstToolChange ? t("toolChange.titleFirstZ") : t("toolChange.titleChange")}
       </div>

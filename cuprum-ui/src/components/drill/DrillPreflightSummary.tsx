@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { DrillEstimate } from "@/lib/api";
+import { formatDuration } from "@/lib/formatDuration";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export interface DrillPreflightSummaryProps {
@@ -21,16 +22,7 @@ export function DrillPreflightSummary({
   const { fmtLen } = useUnitFormat();
 
   const est = estimate;
-  const motionSec = Math.round(est.motionSec);
-
-  // Format motion seconds as "X мин YY с" / "Y с" with localised abbreviations;
-  // seconds are zero-padded to two digits once there's a minutes part.
-  const timeFmt = (() => {
-    const m = Math.floor(motionSec / 60);
-    const s = motionSec % 60;
-    const sec = `${String(s).padStart(m > 0 ? 2 : 1, "0")} ${t("preflight.secAbbr")}`;
-    return m > 0 ? `${m} ${t("preflight.minAbbr")} ${sec}` : sec;
-  })();
+  const timeFmt = formatDuration(est.motionSec, t("preflight.minAbbr"), t("preflight.secAbbr"));
 
   // Distinct categories in the selected run (for the holes sub-caption).
   const categoryCount = new Set(route.groups.map((g) => g.class)).size;

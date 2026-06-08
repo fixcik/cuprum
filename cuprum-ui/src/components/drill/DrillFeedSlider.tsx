@@ -3,12 +3,17 @@ import { useTranslation } from "react-i18next";
 
 export interface DrillFeedSliderProps {
   value: number;
-  grblPct: number | undefined;
   onChange: (pct: number) => void;
   disabled?: boolean;
 }
 
-export function DrillFeedSlider({ value, grblPct, onChange, disabled }: DrillFeedSliderProps) {
+const FEED_MIN = 40;
+const FEED_MAX = 200;
+// Track fraction (%) of a feed value — used to place the scale labels under the
+// thumb (the native range maps min→max linearly, so 100% is NOT at the centre).
+const trackPct = (v: number) => ((v - FEED_MIN) / (FEED_MAX - FEED_MIN)) * 100;
+
+export function DrillFeedSlider({ value, onChange, disabled }: DrillFeedSliderProps) {
   const { t } = useTranslation("drill");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -35,8 +40,8 @@ export function DrillFeedSlider({ value, grblPct, onChange, disabled }: DrillFee
       <input
         ref={inputRef}
         type="range"
-        min={40}
-        max={200}
+        min={FEED_MIN}
+        max={FEED_MAX}
         step={5}
         value={display}
         disabled={disabled}
@@ -47,19 +52,15 @@ export function DrillFeedSlider({ value, grblPct, onChange, disabled }: DrillFee
         onBlur={commit}
       />
 
-      {/* Scale labels: min / default / max */}
-      <div className="flex justify-between text-[9px] tabular-nums text-muted-foreground">
-        <span>40%</span>
-        <span>100%</span>
-        <span>200%</span>
-      </div>
-
-      {/* GRBL readout when it diverges from the slider value */}
-      {grblPct != null && grblPct !== value && (
-        <span className="text-[10px] tabular-nums text-muted-foreground/70">
-          {t("feed.grbl", { pct: grblPct })}
+      {/* Scale labels positioned at their real track fraction so each sits under the
+          thumb at that value (100% is left of centre on a 40–200 range). */}
+      <div className="relative h-3 text-[9px] tabular-nums text-muted-foreground">
+        <span className="absolute left-0">40%</span>
+        <span className="absolute -translate-x-1/2" style={{ left: `${trackPct(100)}%` }}>
+          100%
         </span>
-      )}
+        <span className="absolute right-0">200%</span>
+      </div>
     </div>
   );
 }
