@@ -47,8 +47,10 @@ pub enum Dir {
 /// Telemetry published by the actor on its broadcast channel.
 #[derive(Debug, Clone)]
 pub enum GrblEvent {
-    /// A resolved status report (from the 200 ms poll or a manual `?`).
-    Status(ResolvedStatus),
+    /// A resolved status report (from the 200 ms poll or a manual `?`). `raw`
+    /// keeps the original `<...>` line so the UI can echo it verbatim when the
+    /// user typed a manual `?` (status is otherwise kept off the console).
+    Status { status: ResolvedStatus, raw: String },
     /// A raw line for the console: rx (from GRBL) or tx (sent by us). Status
     /// reports are NOT emitted here — they arrive as [`GrblEvent::Status`] — so
     /// the 5 Hz poll can't flood the console.
@@ -173,7 +175,9 @@ impl GrblHandle {
 
     /// Run `$H`, tolerating the long mid-cycle silence of the homing cycle.
     pub async fn home(&self) -> Result<(), GrblError> {
-        self.await_line(home(), AwaitKind::Home, None).await.map(|_| ())
+        self.await_line(home(), AwaitKind::Home, None)
+            .await
+            .map(|_| ())
     }
 
     /// Send `$$` and collect every `$N=value` reply until the terminal `ok`.
@@ -250,6 +254,23 @@ impl GrblLease {
             .map(|_| ())
     }
 
+    /// Send a line under the lease without blocking on its outcome (best-effort,
+    /// e.g. a teardown `M5` after an abort where an ALARM reply is acceptable).
+    /// Still serialized through the queue and its `ok` consumed.
+    pub async fn send_line(&self, line: &str) -> Result<(), GrblError> {
+        let (tx, _rx) = oneshot::channel();
+        self.handle
+            .line_tx
+            .send(LineReq {
+                line: line.to_string(),
+                kind: AwaitKind::Ok,
+                lease: Some(self.id),
+                reply: tx,
+            })
+            .await
+            .map_err(|_| GrblError::Disconnected)
+    }
+
     /// Write a real-time byte (preempts the queue; lease-independent).
     pub async fn send_realtime(&self, byte: u8) -> Result<(), GrblError> {
         self.handle.send_realtime(byte).await
@@ -258,6 +279,17 @@ impl GrblLease {
     /// Subscribe to telemetry (e.g. for per-hole idle-sync during a run).
     pub fn subscribe(&self) -> broadcast::Receiver<GrblEvent> {
         self.handle.subscribe()
+    }
+
+    /// Explicitly release the lease, AWAITING delivery to the actor. Unlike the
+    /// `Drop` path (which can only fire-and-forget the release), this guarantees
+    /// the actor has marked the lane free before the future resolves — use it
+    /// when a subsequent non-leased command must be sure to pass the lease gate
+    /// (e.g. the operator's per-tool probe during a tool-change pause). `Drop`
+    /// still runs afterwards and sends a redundant `Release(id)`, which the actor
+    /// treats as a no-op (the id no longer holds the lease).
+    pub async fn release(self) {
+        let _ = self.handle.ctrl_tx.send(Ctrl::Release(self.id)).await;
     }
 }
 
@@ -473,7 +505,10 @@ fn route_line(
         Line::Status(rep) => {
             let s = tracker.resolve(rep);
             *idle = matches!(s.state, MachineState::Idle);
-            let _ = events.send(GrblEvent::Status(s));
+            let _ = events.send(GrblEvent::Status {
+                status: s,
+                raw: raw.to_string(),
+            });
         }
         _ => {
             let _ = events.send(GrblEvent::Line {
@@ -766,10 +801,7 @@ mod tests {
         let lease = h.acquire_lease().await.unwrap();
 
         // A non-leased line command is rejected without ever hitting the wire.
-        assert!(matches!(
-            h.send_await("G0 X1").await,
-            Err(GrblError::Busy)
-        ));
+        assert!(matches!(h.send_await("G0 X1").await, Err(GrblError::Busy)));
 
         // The lease holder's command passes.
         let fut = lease.send_await("G10 L20 P1 X0");
@@ -816,9 +848,10 @@ mod tests {
             };
         }
         match recv!() {
-            GrblEvent::Status(s) => {
-                assert_eq!(s.state, MachineState::Idle);
-                assert_eq!(s.mpos, [1.0, 2.0, 3.0]);
+            GrblEvent::Status { status, raw } => {
+                assert_eq!(status.state, MachineState::Idle);
+                assert_eq!(status.mpos, [1.0, 2.0, 3.0]);
+                assert_eq!(raw, "<Idle|MPos:1.000,2.000,3.000|FS:0,0>");
             }
             other => panic!("expected Status, got {other:?}"),
         }

@@ -1,14 +1,13 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::Duration;
 
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::broadcast;
 
-use cuprum_core::grbl::{self, GrblWriter, MachineState as GrblState};
+use cuprum_core::grbl::{self, Dir, GrblEvent, GrblHandle, MachineState as GrblState};
 
 /// Active limit/probe pins, mirrored to the front-end (grbl `PinState` is
 /// serde-free, so the DTO mapping lives here per the leaf-crate idiom).
@@ -91,39 +90,31 @@ pub struct PortDto {
     pub kind: String,
 }
 
-/// Connection liveness shared with the drill job-runner: the time of the last
-/// line received from GRBL (any line — the 200 ms status poll keeps this fresh
-/// while connected) and whether GRBL last reported Idle. Lets the runner wait
-/// for `ok` based on the machine actually being alive/busy rather than a blind
-/// fixed timeout (a long move keeps GRBL in Run and the status flowing).
-pub(crate) struct Activity {
-    pub last: std::time::Instant,
-    pub idle: bool,
-    /// Whether GRBL last reported the Hold state. Retained for future use
-    /// (was used by the old pause path; kept so machine.rs stays consistent).
-    #[allow(dead_code)]
-    pub hold: bool,
-}
-
-/// Live connection held in Tauri managed state.
+/// Live connection held in Tauri managed state. The async actor in `cuprum-grbl`
+/// owns the serial port and the reader/poller loop; this layer keeps only the
+/// UI-facing concerns: the cloneable handle, the (swappable) telemetry sink, and
+/// the forwarder task that fans actor events out to the front-end.
 struct MachineConn {
     /// Serial port this connection was opened on. Lets a reattaching front-end
     /// (after a webview reload) learn which port the still-live backend holds.
     port: String,
-    writer: Arc<Mutex<GrblWriter>>,
+    /// Cloneable handle to the actor; every command is a thin call on it.
+    handle: GrblHandle,
     /// Telemetry sink, behind a swappable cell: a webview reload destroys the
-    /// front-end's Channel, so `machine_reattach` replaces it here and the reader
-    /// keeps streaming to the new one without reopening the port.
+    /// front-end's Channel, so `machine_reattach` replaces it here and the
+    /// forwarder keeps streaming to the new one without reopening the port.
     telemetry: Arc<Mutex<Channel<Telemetry>>>,
-    stop: Arc<AtomicBool>,
-    reader_handle: Option<JoinHandle<()>>,
-    poller_handle: Option<JoinHandle<()>>,
-    ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
-    activity: Arc<Mutex<Activity>>,
-    /// One-shot: armed when the user types `?` in the console so the reader echoes
-    /// the next status report back to them. Status replies are otherwise filtered
-    /// from the console (the 5 Hz poll would flood it), making a manual `?` look
-    /// like it did nothing.
+    /// The task draining the actor's broadcast into telemetry + global events +
+    /// the console backlog. Aborted on a clean disconnect.
+    forwarder: tauri::async_runtime::JoinHandle<()>,
+    /// One-shot guard so `machine://disconnected` is emitted exactly once,
+    /// whichever path observes the link end first (the forwarder seeing the
+    /// broadcast close, or `machine_disconnect` after a clean shutdown).
+    disconnected_once: Arc<AtomicBool>,
+    /// One-shot: armed when the user types `?` in the console so the forwarder
+    /// echoes the next status report back to them. Status replies are otherwise
+    /// kept off the console (the 5 Hz poll would flood it), making a manual `?`
+    /// look like it did nothing.
     echo_status: Arc<AtomicBool>,
 }
 
@@ -201,6 +192,86 @@ fn state_str(s: GrblState) -> &'static str {
     }
 }
 
+/// Drain the actor's event broadcast into the front-end: status → per-connection
+/// `Telemetry::Status` + the global `machine://status` event; raw lines → console
+/// (Channel + global ring). A manual `?` arms `echo_status`, so the next status is
+/// also echoed to the console verbatim. Ends — emitting `machine://disconnected` —
+/// when the broadcast closes (the actor stopped: clean shutdown or an unplug).
+async fn forward_events(
+    mut sub: broadcast::Receiver<GrblEvent>,
+    telemetry: Arc<Mutex<Channel<Telemetry>>>,
+    app: AppHandle,
+    line_log: Arc<Mutex<VecDeque<ConsoleLine>>>,
+    echo_status: Arc<AtomicBool>,
+    disconnected_once: Arc<AtomicBool>,
+) {
+    loop {
+        match sub.recv().await {
+            Ok(GrblEvent::Status { status, raw }) => {
+                {
+                    let t = telemetry.lock().unwrap();
+                    let _ = t.send(Telemetry::Status {
+                        state: state_str(status.state).into(),
+                        mpos: status.mpos,
+                        wpos: status.wpos,
+                        feed: status.feed,
+                        spindle: status.spindle,
+                        overrides: status.overrides,
+                        pins: status.pins.into(),
+                    });
+                }
+                let _ = app.emit(
+                    "machine://status",
+                    MachinePos {
+                        state: state_str(status.state).into(),
+                        mpos: status.mpos,
+                        wpos: status.wpos,
+                        feed: status.feed,
+                        spindle: status.spindle,
+                        overrides: status.overrides,
+                        pins: status.pins.into(),
+                    },
+                );
+                // The user typed `?`: echo this one status line to the console.
+                if echo_status.swap(false, Ordering::Acquire) {
+                    {
+                        let t = telemetry.lock().unwrap();
+                        let _ = t.send(Telemetry::Line {
+                            dir: "rx".into(),
+                            text: raw.clone(),
+                        });
+                    }
+                    record_and_broadcast_line(&line_log, &app, "rx", &raw);
+                }
+            }
+            Ok(GrblEvent::Line { dir, text }) => {
+                let d = match dir {
+                    Dir::Rx => "rx",
+                    Dir::Tx => "tx",
+                };
+                {
+                    let t = telemetry.lock().unwrap();
+                    let _ = t.send(Telemetry::Line {
+                        dir: d.into(),
+                        text: text.clone(),
+                    });
+                }
+                record_and_broadcast_line(&line_log, &app, d, &text);
+            }
+            // A slow subscriber dropped some events — status is periodic, so just
+            // resume with the next one.
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            // The actor stopped (clean shutdown or unplug): tell follower windows.
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
+    // Emit once: a clean `machine_disconnect` may also reach this point via the
+    // shutdown closing the broadcast, so the guard avoids a double signal.
+    if !disconnected_once.swap(true, Ordering::SeqCst) {
+        let _ = app.emit("machine://disconnected", ());
+    }
+}
+
 #[tauri::command]
 pub async fn list_serial_ports() -> Result<Vec<PortDto>, String> {
     tauri::async_runtime::spawn_blocking(grbl::list_ports)
@@ -219,585 +290,197 @@ pub async fn list_serial_ports() -> Result<Vec<PortDto>, String> {
 }
 
 #[tauri::command]
-pub fn machine_connect(
+pub async fn machine_connect(
     app: AppHandle,
-    state: State<MachineState>,
+    state: State<'_, MachineState>,
     port: String,
     baud: u32,
     telemetry: Channel<Telemetry>,
 ) -> Result<(), String> {
-    let mut guard = state.conn.lock().unwrap();
-    if let Some(conn) = guard.as_ref() {
-        // Idempotent reconnect: if the backend already holds this exact port (e.g.
-        // a webview reload left the connection live and the user pressed Connect),
-        // just swap in the fresh telemetry Channel rather than failing or reopening
-        // the port. A different port is a genuine conflict.
-        if conn.port == port {
-            *conn.telemetry.lock().unwrap() = telemetry;
-            drop(guard);
-            let _ = app.emit("machine://connected", ());
-            return Ok(());
+    // Idempotent reconnect: if the backend already holds this exact port (e.g. a
+    // webview reload left the connection live and the user pressed Connect), just
+    // swap in the fresh telemetry Channel rather than failing or reopening. A
+    // different port is a genuine conflict.
+    {
+        let guard = state.conn.lock().unwrap();
+        if let Some(conn) = guard.as_ref() {
+            if conn.port == port {
+                *conn.telemetry.lock().unwrap() = telemetry;
+                drop(guard);
+                let _ = app.emit("machine://connected", ());
+                return Ok(());
+            }
+            return Err("connected to a different port".into());
         }
-        return Err("connected to a different port".into());
     }
-    let (writer, mut reader) = grbl::open(&port, baud).map_err(|e| e.to_string())?;
-    let writer = Arc::new(Mutex::new(writer));
-    // Swappable telemetry sink (see MachineConn::telemetry) so a reattach can
-    // redirect the reader's stream to a new front-end Channel.
+
+    let handle = grbl::connect(&port, baud).await.map_err(|e| e.to_string())?;
     let telemetry = Arc::new(Mutex::new(telemetry));
-    let stop = Arc::new(AtomicBool::new(false));
-    let ack_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>> =
-        Arc::new(Mutex::new(None));
-    let activity = Arc::new(Mutex::new(Activity {
-        last: std::time::Instant::now(),
-        idle: false,
-        hold: false,
-    }));
     let echo_status = Arc::new(AtomicBool::new(false));
+    let disconnected_once = Arc::new(AtomicBool::new(false));
 
-    // Clear the backlog: a new connect starts a fresh session, so old lines from a
-    // previous connection must not appear in the console window's seeded view.
+    // A new connect starts a fresh session: drop old lines so the console
+    // window's seeded view doesn't show a previous connection's traffic.
     state.line_log.lock().unwrap().clear();
-    let r_line_log = state.line_log.clone();
 
-    // Reader thread: parse lines, push status + raw rx lines.
-    let r_stop = stop.clone();
-    let r_tel = telemetry.clone();
-    let r_echo = echo_status.clone();
-    let r_app = app.clone();
-    let r_ack = ack_tx.clone();
-    let r_activity = activity.clone();
-    let reader_handle = std::thread::spawn(move || {
-        let mut tracker = grbl::StatusTracker::default();
-        while !r_stop.load(Ordering::Relaxed) {
-            match reader.read_line() {
-                Ok(Some(line)) => {
-                    // Any line from GRBL = the link is alive (used by the runner's
-                    // liveness-based ok-wait).
-                    r_activity.lock().unwrap().last = std::time::Instant::now();
-                    let parsed = grbl::parse_line(&line);
-                    // Echo to the console — but NOT the status-report polls (`<...>`),
-                    // which arrive at ~5 Hz from the 200 ms poller and would flood the
-                    // log, thrash the console (auto-scroll + full re-render of the line
-                    // list), and bury real traffic. Status is forwarded separately as
-                    // Telemetry::Status below. Exception: when the user types `?` in the
-                    // console, `echo_status` is armed so the NEXT status line is echoed
-                    // once (otherwise a manual `?` looks like it did nothing). The swap
-                    // is short-circuited for non-status lines so it can't consume the arm.
-                    let is_status = matches!(parsed, grbl::Line::Status(_));
-                    if !is_status || r_echo.swap(false, Ordering::Acquire) {
-                        let _ = r_tel.lock().unwrap().send(Telemetry::Line {
-                            dir: "rx".into(),
-                            text: line.clone(),
-                        });
-                        // Also record + broadcast globally so the console window can
-                        // follow the log without owning the telemetry Channel.
-                        record_and_broadcast_line(&r_line_log, &r_app, "rx", &line);
-                    }
-                    // Route terminal replies to a pending ok-wait. Welcome is
-                    // included so a soft-reset (e.g. aborting a homing cycle)
-                    // unblocks the waiter instead of letting it hang to timeout.
-                    if matches!(
-                        parsed,
-                        grbl::Line::Ok
-                            | grbl::Line::Error(_)
-                            | grbl::Line::Alarm(_)
-                            | grbl::Line::Welcome(_)
-                            | grbl::Line::Probe { .. }
-                            | grbl::Line::Setting { .. }
-                    ) {
-                        if let Some(tx) = r_ack.lock().unwrap().as_ref() {
-                            let _ = tx.send(parsed.clone());
-                        }
-                    }
-                    if let grbl::Line::Status(rep) = &parsed {
-                        let s = tracker.resolve(rep);
-                        {
-                            let mut a = r_activity.lock().unwrap();
-                            a.idle = matches!(s.state, GrblState::Idle);
-                            a.hold = matches!(s.state, GrblState::Hold);
-                        }
-                        let _ = r_tel.lock().unwrap().send(Telemetry::Status {
-                            state: state_str(s.state).into(),
-                            mpos: s.mpos,
-                            wpos: s.wpos,
-                            feed: s.feed,
-                            spindle: s.spindle,
-                            overrides: s.overrides,
-                            pins: s.pins.into(),
-                        });
-                        // Global broadcast for other windows (drill webview) — full
-                        // status (not just position) so a follower window has parity.
-                        let _ = r_app.emit(
-                            "machine://status",
-                            MachinePos {
-                                state: state_str(s.state).into(),
-                                mpos: s.mpos,
-                                wpos: s.wpos,
-                                feed: s.feed,
-                                spindle: s.spindle,
-                                overrides: s.overrides,
-                                pins: s.pins.into(),
-                            },
-                        );
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    r_stop.store(true, Ordering::Relaxed);
-                    let _ = r_app.emit("machine://error", e.to_string());
-                    // Notify the frontend only on an unexpected drop (read error /
-                    // unplug). A clean disconnect is frontend-initiated and already
-                    // tore the store down, so it needs no event here.
-                    let _ = r_app.emit("machine://disconnected", ());
-                    break;
-                }
-            }
-        }
-    });
+    let forwarder = tauri::async_runtime::spawn(forward_events(
+        handle.subscribe(),
+        telemetry.clone(),
+        app.clone(),
+        state.line_log.clone(),
+        echo_status.clone(),
+        disconnected_once.clone(),
+    ));
 
-    // Poller thread: status query every 200 ms.
-    let p_stop = stop.clone();
-    let p_writer = writer.clone();
-    let poller_handle = std::thread::spawn(move || {
-        while !p_stop.load(Ordering::Relaxed) {
-            if let Ok(mut w) = p_writer.lock() {
-                let _ = w.write_realtime(grbl::STATUS_QUERY);
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-    });
-
-    *guard = Some(MachineConn {
+    *state.conn.lock().unwrap() = Some(MachineConn {
         port,
-        writer,
+        handle,
         telemetry,
-        stop,
-        reader_handle: Some(reader_handle),
-        poller_handle: Some(poller_handle),
-        ack_tx,
-        activity,
+        forwarder,
         echo_status,
+        disconnected_once,
     });
-    drop(guard);
     let _ = app.emit("machine://connected", ());
     Ok(())
 }
 
 #[tauri::command]
-pub fn machine_disconnect(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
+pub async fn machine_disconnect(
+    app: AppHandle,
+    state: State<'_, MachineState>,
+) -> Result<(), String> {
     let conn = state.conn.lock().unwrap().take();
-    if let Some(mut conn) = conn {
-        conn.stop.store(true, Ordering::Relaxed);
-        if let Some(h) = conn.poller_handle.take() {
-            let _ = h.join();
+    if let Some(conn) = conn {
+        conn.forwarder.abort();
+        conn.handle.shutdown().await;
+        // Emit once — the forwarder may also have observed the broadcast close
+        // (abort is cooperative) and raced us here; the shared guard dedups.
+        if !conn.disconnected_once.swap(true, Ordering::SeqCst) {
+            let _ = app.emit("machine://disconnected", ());
         }
-        if let Some(h) = conn.reader_handle.take() {
-            let _ = h.join();
-        }
+    } else {
+        // Nothing was connected; still notify followers idempotently.
+        let _ = app.emit("machine://disconnected", ());
     }
-    // A clean disconnect exits the reader via the `stop` flag, bypassing the
-    // reader's error path that emits `machine://disconnected`. Broadcast it here
-    // so follower windows (console, drill) — which track machine state via the
-    // global event, not the per-window Channel — don't stay stuck on "connected".
-    let _ = app.emit("machine://disconnected", ());
     Ok(())
 }
 
-/// Write a line via the live connection and echo it to the console as "tx".
-fn send_line(state: &State<MachineState>, app: &AppHandle, line: &str) -> Result<(), String> {
-    // Take owned handles and release the outer state lock BEFORE the (blocking)
-    // serial write and telemetry send: keeps the outer lock off the I/O path and
-    // avoids nesting telemetry.lock() under it.
-    let (writer, telemetry) = {
-        let guard = state.conn.lock().unwrap();
-        let conn = guard.as_ref().ok_or("not connected")?;
-        (conn.writer.clone(), conn.telemetry.clone())
-    };
-    writer
-        .lock()
-        .unwrap()
-        .write_line(line)
-        .map_err(|e| e.to_string())?;
-    let _ = telemetry.lock().unwrap().send(Telemetry::Line {
-        dir: "tx".into(),
-        text: line.to_string(),
-    });
-    // Also record + broadcast globally so the console window follows TX commands.
-    record_and_broadcast_line(&state.line_log, app, "tx", line);
-    Ok(())
-}
-
-/// Abort the ok-wait if GRBL goes fully silent this long (link dead / unplugged).
-const SYNC_STALL_SILENCE: Duration = Duration::from_secs(4);
-/// Abort if GRBL is Idle but no ok arrived this long after the write (lost ok).
-const SYNC_IDLE_NO_ACK: Duration = Duration::from_secs(3);
-
-/// Write a line and BLOCK until GRBL gives it a terminal reply, over owned
-/// connection handles (so it can run on a `spawn_blocking` thread — the closure
-/// must be `Send`, which `&State` is not). Claims the reader→`ack_tx` slot, writes
-/// the line, then loops on the same liveness aborts as the rest of the sync waits.
-///
-/// `probe` selects the success rule:
-/// - `false` (plain `await ok`): the first `ok` is success; this is the
-///   `send_line_await_ok` behaviour (e.g. setting the work zero).
-/// - `true` (`G38.2` straight-probe): track the `[PRB:...:s]` flag and treat
-///   PRB-success + `ok` as a confirmed contact, a bare `ok` / `s=0` as no-contact,
-///   and an `ALARM` (G38.2 strict, no contact within travel) as failure.
-///
-/// Refuses if a drill run already holds the ack slot ("busy"); always releases it.
-fn await_terminal_owned(
-    writer: Arc<Mutex<GrblWriter>>,
-    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
-    activity: Arc<Mutex<Activity>>,
-    telemetry: Option<Channel<Telemetry>>,
-    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
-    line: &str,
-    probe: bool,
-) -> Result<(), String> {
-    // Claim the ack channel. If a drill run already holds it, don't interfere.
-    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
-    {
-        let mut slot = ack_slot.lock().unwrap();
-        if slot.is_some() {
-            return Err("machine busy".into());
-        }
-        *slot = Some(tx);
+/// Echo a line/label to the console as "tx" without touching the wire. Used for
+/// real-time bytes (jog-cancel, soft-reset, overrides, manual `?`), which the
+/// actor writes but does not echo (it only echoes line commands as tx).
+fn echo_tx(state: &State<MachineState>, app: &AppHandle, label: &str) {
+    if let Some(conn) = state.conn.lock().unwrap().as_ref() {
+        let t = conn.telemetry.lock().unwrap();
+        let _ = t.send(Telemetry::Line {
+            dir: "tx".into(),
+            text: label.to_string(),
+        });
     }
-
-    // Always release the ack slot, whatever the outcome.
-    let result = (|| {
-        writer
-            .lock()
-            .unwrap()
-            .write_line(line)
-            .map_err(|e| e.to_string())?;
-        if let Some(t) = &telemetry {
-            let _ = t.send(Telemetry::Line {
-                dir: "tx".into(),
-                text: line.to_string(),
-            });
-        }
-        if let Some((ref log, ref app)) = line_log {
-            record_and_broadcast_line(log, app, "tx", line);
-        }
-        let sent = std::time::Instant::now();
-        let mut contacted: Option<bool> = None;
-        loop {
-            match rx.recv_timeout(Duration::from_millis(100)) {
-                // Probe report: remember the contact flag until the terminal `ok`.
-                Ok(grbl::Line::Probe { success, .. }) => contacted = Some(success),
-                Ok(grbl::Line::Ok) => {
-                    if probe {
-                        // `ok` is the terminal after a probe. If GRBL never flagged
-                        // contact (s=0, or a bare ok), treat as no-contact.
-                        return match contacted {
-                            Some(true) => Ok(()),
-                            _ => Err("no contact".into()),
-                        };
-                    }
-                    return Ok(());
-                }
-                Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
-                // G38.2 strict raises an ALARM on no contact within travel.
-                Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
-                // A reset (welcome banner) mid-command means the line was aborted.
-                Ok(grbl::Line::Welcome(_)) => return Err("reset".into()),
-                Ok(_) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    let (silent, idle) = {
-                        let a = activity.lock().unwrap();
-                        (a.last.elapsed(), a.idle)
-                    };
-                    if silent > SYNC_STALL_SILENCE {
-                        return Err("no response from machine".into());
-                    }
-                    if idle && sent.elapsed() > SYNC_IDLE_NO_ACK {
-                        return Err("machine idle, no ack (lost ok)".into());
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("connection lost".into());
-                }
-            }
-        }
-    })();
-
-    *ack_slot.lock().unwrap() = None;
-    result
-}
-
-/// Write a line and BLOCK until GRBL acknowledges it with `ok` (success) or
-/// rejects it with `error`/`ALARM` (failure). Used for commands whose acceptance
-/// the UI must trust before acting on it — notably setting the work zero: a blind
-/// fire-and-forget send would let a rejected `G10` pass the run's start gate and
-/// drive the bit in a stale coordinate system. Reuses the same reader→`ack_tx`
-/// channel as the drill runner; refuses if a run already holds it ("busy"). Thin
-/// `&State` wrapper over `await_terminal_owned` (plain ok-wait).
-fn send_line_await_ok(
-    state: &State<MachineState>,
-    app: &AppHandle,
-    line: &str,
-) -> Result<(), String> {
-    let writer = state.writer().ok_or("not connected")?;
-    let ack_slot = state.ack_slot().ok_or("not connected")?;
-    let activity = state.activity().ok_or("not connected")?;
-    let telemetry = state.telemetry();
-    let line_log = Some((state.line_log.clone(), app.clone()));
-    await_terminal_owned(writer, ack_slot, activity, telemetry, line_log, line, false)
-}
-
-/// Overall ceiling for a homing cycle. GRBL stays silent for the whole cycle and
-/// then answers `ok` (done) or `ALARM` (switch not found within max travel), so
-/// the usual silence/idle aborts of `send_line_await_ok` don't apply — only a
-/// generous ceiling guards against a dead link that never answers.
-const HOMING_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Ceiling for collecting a full `$$` settings dump. `$$` answers within ~100 ms;
-/// this only guards a dead link that never sends the terminal `ok`.
-const SETTINGS_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Send `$H` and BLOCK until the homing cycle resolves: `ok` (homed),
-/// `error`/`ALARM` (rejected/failed), or a `Welcome` banner (a soft-reset aborted
-/// it). Unlike `send_line_await_ok`, it tolerates the long mid-cycle silence GRBL
-/// produces while homing — status reports stop until the cycle ends, so liveness
-/// can't be judged from silence here. Reuses the reader→`ack_tx` channel; refuses
-/// if a run already holds it. Takes the connection handles by value so it can run
-/// on a blocking thread (the cycle is seconds long — it must NOT run on the main
-/// thread or it freezes the webview).
-fn home_await(
-    writer: Arc<Mutex<GrblWriter>>,
-    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
-    telemetry: Option<Channel<Telemetry>>,
-    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
-) -> Result<(), String> {
-    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
-    {
-        let mut slot = ack_slot.lock().unwrap();
-        if slot.is_some() {
-            return Err("machine busy".into());
-        }
-        *slot = Some(tx);
-    }
-
-    let result = (|| {
-        let line = grbl::home();
-        writer
-            .lock()
-            .unwrap()
-            .write_line(line)
-            .map_err(|e| e.to_string())?;
-        if let Some(t) = &telemetry {
-            let _ = t.send(Telemetry::Line {
-                dir: "tx".into(),
-                text: line.to_string(),
-            });
-        }
-        if let Some((ref log, ref app)) = line_log {
-            record_and_broadcast_line(log, app, "tx", line);
-        }
-        let sent = std::time::Instant::now();
-        loop {
-            match rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(grbl::Line::Ok) => return Ok(()),
-                Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
-                Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
-                Ok(grbl::Line::Welcome(_)) => return Err("aborted".into()),
-                Ok(_) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if sent.elapsed() > HOMING_TIMEOUT {
-                        return Err("homing timeout".into());
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("connection lost".into());
-                }
-            }
-        }
-    })();
-
-    *ack_slot.lock().unwrap() = None;
-    result
-}
-
-/// Write a real-time byte via the live connection, echoing `label` as "tx".
-fn send_realtime(
-    state: &State<MachineState>,
-    app: &AppHandle,
-    byte: u8,
-    label: &str,
-) -> Result<(), String> {
-    // Same handle-extract-then-release pattern as send_line (see its comment).
-    let (writer, telemetry) = {
-        let guard = state.conn.lock().unwrap();
-        let conn = guard.as_ref().ok_or("not connected")?;
-        (conn.writer.clone(), conn.telemetry.clone())
-    };
-    writer
-        .lock()
-        .unwrap()
-        .write_realtime(byte)
-        .map_err(|e| e.to_string())?;
-    let _ = telemetry.lock().unwrap().send(Telemetry::Line {
-        dir: "tx".into(),
-        text: label.to_string(),
-    });
-    // Also record + broadcast globally so the console window follows real-time bytes.
     record_and_broadcast_line(&state.line_log, app, "tx", label);
-    Ok(())
 }
 
 #[tauri::command]
-pub fn machine_jog(
-    app: AppHandle,
-    state: State<MachineState>,
+pub async fn machine_jog(
+    state: State<'_, MachineState>,
     dx: f32,
     dy: f32,
     dz: f32,
     feed: f32,
 ) -> Result<(), String> {
-    send_line(&state, &app, &grbl::jog(dx, dy, dz, feed))
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_line(&grbl::jog(dx, dy, dz, feed))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Absolute jog (work coords): drive the given axes to their targets. Used by the
 /// click-to-move surfaces (work field, Z bar), which cancel any in-flight jog
 /// before re-issuing so a new click retargets instead of queuing behind it.
 #[tauri::command]
-pub fn machine_jog_to(
-    app: AppHandle,
-    state: State<MachineState>,
+pub async fn machine_jog_to(
+    state: State<'_, MachineState>,
     x: Option<f32>,
     y: Option<f32>,
     z: Option<f32>,
     feed: f32,
 ) -> Result<(), String> {
-    send_line(&state, &app, &grbl::jog_to(x, y, z, feed))
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_line(&grbl::jog_to(x, y, z, feed))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn machine_jog_cancel(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, &app, grbl::JOG_CANCEL, "jog-cancel")
+pub async fn machine_jog_cancel(
+    app: AppHandle,
+    state: State<'_, MachineState>,
+) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_realtime(grbl::JOG_CANCEL)
+        .await
+        .map_err(|e| e.to_string())?;
+    echo_tx(&state, &app, "jog-cancel");
+    Ok(())
 }
 
 /// Set the G54 work zero on the selected axes and wait for GRBL to accept it.
 /// Returns Err if GRBL rejects the command (e.g. `error:N`) so the UI never
 /// trusts a zero the machine didn't actually apply.
 #[tauri::command]
-pub fn machine_set_zero(
-    app: AppHandle,
-    state: State<MachineState>,
+pub async fn machine_set_zero(
+    state: State<'_, MachineState>,
     x: bool,
     y: bool,
     z: bool,
 ) -> Result<(), String> {
-    send_line_await_ok(&state, &app, &grbl::set_work_zero(x, y, z))
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_await(&grbl::set_work_zero(x, y, z))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn machine_home(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
-    send_line(&state, &app, grbl::home())
+pub async fn machine_home(state: State<'_, MachineState>) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_line(grbl::home())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Home ($H) and resolve only once the cycle completes, so the UI can show
 /// progress and mark the frame homed only when GRBL confirms it (Err on
-/// failure/abort/timeout). Runs the seconds-long blocking wait off the main
-/// thread via `spawn_blocking`, so the webview stays responsive and the
-/// "homing…" overlay can paint.
+/// failure/abort/timeout). The actor tolerates the long mid-cycle silence.
 #[tauri::command]
-pub async fn machine_home_await(
-    app: AppHandle,
-    state: State<'_, MachineState>,
-) -> Result<(), String> {
-    let writer = state.writer().ok_or("not connected")?;
-    let ack_slot = state.ack_slot().ok_or("not connected")?;
-    let telemetry = state.telemetry();
-    let line_log = Some((state.line_log.clone(), app));
-    tauri::async_runtime::spawn_blocking(move || home_await(writer, ack_slot, telemetry, line_log))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn machine_home_await(state: State<'_, MachineState>) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
+    handle.home().await.map_err(|e| e.to_string())
 }
 
-/// Send `$$` and collect every `$N=value` reply until the terminal `ok`. Claims
-/// the reader→`ack_tx` slot (refuses "machine busy" if a run holds it), always
-/// releases it. `error`/reset abort; a dead link aborts on `SETTINGS_TIMEOUT`.
-fn read_settings(
-    writer: Arc<Mutex<GrblWriter>>,
-    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
-    telemetry: Option<Channel<Telemetry>>,
-    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
-) -> Result<Vec<GrblSettingDto>, String> {
-    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
-    {
-        let mut slot = ack_slot.lock().unwrap();
-        if slot.is_some() {
-            return Err("machine busy".into());
-        }
-        *slot = Some(tx);
-    }
-
-    let result = (|| {
-        let line = "$$";
-        writer
-            .lock()
-            .unwrap()
-            .write_line(line)
-            .map_err(|e| e.to_string())?;
-        if let Some(t) = &telemetry {
-            let _ = t.send(Telemetry::Line {
-                dir: "tx".into(),
-                text: line.to_string(),
-            });
-        }
-        if let Some((ref log, ref app)) = line_log {
-            record_and_broadcast_line(log, app, "tx", line);
-        }
-        let sent = std::time::Instant::now();
-        let mut out: Vec<GrblSettingDto> = Vec::new();
-        loop {
-            match rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(grbl::Line::Setting { n, value }) => out.push(GrblSettingDto { n, value }),
-                Ok(grbl::Line::Ok) => return Ok(out),
-                Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
-                Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
-                Ok(grbl::Line::Welcome(_)) => return Err("reset".into()),
-                Ok(_) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if sent.elapsed() > SETTINGS_TIMEOUT {
-                        return Err("no response from machine".into());
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("connection lost".into());
-                }
-            }
-        }
-    })();
-
-    *ack_slot.lock().unwrap() = None;
-    result
-}
-
-/// Read the controller's full firmware settings (`$$`). Runs the blocking
-/// collect off the main thread so the webview stays responsive.
+/// Read the controller's full firmware settings (`$$`).
 #[tauri::command]
 pub async fn machine_read_settings(
-    app: AppHandle,
     state: State<'_, MachineState>,
 ) -> Result<Vec<GrblSettingDto>, String> {
-    let writer = state.writer().ok_or("not connected")?;
-    let ack_slot = state.ack_slot().ok_or("not connected")?;
-    let telemetry = state.telemetry();
-    let line_log = Some((state.line_log.clone(), app));
-    tauri::async_runtime::spawn_blocking(move || {
-        read_settings(writer, ack_slot, telemetry, line_log)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let handle = state.handle().ok_or("not connected")?;
+    let settings = handle.read_settings().await.map_err(|e| e.to_string())?;
+    Ok(settings
+        .into_iter()
+        .map(|(n, value)| GrblSettingDto { n, value })
+        .collect())
 }
 
 #[tauri::command]
-pub fn machine_unlock(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
-    send_line(&state, &app, grbl::unlock())?;
+pub async fn machine_unlock(app: AppHandle, state: State<'_, MachineState>) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_line(grbl::unlock())
+        .await
+        .map_err(|e| e.to_string())?;
     // Broadcast so every window's alarm banner can optimistically hide at once,
     // before the next status poll confirms the cleared state (~200 ms later).
     let _ = app.emit("machine://unlock", ());
@@ -805,103 +488,26 @@ pub fn machine_unlock(app: AppHandle, state: State<MachineState>) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn machine_spindle(
-    app: AppHandle,
-    state: State<MachineState>,
+pub async fn machine_spindle(
+    state: State<'_, MachineState>,
     on: bool,
     rpm: u32,
 ) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
     let line = if on {
         grbl::spindle_on(rpm)
     } else {
         grbl::spindle_off().to_string()
     };
-    send_line(&state, &app, &line)
-}
-
-/// Blocking body of the probe cycle, over owned handles so it can run on a
-/// `spawn_blocking` thread. Probes Z (`G38.2`); on contact sets the G54 Z work-zero
-/// (`G10 L20 P1 Z<offset_mm>`) and retracts Z to `safe_z_mm` (work coord). On no
-/// contact / reject the Z-zero is left untouched (returns Err before the `G10`).
-// Four owned connection handles + four probe scalars — inherent to the signature,
-// like the other owned-handle waiters; grouping them buys nothing here.
-#[allow(clippy::too_many_arguments)]
-fn do_probe_z(
-    writer: Arc<Mutex<GrblWriter>>,
-    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
-    activity: Arc<Mutex<Activity>>,
-    telemetry: Option<Channel<Telemetry>>,
-    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
-    max_dist_mm: f32,
-    feed_mm_min: f32,
-    offset_mm: f32,
-    safe_z_mm: f32,
-    approach_z_mm: Option<f32>,
-) -> Result<(), String> {
-    // Optional rapid descent to the approach height (work frame) before probing — lets
-    // the tool-change park sit high (room to swap the bit) while the probe still
-    // reaches the surface. Absolute (G90) so a high park descends correctly. The
-    // bit-length tolerance is the approach height itself: contact during this G0
-    // happens only if the new bit is longer than the previous by more than it.
-    if let Some(z) = approach_z_mm {
-        await_terminal_owned(
-            writer.clone(),
-            ack_slot.clone(),
-            activity.clone(),
-            telemetry.clone(),
-            line_log.clone(),
-            &format!("G90 G0 Z{z}"),
-            false,
-        )?;
-    }
-    await_terminal_owned(
-        writer.clone(),
-        ack_slot.clone(),
-        activity.clone(),
-        telemetry.clone(),
-        line_log.clone(),
-        &grbl::probe_z(max_dist_mm, feed_mm_min),
-        true,
-    )?;
-    // Contact confirmed: zero Z here (board top + plate offset)...
-    await_terminal_owned(
-        writer.clone(),
-        ack_slot,
-        activity,
-        telemetry.clone(),
-        line_log.clone(),
-        &format!("G10 L20 P1 Z{offset_mm}"),
-        false,
-    )?;
-    // ...then lift clear. Fire-and-forget jog (mirrors home_await's direct write +
-    // echo): a retract that's late doesn't invalidate the just-set Z-zero.
-    let line = grbl::jog_to(None, None, Some(safe_z_mm), feed_mm_min);
-    writer
-        .lock()
-        .unwrap()
-        .write_line(&line)
-        .map_err(|e| e.to_string())?;
-    if let Some(t) = &telemetry {
-        let _ = t.send(Telemetry::Line {
-            dir: "tx".into(),
-            text: line.clone(),
-        });
-    }
-    if let Some((ref log, ref app)) = line_log {
-        record_and_broadcast_line(log, app, "tx", &line);
-    }
-    Ok(())
+    handle.send_line(&line).await.map_err(|e| e.to_string())
 }
 
 /// Probe Z down onto the work surface and set the G54 Z work-zero at contact
 /// (`G10 L20 P1 Z<offset_mm>`), then retract Z to `safe_z_mm` (work coord). On no
 /// contact / reject the Z-zero is left untouched. The caller (frontend) is
-/// responsible for the probe-pin pre-check and the connectivity self-test. The
-/// descent is seconds long (max travel at probe feed), so the blocking wait runs
-/// off the main thread via `spawn_blocking` — otherwise it freezes the webview.
+/// responsible for the probe-pin pre-check and the connectivity self-test.
 #[tauri::command]
 pub async fn machine_probe_z(
-    app: AppHandle,
     state: State<'_, MachineState>,
     max_dist_mm: f32,
     feed_mm_min: f32,
@@ -909,54 +515,73 @@ pub async fn machine_probe_z(
     safe_z_mm: f32,
     approach_z_mm: Option<f32>,
 ) -> Result<(), String> {
-    let writer = state.writer().ok_or("not connected")?;
-    let ack_slot = state.ack_slot().ok_or("not connected")?;
-    let activity = state.activity().ok_or("not connected")?;
-    let telemetry = state.telemetry();
-    let line_log = Some((state.line_log.clone(), app));
-    tauri::async_runtime::spawn_blocking(move || {
-        do_probe_z(
-            writer,
-            ack_slot,
-            activity,
-            telemetry,
-            line_log,
-            max_dist_mm,
-            feed_mm_min,
-            offset_mm,
-            safe_z_mm,
-            approach_z_mm,
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let handle = state.handle().ok_or("not connected")?;
+
+    // Optional rapid descent to the approach height (work frame) before probing —
+    // lets the tool-change park sit high (room to swap the bit) while the probe
+    // still reaches the surface. Absolute (G90) so a high park descends correctly.
+    if let Some(z) = approach_z_mm {
+        handle
+            .send_await(&format!("G90 G0 Z{z}"))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Strict straight-probe. `probe()` returns Ok(false) on no-contact (bare ok /
+    // s=0) and Err on an ALARM (G38.2 strict, no contact within travel).
+    let contact = handle
+        .probe(&grbl::probe_z(max_dist_mm, feed_mm_min))
+        .await
+        .map_err(|e| e.to_string())?;
+    if !contact {
+        return Err("no contact".into());
+    }
+
+    // Contact confirmed: zero Z here (board top + plate offset)...
+    handle
+        .send_await(&format!("G10 L20 P1 Z{offset_mm}"))
+        .await
+        .map_err(|e| e.to_string())?;
+    // ...then lift clear. Fire-and-forget jog: a retract that's late doesn't
+    // invalidate the just-set Z-zero.
+    handle
+        .send_line(&grbl::jog_to(None, None, Some(safe_z_mm), feed_mm_min))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn machine_send(
+pub async fn machine_send(
     app: AppHandle,
-    state: State<MachineState>,
+    state: State<'_, MachineState>,
     line: String,
 ) -> Result<(), String> {
-    // A bare `?` is the status query; GRBL's `<...>` reply is normally filtered from
+    let handle = state.handle().ok_or("not connected")?;
+    // A bare `?` is the status query; GRBL's `<...>` reply is normally kept off
     // the console (5 Hz poll noise). When the user types it explicitly, arm a
-    // one-shot so the reader echoes the next status report back to them. Send it as
-    // a real-time byte (no `\n`), matching the poller — a `?\n` line would also draw
-    // a spurious `ok`. Arm before the write (so the reply can't beat the arm), and
-    // disarm if the write fails so a stale arm can't later swallow a poll line.
+    // one-shot so the forwarder echoes the next status report back to them. Send
+    // it as a real-time byte (no `\n`) so it doesn't draw a spurious `ok`. Arm
+    // before the write (so the reply can't beat the arm), disarm if the write
+    // fails so a stale arm can't later swallow a poll line.
     if line.trim() == "?" {
         if let Some(conn) = state.conn.lock().unwrap().as_ref() {
             conn.echo_status.store(true, Ordering::Release);
         }
-        let r = send_realtime(&state, &app, grbl::STATUS_QUERY, "?");
-        if r.is_err() {
-            if let Some(conn) = state.conn.lock().unwrap().as_ref() {
-                conn.echo_status.store(false, Ordering::Relaxed);
+        match handle.send_realtime(grbl::STATUS_QUERY).await {
+            Ok(()) => {
+                echo_tx(&state, &app, "?");
+                Ok(())
+            }
+            Err(e) => {
+                if let Some(conn) = state.conn.lock().unwrap().as_ref() {
+                    conn.echo_status.store(false, Ordering::Relaxed);
+                }
+                Err(e.to_string())
             }
         }
-        return r;
+    } else {
+        handle.send_line(&line).await.map_err(|e| e.to_string())
     }
-    send_line(&state, &app, &line)
 }
 
 /// Write a line and block until GRBL acknowledges it, returning Err on
@@ -965,35 +590,62 @@ pub fn machine_send(
 /// silently dropped, so the change would never reach EEPROM yet the UI assumes
 /// success.
 #[tauri::command]
-pub fn machine_send_await_ok(
-    app: AppHandle,
-    state: State<MachineState>,
+pub async fn machine_send_await_ok(
+    state: State<'_, MachineState>,
     line: String,
 ) -> Result<(), String> {
-    send_line_await_ok(&state, &app, &line)
+    let handle = state.handle().ok_or("not connected")?;
+    handle.send_await(&line).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn machine_soft_reset(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, &app, grbl::SOFT_RESET, "soft-reset")
+pub async fn machine_soft_reset(
+    app: AppHandle,
+    state: State<'_, MachineState>,
+) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_realtime(grbl::SOFT_RESET)
+        .await
+        .map_err(|e| e.to_string())?;
+    echo_tx(&state, &app, "soft-reset");
+    Ok(())
 }
 
 #[tauri::command]
-pub fn machine_feed_hold(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, &app, grbl::FEED_HOLD, "!")
+pub async fn machine_feed_hold(
+    app: AppHandle,
+    state: State<'_, MachineState>,
+) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_realtime(grbl::FEED_HOLD)
+        .await
+        .map_err(|e| e.to_string())?;
+    echo_tx(&state, &app, "!");
+    Ok(())
 }
 
 #[tauri::command]
-pub fn machine_cycle_start(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
-    send_realtime(&state, &app, grbl::CYCLE_START, "~")
+pub async fn machine_cycle_start(
+    app: AppHandle,
+    state: State<'_, MachineState>,
+) -> Result<(), String> {
+    let handle = state.handle().ok_or("not connected")?;
+    handle
+        .send_realtime(grbl::CYCLE_START)
+        .await
+        .map_err(|e| e.to_string())?;
+    echo_tx(&state, &app, "~");
+    Ok(())
 }
 
 /// Adjust a real-time override. `kind` ∈ {feed, rapid, spindle};
 /// `action` ∈ {"100", "+10", "-10", "+1", "-1", "stop"}. "stop" is spindle-only.
 #[tauri::command]
-pub fn machine_override(
+pub async fn machine_override(
     app: AppHandle,
-    state: State<MachineState>,
+    state: State<'_, MachineState>,
     kind: String,
     action: String,
 ) -> Result<(), String> {
@@ -1016,34 +668,17 @@ pub fn machine_override(
         ("spindle", "stop") => grbl::SPINDLE_OVERRIDE_STOP,
         _ => return Err(format!("unknown override: {kind}/{action}")),
     };
-    send_realtime(&state, &app, byte, &format!("ov:{kind}{action}"))
+    let handle = state.handle().ok_or("not connected")?;
+    handle.send_realtime(byte).await.map_err(|e| e.to_string())?;
+    echo_tx(&state, &app, &format!("ov:{kind}{action}"));
+    Ok(())
 }
 
 impl MachineState {
-    pub(crate) fn writer(&self) -> Option<Arc<Mutex<GrblWriter>>> {
-        self.conn.lock().unwrap().as_ref().map(|c| c.writer.clone())
-    }
-
-    pub(crate) fn ack_slot(
-        &self,
-    ) -> Option<Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>> {
-        self.conn.lock().unwrap().as_ref().map(|c| c.ack_tx.clone())
-    }
-
-    pub(crate) fn activity(&self) -> Option<Arc<Mutex<Activity>>> {
-        self.conn
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|c| c.activity.clone())
-    }
-
-    pub(crate) fn telemetry(&self) -> Option<Channel<Telemetry>> {
-        self.conn
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|c| c.telemetry.lock().unwrap().clone())
+    /// Clone of the live actor handle, if connected. The single accessor every
+    /// command (and the drill runner) goes through.
+    pub(crate) fn handle(&self) -> Option<GrblHandle> {
+        self.conn.lock().unwrap().as_ref().map(|c| c.handle.clone())
     }
 
     pub(crate) fn is_connected(&self) -> bool {
@@ -1058,8 +693,8 @@ pub fn machine_is_connected(state: State<MachineState>) -> bool {
 
 /// Re-bind a fresh telemetry Channel to the still-live connection after a webview
 /// reload (which destroys the front-end's previous Channel while the backend keeps
-/// the serial port and reader/poller threads running). Returns the held port so the
-/// front-end can restore its connection state, or `None` if nothing is connected.
+/// the serial port and actor running). Returns the held port so the front-end can
+/// restore its connection state, or `None` if nothing is connected.
 #[tauri::command]
 pub fn machine_reattach(
     state: State<MachineState>,
