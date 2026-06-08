@@ -101,7 +101,19 @@ export function ConnBar({
     };
   }, [connected, refresh]);
 
-  const selectedPort = cnc.port ?? ports[0]?.name ?? "";
+  // While connected the live port is the store's `port`; fall back to the saved
+  // profile port, then the first discovered port.
+  const selectedPort = (connected ? connectedPort ?? cnc.port : cnc.port) ?? ports[0]?.name ?? "";
+
+  // Always carry an <option> for the currently-selected port, even when the poll
+  // never ran — e.g. after a webview reload reattaches an already-open port, so the
+  // poll bailed on `connected` and `ports` is still empty. Without this synthetic
+  // entry the disabled select falls back to the "no ports" placeholder and the live
+  // connection looks lost.
+  const portOptions: SerialPortInfo[] =
+    selectedPort && !ports.some((p) => p.name === selectedPort)
+      ? [{ name: selectedPort, kind: "" }, ...ports]
+      : ports;
 
   const onToggle = () => {
     setBusy(true);
@@ -176,8 +188,8 @@ export function ConnBar({
               compact ? "w-full" : "w-[230px]"
             }`}
           >
-            {ports.length === 0 && <option value="">{t("connection.noPorts")}</option>}
-            {ports.map((p) => (
+            {portOptions.length === 0 && <option value="">{t("connection.noPorts")}</option>}
+            {portOptions.map((p) => (
               <option key={p.name} value={p.name}>
                 {p.name}
               </option>
