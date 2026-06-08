@@ -12,8 +12,7 @@
     "console": "Console",
     "expand": "Expand sidebar",
     "collapse": "Collapse sidebar",
-    "addCnc": "Add CNC",
-    "addUv": "Add UV LCD",
+    "addDevice": "Add",
     "delete": "Remove",
     "cancel": "Cancel",
     "empty": "Select a machine to edit",
@@ -46,6 +45,26 @@
     "type": {
       "cnc": "CNC",
       "uvlcd": "UV LCD"
+    },
+    "add": {
+      "back": "Equipment",
+      "title": "New equipment",
+      "subtitle": "Pick a type and model — parameters are filled in from a preset and can be changed later.",
+      "type": "Type",
+      "typeCncSub": "Milling / engraving machine",
+      "typeUvSub": "Resin 3D printer",
+      "model": "Model",
+      "customLabel": "Custom",
+      "customSub": "configure manually",
+      "name": "Name",
+      "namePlaceholder": "e.g. CNC 3018 (workshop)",
+      "cancel": "Cancel",
+      "submit": "Add"
+    },
+    "empty": {
+      "title": "No equipment",
+      "desc": "Add a machine or printer to configure its work area, spindle and connection, then control it all from one place.",
+      "add": "Add equipment"
     },
     "confirmDelete": {
       "title": "Delete machine?",

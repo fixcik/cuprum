@@ -4,6 +4,8 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { MachineList } from "@/components/settings/MachineList";
 import { MachineEditor } from "@/components/settings/MachineEditor";
+import { AddDeviceScreen } from "@/components/settings/AddDeviceScreen";
+import { EmptyState } from "@/components/settings/EmptyState";
 
 /** Master-detail equipment settings: the machine library on the left, the
  *  selected machine's editor on the right. The library sidebar collapses to a
@@ -18,6 +20,8 @@ export function EquipmentSection() {
   const [selectedId, setSelectedId] = useState<string | null>(
     () => activeCncMachineId ?? activeUvMachineId ?? machines[0]?.id ?? null,
   );
+  // Which screen the section shows: the master-detail list or the add-device form.
+  const [screen, setScreen] = useState<"list" | "add">("list");
   // Sidebar collapse state — persisted, defaults to expanded.
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("cnc.equip") === "0",
@@ -49,6 +53,30 @@ export function EquipmentSection() {
   // Re-derive a valid selection when the current one disappears (e.g. deleted in
   // another window). Done during render — no effect needed since we read it below.
   const effectiveSelected = selected ?? machines[0] ?? null;
+
+  // Add screen: hide the list sidebar + editor, show the add form full-width.
+  if (screen === "add") {
+    return (
+      <div className="flex min-h-0 flex-1">
+        <AddDeviceScreen
+          onCancel={() => setScreen("list")}
+          onCreated={(m) => {
+            handleSelect(m.id);
+            setScreen("list");
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Empty state: no machines — full-width prompt to add the first one.
+  if (machines.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1">
+        <EmptyState onAdd={() => setScreen("add")} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -83,6 +111,7 @@ export function EquipmentSection() {
           <MachineList
             selectedId={effectiveSelected?.id ?? null}
             onSelect={handleSelect}
+            onAdd={() => setScreen("add")}
             collapsed={collapsed}
           />
         </div>
