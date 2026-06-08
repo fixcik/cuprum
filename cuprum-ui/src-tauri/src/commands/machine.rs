@@ -377,7 +377,7 @@ pub fn machine_connect(
 }
 
 #[tauri::command]
-pub fn machine_disconnect(state: State<MachineState>) -> Result<(), String> {
+pub fn machine_disconnect(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
     let conn = state.conn.lock().unwrap().take();
     if let Some(mut conn) = conn {
         conn.stop.store(true, Ordering::Relaxed);
@@ -388,6 +388,11 @@ pub fn machine_disconnect(state: State<MachineState>) -> Result<(), String> {
             let _ = h.join();
         }
     }
+    // A clean disconnect exits the reader via the `stop` flag, bypassing the
+    // reader's error path that emits `machine://disconnected`. Broadcast it here
+    // so follower windows (console, drill) — which track machine state via the
+    // global event, not the per-window Channel — don't stay stuck on "connected".
+    let _ = app.emit("machine://disconnected", ());
     Ok(())
 }
 
