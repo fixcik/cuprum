@@ -128,11 +128,13 @@
     "bindRejected": "Zero rejected by the machine ({{error}}) — not set. Re-position and bind again."
   },
   "runHeader": {
-    "drilling": "Drilling…",
+    "drilling": "Drilling",
     "paused": "Paused",
     "toolChange": "Tool change",
+    "zBind": "Z touch-off",
     "done": "Done",
-    "elapsed": "{{elapsed}} · ~{{remaining}}"
+    "elapsedShort": "{{elapsed}} elapsed",
+    "remainingShort": "~{{remaining}} left"
   },
   "phase": {
     "traverse": "Traverse",
