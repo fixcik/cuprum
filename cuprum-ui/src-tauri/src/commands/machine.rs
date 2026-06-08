@@ -314,7 +314,9 @@ pub async fn machine_connect(
         }
     }
 
-    let handle = grbl::connect(&port, baud).await.map_err(|e| e.to_string())?;
+    let handle = grbl::connect(&port, baud)
+        .await
+        .map_err(|e| e.to_string())?;
     let telemetry = Arc::new(Mutex::new(telemetry));
     let echo_status = Arc::new(AtomicBool::new(false));
     let disconnected_once = Arc::new(AtomicBool::new(false));
@@ -669,7 +671,10 @@ pub async fn machine_override(
         _ => return Err(format!("unknown override: {kind}/{action}")),
     };
     let handle = state.handle().ok_or("not connected")?;
-    handle.send_realtime(byte).await.map_err(|e| e.to_string())?;
+    handle
+        .send_realtime(byte)
+        .await
+        .map_err(|e| e.to_string())?;
     echo_tx(&state, &app, &format!("ov:{kind}{action}"));
     Ok(())
 }
