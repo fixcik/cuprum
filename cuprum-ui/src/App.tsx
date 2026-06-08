@@ -6,7 +6,7 @@ import { ProjectPage } from "@/pages/ProjectPage";
 import { EquipmentPage } from "@/pages/EquipmentPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
-import { useShell } from "@/shellStore";
+import { useShell, armSessionPersist } from "@/shellStore";
 import { loadLastSession } from "@/lib/lastSession";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
@@ -86,24 +86,31 @@ export default function App() {
     if (!coldStartHandled) {
       coldStartHandled = true;
       void (async () => {
-        const pending = await api.takePendingOpen().catch(() => null);
-        if (pending) {
-          await useShell.getState().openProjectByPath(pending);
-          return;
+        try {
+          const pending = await api.takePendingOpen().catch(() => null);
+          if (pending) {
+            await useShell.getState().openProjectByPath(pending);
+            return;
+          }
+          const last = loadLastSession();
+          if (!last) return;
+          // Reopen the project first (this forces the "project" view on success;
+          // a not-found path leaves the shell on Home with a notice). Then honor a
+          // non-project view the user was on — for "project" the open already set
+          // it, and a failed open correctly stays Home.
+          if (last.path) await useShell.getState().openProjectByPath(last.path);
+          // Only honor a non-project view once the open (if any) actually
+          // succeeded — currentPath is set on success, null on not-found/error.
+          // Otherwise a failed open would navigate away from Home and hide its
+          // error/notice (which only HomePage renders).
+          const openOk = !last.path || useShell.getState().currentPath === last.path;
+          if (openOk && last.view !== "project") useShell.getState().setView(last.view);
+        } finally {
+          // Arm persistence ONLY now — after restore has read localStorage — so
+          // startup's own state churn (and secondary windows) can't clobber the
+          // saved entry before we restore from it. See shellStore subscription.
+          armSessionPersist();
         }
-        const last = loadLastSession();
-        if (!last) return;
-        // Reopen the project first (this forces the "project" view on success;
-        // a not-found path leaves the shell on Home with a notice). Then honor a
-        // non-project view the user was on — for "project" the open already set
-        // it, and a failed open correctly stays Home.
-        if (last.path) await useShell.getState().openProjectByPath(last.path);
-        // Only honor a non-project view once the open (if any) actually
-        // succeeded — currentPath is set on success, null on not-found/error.
-        // Otherwise a failed open would navigate away from Home and hide its
-        // error/notice (which only HomePage renders).
-        const openOk = !last.path || useShell.getState().currentPath === last.path;
-        if (openOk && last.view !== "project") useShell.getState().setView(last.view);
       })();
     }
     const pending = api.onOpenFile((path) => void useShell.getState().openProjectByPath(path));
