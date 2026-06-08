@@ -12,13 +12,23 @@ export function useUnlockSuppressed(graceMs = 1000): boolean {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const sub = api.machine.onUnlock(() => {
-      setSuppressed(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setSuppressed(false), graceMs);
-    });
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void api.machine
+      .onUnlock(() => {
+        setSuppressed(true);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setSuppressed(false), graceMs);
+      })
+      .then((un) => {
+        // If the effect was already torn down (StrictMode double-mount), drop the
+        // listener at once instead of leaking it until the real unmount.
+        if (active) unlisten = un;
+        else un();
+      });
     return () => {
-      void sub.then((un) => un());
+      active = false;
+      unlisten?.();
       if (timer.current) clearTimeout(timer.current);
     };
   }, [graceMs]);
