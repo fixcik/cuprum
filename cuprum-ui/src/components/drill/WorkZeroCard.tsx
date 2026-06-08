@@ -41,9 +41,10 @@ const X_COLOR = "#d9534f";
 const Y_COLOR = "#3fbf6f";
 const Z_COLOR = "#4f8cd9";
 
-/** Z± jog button (matches the manual control's Z bar). */
+/** Z± jog button — a tall bar segment that fills the pad height (matches the manual
+ *  control's Z column), so the Z bar reads as a real control, not a tiny pair. */
 const zBtn =
-  "flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground active:bg-primary/10 disabled:pointer-events-none disabled:opacity-30";
+  "flex w-full flex-1 flex-col items-center justify-center gap-0.5 rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground active:bg-primary/10 disabled:pointer-events-none disabled:opacity-30";
 
 /** Shared button style for the XY jog pad arrows. */
 const padBtn =
@@ -155,8 +156,8 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, maxZMm, xyGate }: Wo
         />
       </div>
 
-      {/* 3×3 XY jog pad (left) + Z± bar + live X/Y/Z badges (right) */}
-      <div className="flex items-center gap-4">
+      {/* 3×3 XY jog pad (left) + live X/Y/Z badges (centre) + Z± bar (right) */}
+      <div className="flex items-stretch gap-4">
         <div className="grid w-[150px] grid-cols-3 gap-1.5">
           {dirBtn(-1, 1, "↖", <ArrowUpLeft className="h-4 w-4" />)}
           {dirBtn(0, 1, "Y+", <ArrowUp className="h-4 w-4" />)}
@@ -177,11 +178,16 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, maxZMm, xyGate }: Wo
           {dirBtn(1, -1, "↘", <ArrowDownRight className="h-4 w-4" />)}
         </div>
 
-        {/* Z± bar — lower/raise the spindle to aim at the datum (does not bind Z) */}
-        <div className="flex flex-col items-center gap-1.5">
-          <span className="text-[11px] font-bold" style={{ color: Z_COLOR }}>
-            Z
-          </span>
+        {/* Live X/Y/Z machine readout, centred between the XY pad and the Z bar */}
+        <div className="flex flex-1 flex-col justify-center gap-2.5">
+          {axisBadge("X", X_COLOR, mposX)}
+          {axisBadge("Y", Y_COLOR, mposY)}
+          {axisBadge("Z", Z_COLOR, mposZ)}
+        </div>
+
+        {/* Z± bar — a tall column to lower/raise the spindle for aiming at the datum
+            (does NOT bind Z). Fills the pad height so it reads as a real bar. */}
+        <div className="flex w-[52px] flex-col gap-1.5">
           <button
             type="button"
             title={`Z+ ${fmtLen(typeof step === "number" ? step : 0)}`}
@@ -189,8 +195,12 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, maxZMm, xyGate }: Wo
             className={zBtn}
             {...zPropsFor(1)}
           >
-            <ChevronUp className="h-4 w-4" />
+            <ChevronUp className="h-5 w-5" />
+            <span className="text-[10px] font-semibold">Z+</span>
           </button>
+          <div className="grid place-items-center text-[9px] font-bold uppercase tracking-wide" style={{ color: Z_COLOR }}>
+            Z
+          </div>
           <button
             type="button"
             title={`Z− ${fmtLen(typeof step === "number" ? step : 0)}`}
@@ -198,14 +208,9 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, maxZMm, xyGate }: Wo
             className={zBtn}
             {...zPropsFor(-1)}
           >
-            <ChevronDown className="h-4 w-4" />
+            <span className="text-[10px] font-semibold">Z−</span>
+            <ChevronDown className="h-5 w-5" />
           </button>
-        </div>
-
-        <div className="flex flex-col gap-2.5">
-          {axisBadge("X", X_COLOR, mposX)}
-          {axisBadge("Y", Y_COLOR, mposY)}
-          {axisBadge("Z", Z_COLOR, mposZ)}
         </div>
       </div>
 
