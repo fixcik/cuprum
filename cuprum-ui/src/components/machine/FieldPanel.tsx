@@ -2,75 +2,40 @@ import { useTranslation } from "react-i18next";
 import { Grid3x3 } from "lucide-react";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
-import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
-import { safeRetractMachineZ } from "@/lib/gotoZero";
 import { useJog, RAPID_JOG_FEED } from "@/hooks/useJog";
 import { WorkField } from "@/components/machine/WorkField";
 import { ZBar } from "@/components/machine/ZBar";
 
 /** Work-area card: header (envelope size + live work XYZ) over the WorkField +
- *  ZBar. Clicking the field moves to the picked WORK X/Y. If the tool is already
- *  at/above the machine safe-Z it traverses straight away (as a rapid-like jog,
- *  so a fresh click cancels-and-retargets instead of blocking); otherwise it
- *  raises Z to the safe height first (raise-then-move) — no confirmation prompt.
- *  The field is inert unless the machine is connected and in a movable state. */
+ *  ZBar. Clicking the field traverses straight to the picked WORK X/Y at the
+ *  current Z — Z is left untouched. (An automatic raise-to-safe-Z used to run
+ *  first, but it was non-obvious and got in the operator's way during manual
+ *  setup; if clearance is needed they raise Z themselves via the ZBar.)
+ *  The field is inert unless connected, movable and homed. */
 export function FieldPanel({ className }: { className?: string }) {
   const { t } = useTranslation("machine");
   const env = useSettings((s) => s.cncProfile.workEnvelopeMm);
-  const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
-  const machineSafeZMm = useSettings((s) => s.cncProfile.machineSafeZMm);
   const connected = useMachine((s) => s.connected);
   const state = useMachine((s) => s.status.state);
   const wpos = useMachine((s) => s.status.wpos);
   const homed = useMachine((s) => s.homed);
   const movable = canMove(state, connected);
-  // The click-to-move traverse does a machine-frame (G53) safe-Z retract, so it
-  // requires a homed frame in addition to a movable state.
+  // The picked target is an absolute WORK position, only meaningful on a
+  // referenced frame, so require homing in addition to a movable state.
   const canAutoMove = movable && homed;
   const { jogTo } = useJog();
 
-  async function move(x: number, y: number, raiseFirst: boolean) {
+  /** Field click: traverse XY straight to the picked WORK target as a rapid-like
+   *  JOG (not a G0 rapid) so it stays in the `jog` state — the field stays live
+   *  and a fresh click cancels-and-retargets via jogTo. Z is left untouched. */
+  function requestMove(x: number, y: number) {
     // Re-validate live state: the machine may have disconnected / alarmed / lost
     // homing between the click and the move. Bail rather than send into an
     // unsafe state.
     const m = useMachine.getState();
     if (!m.connected || !m.homed || !canMove(m.status.state, m.connected)) return;
-    try {
-      if (raiseFirst) {
-        // Lift Z to a clearance above the work zero (MACHINE frame, G53) BEFORE
-        // traversing, so the tool can't drag through stock. This ordered pair must
-        // stay rapids — a single jog can't sequence "raise fully, then move".
-        const retractZ = safeRetractMachineZ(
-          m.status.mpos[2] - m.status.wpos[2],
-          safeZMm,
-          machineSafeZMm,
-        );
-        await api.machine.send(`G53 G0 Z${retractZ}`);
-        await api.machine.send(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)}`);
-      } else {
-        // Already clear of stock: traverse XY as a rapid-like JOG (not a G0 rapid)
-        // so it stays in the `jog` state — the field stays live and a fresh click
-        // cancels-and-retargets via jogTo instead of being blocked or queued.
-        await jogTo({ x, y }, RAPID_JOG_FEED);
-      }
-    } catch (e) {
-      console.error("field move failed", e);
-    }
-  }
-
-  /** Field click: traverse straight away when already clear of stock (machine
-   *  Z ≥ the safe retract target), otherwise raise Z to the safe height first.
-   *  Z is read live at click time; no confirmation — the safe action is implicit. */
-  function requestMove(x: number, y: number) {
-    const m = useMachine.getState();
-    const currentMachineZ = m.status.mpos[2];
-    const retractZ = safeRetractMachineZ(
-      m.status.mpos[2] - m.status.wpos[2],
-      safeZMm,
-      machineSafeZMm,
-    );
-    void move(x, y, currentMachineZ < retractZ);
+    void jogTo({ x, y }, RAPID_JOG_FEED).catch((e) => console.error("field move failed", e));
   }
 
   const axisLabel = (label: string, tone: string, value: number) => (
