@@ -30,11 +30,13 @@ function SceneEnvironment() {
   const scene = useThree((s) => s.scene);
   useEffect(() => {
     const pmrem = new THREE.PMREMGenerator(gl);
-    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const room = new RoomEnvironment();
+    const envTex = pmrem.fromScene(room, 0.04).texture;
     scene.environment = envTex;
     return () => {
       scene.environment = null;
       envTex.dispose();
+      room.dispose(); // frees the room's box geometry + materials
       pmrem.dispose();
     };
   }, [gl, scene]);
