@@ -742,6 +742,12 @@ pub async fn machine_send(
 /// `$130=...`) the UI must know were actually applied — a blind send can be
 /// silently dropped, so the change would never reach EEPROM yet the UI assumes
 /// success.
+///
+/// Note: this path does NOT snoop kinematics like `machine_send` does. Its only
+/// kinematics-writing caller is the settings UI (`GrblTab.doApply`), which always
+/// re-reads `$$` via `machine_read_settings` afterwards — so the cache refreshes
+/// through the read path. Any future caller writing `$110`–`$122` here WITHOUT a
+/// following `$$` read would leave the kinematics cache stale.
 #[tauri::command]
 pub async fn machine_send_await_ok(
     state: State<'_, MachineState>,
