@@ -58,7 +58,8 @@ describe("continuousJogRoom", () => {
   });
 
   it("returns 0 when within a margin of the edge (no room to move)", () => {
-    expect(continuousJogRoom([0, -1, 0], [0, 0.3, 0], B)).toBe(0);
+    // Y− from inside the pull-off margin of the 0 edge → no room.
+    expect(continuousJogRoom([0, -1, 0], [0, JOG_EDGE_MARGIN_MM / 2, 0], B)).toBe(0);
     expect(continuousJogRoom([1, 0, 0], [300, 0, 0], B)).toBe(0);
   });
 
