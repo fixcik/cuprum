@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Plug, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 import { api, type SerialPortInfo } from "@/lib/api";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
@@ -25,6 +26,9 @@ export interface ConnBarProps {
    *  follow machine state via global broadcasts (e.g. the drill window) and must
    *  NOT steal the main window's telemetry Channel on open. */
   skipReattach?: boolean;
+  /** Extra classes on the root — e.g. `min-w-0 flex-1` so the connected summary
+   *  can shrink/truncate inside a tight single-row toolbar (the console window). */
+  className?: string;
 }
 
 /** Connection bar: serial port select + hot-plug refresh + connect/disconnect,
@@ -36,6 +40,7 @@ export function ConnBar({
   machinePicker = false,
   connectedSummary = false,
   skipReattach = false,
+  className,
 }: ConnBarProps = {}) {
   const { t } = useTranslation("machine");
   const cnc = useSettings((s) => s.cncProfile);
@@ -117,7 +122,7 @@ export function ConnBar({
   // button, instead of the full bar. The pickers reappear after disconnecting.
   if (connectedSummary && connected) {
     return (
-      <div className="flex items-center gap-2">
+      <div className={cn("flex items-center gap-2", className)}>
         <span className="size-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
           {(cnc.name || t("connection.machine")) + " · " + (connectedPort ?? cnc.port ?? "—")}
@@ -137,7 +142,7 @@ export function ConnBar({
   }
 
   return (
-    <div className={compact ? "flex flex-col gap-2" : "flex items-center gap-2"}>
+    <div className={cn(compact ? "flex flex-col gap-2" : "flex items-center gap-2", className)}>
       {/* Optional CNC machine picker (registry) — bound to the active CNC machine. */}
       {machinePicker && cncMachines.length > 0 && (
         <div className={compact ? "relative w-full" : "relative"}>

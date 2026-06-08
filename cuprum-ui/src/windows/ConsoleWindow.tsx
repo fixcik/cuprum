@@ -65,7 +65,7 @@ export function ConsoleWindow() {
             skipReattach: the console window follows global broadcasts and must
             NEVER build a telemetry Channel — reattach() would swap the backend's
             telemetry away from the main window (main goes dark). */}
-        <MachineToolbar skipReattach />
+        <MachineToolbar skipReattach compactConn />
         <div className="min-h-0 flex-1">
           <ConsoleBody onClose={() => void getCurrentWindow().close()} />
         </div>
