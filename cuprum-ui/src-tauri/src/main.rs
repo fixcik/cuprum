@@ -220,6 +220,7 @@ fn main() {
             commands::machine::machine_probe_z,
             commands::machine::machine_send,
             commands::machine::machine_send_await_ok,
+            commands::machine::machine_read_settings,
             commands::machine::machine_soft_reset,
             commands::machine::machine_feed_hold,
             commands::machine::machine_cycle_start,

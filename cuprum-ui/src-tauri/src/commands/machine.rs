@@ -134,6 +134,13 @@ pub struct ReattachDto {
     pub port: String,
 }
 
+/// One GRBL firmware setting `$N=value` as read from a `$$` query.
+#[derive(Clone, Serialize)]
+pub struct GrblSettingDto {
+    n: u16,
+    value: String,
+}
+
 /// Application-level machine state: the optional live connection plus a capped
 /// ring buffer of recent console lines shared by all windows. The line log is
 /// cleared on every new connect (fresh session) and grows up to
@@ -297,6 +304,7 @@ pub fn machine_connect(
                             | grbl::Line::Alarm(_)
                             | grbl::Line::Welcome(_)
                             | grbl::Line::Probe { .. }
+                            | grbl::Line::Setting { .. }
                     ) {
                         if let Some(tx) = r_ack.lock().unwrap().as_ref() {
                             let _ = tx.send(parsed.clone());
@@ -545,6 +553,10 @@ fn send_line_await_ok(
 /// generous ceiling guards against a dead link that never answers.
 const HOMING_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Ceiling for collecting a full `$$` settings dump. `$$` answers within ~100 ms;
+/// this only guards a dead link that never sends the terminal `ok`.
+const SETTINGS_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Send `$H` and BLOCK until the homing cycle resolves: `ok` (homed),
 /// `error`/`ALARM` (rejected/failed), or a `Welcome` banner (a soft-reset aborted
 /// it). Unlike `send_line_await_ok`, it tolerates the long mid-cycle silence GRBL
@@ -703,6 +715,84 @@ pub async fn machine_home_await(
     tauri::async_runtime::spawn_blocking(move || home_await(writer, ack_slot, telemetry, line_log))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Send `$$` and collect every `$N=value` reply until the terminal `ok`. Claims
+/// the reader→`ack_tx` slot (refuses "machine busy" if a run holds it), always
+/// releases it. `error`/reset abort; a dead link aborts on `SETTINGS_TIMEOUT`.
+fn read_settings(
+    writer: Arc<Mutex<GrblWriter>>,
+    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
+    telemetry: Option<Channel<Telemetry>>,
+    line_log: Option<(Arc<Mutex<VecDeque<ConsoleLine>>>, AppHandle)>,
+) -> Result<Vec<GrblSettingDto>, String> {
+    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
+    {
+        let mut slot = ack_slot.lock().unwrap();
+        if slot.is_some() {
+            return Err("machine busy".into());
+        }
+        *slot = Some(tx);
+    }
+
+    let result = (|| {
+        let line = "$$";
+        writer
+            .lock()
+            .unwrap()
+            .write_line(line)
+            .map_err(|e| e.to_string())?;
+        if let Some(t) = &telemetry {
+            let _ = t.send(Telemetry::Line {
+                dir: "tx".into(),
+                text: line.to_string(),
+            });
+        }
+        if let Some((ref log, ref app)) = line_log {
+            record_and_broadcast_line(log, app, "tx", line);
+        }
+        let sent = std::time::Instant::now();
+        let mut out: Vec<GrblSettingDto> = Vec::new();
+        loop {
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(grbl::Line::Setting { n, value }) => out.push(GrblSettingDto { n, value }),
+                Ok(grbl::Line::Ok) => return Ok(out),
+                Ok(grbl::Line::Error(n)) => return Err(format!("error:{n}")),
+                Ok(grbl::Line::Alarm(n)) => return Err(format!("ALARM:{n}")),
+                Ok(grbl::Line::Welcome(_)) => return Err("reset".into()),
+                Ok(_) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if sent.elapsed() > SETTINGS_TIMEOUT {
+                        return Err("no response from machine".into());
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("connection lost".into());
+                }
+            }
+        }
+    })();
+
+    *ack_slot.lock().unwrap() = None;
+    result
+}
+
+/// Read the controller's full firmware settings (`$$`). Runs the blocking
+/// collect off the main thread so the webview stays responsive.
+#[tauri::command]
+pub async fn machine_read_settings(
+    app: AppHandle,
+    state: State<'_, MachineState>,
+) -> Result<Vec<GrblSettingDto>, String> {
+    let writer = state.writer().ok_or("not connected")?;
+    let ack_slot = state.ack_slot().ok_or("not connected")?;
+    let telemetry = state.telemetry();
+    let line_log = Some((state.line_log.clone(), app));
+    tauri::async_runtime::spawn_blocking(move || {
+        read_settings(writer, ack_slot, telemetry, line_log)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
