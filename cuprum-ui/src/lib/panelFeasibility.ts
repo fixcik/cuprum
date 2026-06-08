@@ -2,8 +2,10 @@ import type { Severity, Verdict, I18nText } from "@/lib/feasibility";
 import type { PanelDoc, BoardInstance } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 import { boxesOverlap, instanceBounds, keepOutBox, toolingHoleBounds, clampZonesForHoles, type Box } from "@/lib/panelPlacement";
+import { DEFAULT_CUT_GAP_MM, recommendedGapMm } from "@/lib/nest";
 
-export const MIN_PANEL_GAP_MM = 1;
+/** Back-compat alias; the single source is {@link recommendedGapMm} (see #436). */
+export const MIN_PANEL_GAP_MM = DEFAULT_CUT_GAP_MM;
 
 export type PanelFindingCategory =
   | "off-panel"
@@ -54,7 +56,7 @@ export function evaluatePanel(opts: {
   minGapMm?: number;
 }): PanelFinding[] {
   const { panel, sizes, profile, designVerdicts } = opts;
-  const minGap = opts.minGapMm ?? MIN_PANEL_GAP_MM;
+  const minGap = opts.minGapMm ?? recommendedGapMm();
   const out: PanelFinding[] = [];
   const instances = panel.instances ?? [];
 
