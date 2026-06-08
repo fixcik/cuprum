@@ -1137,9 +1137,29 @@ export const useShell = create<ShellStore>((set, get) => ({
 // restart can restore exactly what was on screen (consumed by App's cold-start
 // restore via lib/lastSession). Fires on every state change but only writes when
 // path or view actually changes, so artifact/progress churn doesn't hit storage.
+//
+// Gated on `_persistArmed`: persistence is DISABLED until the main window calls
+// armSessionPersist() at the END of its cold-start restore. This is essential —
+// the store is a singleton imported by every window, and during startup many
+// unrelated mutations fire while no project is loaded yet (loadDisplayScale,
+// loadRecents, …). Without the gate, the first such mutation would run with the
+// default home/null state and clear the saved entry (saveLastSession removes it
+// on the empty default) BEFORE restore could read it — and secondary windows
+// (drill/console/add-design), which share this origin's localStorage but never
+// run restore, would clobber it too. Only the main window arms the gate, and
+// only after restore, so writes thereafter reflect real user navigation.
+let _persistArmed = false;
 let _lastPersistKey = "";
+
+/** Enable last-session persistence. Called once by the main window after its
+ *  cold-start restore completes; never by secondary windows. */
+export function armSessionPersist(): void {
+  _persistArmed = true;
+}
+
 useShell.subscribe((s) => {
-  const key = `${s.currentPath ?? ""} ${s.view}`;
+  if (!_persistArmed) return;
+  const key = `${s.currentPath ?? ""} ${s.view}`;
   if (key === _lastPersistKey) return;
   _lastPersistKey = key;
   saveLastSession({ path: s.currentPath, view: s.view });
