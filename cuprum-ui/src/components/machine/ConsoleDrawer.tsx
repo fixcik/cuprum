@@ -79,8 +79,8 @@ export function ConsoleBody({
   // echo; anchoring the verdict on the matching tx line (the backend echoes the
   // exact text) makes the scan ignore any `ok` from background traffic already in
   // flight (e.g. a `$$` query whose reply interleaves), which would otherwise be
-  // misread as this command's verdict. The first `ok` after the echo commits it;
-  // the first `error:`/`ALARM` drops it.
+  // misread as this command's verdict. A valid reply (`ok`/`ALARM` — the line was
+  // well-formed) after the echo commits it; an `error:` (rejected) drops it.
   useEffect(() => {
     const p = pendingRef.current;
     if (!p) return;
@@ -93,12 +93,12 @@ export function ConsoleBody({
       }
       if (l.dir !== "rx") continue;
       const verdict = classifyResponse(l.text);
-      if (verdict === "ok") {
+      if (verdict === "valid") {
         remember(p.cmd);
         pendingRef.current = null;
         break;
       }
-      if (verdict === "error") {
+      if (verdict === "invalid") {
         pendingRef.current = null;
         break;
       }

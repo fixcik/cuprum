@@ -42,13 +42,18 @@ export function rememberCommand(cmd: string): string[] {
   return capped;
 }
 
-/** Classify a GRBL reply line. `ok` → the preceding command succeeded;
- *  `error:N` / `ALARM:N` → it failed; anything else (status reports, settings
- *  echoes, welcome banner) is not a terminal verdict. Case-insensitive. */
-export function classifyResponse(text: string): "ok" | "error" | null {
+/** Classify a GRBL reply as a verdict for the *preceding* command:
+ *  - "valid": `ok` (accepted) or `ALARM:N`. An alarm means the line itself was
+ *    well-formed — it merely tripped a limit/safety condition — so it's a real
+ *    command worth keeping in history.
+ *  - "invalid": `error:N` — GRBL rejected the line (bad syntax / unsupported), so
+ *    it should not pollute the saved history.
+ *  - null: not a terminal verdict (status report, settings echo, welcome banner).
+ *  Case-insensitive. */
+export function classifyResponse(text: string): "valid" | "invalid" | null {
   const t = text.trim().toLowerCase();
-  if (t === "ok") return "ok";
-  if (/^error:/.test(t) || /^alarm\b/.test(t)) return "error";
+  if (t === "ok" || /^alarm\b/.test(t)) return "valid";
+  if (/^error:/.test(t)) return "invalid";
   return null;
 }
 

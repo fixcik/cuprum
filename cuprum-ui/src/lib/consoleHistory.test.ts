@@ -4,15 +4,18 @@ import { classifyResponse, loadHistory, rememberCommand } from "./consoleHistory
 afterEach(() => localStorage.clear());
 
 describe("classifyResponse", () => {
-  it("treats a bare ok as success (any case/whitespace)", () => {
-    expect(classifyResponse("ok")).toBe("ok");
-    expect(classifyResponse("  OK \n")).toBe("ok");
+  it("treats a bare ok as valid (any case/whitespace)", () => {
+    expect(classifyResponse("ok")).toBe("valid");
+    expect(classifyResponse("  OK \n")).toBe("valid");
   });
 
-  it("treats error: and ALARM: as failure", () => {
-    expect(classifyResponse("error:20")).toBe("error");
-    expect(classifyResponse("ALARM:2")).toBe("error");
-    expect(classifyResponse("alarm")).toBe("error");
+  it("treats ALARM as valid — the command was well-formed, it just tripped a limit", () => {
+    expect(classifyResponse("ALARM:2")).toBe("valid");
+    expect(classifyResponse("alarm")).toBe("valid");
+  });
+
+  it("treats error: as invalid — GRBL rejected the line", () => {
+    expect(classifyResponse("error:20")).toBe("invalid");
   });
 
   it("returns null for non-terminal lines (status, settings, banner)", () => {
