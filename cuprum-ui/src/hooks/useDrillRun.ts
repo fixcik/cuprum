@@ -24,6 +24,9 @@ export interface UseDrillRun {
    *  probe to the bit and the pin latched. Persists across tool changes (the check
    *  is once per run). Frontend-only; no machine command here. */
   markProbeChecked: () => void;
+  /** Record the machine Z (mm) of a manual touch-off confirm — drives the yellow
+   *  "previous Z" mark on the manual Z bar. Frontend-only; no machine command. */
+  markManualZ: (zMm: number) => void;
   reset: () => void;
 }
 
@@ -107,6 +110,10 @@ export function useDrillRun(): UseDrillRun {
     dispatch({ type: "probechecked" });
   }, []);
 
+  const markManualZ = useCallback((zMm: number) => {
+    dispatch({ type: "manualz", zMm });
+  }, []);
+
   // Return to idle (PLAN mode) after a finished/error run without starting a new
   // one — e.g. "finish pass". Local state only; no machine command.
   const reset = useCallback(() => {
@@ -124,6 +131,7 @@ export function useDrillRun(): UseDrillRun {
     confirmToolChange,
     markZBound,
     markProbeChecked,
+    markManualZ,
     reset,
   };
 }

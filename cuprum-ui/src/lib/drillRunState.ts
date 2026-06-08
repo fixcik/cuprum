@@ -22,6 +22,12 @@ export interface DrillRunState {
    *  the circuit is verified once per run, so later changes skip "step 1" and go
    *  straight to "set Z by probe". Reset only on a fresh start/reset. Frontend-only. */
   probeChecked: boolean;
+  /** Machine Z (mm) of the last MANUAL touch-off confirm this session, or null if
+   *  none yet. Drives the yellow "previous Z" mark on the manual Z bar — a hint to
+   *  repeat the same height for a same-diameter bit. Persists across tool changes
+   *  (the mark is about the PREVIOUS bit); reset only on a fresh start/reset.
+   *  Frontend-only. */
+  lastManualZMm: number | null;
   /** Monotonic counter incremented on every tool-change pause. Used only as a React
    *  remount key for the tool-change card so its card-local state (tab, busy, error)
    *  resets each pause — even on back-to-back tool changes. The session-level
@@ -40,7 +46,8 @@ export type DrillRunEvent =
   | { type: "done" }
   | { type: "reset" }
   | { type: "zbound" }
-  | { type: "probechecked" };
+  | { type: "probechecked" }
+  | { type: "manualz"; zMm: number };
 
 export const initialDrillRunState: DrillRunState = {
   phase: "idle",
@@ -50,6 +57,7 @@ export const initialDrillRunState: DrillRunState = {
   toolChange: null,
   zBound: false,
   probeChecked: false,
+  lastManualZMm: null,
   toolChangeSeq: 0,
   error: null,
   runStartedAt: null,
@@ -94,6 +102,9 @@ export function drillRunReducer(
 
     case "probechecked":
       return { ...s, probeChecked: true };
+
+    case "manualz":
+      return { ...s, lastManualZMm: e.zMm };
 
     case "state": {
       if (e.phase === "running") {
