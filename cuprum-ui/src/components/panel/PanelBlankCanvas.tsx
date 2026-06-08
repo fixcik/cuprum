@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Group, Text, Circle, Line, Image as KonvaImage } from "react-konva";
+import { Stage, Layer, Rect, Group, Text, Image as KonvaImage } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus, LocateFixed } from "lucide-react";
@@ -18,16 +18,14 @@ import {
   INSTANCE_OFF_STROKE,
   INSTANCE_OFF_FILL,
   INSTANCE_WARN_STROKE,
-  COPPER_STROKE,
   RULER_TOP,
   RULER_LEFT,
 } from "@/components/editor/canvasStyle";
-import { DEFAULT_TOOLING_DIAMETER_MM } from "@/lib/panel";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, boxesForInstances, alignInstances, distributeInstances, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, type AlignEdge, type GuideLine } from "@/lib/panelPlacement";
+import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, type GuideLine } from "@/lib/panelPlacement";
 import type { Severity } from "@/lib/feasibility";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { SnapGuides } from "@/components/panel/SnapGuides";
@@ -43,8 +41,11 @@ import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
 import { ClampZoneLayer } from "@/components/panel/ClampZoneLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import { useDesignPreviewImages } from "@/hooks/useDesignPreviewImages";
-import { api, type BoardInstance, type KeepOutZone, type ToolingHole } from "@/lib/api";
+import { type BoardInstance, type KeepOutZone, type ToolingHole } from "@/lib/api";
 import { useKeepOutSelection } from "@/keepOutSelectionStore";
+import { usePanelContextActions } from "@/hooks/usePanelContextActions";
+import { usePanelKeyHandlers } from "@/hooks/usePanelKeyHandlers";
+import { ToolingGhostCrosshair, MarqueeRect, KeepOutDrawRect } from "@/components/panel/DraftShapes";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -350,96 +351,9 @@ export function PanelBlankCanvas({
     })();
   }, [rotPreview, selected, rotateInstancesBy, clampSelectionIntoPanel]);
 
-  // --- Context-menu actions (act on current selection) ---
-  const rotateSelectionBy = useCallback(
-    (deltaDeg: number) => {
-      const ids = [...usePanelSelection.getState().selected];
-      if (!ids.length) return;
-      void (async () => {
-        await rotateInstancesBy(ids, deltaDeg);
-        await clampSelectionIntoPanel(ids);
-      })();
-    },
-    [rotateInstancesBy, clampSelectionIntoPanel],
-  );
-
-  const resetSelectionRotation = useCallback(() => {
-    const ids = [...usePanelSelection.getState().selected];
-    if (!ids.length) return;
-    void (async () => {
-      await useShell.getState().rotateInstances(ids, 0);
-      await clampSelectionIntoPanel(ids);
-    })();
-  }, [clampSelectionIntoPanel]);
-
-  const deleteSelected = useCallback(() => {
-    const ids = [...usePanelSelection.getState().selected];
-    const zoneIds = [...useKeepOutSelection.getState().selected];
-    if (!ids.length && !zoneIds.length) return;
-    if (ids.length) {
-      void useShell.getState().removeInstances(ids);
-      usePanelSelection.getState().clear();
-    }
-    if (zoneIds.length) {
-      void useShell.getState().removeKeepOutZones(zoneIds);
-      useKeepOutSelection.getState().clear();
-    }
-  }, []);
-
-  // Open the inspector window for the single selected instance's design (matches
-  // the "Open" action on a design card). Only meaningful for one instance.
-  const openSelectedDesign = useCallback(() => {
-    const ids = [...usePanelSelection.getState().selected];
-    if (ids.length !== 1) return;
-    const inst = instances.find((i) => i.id === ids[0]);
-    if (inst) void api.openInspectorWindow(inst.design_id);
-  }, [instances]);
-
-  // Build AlignItem array for the current selection (instances with resolved sizes).
-  const selectedAlignItems = useCallback(
-    () => {
-      const sel = usePanelSelection.getState().selected;
-      return instances
-        .filter((i) => sel.has(i.id) && sizes[i.design_id])
-        .map((i) => {
-          const sz = sizes[i.design_id];
-          return {
-            id: i.id, x_mm: i.x_mm, y_mm: i.y_mm,
-            box: instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg }),
-          };
-        });
-    },
-    [instances, sizes],
-  );
-
-  const alignSelected = useCallback(
-    (edge: AlignEdge) => {
-      const items = selectedAlignItems();
-      if (items.length < 2) return;
-      void useShell.getState().setInstancePoses(alignInstances(items, edge));
-    },
-    [selectedAlignItems],
-  );
-
-  const distributeSelected = useCallback(
-    (axis: "h" | "v") => {
-      const items = selectedAlignItems();
-      if (items.length < 3) return;
-      void useShell.getState().setInstancePoses(distributeInstances(items, axis));
-    },
-    [selectedAlignItems],
-  );
-
-  // Duplicate the current selection with a clamped offset so copies stay within
-  // the panel bounds. Re-selects the new copies on completion.
-  const duplicateSelected = useCallback(() => {
-    const sel = [...usePanelSelection.getState().selected];
-    if (!sel.length) return;
-    const instById = new Map(instances.map((i) => [i.id, i]));
-    const picked = sel.map((id) => instById.get(id)).filter(Boolean) as typeof instances;
-    const { dx, dy } = clampDeltaToPanel(boxesForInstances(picked, sizes), 2, 2, W, H);
-    void useShell.getState().duplicateInstances(sel, dx, dy).then((ids) => usePanelSelection.getState().set(ids));
-  }, [instances, sizes, W, H]);
+  // Context-menu / HUD / align-bar actions over the current selection.
+  const { rotateSelectionBy, resetSelectionRotation, deleteSelected, openSelectedDesign, alignSelected, distributeSelected, duplicateSelected } =
+    usePanelContextActions({ instances, sizes, panelW: W, panelH: H, rotateInstancesBy, clampSelectionIntoPanel });
 
   // --- Instance interaction (select tool only) ---
   const onInstanceClick = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
@@ -782,82 +696,24 @@ export function PanelBlankCanvas({
     setAddArmed(true);
   }, []);
 
-  // Clear hole selection + disarm placement when leaving tooling mode.
-  // Clear keep-out draw state when leaving keepout mode.
-  useEffect(() => {
-    if (tool !== "tooling") {
-      setSelectedHoleId(null);
-      setAddArmed(false);
-      setGhostMm(null);
-    }
-    if (tool !== "keepout") {
-      keepOutDrawStart.current = null;
-      setKeepOutDraw(null);
-    }
-  }, [tool]);
-
-  // Delete/Backspace removes the selected tooling hole; Esc deselects it.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (tool !== "tooling") return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedHoleId) {
-        e.preventDefault();
-        const id = selectedHoleId;
-        setSelectedHoleId(null);
-        void removeToolingHole(id);
-      } else if (e.key === "Escape") {
-        // Esc cancels an armed placement first, otherwise clears the selection.
-        if (addArmed) {
-          setAddArmed(false);
-          setGhostMm(null);
-        } else if (selectedHoleId) {
-          setSelectedHoleId(null);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [tool, selectedHoleId, addArmed, removeToolingHole]);
-
-  // Delete/Backspace removes selected keep-out zones; Esc clears selection.
-  // Works in both "select" and "keepout" modes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (tool !== "select" && tool !== "keepout") return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      const zonesSelected = useKeepOutSelection.getState().selected;
-      if ((e.key === "Delete" || e.key === "Backspace") && zonesSelected.size > 0) {
-        e.preventDefault();
-        const ids = [...zonesSelected];
-        useKeepOutSelection.getState().clear();
-        void removeKeepOutZones(ids);
-      } else if (e.key === "Escape" && zonesSelected.size > 0) {
-        useKeepOutSelection.getState().clear();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [tool, removeKeepOutZones]);
-
-  // Commit an in-progress keep-out resize even if the mouse is released OUTSIDE
-  // the canvas/window — the Stage onMouseUp won't fire there. The ref null-check
-  // avoids a double commit: the Stage handler runs first and clears the ref, so
-  // this listener then sees null and bails.
-  useEffect(() => {
-    const onUp = () => {
-      if (!keepOutResizeRef.current) return;
-      const r = keepOutResize;
-      const id = keepOutResizeRef.current.id;
-      keepOutResizeRef.current = null;
-      setKeepOutResize(null);
-      if (r) void resizeKeepOutZone(id, r);
-    };
-    window.addEventListener("mouseup", onUp);
-    return () => window.removeEventListener("mouseup", onUp);
-  }, [keepOutResize, resizeKeepOutZone]);
+  // Keyboard + lifecycle effects (tool-change cleanup, Delete/Esc on the selected
+  // tooling hole / keep-out zones, commit resize on mouseup outside the window).
+  usePanelKeyHandlers({
+    tool,
+    selectedHoleId,
+    setSelectedHoleId,
+    addArmed,
+    setAddArmed,
+    setGhostMm,
+    keepOutDrawStartRef: keepOutDrawStart,
+    setKeepOutDraw,
+    removeToolingHole,
+    removeKeepOutZones,
+    keepOutResizeRef,
+    keepOutResize,
+    setKeepOutResize,
+    resizeKeepOutZone,
+  });
 
   return (
     <>
@@ -1051,56 +907,12 @@ export function PanelBlankCanvas({
               onHoleDragEnd={onHoleDragEnd}
             />
             {/* Ghost crosshair preview of the hole-to-be while placement is armed. */}
-            {tool === "tooling" && addArmed && ghostMm && (() => {
-              const k = viewport.pxPerMm > 0 ? 1 / viewport.pxPerMm : 0;
-              const arm = 6 * k;
-              return (
-                <Group x={ghostMm.x} y={ghostMm.y} listening={false} opacity={0.7}>
-                  <Circle
-                    radius={DEFAULT_TOOLING_DIAMETER_MM / 2}
-                    stroke={COPPER_STROKE}
-                    strokeWidth={1.5}
-                    strokeScaleEnabled={false}
-                    dash={[2, 2]}
-                  />
-                  {arm > 0 && (
-                    <>
-                      <Line points={[-arm, 0, arm, 0]} stroke={COPPER_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
-                      <Line points={[0, -arm, 0, arm]} stroke={COPPER_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
-                    </>
-                  )}
-                </Group>
-              );
-            })()}
-            {marquee && (
-              <Rect
-                x={Math.min(marquee.x0, marquee.x1)}
-                y={Math.min(marquee.y0, marquee.y1)}
-                width={Math.abs(marquee.x1 - marquee.x0)}
-                height={Math.abs(marquee.y1 - marquee.y0)}
-                stroke="#5b9dff"
-                strokeWidth={1}
-                strokeScaleEnabled={false}
-                dash={[4, 3]}
-                fill="rgba(91,157,255,0.08)"
-                listening={false}
-              />
+            {tool === "tooling" && addArmed && ghostMm && (
+              <ToolingGhostCrosshair x={ghostMm.x} y={ghostMm.y} pxPerMm={viewport.pxPerMm} />
             )}
+            {marquee && <MarqueeRect rect={marquee} />}
             {/* Keep-out zone draw preview while dragging in keepout tool mode. */}
-            {keepOutDraw && (
-              <Rect
-                x={Math.min(keepOutDraw.x0, keepOutDraw.x1)}
-                y={Math.min(keepOutDraw.y0, keepOutDraw.y1)}
-                width={Math.abs(keepOutDraw.x1 - keepOutDraw.x0)}
-                height={Math.abs(keepOutDraw.y1 - keepOutDraw.y0)}
-                stroke="rgba(99,130,190,0.8)"
-                strokeWidth={1.5}
-                strokeScaleEnabled={false}
-                dash={[3, 2]}
-                fill="rgba(99,130,190,0.12)"
-                listening={false}
-              />
-            )}
+            {keepOutDraw && <KeepOutDrawRect rect={keepOutDraw} />}
           </Group>
         </Layer>
       </Stage>
