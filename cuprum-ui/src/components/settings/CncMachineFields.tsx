@@ -74,6 +74,38 @@ export function CncMachineFields({ machine }: { machine: CncMachine }) {
         onChange={(toolChangeZMm) => update(machine.id, { toolChangeZMm })}
       />
       {tcWarn && <p className="px-1 pb-2 text-[11px] text-amber-400">{t(`cnc.toolChangeZWarn.${tcWarn}`)}</p>}
+      <BoolField
+        label={t("cnc.hasProbe")}
+        value={machine.hasProbe}
+        help={t("cnc.hasProbeHelp")}
+        onChange={(hasProbe) => update(machine.id, { hasProbe })}
+      />
+      {machine.hasProbe && (
+        <>
+          <NumberField
+            label={t("cnc.probeFeed")}
+            value={machine.probeFeedMmMin}
+            step="1"
+            suffix={t("cnc.unitMmMin")}
+            help={t("cnc.probeFeedHelp")}
+            onChange={(probeFeedMmMin) => update(machine.id, { probeFeedMmMin })}
+          />
+          <NumberField
+            label={t("cnc.probeMaxDist")}
+            value={machine.probeMaxDistMm}
+            dim="coarse"
+            help={t("cnc.probeMaxDistHelp")}
+            onChange={(probeMaxDistMm) => update(machine.id, { probeMaxDistMm })}
+          />
+          <NumberField
+            label={t("cnc.probePlateOffset")}
+            value={machine.probePlateOffsetMm}
+            dim="fine"
+            help={t("cnc.probePlateOffsetHelp")}
+            onChange={(probePlateOffsetMm) => update(machine.id, { probePlateOffsetMm })}
+          />
+        </>
+      )}
       <NumberField
         label={t("cnc.runout")}
         value={machine.runoutMm}
