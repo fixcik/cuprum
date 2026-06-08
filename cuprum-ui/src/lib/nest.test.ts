@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_NEST } from "@/lib/nest";
+import { DEFAULT_NEST, DEFAULT_CUT_GAP_MM, recommendedGapMm } from "@/lib/nest";
 
 describe("DEFAULT_NEST", () => {
   it("defaults to a single corner copy, not an array", () => {
@@ -16,5 +16,11 @@ describe("DEFAULT_NEST", () => {
 
   it("defaults mixRotation on (mixed-orientation packing by default)", () => {
     expect(DEFAULT_NEST.mixRotation).toBe(true);
+  });
+});
+
+describe("recommendedGapMm", () => {
+  it("returns the cut-clearance constant (single source for validation + Auto)", () => {
+    expect(recommendedGapMm()).toBe(DEFAULT_CUT_GAP_MM);
   });
 });

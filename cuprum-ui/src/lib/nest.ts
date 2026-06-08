@@ -43,3 +43,14 @@ export const DEFAULT_NEST: NestSettings = {
   snapMm: 0,
   repack: true,
 };
+
+/** Recommended board-to-board gap (mm) for panelization — the cut / separation
+ *  clearance. UV exposure does not separate boards, so it does not affect this.
+ *  Currently a constant; deriving it from the contour-cut tool is tracked in #436. */
+export const DEFAULT_CUT_GAP_MM = 1;
+
+/** The recommended panel gap, shared by validation (spacing threshold) and the
+ *  "Auto" gap button so they never disagree. Constant for now (see #436). */
+export function recommendedGapMm(): number {
+  return DEFAULT_CUT_GAP_MM;
+}

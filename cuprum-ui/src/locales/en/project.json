@@ -126,6 +126,8 @@
         "gaps": "Gaps",
         "gapBoards": "Boards",
         "gapEdge": "Edge",
+        "gapAuto": "Auto",
+        "gapAutoHint": "Set the board gap to the recommended cut clearance",
         "layout": "Layout",
         "rotate": "Rotate",
         "mixRotation": "Mix orientation",

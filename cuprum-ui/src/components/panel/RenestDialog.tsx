@@ -8,7 +8,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { useSettings } from "@/settingsStore";
 import { renestSelection, panelObstacles } from "@/lib/panelPlacement";
 import type { BoardInstance, KeepOutZone, ToolingHole } from "@/lib/api";
-import type { NestSettings } from "@/lib/nest";
+import { recommendedGapMm, type NestSettings } from "@/lib/nest";
 
 // Corner picker constants — mirrors NestingControls so both use the same layout.
 const CORNERS: NestSettings["corner"][] = ["tl", "tr", "bl", "br"];
@@ -128,6 +128,14 @@ export function RenestDialog({
               step="0.5"
             />
           </label>
+          <button
+            type="button"
+            title={t("panel.add.nest.gapAutoHint")}
+            onClick={() => setNest({ gapMm: recommendedGapMm() })}
+            className="h-7 rounded-md border border-input px-2 text-[12px] text-muted-foreground hover:text-foreground"
+          >
+            {t("panel.add.nest.gapAuto")}
+          </button>
         </Group>
 
         {/* Layout: mix-orientation, rotate, corner, dir, step */}

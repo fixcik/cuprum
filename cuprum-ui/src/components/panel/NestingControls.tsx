@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/Switch";
 import { Slider } from "@/components/ui/Slider";
 import { UnitField } from "@/components/ui/settings/UnitField";
 import { useSettings } from "@/settingsStore";
-import type { NestSettings } from "@/lib/nest";
+import { recommendedGapMm, type NestSettings } from "@/lib/nest";
 
 /** Small group with an uppercase caption. */
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
@@ -137,6 +137,14 @@ export function NestingControls() {
                 step="0.5"
               />
             </label>
+            <button
+              type="button"
+              title={t("panel.add.nest.gapAutoHint")}
+              onClick={() => setNest({ gapMm: recommendedGapMm() })}
+              className="h-7 rounded-md border border-input px-2 text-[12px] text-muted-foreground hover:text-foreground"
+            >
+              {t("panel.add.nest.gapAuto")}
+            </button>
           </Group>
 
           <Group title={t("panel.add.nest.layout")}>
