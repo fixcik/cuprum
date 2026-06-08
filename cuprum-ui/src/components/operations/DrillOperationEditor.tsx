@@ -248,7 +248,10 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   const route = useMemo(() => {
     if (!subPlanWithOverrides || !panel) return null;
     const start = datumCornerPanelPoint(drillDatumCorner, panel.width_mm, panel.height_mm);
-    return planDrillRoute(subPlanWithOverrides, start, zones);
+    return planDrillRoute(subPlanWithOverrides, start, zones, {
+      width: panel.width_mm,
+      height: panel.height_mm,
+    });
   }, [subPlanWithOverrides, panel, drillDatumCorner, zones]);
 
   // Clear inspected hole when the route changes (datum/override/selection switch).
