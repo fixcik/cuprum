@@ -1,0 +1,12 @@
+[package]
+name = "cuprum-drill"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cuprum drill routing, G-code emission and time estimation (pure, no Tauri)"
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
