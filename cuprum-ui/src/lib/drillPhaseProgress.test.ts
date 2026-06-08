@@ -56,10 +56,21 @@ describe("nextPhaseProgress — descent", () => {
 });
 
 describe("nextPhaseProgress — arming (pre-drill positioning)", () => {
-  it("reads the post-tool-change lift + traverse as traverse, not descent", () => {
-    // Bit starts at the surface after a probe/touch-off (z≈0), lifts to safe-Z,
-    // then traverses at safe-Z. None of that is a descent — the cycle isn't armed
-    // until safe-Z is reached, and at safe-Z descent is held at 0.
+  it("reads the post-tool-change Z-lift as a lift (retract), not descent or traverse", () => {
+    // Bit starts at the surface after a probe/touch-off (z≈0) and lifts toward
+    // safe-Z. That's a Z-up move → `retract` (a lift), not `traverse` (X/Y only)
+    // and not a descent. No cycle progress accrues yet (ring stays empty).
+    const p = fold([0, 2]); // still below safe-Z → not armed
+    expect(p.descent).toBe(0);
+    expect(p.drilling).toBe(0);
+    expect(p.retract).toBe(0);
+    expect(p.armed).toBe(false);
+    expect(p.phase).toBe("retract");
+  });
+
+  it("becomes traverse once the bit reaches safe-Z (X/Y move, armed)", () => {
+    // Lift completes at safe-Z: now armed, parked at safe height for the X/Y
+    // traverse to the hole → `traverse`, descent still 0.
     const p = fold([0, 2, SAFE - 0.05, SAFE]);
     expect(p.descent).toBe(0);
     expect(p.drilling).toBe(0);
