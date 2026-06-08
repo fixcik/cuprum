@@ -263,9 +263,24 @@ impl GrblLease {
 
 impl Drop for GrblLease {
     fn drop(&mut self) {
-        // Best-effort, non-blocking release: if the actor is gone the lease is
-        // moot anyway. `try_send` avoids needing an async context in `drop`.
-        let _ = self.handle.ctrl_tx.try_send(Ctrl::Release(self.id));
+        // Releasing the lease MUST reach the actor: a lost Release leaves the
+        // line lane leased forever, so every later command returns Busy until
+        // reconnect. A bare `try_send` could silently drop it if the ctrl
+        // channel were momentarily full, so prefer a guaranteed async send when
+        // a runtime is available (the normal case — leases live in async code),
+        // and fall back to `try_send` only when dropped outside a runtime.
+        let ctrl_tx = self.handle.ctrl_tx.clone();
+        let id = self.id;
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn(async move {
+                    let _ = ctrl_tx.send(Ctrl::Release(id)).await;
+                });
+            }
+            Err(_) => {
+                let _ = ctrl_tx.try_send(Ctrl::Release(id));
+            }
+        }
     }
 }
 
@@ -335,14 +350,22 @@ async fn actor_loop<S>(
     let mut last_rx = Instant::now();
     let mut idle = false;
 
-    loop {
+    'main: loop {
         tokio::select! {
             biased;
 
-            // 1. Real-time bytes: write immediately, preempting the queue.
+            // 1. Real-time bytes: write immediately, preempting the queue. Drain
+            // any further bytes already queued in the same visit, so a burst (a
+            // held override ramp filling REALTIME_CAP) can't keep this top-of-the
+            // biased-select branch perpetually ready and starve the read branch.
             Some(byte) = realtime_rx.recv() => {
                 if wr.write_all(&[byte]).await.is_err() || wr.flush().await.is_err() {
-                    break;
+                    break 'main;
+                }
+                while let Ok(b) = realtime_rx.try_recv() {
+                    if wr.write_all(&[b]).await.is_err() || wr.flush().await.is_err() {
+                        break 'main;
+                    }
                 }
             }
 
@@ -560,7 +583,13 @@ mod tests {
             loop {
                 if let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
                     let raw: Vec<u8> = self.buf.drain(..=pos).collect();
-                    let kept: Vec<u8> = raw.into_iter().filter(|&b| b != b'?').collect();
+                    // Keep only the printable command text: drop the `?` status
+                    // polls and any real-time bytes (0x18 soft-reset, 0x85
+                    // jog-cancel, 0x90.. overrides) that interleave the stream.
+                    let kept: Vec<u8> = raw
+                        .into_iter()
+                        .filter(|&b| (0x20..=0x7E).contains(&b) && b != b'?')
+                        .collect();
                     let s = String::from_utf8_lossy(&kept)
                         .trim_end_matches(['\r', '\n'])
                         .trim()
@@ -800,6 +829,51 @@ mod tests {
             }
             other => panic!("expected Line, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn send_line_serializes_before_next_await() {
+        let (h, mut fake) = setup();
+        // Fire-and-forget jog returns immediately, but its `ok` is consumed and
+        // the next command waits behind it (FIFO on the single line lane).
+        h.send_line("$J=G91 X1 F500").await.unwrap();
+        let fut = h.send_await("G10 L20 P1 Z0");
+        let (cmds, res) = tokio::join!(
+            async {
+                let c1 = fake.recv_cmd().await;
+                fake.send("ok").await; // jog accepted
+                let c2 = fake.recv_cmd().await;
+                fake.send("ok").await; // G10 accepted
+                (c1, c2)
+            },
+            fut,
+        );
+        assert_eq!(cmds.0, "$J=G91 X1 F500");
+        assert_eq!(cmds.1, "G10 L20 P1 Z0");
+        res.unwrap();
+    }
+
+    #[tokio::test]
+    async fn realtime_burst_does_not_starve_reads() {
+        use crate::command::FEED_OVERRIDE_PLUS_1;
+        let (h, mut fake) = setup();
+        // A burst of real-time override bytes (a held UI ramp) must not block
+        // the actor from reading replies: a following awaited command still
+        // resolves.
+        for _ in 0..32 {
+            h.send_realtime(FEED_OVERRIDE_PLUS_1).await.unwrap();
+        }
+        let fut = h.send_await("G0 X1");
+        let (cmd, res) = tokio::join!(
+            async {
+                let c = fake.recv_cmd().await; // override bytes are filtered out
+                fake.send("ok").await;
+                c
+            },
+            fut,
+        );
+        assert_eq!(cmd, "G0 X1");
+        res.unwrap();
     }
 
     #[tokio::test(start_paused = true)]
