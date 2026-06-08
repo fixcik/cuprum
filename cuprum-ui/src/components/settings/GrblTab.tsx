@@ -53,7 +53,15 @@ export function GrblTab() {
     };
   }, []);
 
+  // Dedupe concurrent reads. `machine_read_settings` claims the single GRBL
+  // ack slot for the duration of a `$$` dump, so a second overlapping read is
+  // rejected with "machine busy". React StrictMode's double-mount (dev) and
+  // fast reconnect/refresh both fire reload() twice — without this guard the
+  // second call would surface a spurious "machine busy" over a good first read.
+  const readingRef = useRef(false);
   const reload = useCallback(async () => {
+    if (readingRef.current) return;
+    readingRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -64,6 +72,7 @@ export function GrblTab() {
     } catch (e) {
       if (mountedRef.current) setError(t("readError", { error: String(e) }));
     } finally {
+      readingRef.current = false;
       if (mountedRef.current) setLoading(false);
     }
   }, [t]);
