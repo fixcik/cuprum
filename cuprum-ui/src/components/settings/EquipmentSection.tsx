@@ -99,8 +99,8 @@ export function EquipmentSection() {
         style={{ width: collapsed ? 60 : 224 }}
       >
         <div
-          className={`flex h-10 shrink-0 items-center border-b border-border ${
-            collapsed ? "justify-center px-1" : "px-3"
+          className={`flex shrink-0 items-center ${
+            collapsed ? "justify-center px-2 pt-2" : "h-10 border-b border-border px-3"
           }`}
         >
           {!collapsed && (
@@ -108,14 +108,18 @@ export function EquipmentSection() {
               {t("equipment.title")}
             </span>
           )}
+          {/* Collapsed: the toggle matches the rail icon buttons (size-9, centred)
+              with no header divider, so it reads as the first item in the rail. */}
           <button
             type="button"
             onClick={toggleCollapsed}
             title={collapsed ? t("equipment.expand") : t("equipment.collapse")}
-            className="ml-auto grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            className={`grid place-items-center text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground ${
+              collapsed ? "size-9 rounded-lg" : "ml-auto size-7 rounded-md"
+            }`}
           >
             {collapsed ? (
-              <ChevronsRight className="size-4" />
+              <ChevronsRight className="size-5" />
             ) : (
               <ChevronsLeft className="size-4" />
             )}
