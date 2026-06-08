@@ -1,5 +1,9 @@
 {
-  "inspector": { "window": { "title": "Design: {{name}}" } },
+  "inspector": {
+    "window": {
+      "title": "Design: {{name}}"
+    }
+  },
   "noProject": "No project open.",
   "importZip": "Import ZIP",
   "importedPackages": "Imported packages",
@@ -101,7 +105,8 @@
         "tooBig": "Design is larger than the panel work area",
         "noSpace": "No free space on the panel",
         "grid": "Grid {{cols}}×{{rows}} · placing {{n}}",
-        "overflow": "Fits {{fit}} of {{requested}} — {{missing}} don't fit"
+        "overflow": "Fits {{fit}} of {{requested}} — {{missing}} don't fit",
+        "fits": "Placing {{n}}"
       },
       "cancel": "Cancel",
       "add": "Add to panel",

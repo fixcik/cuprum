@@ -4,7 +4,8 @@ import i18n from "@/i18n";
 import { api, type AddDesignResult, type BoardInstance, type DrillClass, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
-import { packLayoutAvoiding, panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
+import { panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
+import { solvePanelPlacements } from "@/lib/packSolve";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 import { useSettings } from "@/settingsStore";
@@ -573,32 +574,17 @@ export const useShell = create<ShellStore>((set, get) => ({
     const stackup = get().currentManifest?.stackup ?? DEFAULT_STACKUP;
     const obstacles = panelObstacles(panel, sizes, { clampRadiusMm: useSettings.getState().profile.toolingClampRadiusMm });
     const clearance = nest.enabled ? nest.gapMm : 0;
-    // Fast frontend greedy first (neat grid for simple panels, zero backend latency).
-    const pack = packLayoutAvoiding(w, h, panel.width_mm, panel.height_mm, nest, obstacles, clearance);
-    // When greedy falls short of the request, ask the Rust solver for a denser pack
-    // (heavy search stays off the UI thread); adopt it only if it beats greedy.
-    let placements = pack.placements;
-    if (pack.n < pack.requested && pack.requested > 0) {
-      try {
-        const solved = await api.packPanel({
-          boardW: w,
-          boardH: h,
-          panelW: panel.width_mm,
-          panelH: panel.height_mm,
-          requested: pack.requested,
-          marginMm: nest.enabled ? nest.marginMm : 0,
-          gapMm: clearance,
-          clearanceMm: clearance,
-          mixRotation: nest.enabled && nest.mixRotation,
-          forceRotate: nest.enabled && nest.rotate,
-          obstacles,
-          timeBudgetMs: 300,
-        });
-        if (solved.length > placements.length) placements = solved;
-      } catch {
-        /* solver unavailable → keep the greedy result */
-      }
-    }
+    // Greedy-then-solver (shared with the add-design preview so counts agree): fast
+    // grid for simple panels, dense Rust solve only when greedy falls short.
+    const { placements, requested } = await solvePanelPlacements({
+      boardW: w,
+      boardH: h,
+      panelW: panel.width_mm,
+      panelH: panel.height_mm,
+      nest,
+      obstacles,
+      clearanceMm: clearance,
+    });
     if (placements.length === 0) return { ok: false, messageKey: "panel.add.toast.noFit", params: { name: design.source_name } };
     // Append the packed copies of the selected design. Existing instances are kept
     // and not re-packed (mixed-panel overlap is resolved by the interactive editor).
@@ -616,11 +602,11 @@ export const useShell = create<ShellStore>((set, get) => ({
     const next: PanelDoc = { ...panel, instances: [...panel.instances, ...added] };
     await get().savePanelConfig(next, stackup);
     const placedN = placements.length;
-    const overflow = pack.requested > placedN;
+    const overflow = requested > placedN;
     return {
       ok: true,
       messageKey: overflow ? "panel.add.toast.addedOverflow" : "panel.add.toast.addedN",
-      params: { name: design.source_name, n: placedN, requested: pack.requested },
+      params: { name: design.source_name, n: placedN, requested },
     };
   },
 
