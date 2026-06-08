@@ -529,3 +529,289 @@ fn deadline_exceeded(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::SOFT_RESET;
+    use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
+
+    /// The "GRBL on the other end of the wire": reads what the actor writes
+    /// (transparently dropping the bare `?` status polls) and writes replies.
+    struct Fake {
+        rd: ReadHalf<DuplexStream>,
+        wr: WriteHalf<DuplexStream>,
+        buf: Vec<u8>,
+    }
+
+    impl Fake {
+        fn new(s: DuplexStream) -> Self {
+            let (rd, wr) = tokio::io::split(s);
+            Self {
+                rd,
+                wr,
+                buf: Vec::new(),
+            }
+        }
+
+        /// Next full command line the actor sent, with `?` poll bytes stripped.
+        /// Skips lines that were nothing but a poll.
+        async fn recv_cmd(&mut self) -> String {
+            loop {
+                if let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
+                    let raw: Vec<u8> = self.buf.drain(..=pos).collect();
+                    let kept: Vec<u8> = raw.into_iter().filter(|&b| b != b'?').collect();
+                    let s = String::from_utf8_lossy(&kept)
+                        .trim_end_matches(['\r', '\n'])
+                        .trim()
+                        .to_string();
+                    if s.is_empty() {
+                        continue;
+                    }
+                    return s;
+                }
+                let mut tmp = [0u8; 128];
+                let n = self.rd.read(&mut tmp).await.unwrap();
+                assert!(n > 0, "actor closed the stream unexpectedly");
+                self.buf.extend_from_slice(&tmp[..n]);
+            }
+        }
+
+        /// Next byte the actor wrote that is NOT a `?` status poll.
+        async fn recv_nonpoll_byte(&mut self) -> u8 {
+            loop {
+                if !self.buf.is_empty() {
+                    let b = self.buf.remove(0);
+                    if b != b'?' {
+                        return b;
+                    }
+                    continue;
+                }
+                let mut tmp = [0u8; 128];
+                let n = self.rd.read(&mut tmp).await.unwrap();
+                assert!(n > 0, "actor closed the stream unexpectedly");
+                self.buf.extend_from_slice(&tmp[..n]);
+            }
+        }
+
+        async fn send(&mut self, line: &str) {
+            self.wr.write_all(line.as_bytes()).await.unwrap();
+            self.wr.write_all(b"\r\n").await.unwrap();
+            self.wr.flush().await.unwrap();
+        }
+    }
+
+    fn setup() -> (GrblHandle, Fake) {
+        let (client, fake) = tokio::io::duplex(1024);
+        (spawn(client), Fake::new(fake))
+    }
+
+    #[tokio::test]
+    async fn send_await_resolves_on_ok() {
+        let (h, mut fake) = setup();
+        let fut = h.send_await("G10 L20 P1 Z0");
+        let (cmd, res) = tokio::join!(
+            async {
+                let c = fake.recv_cmd().await;
+                fake.send("ok").await;
+                c
+            },
+            fut,
+        );
+        assert_eq!(cmd, "G10 L20 P1 Z0");
+        res.unwrap();
+    }
+
+    #[tokio::test]
+    async fn send_await_maps_error() {
+        let (h, mut fake) = setup();
+        let fut = h.send_await("G0 X1");
+        let (_, res) = tokio::join!(
+            async {
+                fake.recv_cmd().await;
+                fake.send("error:9").await;
+            },
+            fut,
+        );
+        assert!(matches!(res, Err(GrblError::Error(9))), "got {res:?}");
+    }
+
+    #[tokio::test]
+    async fn send_await_maps_alarm() {
+        let (h, mut fake) = setup();
+        let fut = h.send_await("G0 X1");
+        let (_, res) = tokio::join!(
+            async {
+                fake.recv_cmd().await;
+                fake.send("ALARM:1").await;
+            },
+            fut,
+        );
+        assert!(matches!(res, Err(GrblError::Alarm(1))), "got {res:?}");
+    }
+
+    #[tokio::test]
+    async fn send_await_maps_reset() {
+        let (h, mut fake) = setup();
+        let fut = h.send_await("$H");
+        let (_, res) = tokio::join!(
+            async {
+                fake.recv_cmd().await;
+                fake.send("Grbl 1.1h ['$' for help]").await;
+            },
+            fut,
+        );
+        assert!(matches!(res, Err(GrblError::Reset)), "got {res:?}");
+    }
+
+    #[tokio::test]
+    async fn read_settings_collects_until_ok() {
+        let (h, mut fake) = setup();
+        let fut = h.read_settings();
+        let (cmd, res) = tokio::join!(
+            async {
+                let c = fake.recv_cmd().await;
+                fake.send("$0=10").await;
+                fake.send("$130=200.000").await;
+                fake.send("ok").await;
+                c
+            },
+            fut,
+        );
+        assert_eq!(cmd, "$$");
+        assert_eq!(
+            res.unwrap(),
+            vec![(0, "10".to_string()), (130, "200.000".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_reports_contact() {
+        let (h, mut fake) = setup();
+        let fut = h.probe("G38.2 Z-5 F50");
+        let (_, res) = tokio::join!(
+            async {
+                fake.recv_cmd().await;
+                fake.send("[PRB:0.000,0.000,-3.250:1]").await;
+                fake.send("ok").await;
+            },
+            fut,
+        );
+        assert!(res.unwrap());
+    }
+
+    #[tokio::test]
+    async fn probe_reports_no_contact_on_bare_ok() {
+        let (h, mut fake) = setup();
+        let fut = h.probe("G38.2 Z-5 F50");
+        let (_, res) = tokio::join!(
+            async {
+                fake.recv_cmd().await;
+                // s=0 => no contact within travel
+                fake.send("[PRB:0.000,0.000,0.000:0]").await;
+                fake.send("ok").await;
+            },
+            fut,
+        );
+        assert!(!res.unwrap());
+    }
+
+    #[tokio::test]
+    async fn realtime_byte_passes_while_line_in_flight() {
+        let (h, mut fake) = setup();
+        // A line is in flight (no ok yet)...
+        let h2 = h.clone();
+        let jh = tokio::spawn(async move { h2.send_await("G4 P10").await });
+        assert_eq!(fake.recv_cmd().await, "G4 P10");
+        // ...a real-time byte still reaches the wire (preempts the queue).
+        h.send_realtime(SOFT_RESET).await.unwrap();
+        assert_eq!(fake.recv_nonpoll_byte().await, SOFT_RESET);
+        // The soft-reset's welcome banner then aborts the in-flight line.
+        fake.send("Grbl 1.1h ['$' for help]").await;
+        assert!(matches!(jh.await.unwrap(), Err(GrblError::Reset)));
+    }
+
+    #[tokio::test]
+    async fn lease_rejects_other_callers_then_frees_on_drop() {
+        let (h, mut fake) = setup();
+        let lease = h.acquire_lease().await.unwrap();
+
+        // A non-leased line command is rejected without ever hitting the wire.
+        assert!(matches!(
+            h.send_await("G0 X1").await,
+            Err(GrblError::Busy)
+        ));
+
+        // The lease holder's command passes.
+        let fut = lease.send_await("G10 L20 P1 X0");
+        let (cmd, res) = tokio::join!(
+            async {
+                let c = fake.recv_cmd().await;
+                fake.send("ok").await;
+                c
+            },
+            fut,
+        );
+        assert_eq!(cmd, "G10 L20 P1 X0");
+        res.unwrap();
+
+        // Releasing the lease (drop) lets a plain command through again.
+        drop(lease);
+        let fut = h.send_await("G0 X2");
+        let (cmd, res) = tokio::join!(
+            async {
+                let c = fake.recv_cmd().await;
+                fake.send("ok").await;
+                c
+            },
+            fut,
+        );
+        assert_eq!(cmd, "G0 X2");
+        res.unwrap();
+    }
+
+    #[tokio::test]
+    async fn events_carry_status_and_lines() {
+        let (h, mut fake) = setup();
+        let mut sub = h.subscribe();
+        fake.send("<Idle|MPos:1.000,2.000,3.000|FS:0,0>").await;
+        fake.send("[MSG:hello]").await;
+
+        // First a resolved Status, then the message as an rx console line.
+        macro_rules! recv {
+            () => {
+                tokio::time::timeout(Duration::from_secs(1), sub.recv())
+                    .await
+                    .expect("event timeout")
+                    .expect("broadcast closed")
+            };
+        }
+        match recv!() {
+            GrblEvent::Status(s) => {
+                assert_eq!(s.state, MachineState::Idle);
+                assert_eq!(s.mpos, [1.0, 2.0, 3.0]);
+            }
+            other => panic!("expected Status, got {other:?}"),
+        }
+        match recv!() {
+            GrblEvent::Line { dir, text } => {
+                assert_eq!(dir, Dir::Rx);
+                assert_eq!(text, "[MSG:hello]");
+            }
+            other => panic!("expected Line, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn silence_times_out() {
+        let (h, _fake) = setup();
+        // No reply ever arrives; the link is "silent". With the clock paused the
+        // runtime auto-advances through the poll ticks until the 4 s silence
+        // deadline fires. `_fake` is held so the actor's writes don't error.
+        let res = h.send_await("G0 X1").await;
+        assert!(
+            matches!(res, Err(GrblError::Timeout("no response from machine"))),
+            "got {res:?}"
+        );
+    }
+}
