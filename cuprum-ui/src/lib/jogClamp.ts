@@ -10,12 +10,16 @@ export const MIN_JOG_MM = 0.001;
  *  `wco` carries up to ~0.001 mm of error. GRBL then re-adds its own full-precision
  *  G54 offset, landing the real machine target at `edge ± ~0.001 mm`; on the wrong
  *  side that trips `error:15` ("Jog target exceeds machine travel") and the move
- *  never starts. 0.01 mm backs off ~10× that report-rounding error — enough to keep
- *  the target inside the limit while staying visually at the edge. (The dominant
+ *  never starts. 0.002 mm is just 2× that report-rounding error — enough to keep the
+ *  target reliably inside the limit, yet only ~2 µm short of the true edge, which is
+ *  below the machine's own positioning resolution (so the spindle effectively reaches
+ *  the real corner). Note the 0 edge can't be widened away: GRBL's soft limit is
+ *  one-sided, with `0` being the homed origin (not a $-setting) — so the move has to
+ *  stay at/above it, hence a pull-off rather than a wider limit. (The dominant error
  *  term is the report rounding, not the f64→f32 residual ~1e-5 mm nor the motor step
  *  ~1e-3 mm, so the machine's steps/mm doesn't set this.) Shared by the continuous
  *  hold-jog (continuousJogRoom) and the absolute click-to-move (useJog.clampWork). */
-export const JOG_EDGE_MARGIN_MM = 0.01;
+export const JOG_EDGE_MARGIN_MM = 0.002;
 
 /** Corrected jog delta so the resulting target (`pos + reqDelta`) stays within
  *  the inclusive range [lo, hi]. A UX safeguard layered over GRBL's own soft
