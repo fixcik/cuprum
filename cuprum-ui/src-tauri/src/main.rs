@@ -157,6 +157,11 @@ fn main() {
             if let Ok(base) = working_base(&handle) {
                 let _ = cuprum_project::workdir::gc_clean(&base, std::process::id());
             }
+            // Seed the cached GRBL kinematics from the persisted kinematics.json so
+            // the drill time estimate uses the controller's real limits before the
+            // first `$$` read of the session.
+            app.state::<commands::machine::MachineState>()
+                .load_persisted(&handle);
             // Cold start: this process was launched with a project path in argv.
             if let Some(path) = project_path_from_args(&std::env::args().collect::<Vec<_>>()) {
                 if let Some(state) = app.try_state::<PendingOpen>() {
@@ -234,7 +239,8 @@ fn main() {
             commands::drill_run::drill_run_confirm_tool_change,
             commands::drill_run::drill_run_stop,
             commands::drill_run::drill_run_estop,
-            commands::drill_run::drill_run_status
+            commands::drill_run::drill_run_status,
+            commands::drill_run::drill_plan
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");

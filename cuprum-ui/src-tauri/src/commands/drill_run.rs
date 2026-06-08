@@ -9,6 +9,21 @@ use cuprum_core::grbl::{self, GrblEvent, GrblHandle, GrblLease, MachineState as 
 
 use super::machine::MachineState;
 
+// ── Planning ─────────────────────────────────────────────────────────────────
+
+/// Compute the drill route, G-code program and time estimate in the Rust core.
+/// The GRBL kinematics are ALWAYS taken from the backend cache (kept fresh by
+/// `$$` reads and console `$NNN=` snooping); any `kinematics` field the frontend
+/// sends is ignored, so the estimate uses the controller's real limits.
+#[tauri::command]
+pub fn drill_plan(
+    state: State<'_, MachineState>,
+    mut input: cuprum_core::drilling::DrillPlanInput,
+) -> Result<cuprum_core::drilling::DrillPlanResult, String> {
+    input.kinematics = state.kinematics();
+    Ok(cuprum_core::drilling::drill_plan(input))
+}
+
 // ── DTOs ────────────────────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
