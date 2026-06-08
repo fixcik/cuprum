@@ -3,10 +3,11 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, OrthographicCamera, GizmoHelper, GizmoViewcube } from "@react-three/drei";
 import { useTranslation } from "react-i18next";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { BoardMeshData } from "@/lib/boardMesh";
 import { PanelStatus } from "@/components/ui/PanelStatus";
 
-const COPPER_COLOR = "#caa84a"; // ENIG gold
+const COPPER_COLOR = "#b5703a"; // bare copper — warm reddish-orange (not ENIG gold)
 const MASK_COLOR = "#2e6e40"; // muted matte soldermask green
 const SILK_COLOR = "#f5f5f5";
 const FR4_COLOR = "#59512c"; // bare fiberglass — dark olive (distinct from copper gold)
@@ -16,6 +17,31 @@ const KIND_COPPER = 0;
 const KIND_MASK = 1;
 const KIND_SILK = 2;
 const KIND_BARREL = 4;
+
+/** Procedural image-based lighting. A metallic MeshStandardMaterial shows almost
+ *  no diffuse colour — it is visible only through what it reflects, so without an
+ *  environment map copper goes black everywhere except the narrow specular hotspot
+ *  of a direct light (the highlight "vanishes" the instant you tilt off it). Baking
+ *  three's bundled RoomEnvironment into a PMREM cubemap once on mount gives every
+ *  standard material a soft room to reflect, so copper stays lit and metallic at any
+ *  view angle. RoomEnvironment ships inside three — no network/HDR asset. */
+function SceneEnvironment() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const room = new RoomEnvironment();
+    const envTex = pmrem.fromScene(room, 0.04).texture;
+    scene.environment = envTex;
+    return () => {
+      scene.environment = null;
+      envTex.dispose();
+      room.dispose(); // frees the room's box geometry + materials
+      pmrem.dispose();
+    };
+  }, [gl, scene]);
+  return null;
+}
 
 /** A directional light that tracks the camera — like the viewer holding a lamp. */
 function HeadLight({ intensity }: { intensity: number }) {
@@ -175,7 +201,19 @@ function SnapFx({ side, snapNonce, radius }: { side: "top" | "bottom"; snapNonce
 function LayerMaterial({ kind, color }: { kind: number; color: string }) {
   switch (kind) {
     case KIND_COPPER:
-      return <meshStandardMaterial color={COPPER_COLOR} roughness={0.32} metalness={0.92} side={THREE.DoubleSide} />;
+      // Polished copper: the env map (SceneEnvironment) carries the reflections, so
+      // a slightly higher roughness keeps the highlight broad/soft instead of a tiny
+      // blown-out spot, and envMapIntensity lets the copper catch the room and stay
+      // bright at grazing angles.
+      return (
+        <meshStandardMaterial
+          color={COPPER_COLOR}
+          roughness={0.42}
+          metalness={0.9}
+          envMapIntensity={1.3}
+          side={THREE.DoubleSide}
+        />
+      );
     case KIND_MASK:
       return (
         <meshStandardMaterial
@@ -192,7 +230,15 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
       return <meshStandardMaterial color={SILK_COLOR} roughness={0.85} metalness={0.0} side={THREE.DoubleSide} />;
     case KIND_BARREL:
       // Plated bore wall — copper, slightly less polished than the pads.
-      return <meshStandardMaterial color={COPPER_COLOR} roughness={0.5} metalness={0.7} side={THREE.DoubleSide} />;
+      return (
+        <meshStandardMaterial
+          color={COPPER_COLOR}
+          roughness={0.55}
+          metalness={0.8}
+          envMapIntensity={1.1}
+          side={THREE.DoubleSide}
+        />
+      );
     default:
       return <meshStandardMaterial color={color} roughness={0.6} metalness={0.05} side={THREE.DoubleSide} />;
   }
@@ -236,10 +282,13 @@ export function Board3D({
       <SceneCamera initialZoom={initialZoom} radius={radius} side={side} />
       {/* Dark neutral background in tone with the app shell (light bg was glaring). */}
       <color attach="background" args={["#1b1f24"]} />
-      <hemisphereLight args={["#eaf0f6", "#10141a", 0.7]} />
-      <ambientLight intensity={0.6} />
-      {/* Headlamp: tracks the camera so the board is always lit toward the viewer. */}
-      <HeadLight intensity={1.8} />
+      {/* Image-based lighting so metallic copper reflects a room and never goes black. */}
+      <SceneEnvironment />
+      <hemisphereLight args={["#eaf0f6", "#10141a", 0.5]} />
+      <ambientLight intensity={0.45} />
+      {/* Headlamp: tracks the camera so the board is always lit toward the viewer.
+          Softened now that the env map carries the metallic reflections. */}
+      <HeadLight intensity={1.1} />
       <directionalLight position={[-40, 50, 30]} intensity={0.3} />
       {/* Centre the board at the origin. No Y flip: gerber and three.js are both Y-up. */}
       <group position={[-center[0], -center[1], -center[2]]}>
