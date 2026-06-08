@@ -24,12 +24,14 @@ import enMachine from "@/locales/en/machine.json";
 import ruMachine from "@/locales/ru/machine.json";
 import enDrill from "@/locales/en/drill.json";
 import ruDrill from "@/locales/ru/drill.json";
+import enGrbl from "@/locales/en/grbl.json";
+import ruGrbl from "@/locales/ru/grbl.json";
 
 // Add new namespaces here as features are migrated.
 export const resources = {
-  en: { common: enCommon, nav: enNav, settings: enSettings, feasibility: enFeasibility, metrics: enMetrics, import: enImport, home: enHome, project: enProject, layers: enLayers, updater: enUpdater, menu: enMenu, machine: enMachine, drill: enDrill },
-  ru: { common: ruCommon, nav: ruNav, settings: ruSettings, feasibility: ruFeasibility, metrics: ruMetrics, import: ruImport, home: ruHome, project: ruProject, layers: ruLayers, updater: ruUpdater, menu: ruMenu, machine: ruMachine, drill: ruDrill },
+  en: { common: enCommon, nav: enNav, settings: enSettings, feasibility: enFeasibility, metrics: enMetrics, import: enImport, home: enHome, project: enProject, layers: enLayers, updater: enUpdater, menu: enMenu, machine: enMachine, drill: enDrill, grbl: enGrbl },
+  ru: { common: ruCommon, nav: ruNav, settings: ruSettings, feasibility: ruFeasibility, metrics: ruMetrics, import: ruImport, home: ruHome, project: ruProject, layers: ruLayers, updater: ruUpdater, menu: ruMenu, machine: ruMachine, drill: ruDrill, grbl: ruGrbl },
 } as const;
 
-export const NAMESPACES = ["common", "nav", "settings", "feasibility", "metrics", "import", "home", "project", "layers", "updater", "menu", "machine", "drill"] as const;
+export const NAMESPACES = ["common", "nav", "settings", "feasibility", "metrics", "import", "home", "project", "layers", "updater", "menu", "machine", "drill", "grbl"] as const;
 export const DEFAULT_NS = "common";
