@@ -7,7 +7,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import type { BoardMeshData } from "@/lib/boardMesh";
 import { PanelStatus } from "@/components/ui/PanelStatus";
 
-const COPPER_COLOR = "#b5703a"; // bare copper — warm reddish-orange (not ENIG gold)
+const COPPER_COLOR = "#caa84a"; // ENIG gold finish (matches 2D DEFAULT_LAYER_COLORS)
 const MASK_COLOR = "#2e6e40"; // muted matte soldermask green
 const SILK_COLOR = "#f5f5f5";
 const FR4_COLOR = "#59512c"; // bare fiberglass — dark olive (distinct from copper gold)
@@ -201,16 +201,15 @@ function SnapFx({ side, snapNonce, radius }: { side: "top" | "bottom"; snapNonce
 function LayerMaterial({ kind, color }: { kind: number; color: string }) {
   switch (kind) {
     case KIND_COPPER:
-      // Polished copper: the env map (SceneEnvironment) carries the reflections, so
-      // a slightly higher roughness keeps the highlight broad/soft instead of a tiny
-      // blown-out spot, and envMapIntensity lets the copper catch the room and stay
-      // bright at grazing angles.
+      // Matte copper finish: high roughness scatters the highlight into a broad soft
+      // sheen (no mirror), kept metallic so it still reads as metal; the env map is
+      // dialed down so it catches the room softly instead of reflecting it sharply.
       return (
         <meshStandardMaterial
           color={COPPER_COLOR}
-          roughness={0.42}
-          metalness={0.9}
-          envMapIntensity={1.3}
+          roughness={0.72}
+          metalness={0.85}
+          envMapIntensity={0.75}
           side={THREE.DoubleSide}
         />
       );
@@ -229,13 +228,13 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
     case KIND_SILK:
       return <meshStandardMaterial color={SILK_COLOR} roughness={0.85} metalness={0.0} side={THREE.DoubleSide} />;
     case KIND_BARREL:
-      // Plated bore wall — copper, slightly less polished than the pads.
+      // Plated bore wall — copper, a touch rougher/duller than the pads.
       return (
         <meshStandardMaterial
           color={COPPER_COLOR}
-          roughness={0.55}
-          metalness={0.8}
-          envMapIntensity={1.1}
+          roughness={0.78}
+          metalness={0.85}
+          envMapIntensity={0.7}
           side={THREE.DoubleSide}
         />
       );
@@ -278,18 +277,18 @@ export function Board3D({
   }
   const { center, radius } = mesh;
   return (
-    <Canvas gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}>
+    <Canvas gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.48 }}>
       <SceneCamera initialZoom={initialZoom} radius={radius} side={side} />
       {/* Dark neutral background in tone with the app shell (light bg was glaring). */}
       <color attach="background" args={["#1b1f24"]} />
       {/* Image-based lighting so metallic copper reflects a room and never goes black. */}
       <SceneEnvironment />
-      <hemisphereLight args={["#eaf0f6", "#10141a", 0.5]} />
-      <ambientLight intensity={0.45} />
+      <hemisphereLight args={["#eaf0f6", "#10141a", 0.35]} />
+      <ambientLight intensity={0.3} />
       {/* Headlamp: tracks the camera so the board is always lit toward the viewer.
           Softened now that the env map carries the metallic reflections. */}
-      <HeadLight intensity={1.1} />
-      <directionalLight position={[-40, 50, 30]} intensity={0.3} />
+      <HeadLight intensity={0.75} />
+      <directionalLight position={[-40, 50, 30]} intensity={0.2} />
       {/* Centre the board at the origin. No Y flip: gerber and three.js are both Y-up. */}
       <group position={[-center[0], -center[1], -center[2]]}>
         {mesh.substrate.getAttribute("position") && (
