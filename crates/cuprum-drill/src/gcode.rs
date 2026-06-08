@@ -277,7 +277,26 @@ pub fn emit_drill_program(plan: &PanelDrillPlan, ctx: EmitCtx) -> DrillProgram {
     all_lines.push(format!("G0 Z{}", fmt_mm(safe_z)));
     // Return to work zero (the datum corner = G54 origin) at safe-Z so the bit
     // parks at 0,0 — the operator can rerun without re-zeroing. Comes AFTER the Z
-    // retract so the XY move can't drag the bit across the board.
+    // retract so the XY move can't drag the bit across the board. Routes around
+    // keep-out zones just like an inter-hole traverse, so the emitted path matches
+    // the preview route's homing leg.
+    if !zones_machine.is_empty() {
+        let wps = route_avoiding(
+            Pt {
+                x: travel_x,
+                y: travel_y,
+            },
+            Pt { x: 0.0, y: 0.0 },
+            &zones_machine,
+            KEEPOUT_TRAVERSE_MARGIN_MM,
+            panel_machine,
+        );
+        for wp in wps {
+            let l = format!("G0 X{} Y{}", fmt_mm(wp.x), fmt_mm(wp.y));
+            postamble_lines.push(l.clone());
+            all_lines.push(l);
+        }
+    }
     postamble_lines.push("G0 X0.000 Y0.000".to_string());
     all_lines.push("G0 X0.000 Y0.000".to_string());
     if !ctx.cnc.append_gcode.trim().is_empty() {
@@ -544,6 +563,64 @@ M2
         assert!(
             xy_rapids > 2,
             "expected detour waypoint, got {xy_rapids} G0 X lines"
+        );
+    }
+
+    #[test]
+    fn homing_return_routes_around_keepout() {
+        // One hole far from the datum, a zone straddling the straight homing line
+        // (but not spanning the full height, so a detour exists) → the postamble
+        // homing move to 0,0 detours around it (a G0 X waypoint precedes the final
+        // `G0 X0.000 Y0.000`).
+        let plan = PanelDrillPlan {
+            groups: vec![DrillGroup {
+                diameter_mm: 1.0,
+                class: DrillClass::Pth,
+                tool_id: Some("t1".into()),
+                holes: vec![PlanHole {
+                    x_mm: 90.0,
+                    y_mm: 50.0,
+                    id: None,
+                }],
+            }],
+        };
+        let prog = emit_drill_program(
+            &plan,
+            EmitCtx {
+                panel_height_mm: 60.0,
+                panel_width_mm: 100.0,
+                datum: DatumCorner::BottomLeft,
+                cnc: cnc(),
+                tools: vec![tool("t1", 1.0)],
+                substrate_thickness_mm: 1.6,
+                breakthrough_mm: None,
+                peck_depth_mm: None,
+                keep_out_zones: vec![Rect {
+                    x: 40.0,
+                    y: 45.0,
+                    w: 10.0,
+                    h: 15.0,
+                }],
+                start_machine_xy: None,
+            },
+        );
+        let post = prog
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Postamble)
+            .unwrap();
+        let xi = post
+            .lines
+            .iter()
+            .position(|l| l == "G0 X0.000 Y0.000")
+            .unwrap();
+        let has_detour = post.lines[..xi]
+            .iter()
+            .any(|l| l.starts_with("G0 X") && l != "G0 X0.000 Y0.000");
+        assert!(
+            has_detour,
+            "expected a homing detour around keep-out, postamble: {:?}",
+            post.lines
         );
     }
 

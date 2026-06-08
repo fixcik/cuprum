@@ -311,6 +311,38 @@ pub fn plan_drill_route(
         prev_y = h.y_mm;
     }
 
+    // Final leg: return to the work zero (the datum corner = the ordering start)
+    // so the canvas draws the homing move like any other traverse and the estimate
+    // counts it. Routes around keep-out zones exactly like the inter-hole moves,
+    // matching the emitter's postamble return. Skipped when no holes ran.
+    if !ordered_holes_list.is_empty() {
+        let (sx, sy) = start;
+        if !zones.is_empty() {
+            let wps = route_avoiding(
+                Pt {
+                    x: prev_x,
+                    y: prev_y,
+                },
+                Pt { x: sx, y: sy },
+                zones,
+                KEEPOUT_TRAVERSE_MARGIN_MM,
+                panel,
+            );
+            for wp in wps {
+                path.push(PlanHole {
+                    x_mm: wp.x,
+                    y_mm: wp.y,
+                    id: None,
+                });
+            }
+        }
+        path.push(PlanHole {
+            x_mm: sx,
+            y_mm: sy,
+            id: None,
+        });
+    }
+
     let total = ordered_holes_list.len();
     DrillRoute {
         groups: out,
@@ -374,6 +406,45 @@ mod route_tests {
         assert_eq!(r.groups[0].class, DrillClass::Registration);
         assert_eq!(r.total_holes, 2);
         assert_eq!(r.tool_count, 2);
+    }
+
+    #[test]
+    fn route_returns_to_datum_corner_after_last_hole() {
+        // The homing leg back to work zero (the ordering start) is part of the
+        // drawn path so the canvas shows it and the estimate counts it.
+        let plan = PanelDrillPlan {
+            groups: vec![DrillGroup {
+                diameter_mm: 1.0,
+                class: DrillClass::Registration,
+                tool_id: Some("t1".into()),
+                holes: vec![
+                    PlanHole {
+                        x_mm: 10.0,
+                        y_mm: 10.0,
+                        id: None,
+                    },
+                    PlanHole {
+                        x_mm: 30.0,
+                        y_mm: 10.0,
+                        id: None,
+                    },
+                ],
+            }],
+        };
+        let start = (0.0, 0.0);
+        let r = plan_drill_route(&plan, start, &[], None);
+        let last = r.path_points.last().unwrap();
+        assert_eq!((last.x_mm, last.y_mm), start);
+        assert!(last.id.is_none()); // homing waypoint, not a hole
+                                    // 2 holes + 1 homing point, no zones → no detour waypoints.
+        assert_eq!(r.path_points.len(), 3);
+    }
+
+    #[test]
+    fn route_no_homing_leg_when_no_holes() {
+        let plan = PanelDrillPlan { groups: vec![] };
+        let r = plan_drill_route(&plan, (0.0, 0.0), &[], None);
+        assert!(r.path_points.is_empty());
     }
 
     #[test]
