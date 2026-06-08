@@ -139,7 +139,9 @@ export function RenestDialog({
           placedBoxes.push({ minX: p.x, minY: p.y, maxX: p.x + fw, maxY: p.y + fh });
         });
       }
-      onApply(transforms.length ? transforms : result.transforms);
+      // Adopt the solver result only if it is at least as dense as the greedy preview
+      // the user saw — never apply a sparser layout (e.g. on a solver timeout).
+      onApply(transforms.length >= result.placed ? transforms : result.transforms);
     } catch {
       onApply(result.transforms); // backend unavailable → greedy preview result
     }
