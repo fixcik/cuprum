@@ -504,6 +504,7 @@ dependencies = [
  "criterion",
  "cuprum-dfm",
  "cuprum-diskcache",
+ "cuprum-drill",
  "cuprum-gerber",
  "cuprum-goo",
  "cuprum-grbl",
