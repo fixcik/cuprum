@@ -37,7 +37,7 @@ export function DrillFeedSlider({ value, grblPct, onChange, disabled }: DrillFee
         type="range"
         min={40}
         max={200}
-        step={1}
+        step={5}
         value={display}
         disabled={disabled}
         className="w-full accent-primary"
@@ -46,6 +46,13 @@ export function DrillFeedSlider({ value, grblPct, onChange, disabled }: DrillFee
         onTouchEnd={commit}
         onBlur={commit}
       />
+
+      {/* Scale labels: min / default / max */}
+      <div className="flex justify-between text-[9px] tabular-nums text-muted-foreground">
+        <span>40%</span>
+        <span>100%</span>
+        <span>200%</span>
+      </div>
 
       {/* GRBL readout when it diverges from the slider value */}
       {grblPct != null && grblPct !== value && (
