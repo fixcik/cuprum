@@ -188,8 +188,18 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
 
       const holeLines: string[] = [];
 
-      // Prepend spindle-up lines onto the very first hole of this group
+      // First hole of this group: lift clear, THEN spin up. Work-Z is bound by now
+      // (the tool-change probe/touch-off ran before these hole steps stream), so this
+      // work-frame raise is valid — unlike the preamble, which precedes the first
+      // probe. Without it the first traverse would run at the post-touch-off Z (the
+      // board surface for a manual touch-off; a fire-and-forget, possibly-incomplete
+      // retract for a probe) and drag the bit across the board. The keep-out detours
+      // below also assume the bit is already at safe Z. Lift before spin so the bit
+      // isn't spun against the surface.
       if (oi === 0) {
+        const liftLine = `G0 Z${fmt(safeZ)}`;
+        holeLines.push(liftLine);
+        allLines.push(liftLine);
         for (const sl of spindleUpLines) {
           holeLines.push(sl);
           allLines.push(sl);

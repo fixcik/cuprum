@@ -84,6 +84,36 @@ describe("emitDrillGcode", () => {
     expect(afterPreamble.trimStart().startsWith("G0 Z")).toBe(false);
   });
 
+  it("lifts to safe Z before the first traverse of every group", () => {
+    // Regression: after a tool-change touch-off the bit sits at the surface (manual
+    // touch-off sets work-Z 0 and never retracts; the probe retract is fire-and-forget
+    // and may not finish). The program must raise to safe Z itself before the first
+    // XY move of each group, or it drags the bit across the board. Holds for both the
+    // first group (no work-frame retract in its tool change) and later groups.
+    const p = plan([
+      { diameterMm: 0.8, class: "pth", toolId: "t1", holes: [{ xMm: 1, yMm: 1 }] },
+      { diameterMm: 1.0, class: "pth", toolId: "t2", holes: [{ xMm: 2, yMm: 2 }] },
+    ]);
+    const { gcode } = emitDrillGcode(p, {
+      panelHeightMm: 10, profile: profile({ safeZMm: 4, toolChangeZMm: 25 }),
+      tools: [tool("t1", 0.8), tool("t2", 1.0)], substrateThicknessMm: 1.6,
+    });
+    const ls = gcode.split("\n").map((l) => l.trim()).filter(Boolean);
+    // Every group's first lateral move is immediately preceded by a safe-Z lift.
+    ls.forEach((l, i) => {
+      if (/^M3/.test(l)) {
+        // The spindle-up marks a group start; a safe-Z lift sits just above it.
+        const before = ls.slice(0, i).reverse();
+        const firstZ = before.find((x) => /^G[01] Z/.test(x));
+        expect(firstZ).toBe("G0 Z4.000");
+      }
+    });
+    // First lateral of the program: a safe-Z lift precedes it (nothing drilled yet).
+    const firstXY = ls.findIndex((l) => /^G0 X/.test(l));
+    const priorZ = ls.slice(0, firstXY).reverse().find((x) => /^G[01] Z/.test(x));
+    expect(priorZ).toBe("G0 Z4.000");
+  });
+
   it("orders groups registration-first then by ascending diameter", () => {
     const p = plan([
       { diameterMm: 3.0, class: "mechanical", toolId: "t3", holes: [{ xMm: 0, yMm: 0 }] },
@@ -151,8 +181,8 @@ describe("emitDrillGcode", () => {
       if (/^G0 [XY]/.test(l)) {
         const prevZ = ls.slice(0, i).reverse().find((x) => /^G[01] Z/.test(x)) ?? "";
         // If a Z move preceded this lateral, it must be a retract (never a plunge).
-        // The very first lateral has no prior Z move (the preamble no longer parks Z,
-        // and nothing has plunged yet) — safe, so only assert when a prior Z exists.
+        // Every group's first lateral is now preceded by a safe-Z lift, so the very
+        // first lateral too has a prior Z move — and it must be a G0 Z retract.
         if (prevZ) expect(prevZ).toMatch(/^G0 Z/);
       }
     });
