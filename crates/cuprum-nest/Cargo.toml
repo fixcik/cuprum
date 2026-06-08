@@ -1,0 +1,9 @@
+[package]
+name = "cuprum-nest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dense rectangle packing (panelization) — greedy + corner-point branch-and-bound"
+
+[lib]
+path = "src/lib.rs"

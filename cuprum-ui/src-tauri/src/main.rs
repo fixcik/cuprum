@@ -193,6 +193,7 @@ fn main() {
             commands::render::mask_polygons,
             commands::board::project_board_mesh,
             commands::board::project_board_metrics,
+            commands::panel::pack_panel,
             commands::render::read_drill,
             commands::operation_log::operation_run_log_start,
             commands::operation_log::operation_run_log_finish,

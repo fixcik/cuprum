@@ -27,6 +27,7 @@ anyhow = "1"
 base64 = "0.22"
 cuprum-core = { path = "../../crates/cuprum-core" }
 cuprum-project = { path = "../../crates/cuprum-project" }
+cuprum-nest = { path = "../../crates/cuprum-nest" }
 rayon = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]

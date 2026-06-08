@@ -573,15 +573,40 @@ export const useShell = create<ShellStore>((set, get) => ({
     const stackup = get().currentManifest?.stackup ?? DEFAULT_STACKUP;
     const obstacles = panelObstacles(panel, sizes, { clampRadiusMm: useSettings.getState().profile.toolingClampRadiusMm });
     const clearance = nest.enabled ? nest.gapMm : 0;
+    // Fast frontend greedy first (neat grid for simple panels, zero backend latency).
     const pack = packLayoutAvoiding(w, h, panel.width_mm, panel.height_mm, nest, obstacles, clearance);
-    if (pack.n === 0) return { ok: false, messageKey: "panel.add.toast.noFit", params: { name: design.source_name } };
+    // When greedy falls short of the request, ask the Rust solver for a denser pack
+    // (heavy search stays off the UI thread); adopt it only if it beats greedy.
+    let placements = pack.placements;
+    if (pack.n < pack.requested && pack.requested > 0) {
+      try {
+        const solved = await api.packPanel({
+          boardW: w,
+          boardH: h,
+          panelW: panel.width_mm,
+          panelH: panel.height_mm,
+          requested: pack.requested,
+          marginMm: nest.enabled ? nest.marginMm : 0,
+          gapMm: clearance,
+          clearanceMm: clearance,
+          mixRotation: nest.enabled && nest.mixRotation,
+          forceRotate: nest.enabled && nest.rotate,
+          obstacles,
+          timeBudgetMs: 300,
+        });
+        if (solved.length > placements.length) placements = solved;
+      } catch {
+        /* solver unavailable → keep the greedy result */
+      }
+    }
+    if (placements.length === 0) return { ok: false, messageKey: "panel.add.toast.noFit", params: { name: design.source_name } };
     // Append the packed copies of the selected design. Existing instances are kept
     // and not re-packed (mixed-panel overlap is resolved by the interactive editor).
-    // packLayoutAvoiding anchors each (optionally rotated) footprint top-left at p.{x,y}
-    // and flags the 90° per board. Our pose model stores (x,y) as the UNROTATED board
-    // top-left with rotation about the centre, so for a 90° copy shift (x,y) by
-    // ±(H−W)/2 / ±(W−H)/2 so the centre-rotated AABB still fills the packed cell.
-    const added: BoardInstance[] = pack.placements.map((p) => ({
+    // Each placement is the (optionally rotated) footprint top-left + its 90° flag.
+    // Our pose model stores (x,y) as the UNROTATED board top-left with rotation about
+    // the centre, so for a 90° copy shift (x,y) by ±(H−W)/2 / ±(W−H)/2 so the
+    // centre-rotated AABB still fills the packed cell.
+    const added: BoardInstance[] = placements.map((p) => ({
       id: crypto.randomUUID(),
       design_id: designId,
       x_mm: p.rotated ? p.x + (h - w) / 2 : p.x,
@@ -590,11 +615,12 @@ export const useShell = create<ShellStore>((set, get) => ({
     }));
     const next: PanelDoc = { ...panel, instances: [...panel.instances, ...added] };
     await get().savePanelConfig(next, stackup);
-    const overflow = pack.requested > pack.n;
+    const placedN = placements.length;
+    const overflow = pack.requested > placedN;
     return {
       ok: true,
       messageKey: overflow ? "panel.add.toast.addedOverflow" : "panel.add.toast.addedN",
-      params: { name: design.source_name, n: pack.n, requested: pack.requested },
+      params: { name: design.source_name, n: placedN, requested: pack.requested },
     };
   },
 

@@ -6,7 +6,8 @@ import { UnitField } from "@/components/ui/settings/UnitField";
 import { Switch } from "@/components/ui/Switch";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { useSettings } from "@/settingsStore";
-import { renestSelection, panelObstacles } from "@/lib/panelPlacement";
+import { renestSelection, panelObstacles, type Box } from "@/lib/panelPlacement";
+import { api } from "@/lib/api";
 import type { BoardInstance, KeepOutZone, ToolingHole } from "@/lib/api";
 import { recommendedGapMm, type NestSettings } from "@/lib/nest";
 
@@ -85,6 +86,68 @@ export function RenestDialog({
         ? t("panel.renest.summaryFit", { n: result.requested })
         : t("panel.renest.summaryPartial", { placed: result.placed, requested: result.requested });
 
+  // Apply via the Rust solver (denser than the live TS greedy preview): pack each
+  // design group avoiding non-selected boards AND groups already placed this run.
+  // Falls back to the greedy preview transforms if the backend is unavailable.
+  const applySolved = async () => {
+    const sel = new Set(selectedIds);
+    const selected = instances.filter((i) => sel.has(i.id)).map((i) => ({ id: i.id, design_id: i.design_id }));
+    const obstacles = panelObstacles(
+      { instances: instances.filter((i) => !sel.has(i.id)), tooling_holes: toolingHoles, keep_out_zones: keepOutZones },
+      sizes,
+      { clampRadiusMm: profile.toolingClampRadiusMm },
+    );
+    const order: string[] = [];
+    const groups = new Map<string, string[]>();
+    for (const s of selected) {
+      if (!groups.has(s.design_id)) {
+        groups.set(s.design_id, []);
+        order.push(s.design_id);
+      }
+      groups.get(s.design_id)!.push(s.id);
+    }
+    try {
+      const placedBoxes: Box[] = [...obstacles];
+      const transforms: { id: string; x_mm: number; y_mm: number; rotation_deg: number }[] = [];
+      for (const designId of order) {
+        const ids = groups.get(designId)!;
+        const sz = sizes[designId];
+        if (!sz) continue;
+        const solved = await api.packPanel({
+          boardW: sz.w,
+          boardH: sz.h,
+          panelW,
+          panelH,
+          requested: ids.length,
+          marginMm: nest.marginMm,
+          gapMm: nest.gapMm,
+          clearanceMm: nest.gapMm,
+          mixRotation: nest.mixRotation,
+          forceRotate: nest.rotate,
+          obstacles: placedBoxes,
+          timeBudgetMs: 300,
+        });
+        solved.forEach((p, k) => {
+          const fw = p.rotated ? sz.h : sz.w;
+          const fh = p.rotated ? sz.w : sz.h;
+          transforms.push({
+            id: ids[k],
+            x_mm: p.rotated ? p.x + (sz.h - sz.w) / 2 : p.x,
+            y_mm: p.rotated ? p.y + (sz.w - sz.h) / 2 : p.y,
+            rotation_deg: p.rotated ? 90 : 0,
+          });
+          placedBoxes.push({ minX: p.x, minY: p.y, maxX: p.x + fw, maxY: p.y + fh });
+        });
+      }
+      // Adopt the solver result only if it is at least as dense as the greedy preview
+      // the user saw — never apply a sparser layout (e.g. on a solver timeout).
+      onApply(transforms.length >= result.placed ? transforms : result.transforms);
+    } catch {
+      onApply(result.transforms); // backend unavailable → greedy preview result
+    }
+    onClose();
+  };
+
   return (
     <Modal
       open={open}
@@ -95,13 +158,7 @@ export function RenestDialog({
           <Button variant="ghost" onClick={onClose}>
             {t("panel.renest.cancel")}
           </Button>
-          <Button
-            disabled={result.placed === 0}
-            onClick={() => {
-              onApply(result.transforms);
-              onClose();
-            }}
-          >
+          <Button disabled={result.placed === 0} onClick={applySolved}>
             {t("panel.renest.apply")}
           </Button>
         </div>
