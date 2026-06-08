@@ -15,6 +15,8 @@ export interface NestSettings {
   marginMm: number;
   /** Rotate the board 90° to pack better. */
   rotate: boolean;
+  /** Mix per-board orientation (0°/90°) to pack tighter. When on, `rotate` is ignored. */
+  mixRotation: boolean;
   /** Anchor corner for packing. */
   corner: "tl" | "tr" | "bl" | "br";
   /** Fill direction: row-major or column-major. */
@@ -35,6 +37,7 @@ export const DEFAULT_NEST: NestSettings = {
   gapMm: 2,
   marginMm: 5,
   rotate: false,
+  mixRotation: true,
   corner: "bl",
   dir: "rows",
   snapMm: 0,

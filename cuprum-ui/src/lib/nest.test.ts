@@ -13,4 +13,8 @@ describe("DEFAULT_NEST", () => {
     expect(DEFAULT_NEST.marginMm).toBe(5);
     expect(DEFAULT_NEST.gapMm).toBe(2);
   });
+
+  it("defaults mixRotation on (mixed-orientation packing by default)", () => {
+    expect(DEFAULT_NEST.mixRotation).toBe(true);
+  });
 });

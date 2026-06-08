@@ -96,14 +96,18 @@ export function PanelLayoutPreview({
             />
           );
         })}
-        {/* New copies placed into free cells */}
-        {pack.placements.map((p, i) => (
-          <div
-            key={i}
-            className="absolute rounded-[1px] bg-primary/15 ring-1 ring-primary/70"
-            style={{ left: p.x * scale, top: p.y * scale, width: pack.bw * scale, height: pack.bh * scale }}
-          />
-        ))}
+        {/* New copies placed into free cells (footprint swaps when a copy is rotated) */}
+        {pack.placements.map((p, i) => {
+          const fw = p.rotated ? boardHmm : boardWmm;
+          const fh = p.rotated ? boardWmm : boardHmm;
+          return (
+            <div
+              key={i}
+              className="absolute rounded-[1px] bg-primary/15 ring-1 ring-primary/70"
+              style={{ left: p.x * scale, top: p.y * scale, width: fw * scale, height: fh * scale }}
+            />
+          );
+        })}
       </div>
     </div>
   );
