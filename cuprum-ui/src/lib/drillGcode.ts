@@ -2,7 +2,8 @@ import type { PanelDrillPlan, DrillGroup } from "@/lib/panelDrill";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
 import type { Rect } from "@/lib/keepoutGeometry";
-import { avoidZones, KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
+import { KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
+import { routeAvoiding } from "@/lib/visibilityRoute";
 import { orderNearest } from "@/lib/drillRoute";
 import { type DatumCorner, machinePoint } from "@/lib/datum";
 
@@ -94,6 +95,12 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
     const minY = Math.min(y1, y2);
     return { x: minX, y: minY, w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
   });
+
+  // Panel rectangle in machine space is [0,wMm]×[0,panelHeightMm] (machinePoint
+  // maps the panel extent there), so traverse detours stay on the panel. Undefined
+  // when the width is unknown → unbounded routing (avoids zones, no panel clamp).
+  const panelMachine =
+    wMm > 0 && panelHeightMm > 0 ? { width: wMm, height: panelHeightMm } : undefined;
 
   const allLines: string[] = [];
   const steps: DrillStep[] = [];
@@ -208,11 +215,12 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
 
       // Emit detour waypoints (XY-only rapids at safe Z) before the hole rapid.
       if (zonesMachine.length > 0) {
-        const waypoints = avoidZones(
+        const waypoints = routeAvoiding(
           { x: travelX, y: travelY },
           { x: mx, y: my },
           zonesMachine,
           KEEPOUT_TRAVERSE_MARGIN_MM,
+          panelMachine,
         );
         for (const wp of waypoints) {
           const wpLine = `G0 X${fmt(wp.x)} Y${fmt(wp.y)}`;
