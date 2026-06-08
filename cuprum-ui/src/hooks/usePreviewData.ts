@@ -14,7 +14,10 @@ import {
 } from "@/lib/api";
 import type { FindingCategory, Finding, ProblemType, Verdict } from "@/lib/feasibility";
 import type { BoardMeshData } from "@/lib/boardMesh";
-import { evaluate, overallVerdict, problemTypeOf } from "@/lib/feasibility";
+import { evaluate, overallVerdict } from "@/lib/feasibility";
+import { buildDrcMarkers } from "@/lib/drcMarkers";
+import { buildDrcIssues } from "@/lib/drcIssues";
+import { buildStackLayers } from "@/lib/stackLayers";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 import { useSettings } from "@/settingsStore";
 import { drillBitsFromTools } from "@/lib/toolLibrary";
@@ -66,15 +69,6 @@ export interface PreviewData {
   /** Whether a layer is visible at the current mode/side + manual hides (LayerPanel rows). */
   isVisible: (type: LayerType, path: string) => boolean;
 }
-
-/** Findings whose hotspots are holes — drawn as a ring around the bore. */
-const CIRCLE_FINDINGS = new Set(["drill.minHole", "via.plating", "drill.bitSnap"]);
-/** Findings whose hotspots mark a thin feature (drawn as a box). */
-const BOX_FINDINGS = new Set<string>([]);
-/** Findings whose hotspots are the actual failing strokes — colour-highlighted as
- *  lines at their width. Silk is split per side, so match the `silk.line.*` family
- *  by prefix. */
-const isLineFinding = (id: string) => id.startsWith("silk.line") || id.startsWith("copper.thinTrace");
 
 /** Layer types a finding's hotspots belong to, by category — so a marker is only
  *  drawn while one of those layers is actually visible. `null` = not tied to a
@@ -369,99 +363,16 @@ export function usePreviewData(
     [gerbers, isVisible, side],
   );
 
-  // Flatten all findings' hotspots into preview markers (board mm).
+  // Flatten all findings' hotspots into preview markers (board mm). Pure logic in
+  // lib/drcMarkers; visibility + i18n/unit formatting injected here.
   const markers = useMemo<DrcMarkerInput[]>(
-    () =>
-      findings.flatMap((f) => {
-        // Drop a problem-type the user hid in the filter (overlay only, not verdict).
-        if (hiddenTypes) {
-          const tp = problemTypeOf(f.id);
-          if (tp && hiddenTypes.has(tp)) return [];
-        }
-        const shape = CIRCLE_FINDINGS.has(f.id)
-          ? ("circle" as const)
-          : BOX_FINDINGS.has(f.id)
-            ? ("box" as const)
-            : isLineFinding(f.id)
-              ? ("line" as const)
-              : ("dim" as const);
-        const visual = (f.hotspots ?? [])
-          .map((h, i) => ({ h, i }))
-          .filter(({ h }) => markerVisible(f.category, h.side))
-          .map(({ h, i }) => {
-            const l = f.limit?.params?.len;
-            const [vs, ls2] = typeof l === "number" ? fmtLenPair([h.v, l]) : [fmtLen(h.v), ""];
-            const limitStr = typeof l === "number" ? trLen(f.limit, ls2) : resolveText(f.limit);
-            return {
-              key: `${f.id}#${i}`,
-              a: h.a,
-              b: h.b,
-              value: vs,
-              label: resolveText(f.label),
-              limit: limitStr,
-              detail: resolveText(f.detail) || undefined,
-              severity: f.severity,
-              focused: shape !== "line" && focus?.fid === f.id && focus?.hi === i,
-              shape,
-              widthMm: shape === "line" ? h.v : undefined,
-              lineColor: shape === "line" && f.category === "copper" ? "hsl(var(--destructive))" : undefined,
-            };
-          });
-        const hovers = (f.hoverBoxes ?? [])
-          .filter((h) => markerVisible(f.category, h.side))
-          .map((h, i) => {
-            const l = f.limit?.params?.len;
-            const [valueStr, limitStr] =
-              typeof l === "number"
-                ? (() => { const [vs, ls] = fmtLenPair([h.v, l]); return [vs, trLen(f.limit, ls)]; })()
-                : [fmtLen(h.v), resolveText(f.limit)];
-            return {
-              key: `${f.id}~hover#${i}`,
-              a: h.a,
-              b: h.b,
-              value: valueStr,
-              label: resolveText(f.label),
-              limit: limitStr,
-              detail: resolveText(f.detail) || undefined,
-              severity: f.severity,
-              focused: focus?.fid === f.id && focus?.hi === i,
-              shape: "hover" as const,
-            };
-          });
-        return [...visual, ...hovers];
-      }),
+    () => buildDrcMarkers(findings, { hiddenTypes, focus, markerVisible, text: { resolveText, trLen, fmtLen, fmtLenPair } }),
     [findings, focus, hiddenTypes, markerVisible, resolveText, trLen, fmtLen, fmtLenPair],
   );
 
-  // Flat list of navigable problems for the on-preview stepper.
+  // Flat list of navigable problems for the on-preview stepper (lib/drcIssues).
   const issues = useMemo(
-    () =>
-      findings.flatMap((f) => {
-        const hs = f.hotspots ?? [];
-        if (hs.length === 0) return [];
-        if (hiddenTypes) {
-          const tp = problemTypeOf(f.id);
-          if (tp && hiddenTypes.has(tp)) return [];
-        }
-        if (f.highlightAll) {
-          const boxes = f.hoverBoxes ?? [];
-          if (boxes.length > 0) {
-            return boxes.flatMap((h, i) =>
-              markerVisible(f.category, h.side)
-                ? [{ fid: f.id, hi: i, label: resolveText(f.label), value: fmtLen(h.v), severity: f.severity }]
-                : [],
-            );
-          }
-          return markerVisible(f.category, hs[0].side)
-            ? [{ fid: f.id, hi: 0, label: resolveText(f.label), value: resolveText(f.measured), severity: f.severity }]
-            : [];
-        }
-        return hs.flatMap((h, i) =>
-          markerVisible(f.category, h.side)
-            ? [{ fid: f.id, hi: i, label: resolveText(f.label), value: fmtLen(h.v), severity: f.severity }]
-            : [],
-        );
-      }),
+    () => buildDrcIssues(findings, { hiddenTypes, markerVisible, resolveText, fmtLen }),
     [findings, hiddenTypes, markerVisible, resolveText, fmtLen],
   );
 
@@ -546,26 +457,10 @@ export function usePreviewData(
     [gerbers, files, hidden, mode, side],
   );
 
-  // StackLayer list — used by LayerStack 2D composite. When excludeMask is set,
-  // mask layers are omitted.
+  // StackLayer list — used by LayerStack 2D composite (lib/stackLayers). When
+  // excludeMask is set, mask layers are omitted.
   const layers: StackLayer[] = useMemo(
-    () =>
-      gerbers
-        .map((g, i) => ({ g, f: files[i] }))
-        .filter(({ g, f }) => {
-          if (!f?.svgBody || !f?.bbox) return false;
-          if (excludeMask && (g.layer_type === "topMask" || g.layer_type === "bottomMask")) return false;
-          return true;
-        })
-        .map(({ g, f }) => ({
-          key: g.path,
-          svgBody: f!.svgBody as string,
-          bbox: f!.bbox!,
-          color: colorFor(g.layer_type, overrides),
-          visible: isVisible(g.layer_type, g.path),
-          type: g.layer_type,
-          snap: f!.snap ?? [],
-        })),
+    () => buildStackLayers(gerbers, files, { overrides, excludeMask, isVisible }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [gerbers, files, hidden, overrides, mode, side, excludeMask],
   );
