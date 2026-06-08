@@ -101,8 +101,9 @@ export function DrillTableMap({
   });
 
   /** Pointer event → prospective machine target (clamped to travel) + pointer px
-   *  relative to the svg. Shared by the click (jog) and the hover crosshair so the
-   *  label reads the exact coords the click would drive to. */
+   *  relative to the svg. mx/my are machine-frame coords; onClick converts to the
+   *  work frame before jogging, but the datum corner ends up at exactly mx/my — so
+   *  the hover label (which shows mx/my) matches where the click drives the spindle. */
   const pointerTarget = (e: React.MouseEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     const px = e.clientX - r.left;
