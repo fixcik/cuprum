@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect, Group, Line, Image as KImage } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
@@ -7,7 +7,7 @@ import { SCREEN_W_MM, SCREEN_H_MM } from "@/lib/api";
 import { useStore, type Placement } from "@/store";
 import { CanvasToolbar } from "@/components/editor/CanvasToolbar";
 import { CadGrid } from "@/components/editor/CadGrid";
-import { MIN_SCALE, MAX_SCALE } from "@/components/editor/canvasStyle";
+import { useKonvaViewport } from "@/hooks/useKonvaViewport";
 
 /** Build an inverted (RGB) copy of a loaded image via an offscreen canvas. */
 function invertImage(im: HTMLImageElement): HTMLImageElement {
@@ -100,16 +100,9 @@ function GerberImage({
   );
 }
 
-const EDGE_KEEP = 64; // px of the screen that must stay on-canvas while panning
 const SNAP_PX = 6; // snap distance in screen pixels
 
 export function PreviewCanvas() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<Konva.Stage>(null);
-  const [size, setSize] = useState({ w: 800, h: 600 });
-  const [zoomPct, setZoomPct] = useState(100);
-  const framedCount = useRef(-1);
-
   const mirror = useStore((s) => s.mirror);
   const invert = useStore((s) => s.invert);
   const boardWmm = useStore((s) => s.boardWmm);
@@ -129,112 +122,23 @@ export function PreviewCanvas() {
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const groupRef = useRef<Konva.Group>(null);
-  const [spaceDown, setSpaceDown] = useState(false);
+  // Shared zoom/pan/fit on the Konva stage. The exposure screen is a fixed size, so
+  // the view never reframes on a plain resize — only when a new placement is added.
+  // No rulers/overlays here, so the viewport mirror is off.
+  const {
+    containerRef, stageRef, size, fit, zoomPct, spaceDown,
+    clampPos, zoomAt, fitView, zoomButton, dragBoundFunc,
+  } = useKonvaViewport({
+    worldW: SCREEN_W_MM,
+    worldH: SCREEN_H_MM,
+    fitMargin: 0.92,
+    trackViewport: false,
+    reframeOnResize: false,
+    frameContentKey: String(placements.length),
+  });
   const panMode = tool === "pan" || spaceDown;
   const marqueeRef = useRef<{ x0: number; y0: number; additive: boolean } | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-
-  // Hold Space to temporarily pan in any tool (standard editor convention).
-  useEffect(() => {
-    const onKey = (down: boolean) => (e: KeyboardEvent) => {
-      if (e.code !== "Space") return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      e.preventDefault();
-      setSpaceDown(down);
-    };
-    const kd = onKey(true);
-    const ku = onKey(false);
-    window.addEventListener("keydown", kd);
-    window.addEventListener("keyup", ku);
-    return () => {
-      window.removeEventListener("keydown", kd);
-      window.removeEventListener("keyup", ku);
-    };
-  }, []);
-
-  // px-per-mm at stage-scale 1: fit the screen into the viewport with padding.
-  const fit = useMemo(
-    () => Math.min(size.w / SCREEN_W_MM, size.h / SCREEN_H_MM) * 0.92,
-    [size.w, size.h],
-  );
-
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
-    ro.observe(el);
-    setSize({ w: el.clientWidth, h: el.clientHeight });
-    return () => ro.disconnect();
-  }, []);
-
-  // Keep at least EDGE_KEEP px of the screen within the viewport at the given
-  // scale — so the board can never be flung completely out of sight.
-  const clampPos = useCallback(
-    (x: number, y: number, scale: number) => {
-      const sw = SCREEN_W_MM * fit * scale;
-      const sh = SCREEN_H_MM * fit * scale;
-      return {
-        x: Math.min(size.w - EDGE_KEEP, Math.max(EDGE_KEEP - sw, x)),
-        y: Math.min(size.h - EDGE_KEEP, Math.max(EDGE_KEEP - sh, y)),
-      };
-    },
-    [fit, size.w, size.h],
-  );
-
-  // Center at a given scale, optionally animated (used by fit / zoom buttons).
-  const centerAt = useCallback(
-    (scale: number, animate: boolean) => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-      const pos = clampPos((size.w - SCREEN_W_MM * fit * s) / 2, (size.h - SCREEN_H_MM * fit * s) / 2, s);
-      if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: s, scaleY: s, duration: 0.16, easing: Konva.Easings.EaseOut });
-      } else {
-        stage.scale({ x: s, y: s });
-        stage.position(pos);
-        stage.batchDraw();
-      }
-      setZoomPct(Math.round(s * 100));
-    },
-    [clampPos, fit, size.w, size.h],
-  );
-
-  const fitView = useCallback(() => centerAt(1, true), [centerAt]);
-
-  // Frame the view on first mount and whenever a new file is added — but never
-  // on a plain window resize (that would yank the user's view around).
-  useEffect(() => {
-    if (placements.length !== framedCount.current) {
-      framedCount.current = placements.length;
-      centerAt(1, false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placements.length, fit]);
-
-  // Zoom toward a point. `factor` multiplies the scale; cursor stays put.
-  const zoomAt = useCallback(
-    (pointer: { x: number; y: number }, factor: number, animate = false) => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const oldScale = stage.scaleX();
-      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * factor));
-      if (newScale === oldScale) return;
-      const worldX = (pointer.x - stage.x()) / oldScale;
-      const worldY = (pointer.y - stage.y()) / oldScale;
-      const pos = clampPos(pointer.x - worldX * newScale, pointer.y - worldY * newScale, newScale);
-      if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: newScale, scaleY: newScale, duration: 0.16, easing: Konva.Easings.EaseOut });
-      } else {
-        stage.scale({ x: newScale, y: newScale });
-        stage.position(pos);
-        stage.batchDraw();
-      }
-      setZoomPct(Math.round(newScale * 100));
-    },
-    [clampPos],
-  );
 
   // Wheel zooms toward the cursor (mouse-wheel and trackpad pinch alike); the
   // amount is exponential in the scroll delta so it's smooth and never steps.
@@ -253,8 +157,6 @@ export function PreviewCanvas() {
     if (!pointer) return;
     zoomAt(pointer, Math.exp(-e.evt.deltaY * 0.0015));
   };
-
-  const zoomButton = (factor: number) => zoomAt({ x: size.w / 2, y: size.h / 2 }, factor, true);
 
   // Snap a dragged box (w×h at the node's x/y) to alignment targets — screen
   // edges/center, optionally the board, and the edges/centers of placements
@@ -403,11 +305,6 @@ export function PreviewCanvas() {
     selectMany(ids, m.additive);
   };
 
-  // Keep the screen on-canvas while dragging-to-pan, and force the grabbing cursor.
-  const dragBound = (pos: { x: number; y: number }) => {
-    const stage = stageRef.current;
-    return clampPos(pos.x, pos.y, stage ? stage.scaleX() : 1);
-  };
   const setCursor = (c: string) => {
     const el = containerRef.current;
     if (el) el.style.cursor = c;
@@ -423,7 +320,7 @@ export function PreviewCanvas() {
         width={size.w}
         height={size.h}
         draggable={panMode}
-        dragBoundFunc={dragBound}
+        dragBoundFunc={dragBoundFunc}
         onWheel={onWheel}
         onDragStart={() => setCursor("grabbing")}
         onDragEnd={() => setCursor(panMode ? "grab" : "")}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect, Group, Text, Circle, Line, Image as KonvaImage } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
@@ -6,11 +6,10 @@ import { Maximize, Plus, Minus, LocateFixed } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
-import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
+import { RulersOverlay } from "@/components/editor/RulersOverlay";
 import { gridSteps } from "@/lib/canvasTicks";
+import { useKonvaViewport } from "@/hooks/useKonvaViewport";
 import {
-  MIN_SCALE,
-  MAX_SCALE,
   BLANK_STROKE,
   BLANK_FILL,
   BLANK_LABEL,
@@ -54,7 +53,6 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/ContextMenu";
 
-const EDGE_KEEP = 64; // px of the blank that must stay on-canvas while panning
 const SNAP_PX = 6;   // magnetic snap threshold in screen pixels
 // Rotation knob (RotationHandle): constant screen px, like the corner handles.
 const ROT_KNOB_OUT_PX = 16; // diagonal corner→knob-centre distance
@@ -106,17 +104,24 @@ export function PanelBlankCanvas({
   const setKeepOutSelection = useKeepOutSelection((s) => s.set);
   const toggleKeepOutSelection = useKeepOutSelection((s) => s.toggle);
   const clearKeepOutSelection = useKeepOutSelection((s) => s.clear);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<Konva.Stage>(null);
   // The mm fit-group: getRelativePointerPosition() maps the pointer into panel mm,
   // accounting for the parent stage pan/zoom and this group's fit scale.
   const fitGroupRef = useRef<Konva.Group>(null);
-  const [size, setSize] = useState({ w: 800, h: 600 });
-  const [zoomPct, setZoomPct] = useState(100);
-  // Screen-space viewport descriptor mirrored into React state so the (SVG) rulers
-  // overlay can follow the imperative Konva stage transform. Cursor position (CSS
-  // px) drives the hover crosshair/readout; null when the pointer is off-canvas.
-  const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
+  const W = Math.max(widthMm, 1);
+  const H = Math.max(heightMm, 1);
+  // Shared zoom/pan/fit on the Konva stage: container size, stage transform, fit
+  // scale, viewport mirror (so the SVG rulers overlay follows the transform),
+  // Space-to-pan. The panel shows real-world zoom %, mapping stage scale via pxPerMm.
+  const {
+    containerRef, stageRef, size, fit, viewport, zoomPct, spaceDown,
+    syncViewport, centerAt, fitView, onWheel, zoomButton, dragBoundFunc,
+  } = useKonvaViewport({
+    worldW: W,
+    worldH: H,
+    rulerLeft: RULER_LEFT,
+    rulerTop: RULER_TOP,
+    scaleToPct: (s, f) => Math.round((f * s / pxPerMm) * 100),
+  });
   // `snapped` marks the crosshair locked onto a blank/instance corner/edge/centre
   // (→ a lock ring); false for a free point (Alt held) or a plain grid node.
   const [hoverPx, setHoverPx] = useState<{ x: number; y: number; snapped: boolean } | null>(null);
@@ -145,7 +150,6 @@ export function PanelBlankCanvas({
     });
   }, []);
   useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
-  const [spaceDown, setSpaceDown] = useState(false);
   const [tool, setTool] = useState<PanelTool>("select");
   const panMode = tool === "pan" || spaceDown;
   // Resolved board extents (mm) keyed by design id — shared hook, fetched once per design.
@@ -209,50 +213,6 @@ export function PanelBlankCanvas({
     [instances, sizes],
   );
 
-  const W = Math.max(widthMm, 1);
-  const H = Math.max(heightMm, 1);
-
-  // Fit the blank into the plot area (right of / below the ruler bands) so it never
-  // sits under the rulers.
-  const fit = useMemo(
-    () => Math.min((size.w - RULER_LEFT) / W, (size.h - RULER_TOP) / H) * 0.9,
-    [size.w, size.h, W, H],
-  );
-
-  // Mirror the imperative Konva stage transform into React state for the rulers
-  // overlay: screen px/mm = stage scale × fit; world origin (mm 0,0) = stage pos.
-  const syncViewport = useCallback(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    setViewport({ pxPerMm: stage.scaleX() * fit, originX: stage.x(), originY: stage.y() });
-  }, [fit]);
-
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
-    ro.observe(el);
-    setSize({ w: el.clientWidth, h: el.clientHeight });
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const onKey = (down: boolean) => (e: KeyboardEvent) => {
-      if (e.code !== "Space") return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      e.preventDefault();
-      setSpaceDown(down);
-    };
-    const kd = onKey(true);
-    const ku = onKey(false);
-    window.addEventListener("keydown", kd);
-    window.addEventListener("keyup", ku);
-    return () => {
-      window.removeEventListener("keydown", kd);
-      window.removeEventListener("keyup", ku);
-    };
-  }, []);
 
   // Esc turns the hover crosshair off (mirrors the design preview's Esc behaviour).
   useEffect(() => {
@@ -261,94 +221,7 @@ export function PanelBlankCanvas({
     return () => window.removeEventListener("keydown", onEsc);
   }, []);
 
-  const clampPos = useCallback(
-    (x: number, y: number, scale: number) => {
-      const sw = W * fit * scale;
-      const sh = H * fit * scale;
-      return {
-        x: Math.min(size.w - EDGE_KEEP, Math.max(EDGE_KEEP - sw, x)),
-        y: Math.min(size.h - EDGE_KEEP, Math.max(EDGE_KEEP - sh, y)),
-      };
-    },
-    [fit, size.w, size.h, W, H],
-  );
-
-  const centerAt = useCallback(
-    (scale: number, animate: boolean) => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-      // Centre within the plot area (offset by the ruler bands).
-      const pos = clampPos(
-        RULER_LEFT + (size.w - RULER_LEFT - W * fit * s) / 2,
-        RULER_TOP + (size.h - RULER_TOP - H * fit * s) / 2,
-        s,
-      );
-      if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: s, scaleY: s, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
-      } else {
-        stage.scale({ x: s, y: s });
-        stage.position(pos);
-        stage.batchDraw();
-        syncViewport();
-      }
-      setZoomPct(Math.round((fit * s / pxPerMm) * 100));
-    },
-    [clampPos, fit, size.w, size.h, W, H, pxPerMm, syncViewport],
-  );
-
-  const fitView = useCallback(() => centerAt(1, true), [centerAt]);
   const realSize = useCallback(() => centerAt(pxPerMm / fit, true), [centerAt, pxPerMm, fit]);
-
-  // Fit the view on first layout and whenever the blank size (or viewport)
-  // changes. In the setup wizard width/height are edited live, so re-framing
-  // keeps the resized blank fully in view; manual zoom is intentionally reset.
-  const framed = useRef("");
-  useEffect(() => {
-    const key = `${W}:${H}:${size.w}:${size.h}`;
-    if (size.w === 0 || framed.current === key) return;
-    framed.current = key;
-    centerAt(1, false);
-  }, [W, H, size.w, size.h, centerAt]);
-
-  const zoomAt = useCallback(
-    (pointer: { x: number; y: number }, factor: number, animate = false) => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const oldScale = stage.scaleX();
-      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * factor));
-      if (newScale === oldScale) return;
-      const wx = (pointer.x - stage.x()) / oldScale;
-      const wy = (pointer.y - stage.y()) / oldScale;
-      const pos = clampPos(pointer.x - wx * newScale, pointer.y - wy * newScale, newScale);
-      if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: newScale, scaleY: newScale, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
-      } else {
-        stage.scale({ x: newScale, y: newScale });
-        stage.position(pos);
-        stage.batchDraw();
-        syncViewport();
-      }
-      setZoomPct(Math.round((fit * newScale / pxPerMm) * 100));
-    },
-    [clampPos, fit, pxPerMm, syncViewport],
-  );
-
-  const onWheel = (e: KonvaEventObject<WheelEvent>) => {
-    e.evt.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-    zoomAt(pointer, Math.exp(-e.evt.deltaY * 0.0015));
-  };
-
-  const zoomButton = (factor: number) => zoomAt({ x: size.w / 2, y: size.h / 2 }, factor, true);
-
-  const dragBound = (pos: { x: number; y: number }) => {
-    const stage = stageRef.current;
-    return clampPos(pos.x, pos.y, stage ? stage.scaleX() : 1);
-  };
   const setCursor = (c: string) => {
     const el = containerRef.current;
     if (el) el.style.cursor = c;
@@ -999,7 +872,7 @@ export function PanelBlankCanvas({
         width={size.w}
         height={size.h}
         draggable={panMode}
-        dragBoundFunc={dragBound}
+        dragBoundFunc={dragBoundFunc}
         onWheel={onWheel}
         onMouseDown={onBgMouseDown}
         onMouseMove={onStageMouseMove}

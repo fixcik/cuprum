@@ -1,7 +1,6 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import Konva from "konva";
-import type { KonvaEventObject } from "konva/lib/Node";
 import { Maximize, Plus, Minus } from "lucide-react";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
@@ -13,8 +12,9 @@ import { MachineMarker } from "./MachineMarker";
 import { workPosToPanel } from "@/lib/machineMarker";
 import { type DatumCorner, datumCornerPanelPoint } from "@/lib/datum";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
-import { MIN_SCALE, MAX_SCALE, RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
+import { RULER_LEFT, RULER_TOP } from "@/components/editor/canvasStyle";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
+import { useKonvaViewport } from "@/hooks/useKonvaViewport";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { nearestPlanHole } from "@/lib/drillHitTest";
 import { enumerateHoles } from "@/lib/drillSelection";
@@ -64,9 +64,6 @@ const TOOL_CHANGE_RING_PX = 1.8;
 const AXIS_PX = 30;
 /** Colour of the origin marker + axis arrows. */
 const AXIS_COLOR = "#94a3b8";
-
-/** How many px of the panel must remain visible while panning. */
-const EDGE_KEEP = 64;
 
 /** Per-hole geometry indexed by stable id — drives the single-node overlay rings
  *  (hover / inspected / current-phase) without touching the bulk holes layer. */
@@ -308,17 +305,16 @@ export interface DrillMapCanvasProps {
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
 export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, currentBitColor, runIdle, currentPhaseLabel, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId }: DrillMapCanvasProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<Konva.Stage>(null);
   // Ref to the fit-group for pointer → mm coordinate conversion.
   const fitGroupRef = useRef<Konva.Group>(null);
-  const [size, setSize] = useState({ w: 400, h: 300 });
-  const [viewport, setViewport] = useState<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
-  // Live mirror of `viewport` so the hover rAF (scheduled a frame ahead) reads the
-  // current scale, not a value captured one render behind during a zoom animation.
-  const viewportRef = useRef<Viewport>({ pxPerMm: 0, originX: 0, originY: 0 });
-  const [zoomPct, setZoomPct] = useState(100);
-  const [spaceDown, setSpaceDown] = useState(false);
+  const W = Math.max(widthMm, 1);
+  const H = Math.max(heightMm, 1);
+  // Shared zoom/pan/fit on the Konva stage: container size, stage transform, fit
+  // scale, viewport mirror (for rulers/datum/marker), Space-to-pan.
+  const {
+    containerRef, stageRef, size, fit, viewport, viewportRef, zoomPct, spaceDown,
+    syncViewport, fitView, onWheel, zoomButton, dragBoundFunc,
+  } = useKonvaViewport({ worldW: W, worldH: H, rulerLeft: RULER_LEFT, rulerTop: RULER_TOP, onViewportChange });
   // Internal tool: "select" or "pan". Space held → pan regardless.
   const [tool, setTool] = useState<"select" | "pan">("select");
   const panMode = tool === "pan" || spaceDown;
@@ -361,145 +357,6 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
     setHoveredHoleKey(null);
   }, []);
   useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
-
-  // Track container size.
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
-    ro.observe(el);
-    setSize({ w: el.clientWidth, h: el.clientHeight });
-    return () => ro.disconnect();
-  }, []);
-
-  // Space-bar = pan mode (mirrors PanelBlankCanvas).
-  useEffect(() => {
-    const onKey = (down: boolean) => (e: KeyboardEvent) => {
-      if (e.code !== "Space") return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      e.preventDefault();
-      setSpaceDown(down);
-    };
-    const kd = onKey(true);
-    const ku = onKey(false);
-    window.addEventListener("keydown", kd);
-    window.addEventListener("keyup", ku);
-    return () => {
-      window.removeEventListener("keydown", kd);
-      window.removeEventListener("keyup", ku);
-    };
-  }, []);
-
-  const W = Math.max(widthMm, 1);
-  const H = Math.max(heightMm, 1);
-
-  // Fit scale: how many px one mm occupies at scale=1 so the panel fills the
-  // canvas minus the ruler margins (reserved for Task 2 rulers) with 10% breathing room.
-  const fit = useMemo(
-    () => Math.min((size.w - RULER_LEFT) / W, (size.h - RULER_TOP) / H) * 0.9,
-    [size.w, size.h, W, H],
-  );
-
-  // Mirror the imperative Konva stage transform into React state so screen-space
-  // overlays (datum axes, MachineMarker) always know the current viewport.
-  const syncViewport = useCallback(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const v: Viewport = { pxPerMm: stage.scaleX() * fit, originX: stage.x(), originY: stage.y() };
-    viewportRef.current = v;
-    setViewport(v);
-    onViewportChange?.(v);
-  }, [fit, onViewportChange]);
-
-  // Clamp the stage position so at least EDGE_KEEP px of the panel remain visible.
-  const clampPos = useCallback(
-    (x: number, y: number, scale: number) => {
-      const sw = W * fit * scale;
-      const sh = H * fit * scale;
-      return {
-        x: Math.min(size.w - EDGE_KEEP, Math.max(EDGE_KEEP - sw, x)),
-        y: Math.min(size.h - EDGE_KEEP, Math.max(EDGE_KEEP - sh, y)),
-      };
-    },
-    [fit, size.w, size.h, W, H],
-  );
-
-  // Centre the panel at a given stage scale, optionally animated.
-  const centerAt = useCallback(
-    (scale: number, animate: boolean) => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-      const pos = clampPos(
-        RULER_LEFT + (size.w - RULER_LEFT - W * fit * s) / 2,
-        RULER_TOP + (size.h - RULER_TOP - H * fit * s) / 2,
-        s,
-      );
-      if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: s, scaleY: s, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
-      } else {
-        stage.scale({ x: s, y: s });
-        stage.position(pos);
-        stage.batchDraw();
-        syncViewport();
-      }
-      setZoomPct(Math.round(s * 100));
-    },
-    [clampPos, fit, size.w, size.h, W, H, syncViewport],
-  );
-
-  const fitView = useCallback(() => centerAt(1, true), [centerAt]);
-
-  // Auto-fit on first layout and whenever the panel dimensions or container size
-  // change. A ref guard prevents re-fitting on every re-render.
-  const framed = useRef("");
-  useEffect(() => {
-    const key = `${W}:${H}:${size.w}:${size.h}`;
-    if (size.w === 0 || framed.current === key) return;
-    framed.current = key;
-    centerAt(1, false);
-  }, [W, H, size.w, size.h, centerAt]);
-
-  // Zoom toward an arbitrary screen-space pointer (scroll wheel or zoom buttons).
-  const zoomAt = useCallback(
-    (pointer: { x: number; y: number }, factor: number, animate = false) => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const oldScale = stage.scaleX();
-      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * factor));
-      if (newScale === oldScale) return;
-      const wx = (pointer.x - stage.x()) / oldScale;
-      const wy = (pointer.y - stage.y()) / oldScale;
-      const pos = clampPos(pointer.x - wx * newScale, pointer.y - wy * newScale, newScale);
-      if (animate) {
-        stage.to({ x: pos.x, y: pos.y, scaleX: newScale, scaleY: newScale, duration: 0.16, easing: Konva.Easings.EaseOut, onUpdate: syncViewport, onFinish: syncViewport });
-      } else {
-        stage.scale({ x: newScale, y: newScale });
-        stage.position(pos);
-        stage.batchDraw();
-        syncViewport();
-      }
-      setZoomPct(Math.round(newScale * 100));
-    },
-    [clampPos, syncViewport],
-  );
-
-  const onWheel = (e: KonvaEventObject<WheelEvent>) => {
-    e.evt.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-    zoomAt(pointer, Math.exp(-e.evt.deltaY * 0.0015));
-  };
-
-  const zoomButton = (factor: number) => zoomAt({ x: size.w / 2, y: size.h / 2 }, factor, true);
-
-  const dragBoundFunc = (pos: { x: number; y: number }) => {
-    const stage = stageRef.current;
-    return clampPos(pos.x, pos.y, stage ? stage.scaleX() : 1);
-  };
 
   // Per-hole geometry by stable id — lets the single-node overlay rings (hover /
   // inspected / current-phase) look up coordinates without re-rendering the bulk
