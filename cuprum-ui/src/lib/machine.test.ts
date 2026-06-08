@@ -9,6 +9,10 @@ import {
   uvConfigDirtyKeys,
   resetUvToFactory,
   CNC_CONFIG_KEYS,
+  CNC_PRESETS,
+  UV_PRESETS,
+  presetsForKind,
+  uniqueName,
   DEFAULT_CNC_MACHINE,
   DEFAULT_UV_MACHINE,
   type CncMachine,
@@ -79,6 +83,78 @@ describe("unique name + id idempotence", () => {
     const next = newUvMachine([...machines, first]);
     expect(next.id).not.toBe(first.id);
     expect(next.name).not.toBe(first.name);
+  });
+});
+
+describe("model presets", () => {
+  it("CNC presets build the right envelope and a unique name", () => {
+    const machines = seed();
+    const p3018 = CNC_PRESETS.find((p) => p.id === "cnc-3018")!;
+    const m = p3018.build(machines) as CncMachine;
+    expect(m.kind).toBe("cnc");
+    expect(m.workEnvelopeMm).toEqual({ x: 300, y: 180, z: 45 });
+    // Default seed already holds a "CNC 3018", so the name is de-duped.
+    expect(m.name).toBe("CNC 3018 (2)");
+    expect(machines.map((x) => x.name)).not.toContain(m.name);
+
+    // Against a clean list the preset label is used verbatim.
+    const fresh = p3018.build([]) as CncMachine;
+    expect(fresh.name).toBe("CNC 3018");
+
+    const p4030 = CNC_PRESETS.find((p) => p.id === "cnc-4030")!;
+    expect((p4030.build(machines) as CncMachine).workEnvelopeMm).toEqual({ x: 400, y: 300, z: 100 });
+    const p6090 = CNC_PRESETS.find((p) => p.id === "cnc-6090")!;
+    expect((p6090.build(machines) as CncMachine).workEnvelopeMm).toEqual({ x: 600, y: 900, z: 120 });
+  });
+
+  it("CNC 'Своя' falls back to the DEFAULT envelope", () => {
+    const machines = seed();
+    const custom = CNC_PRESETS.find((p) => p.custom)!;
+    const m = custom.build(machines) as CncMachine;
+    expect(m.workEnvelopeMm).toEqual(DEFAULT_CNC_MACHINE.workEnvelopeMm);
+  });
+
+  it("UV presets build the right screen and a unique name", () => {
+    const machines = seed();
+    const saturn = UV_PRESETS.find((p) => p.id === "uv-saturn4ultra")!;
+    const m = saturn.build(machines) as UvLcdMachine;
+    expect(m.kind).toBe("uvlcd");
+    expect(m.screenWidthMm).toBe(DEFAULT_UV_MACHINE.screenWidthMm);
+    expect(m.screenHeightMm).toBe(DEFAULT_UV_MACHINE.screenHeightMm);
+
+    const mars = UV_PRESETS.find((p) => p.id === "uv-mars5")!;
+    const mm = mars.build(machines) as UvLcdMachine;
+    expect(mm.screenWidthMm).toBe(143);
+    expect(mm.screenHeightMm).toBe(89);
+  });
+
+  it("UV 'Своя' falls back to the DEFAULT screen", () => {
+    const machines = seed();
+    const custom = UV_PRESETS.find((p) => p.custom)!;
+    const m = custom.build(machines) as UvLcdMachine;
+    expect(m.screenWidthMm).toBe(DEFAULT_UV_MACHINE.screenWidthMm);
+    expect(m.screenHeightMm).toBe(DEFAULT_UV_MACHINE.screenHeightMm);
+  });
+
+  it("ids increment and names stay unique across existing machines", () => {
+    let machines = seed();
+    const p = CNC_PRESETS[0];
+    const first = p.build(machines);
+    machines = [...machines, first];
+    const second = p.build(machines);
+    expect(second.id).not.toBe(first.id);
+    expect(second.name).not.toBe(first.name);
+    expect(machines.map((x) => x.name)).not.toContain(second.name);
+  });
+
+  it("presetsForKind selects the right table", () => {
+    expect(presetsForKind("cnc")).toBe(CNC_PRESETS);
+    expect(presetsForKind("uvlcd")).toBe(UV_PRESETS);
+  });
+
+  it("uniqueName suffixes collisions", () => {
+    expect(uniqueName(seed(), "Brand New")).toBe("Brand New");
+    expect(uniqueName(seed(), DEFAULT_CNC_MACHINE.name)).toBe(`${DEFAULT_CNC_MACHINE.name} (2)`);
   });
 });
 

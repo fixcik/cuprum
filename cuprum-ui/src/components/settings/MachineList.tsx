@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/settingsStore";
 import { EditableText } from "@/components/ui/EditableText";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { newCncMachine, newUvMachine } from "@/lib/machine";
 import type { Machine } from "@/lib/machine";
 
 /** Icon per machine kind, shared by the expanded badges and the collapsed rail. */
@@ -13,20 +12,22 @@ const KIND_ICON: Record<Machine["kind"], LucideIcon> = { cnc: Cpu, uvlcd: Printe
 
 /** Left master pane of the equipment section: the machine library.
  *  Expanded — each machine is a row with a type badge, an inline-editable name,
- *  and a delete button, plus two dashed add-buttons. Collapsed — a centred rail
- *  of type icons (rename/delete are expanded-only) with a single dashed add. */
+ *  and a delete button, plus one dashed add-button. Collapsed — a centred rail
+ *  of type icons (rename/delete are expanded-only) with a single dashed add.
+ *  The add affordance routes to the add-device screen via `onAdd`. */
 export function MachineList({
   selectedId,
   onSelect,
+  onAdd,
   collapsed = false,
 }: {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  onAdd: () => void;
   collapsed?: boolean;
 }) {
   const { t } = useTranslation("settings");
   const machines = useSettings((s) => s.machines);
-  const addMachine = useSettings((s) => s.addMachine);
   const removeMachine = useSettings((s) => s.removeMachine);
   const updateMachine = useSettings((s) => s.updateMachine);
 
@@ -45,17 +46,6 @@ export function MachineList({
     }
     removeMachine(deleteId);
     setDeleteId(null);
-  };
-
-  const addCnc = () => {
-    const mc = newCncMachine(machines);
-    addMachine(mc);
-    onSelect(mc.id);
-  };
-  const addUv = () => {
-    const mc = newUvMachine(machines);
-    addMachine(mc);
-    onSelect(mc.id);
   };
 
   const deleteDialog = (
@@ -95,8 +85,8 @@ export function MachineList({
         <div className="my-1 h-px w-7 bg-border" />
         <button
           type="button"
-          onClick={addCnc}
-          title={t("equipment.addCnc")}
+          onClick={onAdd}
+          title={t("equipment.addDevice")}
           className="grid size-11 place-items-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
         >
           <Plus className="size-5" />
@@ -149,17 +139,10 @@ export function MachineList({
 
       <button
         type="button"
-        onClick={addCnc}
-        className="mt-1 flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-[12px] text-muted-foreground hover:text-foreground"
+        onClick={onAdd}
+        className="mt-1 flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-[12px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
       >
-        <Plus className="size-4" /> {t("equipment.addCnc")}
-      </button>
-      <button
-        type="button"
-        onClick={addUv}
-        className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-[12px] text-muted-foreground hover:text-foreground"
-      >
-        <Plus className="size-4" /> {t("equipment.addUv")}
+        <Plus className="size-4" /> {t("equipment.addDevice")}
       </button>
 
       {deleteDialog}

@@ -140,7 +140,7 @@ export const DEFAULT_UV_MACHINE: UvLcdMachine = {
 // ---------------------------------------------------------------------------
 
 /** A name not yet taken by any machine: `base`, else `base (2)`, `base (3)`, … */
-function uniqueName(machines: Machine[], base: string): string {
+export function uniqueName(machines: Machine[], base: string): string {
   const taken = new Set(machines.map((m) => m.name));
   if (!taken.has(base)) return base;
   for (let n = 2; ; n++) {
@@ -165,6 +165,104 @@ export function newUvMachine(machines: Machine[]): UvLcdMachine {
     id: nextMachineId(machines),
     name: uniqueName(machines, DEFAULT_UV_MACHINE.name),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Model presets (add-device screen)
+// ---------------------------------------------------------------------------
+
+/** A selectable model preset on the add-device screen. `build` produces a fresh
+ *  machine (unique id + name) pre-filled from the preset; the caller may then
+ *  override the name from the form. `label` is the human model name (also the
+ *  default device name), `sub` is the secondary dims line. `custom` marks the
+ *  "Своя"/"Custom" fallback, which keeps the kind's DEFAULT envelope/screen. */
+export interface MachinePreset {
+  id: string;
+  label: string;
+  sub: string;
+  custom?: boolean;
+  build: (machines: Machine[]) => Machine;
+}
+
+/** Format an envelope as a raw "X × Y × Z" dims string (no unit suffix; the UI
+ *  renders it verbatim). */
+function dims(x: number, y: number, z: number): string {
+  return `${x} × ${y} × ${z}`;
+}
+
+/** A CNC preset for a given envelope, named after the model. */
+function cncPreset(id: string, label: string, env: { x: number; y: number; z: number }): MachinePreset {
+  return {
+    id,
+    label,
+    sub: dims(env.x, env.y, env.z),
+    build: (machines) => ({
+      ...newCncMachine(machines),
+      name: uniqueName(machines, label),
+      workEnvelopeMm: { ...env },
+    }),
+  };
+}
+
+/** CNC model presets. Non-custom presets set the work envelope; "Своя" keeps the
+ *  DEFAULT_CNC_MACHINE envelope and name for manual configuration afterwards. */
+export const CNC_PRESETS: MachinePreset[] = [
+  cncPreset("cnc-3018", "CNC 3018", { x: 300, y: 180, z: 45 }),
+  cncPreset("cnc-4030", "CNC 4030", { x: 400, y: 300, z: 100 }),
+  cncPreset("cnc-6090", "CNC 6090", { x: 600, y: 900, z: 120 }),
+  {
+    id: "cnc-custom",
+    // `label`/`sub` are unused for custom presets — the UI renders a localized
+    // "Custom / configure manually" heading instead — but the interface requires
+    // them, so leave them empty.
+    label: "",
+    sub: "",
+    custom: true,
+    build: (machines) => newCncMachine(machines),
+  },
+];
+
+/** A UV LCD preset for a given screen size, named after the model. */
+function uvPreset(id: string, label: string, screen: { w: number; h: number }): MachinePreset {
+  return {
+    id,
+    label,
+    sub: `${screen.w} × ${screen.h}`,
+    build: (machines) => ({
+      ...newUvMachine(machines),
+      name: uniqueName(machines, label),
+      screenWidthMm: screen.w,
+      screenHeightMm: screen.h,
+    }),
+  };
+}
+
+/** UV LCD model presets. Saturn 4 Ultra uses the existing DEFAULT_UV_MACHINE
+ *  screen dimensions; Mars 5 / Sonic Mini screen sizes are real-ish active-area
+ *  values for those mono-LCD models (placeholders — refine if exact specs land).
+ *  "Своя" keeps the DEFAULT screen for manual configuration afterwards. */
+export const UV_PRESETS: MachinePreset[] = [
+  uvPreset("uv-saturn4ultra", "Saturn 4 Ultra", {
+    w: DEFAULT_UV_MACHINE.screenWidthMm,
+    h: DEFAULT_UV_MACHINE.screenHeightMm,
+  }),
+  // Elegoo Mars 5: ~143 × 89 mm active area (9" mono LCD).
+  uvPreset("uv-mars5", "Mars 5", { w: 143, h: 89 }),
+  // Phrozen Sonic Mini: ~165 × 72 mm active area (6.1" mono LCD).
+  uvPreset("uv-sonicmini", "Sonic Mini", { w: 165, h: 72 }),
+  {
+    id: "uv-custom",
+    // `label`/`sub` unused for custom presets (see CNC custom note above).
+    label: "",
+    sub: "",
+    custom: true,
+    build: (machines) => newUvMachine(machines),
+  },
+];
+
+/** Model presets for a machine kind, in presentation order. */
+export function presetsForKind(kind: Machine["kind"]): MachinePreset[] {
+  return kind === "cnc" ? CNC_PRESETS : UV_PRESETS;
 }
 
 // ---------------------------------------------------------------------------
