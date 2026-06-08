@@ -30,21 +30,49 @@ describe("nextPhaseProgress — descent", () => {
     expect(p.phase).toBe("traverse");
   });
 
-  it("switches to descent once z drops below safe-Z", () => {
-    const p = nextPhaseProgress(ZERO_PHASE_PROGRESS, SAFE - 0.1, DEPTH, SAFE);
+  it("stays traverse within the safe-Z band (just below safe-Z)", () => {
+    // A hair under safe-Z (within the band) is still parked / traversing.
+    const p = fold([SAFE, SAFE - 0.1]);
+    expect(p.descent).toBe(0);
+    expect(p.phase).toBe("traverse");
+  });
+
+  it("switches to descent once z drops below the safe-Z band", () => {
+    const p = fold([SAFE, SAFE - 1]); // clearly below the band → real descent
     expect(p.descent).toBeGreaterThan(0);
     expect(p.phase).toBe("descent");
   });
 
   it("is half-way when z is half of safe-Z", () => {
-    const p = nextPhaseProgress(ZERO_PHASE_PROGRESS, SAFE / 2, DEPTH, SAFE);
+    const p = fold([SAFE, SAFE / 2]); // armed at safe-Z, then half-way down
     expect(p.descent).toBeCloseTo(0.5);
     expect(p.phase).toBe("descent");
   });
 
   it("reaches 1 at the surface (z=0)", () => {
-    const p = nextPhaseProgress(ZERO_PHASE_PROGRESS, 0, DEPTH, SAFE);
+    const p = fold([SAFE, 0]); // armed at safe-Z, then down to the surface
     expect(p.descent).toBe(1);
+  });
+});
+
+describe("nextPhaseProgress — arming (pre-drill positioning)", () => {
+  it("reads the post-tool-change lift + traverse as traverse, not descent", () => {
+    // Bit starts at the surface after a probe/touch-off (z≈0), lifts to safe-Z,
+    // then traverses at safe-Z. None of that is a descent — the cycle isn't armed
+    // until safe-Z is reached, and at safe-Z descent is held at 0.
+    const p = fold([0, 2, SAFE - 0.05, SAFE]);
+    expect(p.descent).toBe(0);
+    expect(p.drilling).toBe(0);
+    expect(p.retract).toBe(0);
+    expect(p.phase).toBe("traverse");
+  });
+
+  it("then descends normally once the plunge begins from safe-Z", () => {
+    // Same lift/traverse, then the actual plunge to depth.
+    const p = fold([0, 2, SAFE, 0, -DEPTH]);
+    expect(p.descent).toBe(1);
+    expect(p.drilling).toBe(1);
+    expect(p.phase).toBe("drilling");
   });
 });
 
