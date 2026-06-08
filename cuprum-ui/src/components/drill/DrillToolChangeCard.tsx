@@ -184,8 +184,13 @@ export function DrillToolChangeCard({
   );
 
   const probeBlock = !probeChecked ? (
-    // Step 1 · circuit test
-    <div className="rounded-lg border border-warning/30 bg-warning/[0.05] px-2.5 py-2">
+    // Step 1 · circuit test. Warning border/bg via inline style — same oxide-bypass
+    // as the card frame (the `border-warning/N` opacity utility miscompiles on some
+    // machines). `text-warning` (no opacity modifier) is unaffected, so it stays a class.
+    <div
+      className="rounded-lg border px-2.5 py-2"
+      style={{ borderColor: "hsl(var(--warning) / 0.3)", backgroundColor: "hsl(var(--warning) / 0.05)" }}
+    >
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
         <PlugZap className="size-3.5" />
         {t("toolChange.probeStep1Title")}
@@ -196,7 +201,8 @@ export function DrillToolChangeCard({
       <button
         type="button"
         onClick={checkCircuit}
-        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-warning/50 bg-warning/10 py-2 text-[12px] font-semibold text-warning transition-colors hover:bg-warning/15"
+        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-[12px] font-semibold text-warning transition-opacity hover:opacity-90"
+        style={{ borderColor: "hsl(var(--warning) / 0.5)", backgroundColor: "hsl(var(--warning) / 0.1)" }}
       >
         <Hand className="size-4" />
         {t("toolChange.probeStep1Btn")}
