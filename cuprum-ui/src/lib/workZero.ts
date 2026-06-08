@@ -30,15 +30,6 @@ export function parseMaxSpindle(line: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** Parse a GRBL `$$` line for min spindle speed ($31, S-word). Below this S word
- *  (but above 0) GRBL still drives the spindle at its minimum PWM, so it's the
- *  practical floor of the controllable range. Same scale as $30 ($30=sMax). Returns
- *  the value if the line is `$31=<n>`, else null (not that line). */
-export function parseMinSpindle(line: string): number | null {
-  const m = line.trim().match(/^\$31=([\d.]+)/);
-  return m ? Number(m[1]) : null;
-}
-
 /** Parse a GRBL `$$` max-travel line ($130/$131/$132 → X/Y/Z) into the axis
  *  index (0=X, 1=Y, 2=Z) and its value in mm. Returns null for any other line. */
 export function parseMaxTravel(line: string): { axis: 0 | 1 | 2; value: number } | null {

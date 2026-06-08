@@ -6,7 +6,7 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
-import { spindleFraction, rpmToSWord, sWordToRpm } from "@/lib/spindle";
+import { spindleFraction, rpmToSWord } from "@/lib/spindle";
 
 /** SVG ring showing the current spindle output as a percent arc over [0, 1].
  *  GRBL reports the S word (clamped to $30), not true shaft RPM, so the friendly
@@ -65,20 +65,15 @@ export function SpindlePanel() {
   const state = useMachine((s) => s.status.state);
   const spindle = useMachine((s) => s.status.spindle);
   const grblMax = useMachine((s) => s.maxSpindleRpm);
-  const grblMin = useMachine((s) => s.minSpindleRpm);
   const enabled = canMove(state, connected);
   // Physical scale (real RPM at 100 %) — what the slider and readout speak.
   const physMax = cnc.spindleMaxRpm;
   // GRBL S-word ceiling ($30) once known, else assume the firmware already speaks
   // real RPM (sMax === physMax → conversions are identity).
   const sMax = grblMax ?? physMax;
-  // GRBL min-speed floor ($31, S-word) as real RPM: below this (but above 0) the
-  // spindle still spins at its slowest, so it's the lowest meaningful target. 0
-  // (or unknown $31) means no floor. Capped below physMax to stay a valid range.
-  const minRpm = Math.min(grblMin ? sWordToRpm(grblMin, physMax, sMax) : 0, physMax);
   // Target is real RPM; default to full. Only meaningful when speed is controllable.
   const [target, setTarget] = useState(physMax);
-  const clampedTarget = Math.min(Math.max(target, minRpm), physMax);
+  const clampedTarget = Math.min(target, physMax);
   const on = spindle > 0;
   // Live power fraction from the reported S word (0..1) → ring + percent.
   const fraction = spindleFraction(spindle, sMax);
@@ -110,7 +105,7 @@ export function SpindlePanel() {
             <input
               type="range"
               className="w-full accent-primary disabled:opacity-40"
-              min={minRpm}
+              min={0}
               max={physMax}
               step={100}
               value={clampedTarget}
