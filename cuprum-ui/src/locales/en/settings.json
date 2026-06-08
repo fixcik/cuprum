@@ -18,7 +18,8 @@
     "emptyEditor": "Select a machine to edit",
     "tab": {
       "config": "Configuration",
-      "control": "Control"
+      "control": "Control",
+      "grbl": "GRBL"
     },
     "screenWidth": "Screen width",
     "screenHeight": "Screen height",

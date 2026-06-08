@@ -9,6 +9,7 @@ import { CncSettingsCards } from "@/components/settings/CncSettingsCards";
 import { UvSettingsCards } from "@/components/settings/UvSettingsCards";
 import { SearchBox, DirtyBar } from "@/components/settings/SettingsToolbar";
 import { MachineControlPanel } from "@/components/machine/MachineControlPanel";
+import { GrblTab } from "@/components/settings/GrblTab";
 import {
   cncConfigDirtyKeys,
   resetCncToFactory,
@@ -17,7 +18,7 @@ import {
   type Machine,
 } from "@/lib/machine";
 
-type CncTab = "config" | "control";
+type CncTab = "config" | "control" | "grbl";
 
 /** Right detail pane of the equipment section: the editor for the selected
  *  machine, dispatched by kind. The header name is inline-editable and the
@@ -102,7 +103,7 @@ export function MachineEditor({
   );
 
   if (machine.kind === "cnc") {
-    const tabs: CncTab[] = ["config", "control"];
+    const tabs: CncTab[] = ["config", "control", "grbl"];
     // Compute the changed-from-factory set once; shared by the DirtyBar count
     // and the per-field dirty markers in the cards.
     const cncDirty = cncConfigDirtyKeys(machine);
@@ -165,7 +166,7 @@ export function MachineEditor({
               <CncSettingsCards machine={machine} query={query} dirty={cncDirty} />
             </div>
           </div>
-        ) : (
+        ) : tab === "control" ? (
           <div className="flex min-h-0 flex-1">
             <MachineControlPanel
               consoleOpen={consoleOpen}
@@ -173,6 +174,8 @@ export function MachineEditor({
               onPopOut={popOutConsole}
             />
           </div>
+        ) : (
+          <GrblTab />
         )}
         {deleteDialog}
       </div>

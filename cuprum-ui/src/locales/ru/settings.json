@@ -18,7 +18,8 @@
     "emptyEditor": "Выберите станок для редактирования",
     "tab": {
       "config": "Настройка",
-      "control": "Управление"
+      "control": "Управление",
+      "grbl": "GRBL"
     },
     "screenWidth": "Ширина экрана",
     "screenHeight": "Высота экрана",
