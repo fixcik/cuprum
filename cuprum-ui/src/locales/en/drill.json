@@ -111,7 +111,11 @@
     "title": "Work Zero",
     "back": "Plan",
     "bound": "set",
-    "datumLabel": "Board datum corner (zero 0,0)"
+    "datumLabel": "Board datum corner (zero 0,0)",
+    "blocked": {
+      "disconnected": "Machine not connected — connect it in the Equipment tab.",
+      "busy": "Machine busy ({{state}}) — wait for it to finish."
+    }
   },
   "tableMap": {
     "label": "Board on the bed",
