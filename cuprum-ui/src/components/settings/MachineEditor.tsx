@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "lucide-react";
+import { api } from "@/lib/api";
 import { useSettings } from "@/settingsStore";
 import { NumberField } from "@/components/settings/fields";
 import { CncMachineFields } from "@/components/settings/CncMachineFields";
@@ -22,12 +23,37 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
   const [consoleOpen, setConsoleOpen] = useState(
     () => localStorage.getItem("cnc.console") === "1",
   );
-  const toggleConsole = () => {
-    setConsoleOpen((open) => {
-      const next = !open;
-      localStorage.setItem("cnc.console", next ? "1" : "0");
-      return next;
-    });
+  const setConsole = (open: boolean) => {
+    setConsoleOpen(open);
+    localStorage.setItem("cnc.console", open ? "1" : "0");
+  };
+
+  // Whether the console is open in its own OS window. Driven by authoritative
+  // signals (console:ready / Rust console:closed), same as elsewhere.
+  const [consoleWindowOpen, setConsoleWindowOpen] = useState(false);
+  useEffect(() => {
+    const ps = [
+      api.onConsoleReady(() => setConsoleWindowOpen(true)),
+      api.onConsoleClosed(() => setConsoleWindowOpen(false)),
+    ];
+    return () => ps.forEach((p) => void p.then((f) => f()));
+  }, []);
+  // Auto-hide the in-app drawer once the console pops out to its own window —
+  // a stub taking up the sidebar is just clutter when the real console is elsewhere.
+  useEffect(() => {
+    if (consoleWindowOpen) setConsole(false);
+  }, [consoleWindowOpen]);
+
+  // Tab-row button: focus the separate window if it's open, otherwise toggle the
+  // in-app drawer. Pop-out (from the drawer header) opens the window, which trips
+  // the auto-hide above.
+  const onConsoleButton = () => {
+    if (consoleWindowOpen) void api.openConsoleWindow();
+    else setConsole(!consoleOpen);
+  };
+  const popOutConsole = () => {
+    void api.openConsoleWindow();
+    setConsoleWindowOpen(true);
   };
 
   if (machine === null) {
@@ -64,9 +90,9 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
           {tab === "control" && (
             <button
               type="button"
-              onClick={toggleConsole}
+              onClick={onConsoleButton}
               className={`ml-auto mb-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] transition-colors ${
-                consoleOpen
+                consoleOpen || consoleWindowOpen
                   ? "border-border bg-muted text-foreground"
                   : "border-transparent text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
               }`}
@@ -84,7 +110,8 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
           <div className="flex min-h-0 flex-1">
             <MachineControlPanel
               consoleOpen={consoleOpen}
-              onCloseConsole={toggleConsole}
+              onCloseConsole={() => setConsole(false)}
+              onPopOut={popOutConsole}
             />
           </div>
         )}

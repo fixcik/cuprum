@@ -27,6 +27,7 @@ export interface MachineToolbarProps {
  *  without confirmation. */
 export function MachineToolbar({ skipReattach = false, compactConn = false }: MachineToolbarProps = {}) {
   const a = useMachineActions();
+  const connected = useMachine((s) => s.connected);
   const feed = useMachine((s) => s.status.feed);
   const spindle = useMachine((s) => s.status.spindle);
 
@@ -38,22 +39,27 @@ export function MachineToolbar({ skipReattach = false, compactConn = false }: Ma
         connectedSummary={compactConn}
         className={compactConn ? "min-w-0 flex-1" : undefined}
       />
-      <div className="ml-auto flex items-center gap-3">
-        <QuickActions />
-        <div className="h-6 w-px bg-border" />
-        {/* Hide the numeric readout on narrow widths to keep the toolbar tidy. */}
-        <div className="hidden items-center gap-3 font-mono text-[11px] tabular-nums text-muted-foreground xl:flex">
-          <span className="inline-flex items-center gap-1">
-            <Gauge className="size-3.5" />F{Math.round(feed)}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Fan className="size-3.5" />S{Math.round(spindle)}
-          </span>
+      {/* Action cluster is meaningless while disconnected (every button is a no-op
+          and there's nothing to stop) — hide it so the bar is just the connection
+          controls and never crowds/overlaps them on a narrow window. */}
+      {connected && (
+        <div className="ml-auto flex items-center gap-3">
+          <QuickActions />
+          <div className="h-6 w-px bg-border" />
+          {/* Hide the numeric readout on narrow widths to keep the toolbar tidy. */}
+          <div className="hidden items-center gap-3 font-mono text-[11px] tabular-nums text-muted-foreground xl:flex">
+            <span className="inline-flex items-center gap-1">
+              <Gauge className="size-3.5" />F{Math.round(feed)}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Fan className="size-3.5" />S{Math.round(spindle)}
+            </span>
+          </div>
+          <StatusPill big />
+          <div className="h-6 w-px bg-border" />
+          <EStop compact onClick={() => a.softReset()} />
         </div>
-        <StatusPill big />
-        <div className="h-6 w-px bg-border" />
-        <EStop compact onClick={() => a.softReset()} />
-      </div>
+      )}
     </div>
   );
 }
