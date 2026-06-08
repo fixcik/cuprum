@@ -1,5 +1,9 @@
 {
-  "inspector": { "window": { "title": "Дизайн: {{name}}" } },
+  "inspector": {
+    "window": {
+      "title": "Дизайн: {{name}}"
+    }
+  },
   "noProject": "Проект не открыт.",
   "importZip": "Импорт ZIP",
   "importedPackages": "Импортированные пакеты",
@@ -101,7 +105,8 @@
         "tooBig": "Дизайн больше рабочей зоны панели",
         "noSpace": "Нет свободного места на панели",
         "grid": "Сетка {{cols}}×{{rows}} · разместим {{n}} шт",
-        "overflow": "Войдёт {{fit}} из {{requested}} — {{missing}} не помещается"
+        "overflow": "Войдёт {{fit}} из {{requested}} — {{missing}} не помещается",
+        "fits": "Разместим {{n}} шт"
       },
       "cancel": "Отмена",
       "add": "Добавить на панель",

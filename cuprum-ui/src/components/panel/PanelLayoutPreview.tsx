@@ -19,6 +19,7 @@ export function PanelLayoutPreview({
   toolingHoles,
   keepOutZones,
   clampRadiusMm,
+  placements,
 }: {
   boardWmm: number;
   boardHmm: number;
@@ -30,6 +31,10 @@ export function PanelLayoutPreview({
   toolingHoles?: ToolingHole[];
   keepOutZones?: KeepOutZone[];
   clampRadiusMm?: number;
+  /** Precomputed placements (e.g. from the Rust solver). When given, they are drawn
+   *  as-is instead of recomputing with the light greedy packer — so the preview
+   *  matches the real placement count. */
+  placements?: { x: number; y: number; rotated: boolean }[];
 }) {
   // Board boxes + tooling-hole bounds + keep-out zones + clamp zones form one obstacle
   // list for the packer; holes render separately as circles (above), so they aren't
@@ -43,10 +48,12 @@ export function PanelLayoutPreview({
     ],
     [obstacles, toolingHoles, keepOutZones, clampRadiusMm],
   );
-  const pack = useMemo(
+  const computed = useMemo(
     () => packLayoutAvoiding(boardWmm, boardHmm, panelWmm, panelHmm, nest, packObstacles, clearanceMm ?? 0),
     [boardWmm, boardHmm, panelWmm, panelHmm, nest, packObstacles, clearanceMm],
   );
+  // Prefer caller-supplied (solver) placements; fall back to the greedy compute.
+  const pack = placements ? { placements } : computed;
   const VIEW_W = 520; // px width budget
   const VIEW_H = 420; // px height budget (pane minus p-6 padding)
   if (panelWmm <= 0 || panelHmm <= 0) return null;

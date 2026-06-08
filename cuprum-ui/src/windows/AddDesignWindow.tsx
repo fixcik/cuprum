@@ -15,6 +15,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
 import { NestingControls } from "@/components/panel/NestingControls";
 import { packLayoutAvoiding, panelObstacles, boxesForInstances } from "@/lib/panelPlacement";
+import { solvePanelPlacements, type SolvedPack } from "@/lib/packSolve";
 import { usePreviewData } from "@/hooks/usePreviewData";
 import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
 import { useShowWindowWhenReady } from "@/hooks/useShowWindowWhenReady";
@@ -183,17 +184,49 @@ export function AddDesignWindow() {
 
   const clearance = nest.enabled ? nest.gapMm : 0;
 
-  // Footer fit-line: summarises how many copies will land on the panel.
+  // Real (solver-backed) placement for the count + preview, so they match what "Add"
+  // produces. Debounced; the synchronous greedy below shows instantly until it lands.
+  const [solved, setSolved] = useState<SolvedPack | null>(null);
+  useEffect(() => {
+    if (!selectedDesign || !selSize) {
+      setSolved(null);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      void solvePanelPlacements({
+        boardW: selSize.w,
+        boardH: selSize.h,
+        panelW: panel.widthMm,
+        panelH: panel.heightMm,
+        nest,
+        obstacles: existingBoxes,
+        clearanceMm: clearance,
+      }).then((res) => {
+        if (!cancelled) setSolved(res);
+      });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [selectedDesign, selSize, panel.widthMm, panel.heightMm, nest, existingBoxes, clearance]);
+
+  // Footer fit-line: how many copies actually land on the panel (solver count once
+  // ready, greedy until then). cols/rows aren't meaningful for the solver, so the
+  // "all fit" case reports a plain count.
   const fit = useMemo(() => {
     if (!selectedDesign || !selSize) return { text: t("panel.add.footerPick"), warn: false };
     const p = packLayoutAvoiding(selSize.w, selSize.h, panel.widthMm, panel.heightMm, nest, existingBoxes, clearance);
     if (p.max === 0) return { text: t("panel.add.fit.tooBig"), warn: true };
-    if (p.n === 0) return { text: t("panel.add.fit.noSpace"), warn: true };
     if (!nest.enabled) return { text: t("panel.add.fit.one"), warn: false };
-    if (p.requested > p.n)
-      return { text: t("panel.add.fit.overflow", { fit: p.n, requested: p.requested, missing: p.requested - p.n }), warn: true };
-    return { text: t("panel.add.fit.grid", { cols: p.cols, rows: p.rows, n: p.n }), warn: false };
-  }, [selectedDesign, selSize, panel.widthMm, panel.heightMm, nest, existingBoxes, clearance, t]);
+    const n = solved ? solved.placements.length : p.n;
+    const requested = solved ? solved.requested : p.requested;
+    if (n === 0) return { text: t("panel.add.fit.noSpace"), warn: true };
+    if (requested > n)
+      return { text: t("panel.add.fit.overflow", { fit: n, requested, missing: requested - n }), warn: true };
+    return { text: t("panel.add.fit.fits", { n }), warn: false };
+  }, [selectedDesign, selSize, panel.widthMm, panel.heightMm, nest, existingBoxes, clearance, solved, t]);
 
   return (
     <div className="relative flex h-screen w-screen flex-col bg-card text-foreground">
@@ -278,6 +311,7 @@ export function AddDesignWindow() {
                     toolingHoles={snap?.tooling_holes ?? []}
                     keepOutZones={snap?.keep_out_zones ?? []}
                     clampRadiusMm={profile.toolingClampRadiusMm}
+                    placements={solved?.placements}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted-foreground">
