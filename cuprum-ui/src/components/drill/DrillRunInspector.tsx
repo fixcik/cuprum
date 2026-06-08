@@ -96,8 +96,10 @@ export function DrillRunInspector({
             probe={probe}
             zBound={state.zBound}
             probeChecked={state.probeChecked}
+            lastManualZMm={state.lastManualZMm}
             onZBound={run.markZBound}
             onProbeChecked={run.markProbeChecked}
+            onManualZ={run.markManualZ}
             onConfirm={run.confirmToolChange}
           />
         </div>

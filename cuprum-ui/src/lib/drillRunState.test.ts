@@ -277,6 +277,7 @@ describe("drillRunReducer", () => {
       toolChange: { toolName: "Сверло 1.2", diameterMm: 1.2 },
       zBound: true,
       probeChecked: true,
+      lastManualZMm: -42.5,
       toolChangeSeq: 3,
       error: "something went wrong",
       runStartedAt: 1234567890,
@@ -360,6 +361,31 @@ describe("drillRunReducer — probeChecked (once-per-session circuit test)", () 
     const checked = drillRunReducer(initialDrillRunState, { type: "probechecked" });
     expect(drillRunReducer(checked, { type: "reset" }).probeChecked).toBe(false);
     expect(drillRunReducer(checked, { type: "start", holesTotal: 5 }).probeChecked).toBe(false);
+  });
+});
+
+describe("drillRunReducer — lastManualZMm (previous manual touch-off mark)", () => {
+  it("starts null", () => {
+    expect(initialDrillRunState.lastManualZMm).toBeNull();
+    const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+    expect(started.lastManualZMm).toBeNull();
+  });
+
+  it("manualz stores the machine Z", () => {
+    const s = drillRunReducer(initialDrillRunState, { type: "manualz", zMm: -37.2 });
+    expect(s.lastManualZMm).toBe(-37.2);
+  });
+
+  it("persists across a tool change (mark is about the previous bit)", () => {
+    const marked = drillRunReducer(initialDrillRunState, { type: "manualz", zMm: -37.2 });
+    const tc = drillRunReducer(marked, { type: "toolchange", toolName: "0.8mm", diameterMm: 0.8 });
+    expect(tc.lastManualZMm).toBe(-37.2);
+  });
+
+  it("reset and a fresh start clear it", () => {
+    const marked = drillRunReducer(initialDrillRunState, { type: "manualz", zMm: -37.2 });
+    expect(drillRunReducer(marked, { type: "reset" }).lastManualZMm).toBeNull();
+    expect(drillRunReducer(marked, { type: "start", holesTotal: 5 }).lastManualZMm).toBeNull();
   });
 });
 

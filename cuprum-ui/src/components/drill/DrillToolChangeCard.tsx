@@ -3,8 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowDownToLine,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   Hand,
   Loader2,
   Pause,
@@ -14,9 +12,8 @@ import {
 } from "lucide-react";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useMachine } from "@/machineStore";
-import { useSettings } from "@/settingsStore";
 import { useJog } from "@/hooks/useJog";
-import { JogStepControl } from "@/components/machine/JogStepControl";
+import { DrillManualZBar } from "@/components/drill/DrillManualZBar";
 import { api } from "@/lib/api";
 
 /** Probe parameters threaded from the machine profile. */
@@ -50,10 +47,15 @@ export interface DrillToolChangeCardProps {
   /** Probe circuit tested THIS session (once per run). When true the probe path
    *  skips «step 1 · circuit test» and goes straight to «set Z by probe». */
   probeChecked: boolean;
+  /** Machine Z (mm) of the last manual touch-off this session — the yellow «previous
+   *  Z» mark on the manual bar. Null until the first manual confirm. */
+  lastManualZMm: number | null;
   /** Called after a successful probe / manual touch-off (dispatches the Z gate). */
   onZBound: () => void;
   /** Called once the probe circuit is confirmed closed (latches `probeChecked`). */
   onProbeChecked: () => void;
+  /** Records the machine Z of a manual touch-off (for the «previous Z» mark). */
+  onManualZ: (zMm: number) => void;
   /** Resume the run (already gated by zBound at the call site). */
   onConfirm: () => void;
 }
@@ -72,8 +74,10 @@ export function DrillToolChangeCard({
   probe,
   zBound,
   probeChecked,
+  lastManualZMm,
   onZBound,
   onProbeChecked,
+  onManualZ,
   onConfirm,
 }: DrillToolChangeCardProps) {
   const { t } = useTranslation("drill");
@@ -85,6 +89,8 @@ export function DrillToolChangeCard({
 
   // Live probe pin (Pn:P) — drives the circuit self-test and the shorted pre-check.
   const probeActive = useMachine((s) => s.status.pins?.probe ?? false);
+  // Live machine Z — captured at a manual confirm to seed the «previous Z» mark.
+  const machineZ = useMachine((s) => s.status.mpos[2]);
 
   // Auto-advance step 1 → step 2 the moment the operator touches the probe to the
   // bit (pin latches). The explicit button below is the affordance/fallback.
@@ -92,9 +98,9 @@ export function DrillToolChangeCard({
     if (probeActive && !probeChecked) onProbeChecked();
   }, [probeActive, probeChecked, onProbeChecked]);
 
-  // Manual Z jog (step jog only — reuse the shared controller + step selector).
-  const steps = useSettings((s) => s.cncProfile.jogStepsMm);
-  const { enabled, step, setStep, continuous, go } = useJog();
+  // Whether motion is allowed (connected + idle) — gates the action buttons. The
+  // manual Z jog itself lives in the DrillManualZBar.
+  const { enabled } = useJog();
 
   // Step 1 (probe): confirm the circuit is closed. The pin is active only WHILE the
   // operator touches the bit, so check the live pin on click; the effect above also
@@ -137,6 +143,9 @@ export function DrillToolChangeCard({
     setError(null);
     try {
       await api.machine.setZero(false, false, true);
+      // Record the machine Z we just zeroed at, so the next bit's bar shows it as
+      // the «previous Z» hint, then unlock the resume gate.
+      onManualZ(machineZ);
       onZBound();
     } catch {
       setError(t("toolChange.manualFail"));
@@ -212,30 +221,7 @@ export function DrillToolChangeCard({
 
   const manualBlock = (
     <div className="flex flex-col gap-2">
-      <p className="text-[11px] leading-relaxed text-muted-foreground">{t("toolChange.manualHint")}</p>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-1.5">
-          <button
-            type="button"
-            disabled={!enabled}
-            onClick={() => go(0, 0, -1)}
-            title="Z−"
-            className="grid h-9 w-12 place-items-center rounded-md border border-border bg-card text-foreground transition-colors hover:border-primary/40 hover:bg-foreground/5 disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ChevronDown className="size-4" />
-          </button>
-          <button
-            type="button"
-            disabled={!enabled}
-            onClick={() => go(0, 0, 1)}
-            title="Z+"
-            className="grid h-9 w-12 place-items-center rounded-md border border-border bg-card text-foreground transition-colors hover:border-primary/40 hover:bg-foreground/5 disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ChevronUp className="size-4" />
-          </button>
-        </div>
-        <JogStepControl steps={steps} step={step} setStep={setStep} continuous={continuous} />
-      </div>
+      <DrillManualZBar lastZMm={lastManualZMm} />
       <button type="button" className={SOLID_WARNING} disabled={!enabled || busy} onClick={() => void bindManual()}>
         {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDownToLine className="size-4" />}
         {t("toolChange.manualConfirm")}
