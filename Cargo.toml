@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace", "crates/cuprum-diskcache", "crates/cuprum-cache", "crates/cuprum-goo", "crates/cuprum-gerber", "crates/cuprum-mesh", "crates/cuprum-dfm", "crates/cuprum-sdcp", "crates/cuprum-grbl"]
+members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace", "crates/cuprum-diskcache", "crates/cuprum-cache", "crates/cuprum-goo", "crates/cuprum-gerber", "crates/cuprum-mesh", "crates/cuprum-dfm", "crates/cuprum-sdcp", "crates/cuprum-grbl", "crates/cuprum-nest"]
 # cuprum-ui/src-tauri is its own workspace (heavy tauri deps) — keep core/CLI builds fast
 exclude = ["cuprum-ui/src-tauri"]
 
@@ -21,6 +21,7 @@ cuprum-mesh = { path = "crates/cuprum-mesh" }
 cuprum-dfm = { path = "crates/cuprum-dfm" }
 cuprum-sdcp = { path = "crates/cuprum-sdcp" }
 cuprum-grbl = { path = "crates/cuprum-grbl" }
+cuprum-nest = { path = "crates/cuprum-nest" }
 serialport = "4"
 goo = "0.1"
 anyhow = "1"

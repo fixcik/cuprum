@@ -592,6 +592,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cuprum-nest"
+version = "0.4.0"
+
+[[package]]
 name = "cuprum-project"
 version = "0.4.0"
 dependencies = [
