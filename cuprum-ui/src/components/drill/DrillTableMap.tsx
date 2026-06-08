@@ -60,23 +60,16 @@ export function DrillTableMap({
   // Live spindle position (machine frame) = where the datum corner currently sits.
   const mposX = useMachine((s) => s.status.mpos[0]);
   const mposY = useMachine((s) => s.status.mpos[1]);
-  const wposX = useMachine((s) => s.status.wpos[0]);
-  const wposY = useMachine((s) => s.status.wpos[1]);
 
-  // Work-coordinate offset (constant while jogging — both mpos & wpos move together;
-  // only a re-zero changes it). Converts a machine click target → work target.
-  const wcoX = mposX - wposX;
-  const wcoY = mposY - wposY;
-
-  // Jog bounds in the WORK frame that correspond to the machine travel [0,max],
-  // so jogTo's clamp matches the envelope without re-clamping a valid target.
-  // WCO is stable while jogging and only changes on a re-zero, which re-renders
-  // (mpos/wpos are subscribed) and refreshes these bounds — same render-time-bounds
-  // / click-time-target pattern as WorkZeroCard's Z click-to-move.
+  // Machine-frame jog bounds (= the travel envelope), matching WorkZeroCard and
+  // useJog's contract: jogTo's clampWork() converts the work-space target to the
+  // machine frame via the live WCO and clamps it against THESE machine bounds.
+  // (Passing work-frame bounds here double-applied the WCO, clamping the Y target
+  // back to the current position so a click only moved X — see #507.)
   const { enabled, jogTo } = useJog({
     bounds: {
-      x: [0 - wcoX, maxXMm - wcoX],
-      y: [0 - wcoY, maxYMm - wcoY],
+      x: [0, maxXMm],
+      y: [0, maxYMm],
       z: [-maxZMm, 0],
     },
   });
