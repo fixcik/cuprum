@@ -64,6 +64,12 @@ export const GRBL_SETTINGS: GrblSettingDef[] = [
   { n: 30, key: "spindleMax", group: "spindle", type: "float", unit: "rpm", step: "100" },
   { n: 31, key: "spindleMin", group: "spindle", type: "float", unit: "rpm", step: "10" },
   { n: 32, key: "laserMode", group: "spindle", type: "bool" },
+  // grblHAL spindle PWM control ($33–$36). Present on 32-bit/grblHAL builds; on
+  // stock GRBL 1.1 they're absent and simply won't appear.
+  { n: 33, key: "spindlePwmFreq", group: "spindle", type: "float", unit: "hz", step: "100" },
+  { n: 34, key: "spindleOffPwm", group: "spindle", type: "float", unit: "percent", step: "1" },
+  { n: 35, key: "spindleMinPwm", group: "spindle", type: "float", unit: "percent", step: "1" },
+  { n: 36, key: "spindleMaxPwm", group: "spindle", type: "float", unit: "percent", step: "1" },
   // Axes
   { n: 100, key: "xSteps", group: "axis", type: "float", unit: "stepsPerMm", step: "1", critical: true },
   { n: 101, key: "ySteps", group: "axis", type: "float", unit: "stepsPerMm", step: "1", critical: true },
