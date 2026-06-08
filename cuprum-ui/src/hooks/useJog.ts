@@ -57,9 +57,14 @@ export function useJog(opts?: { bounds?: JogBounds }) {
   const setStep = useJogStep((s) => s.setStep);
   const continuous = step === "cont";
 
+  // Live GRBL max-travel ($130/$131/$132); null until the first $$ completes.
+  // Intersecting the bounds with it keeps a profile envelope set larger than the
+  // real travel from driving an absolute jog past the soft limit at the far edge.
+  const maxTravel = useMachine((s) => s.maxTravelMm);
+
   // Resolve clamp bounds once per render; destructure to six stable primitives so
   // the callbacks can list them as deps without an object identity churn each render.
-  const b = resolveJogBounds(cnc.workEnvelopeMm, opts?.bounds);
+  const b = resolveJogBounds(cnc.workEnvelopeMm, opts?.bounds, maxTravel);
   const [bx0, bx1] = b.x;
   const [by0, by1] = b.y;
   const [bz0, bz1] = b.z;
