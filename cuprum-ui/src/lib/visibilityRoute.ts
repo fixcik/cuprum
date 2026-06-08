@@ -14,17 +14,23 @@ function insideStrict(p: Pt, r: Rect): boolean {
   return p.x > r.x + EPS && p.x < r.x + r.w - EPS && p.y > r.y + EPS && p.y < r.y + r.h - EPS;
 }
 
-/** Panel bounds in the routing coordinate space: rectangle [0,width]×[0,height].
- *  width/height <= 0 means "unbounded" (no boundary constraint). */
+/** Panel bounds in the routing coordinate space: the axis-aligned rectangle
+ *  [minX,maxX]×[minY,maxY]. An empty/degenerate rect (maxX<=minX or maxY<=minY)
+ *  means "unbounded" (no boundary constraint). Given as explicit min/max rather
+ *  than width/height so callers in machine space — where the panel can map to a
+ *  negative-origin quadrant depending on the datum corner — can pass the real
+ *  rectangle. */
 export interface PanelBounds {
-  width: number;
-  height: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
 }
 
 function clampToPanel(p: Pt, panel: PanelBounds): Pt {
   return {
-    x: Math.min(panel.width, Math.max(0, p.x)),
-    y: Math.min(panel.height, Math.max(0, p.y)),
+    x: Math.min(panel.maxX, Math.max(panel.minX, p.x)),
+    y: Math.min(panel.maxY, Math.max(panel.minY, p.y)),
   };
 }
 
@@ -51,7 +57,7 @@ export function routeAvoiding(
   marginMm: number,
   panel?: PanelBounds,
 ): Pt[] {
-  const bounded = !!panel && panel.width > 0 && panel.height > 0;
+  const bounded = !!panel && panel.maxX > panel.minX && panel.maxY > panel.minY;
   const expanded = obstacles.map((z) => expand(z, marginMm));
 
   // Zones that contain an endpoint (a hole sitting inside an expanded zone's
@@ -59,6 +65,9 @@ export function routeAvoiding(
   // the hole can route out — but this exemption applies ONLY to the real
   // endpoints a/b, never to obstacle-corner nodes (a corner lies on a zone
   // boundary, so a blanket exemption would let the path graze through the zone).
+  // Assumes keep-out zones are non-overlapping fixture bodies: a convex zone that
+  // contains an endpoint is crossed by an incident segment only in the stretch
+  // adjacent to that endpoint, so exempting it whole is safe.
   const exemptA = expanded.filter((r) => pointInRect(a, r));
   const exemptB = expanded.filter((r) => pointInRect(b, r));
 

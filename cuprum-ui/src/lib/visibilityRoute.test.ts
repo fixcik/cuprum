@@ -42,7 +42,7 @@ describe("routeAvoiding (unbounded)", () => {
 });
 
 describe("routeAvoiding (panel-bounded)", () => {
-  const panel = { width: 100, height: 50 };
+  const panel = { minX: 0, minY: 0, maxX: 100, maxY: 50 };
   it("routes a flush-to-left-edge zone from the inside (no waypoint leaves the panel)", () => {
     // Zone hugs the left edge; a above it, b below it on the same x → the straight
     // line crosses the zone and the only in-panel way around is to the right.
@@ -53,14 +53,29 @@ describe("routeAvoiding (panel-bounded)", () => {
     expect(wp.length).toBeGreaterThan(0);
     for (const p of wp) {
       expect(p.x).toBeGreaterThanOrEqual(0);
-      expect(p.x).toBeLessThanOrEqual(panel.width);
+      expect(p.x).toBeLessThanOrEqual(panel.maxX);
       expect(p.y).toBeGreaterThanOrEqual(0);
-      expect(p.y).toBeLessThanOrEqual(panel.height);
+      expect(p.y).toBeLessThanOrEqual(panel.maxY);
     }
     const exp = expand(zone, 1);
     const pts = [a, ...wp, b];
     for (let i = 0; i < pts.length - 1; i++) {
       expect(segIntersectsRect(pts[i], pts[i + 1], exp)).toBe(false);
+    }
+  });
+  it("honours a negative-origin panel rectangle (machine space, flipped datum)", () => {
+    // Machine-space panel for a top-left datum: x∈[0,100], y∈[-50,0].
+    const neg = { minX: 0, minY: -50, maxX: 100, maxY: 0 };
+    const zone: Rect = { x: 0, y: -30, w: 10, h: 20 }; // flush to the left edge
+    const a = { x: 5, y: -5 };
+    const b = { x: 5, y: -45 };
+    const wp = routeAvoiding(a, b, [zone], 1, neg);
+    expect(wp.length).toBeGreaterThan(0);
+    for (const p of wp) {
+      expect(p.x).toBeGreaterThanOrEqual(neg.minX);
+      expect(p.x).toBeLessThanOrEqual(neg.maxX);
+      expect(p.y).toBeGreaterThanOrEqual(neg.minY);
+      expect(p.y).toBeLessThanOrEqual(neg.maxY);
     }
   });
   it("clips a near-edge expanded corner to the panel instead of going outside", () => {
@@ -73,7 +88,7 @@ describe("routeAvoiding (panel-bounded)", () => {
 });
 
 describe("routeAvoiding (edge cases)", () => {
-  const panel = { width: 100, height: 50 };
+  const panel = { minX: 0, minY: 0, maxX: 100, maxY: 50 };
   it("still routes when an endpoint sits inside a zone's margin band", () => {
     const zone: Rect = { x: 20, y: 20, w: 10, h: 10 };
     const a = { x: 5, y: 25 };

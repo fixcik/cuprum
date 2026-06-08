@@ -96,11 +96,22 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
     return { x: minX, y: minY, w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
   });
 
-  // Panel rectangle in machine space is [0,wMm]×[0,panelHeightMm] (machinePoint
-  // maps the panel extent there), so traverse detours stay on the panel. Undefined
-  // when the width is unknown → unbounded routing (avoids zones, no panel clamp).
-  const panelMachine =
-    wMm > 0 && panelHeightMm > 0 ? { width: wMm, height: panelHeightMm } : undefined;
+  // Panel rectangle in MACHINE space, so traverse detours stay on the panel. The
+  // datum corner decides which quadrant the panel maps to (machinePoint can flip
+  // either axis → negative-origin rect), so map the panel's own opposite corners
+  // and take min/max — same construction as zonesMachine. Undefined when the width
+  // is unknown → unbounded routing (avoids zones, no panel clamp).
+  const panelMachine = (() => {
+    if (!(wMm > 0 && panelHeightMm > 0)) return undefined;
+    const [px1, py1] = machinePoint(0, 0, datum, wMm, panelHeightMm);
+    const [px2, py2] = machinePoint(wMm, panelHeightMm, datum, wMm, panelHeightMm);
+    return {
+      minX: Math.min(px1, px2),
+      minY: Math.min(py1, py2),
+      maxX: Math.max(px1, px2),
+      maxY: Math.max(py1, py2),
+    };
+  })();
 
   const allLines: string[] = [];
   const steps: DrillStep[] = [];
