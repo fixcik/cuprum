@@ -31,7 +31,9 @@
     "mmPerMin": "mm/min",
     "mmPerSec2": "mm/s²",
     "rpm": "rpm",
-    "stepsPerMm": "steps/mm"
+    "stepsPerMm": "steps/mm",
+    "hz": "Hz",
+    "percent": "%"
   },
   "maskBit": {
     "x": "X",
@@ -63,6 +65,10 @@
     "spindleMax": { "label": "Max spindle speed", "desc": "RPM mapped to 100% PWM / the maximum S word." },
     "spindleMin": { "label": "Min spindle speed", "desc": "RPM mapped to the minimum non-zero S word." },
     "laserMode": { "label": "Laser mode", "desc": "Dynamic power control during motion (M3/M4 for a laser)." },
+    "spindlePwmFreq": { "label": "Spindle PWM frequency", "desc": "PWM carrier frequency in Hz. Affects spindle/driver response; an odd or 0 value can skew the $34/$35 duty mapping." },
+    "spindleOffPwm": { "label": "Spindle off PWM", "desc": "PWM duty (%) output when the spindle is off (M5). Usually 0." },
+    "spindleMinPwm": { "label": "Min spindle PWM", "desc": "PWM duty (%) at the minimum RPM ($31). Raise it so the spindle actually starts at low RPM — at $31 the duty equals this value." },
+    "spindleMaxPwm": { "label": "Max spindle PWM", "desc": "PWM duty (%) at the maximum RPM ($30). Usually 100." },
     "xSteps": { "label": "X steps/mm", "desc": "Motor steps per millimeter on X. Wrong value means wrong distances." },
     "ySteps": { "label": "Y steps/mm", "desc": "Motor steps per millimeter on Y. Wrong value means wrong distances." },
     "zSteps": { "label": "Z steps/mm", "desc": "Motor steps per millimeter on Z. Wrong value means wrong distances." },

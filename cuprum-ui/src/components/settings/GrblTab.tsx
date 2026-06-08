@@ -181,7 +181,14 @@ export function GrblTab() {
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4">
         {GROUP_ORDER.map((group) => {
-          const defs = GRBL_SETTINGS.filter((d) => d.group === group && matchDef(d));
+          // Only show cataloged settings the controller actually reported in `$$`:
+          // catalogs span GRBL variants (e.g. grblHAL's $33–$36 PWM settings are
+          // absent on stock GRBL 1.1), and rendering an unsupported setting would
+          // leave a blank, unwritable field. Before the first read baseline is
+          // empty, so nothing flashes.
+          const defs = GRBL_SETTINGS.filter(
+            (d) => d.group === group && baseline[d.n] !== undefined && matchDef(d),
+          );
           if (defs.length === 0) return null;
           const Icon = GROUP_ICON[group];
           return (
