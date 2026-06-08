@@ -116,7 +116,12 @@ export function AddDesignWindow() {
   );
 
   // Derive board size and verdict from the hook (replaces duplicate metrics fetch).
-  const selSize = pv.metrics ? { w: pv.metrics.board.widthMm, h: pv.metrics.board.heightMm } : null;
+  // Stable identity (only changes when metrics actually change) so the debounced
+  // solver effect isn't reset on every re-render during SVG layer streaming.
+  const selSize = useMemo(
+    () => (pv.metrics ? { w: pv.metrics.board.widthMm, h: pv.metrics.board.heightMm } : null),
+    [pv.metrics],
+  );
   const selVerdict = pv.hasRequired && pv.metrics ? pv.verdict : null;
 
   // Toast state for the add-to-panel result.
@@ -188,10 +193,8 @@ export function AddDesignWindow() {
   // produces. Debounced; the synchronous greedy below shows instantly until it lands.
   const [solved, setSolved] = useState<SolvedPack | null>(null);
   useEffect(() => {
-    if (!selectedDesign || !selSize) {
-      setSolved(null);
-      return;
-    }
+    setSolved(null); // drop the previous design's pack so the preview never mismatches
+    if (!selectedDesign || !selSize) return;
     let cancelled = false;
     const handle = setTimeout(() => {
       void solvePanelPlacements({
