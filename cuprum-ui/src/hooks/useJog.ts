@@ -4,7 +4,7 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
-import { clampJogDelta } from "@/lib/jogClamp";
+import { clampJogDelta, continuousJogRoom } from "@/lib/jogClamp";
 import { resolveJogBounds } from "@/lib/jogBounds";
 import type { JogBounds } from "@/lib/jogBounds";
 
@@ -98,15 +98,15 @@ export function useJog(opts?: { bounds?: JogBounds }) {
         await api.machine.jogCancel();
       }
       const mpos = useMachine.getState().status.mpos;
-      const roomX = sx > 0 ? bx1 - mpos[0] : sx < 0 ? mpos[0] - bx0 : Infinity;
-      const roomY = sy > 0 ? by1 - mpos[1] : sy < 0 ? mpos[1] - by0 : Infinity;
-      const roomZ = sz > 0 ? bz1 - mpos[2] : sz < 0 ? mpos[2] - bz0 : Infinity;
-      const room = Math.min(
-        sx !== 0 ? Math.max(0, roomX) : Infinity,
-        sy !== 0 ? Math.max(0, roomY) : Infinity,
-        sz !== 0 ? Math.max(0, roomZ) : Infinity,
-      );
-      if (!Number.isFinite(room) || room <= MIN_JOG_MM) return;
+      // Aim toward the bounds edge, but hold back a margin so the f64→GRBL-f32
+      // round-trip can't land the target on the soft limit (error:15, see
+      // continuousJogRoom). The trailing jog-cancel on release stops it early.
+      const room = continuousJogRoom([sx, sy, sz], [mpos[0], mpos[1], mpos[2]], {
+        x: [bx0, bx1],
+        y: [by0, by1],
+        z: [bz0, bz1],
+      });
+      if (room <= MIN_JOG_MM) return;
       moving = true;
       void api.machine.jog(sx * room, sy * room, sz * room, cnc.jogFeedMmMin);
     },
