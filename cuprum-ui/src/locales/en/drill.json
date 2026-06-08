@@ -105,7 +105,8 @@
     "xyOutOfBounds": "Work zero is off — at this position some holes run past the machine travel ({{detail}}). Re-bind closer to the machine origin or change the datum corner.",
     "zDoesNotFit": "Z doesn't fit the travel: {{detail}}. Adjust the depth / tool-change Z / Z envelope.",
     "zReason": { "depth": "drill depth", "toolchange": "tool-change Z", "span": "depth + tool-change Z" },
-    "zPerToolNote": "Only XY is set here — the panel corner on the table. Z is taken per-bit (at start and on each tool change). Full jog console is in Equipment → Control."
+    "zTouchTitle": "Z touch-off",
+    "zTouchHint": "Taken per bit — at start and on each tool change."
   },
   "zeroMode": {
     "title": "Work Zero",
