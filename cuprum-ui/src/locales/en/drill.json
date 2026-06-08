@@ -69,7 +69,7 @@
     "holes": "Holes",
     "holesSub": "categories: {{count}}",
     "time": "Est. time",
-    "timeSub": "~ at current feed",
+    "timeSub": "~ motion (no swaps)",
     "travel": "Jog distance",
     "travelSub": "optimised",
     "changes": "Bit changes",

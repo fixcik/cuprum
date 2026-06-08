@@ -1,38 +1,33 @@
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { DrillRoute } from "@/lib/drillRoute";
-import type { Tool } from "@/lib/toolLibrary";
-import type { CncProfile } from "@/lib/cncProfile";
-import { estimateDrill } from "@/lib/drillEstimate";
+import type { DrillEstimate } from "@/lib/api";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 export interface DrillPreflightSummaryProps {
   route: DrillRoute;
-  tools: Tool[];
-  cncProfile: CncProfile;
-  substrateThicknessMm: number;
+  /** Backend-computed motion-time estimate (movement only; tool changes counted,
+   *  not timed). Comes from `api.drill.plan(...).estimate`. */
+  estimate: DrillEstimate;
 }
 
-/** 2×2 grid of preflight stat cards: holes, estimated time, jog distance, tool changes. */
+/** 2×2 grid of preflight stat cards: holes, estimated motion time, jog distance,
+ *  tool changes. The time is movement-only (the backend no longer folds the
+ *  ~30 s/swap operator overhead in); the swaps are surfaced as a separate count. */
 export function DrillPreflightSummary({
   route,
-  tools,
-  cncProfile,
-  substrateThicknessMm,
+  estimate,
 }: DrillPreflightSummaryProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
 
-  const est = useMemo(
-    () => estimateDrill(route, tools, cncProfile, substrateThicknessMm),
-    [route, tools, cncProfile, substrateThicknessMm],
-  );
+  const est = estimate;
+  const motionSec = Math.round(est.motionSec);
 
-  // Format timeSec as "X мин YY с" / "Y с" with localised abbreviations; seconds
-  // are zero-padded to two digits once there's a minutes part.
+  // Format motion seconds as "X мин YY с" / "Y с" with localised abbreviations;
+  // seconds are zero-padded to two digits once there's a minutes part.
   const timeFmt = (() => {
-    const m = Math.floor(est.timeSec / 60);
-    const s = est.timeSec % 60;
+    const m = Math.floor(motionSec / 60);
+    const s = motionSec % 60;
     const sec = `${String(s).padStart(m > 0 ? 2 : 1, "0")} ${t("preflight.secAbbr")}`;
     return m > 0 ? `${m} ${t("preflight.minAbbr")} ${sec}` : sec;
   })();

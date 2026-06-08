@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { DEFAULT_FR4_THICKNESS_MM, type DrillSnapshot } from "@/lib/api";
+import {
+  DEFAULT_FR4_THICKNESS_MM,
+  ZERO_KINEMATICS,
+  type DrillSnapshot,
+  type DrillPlanInput,
+  type DrillPlanResult,
+} from "@/lib/api";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
-import { emitDrillProgram, DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillGcode";
-import { planDrillRoute, classAtRunIndex } from "@/lib/drillRoute";
+import { classAtRunIndex } from "@/lib/drillRoute";
 import { DRILL_CLASS_COLOR } from "@/lib/drillClassColor";
-import { datumCornerPanelPoint } from "@/lib/datum";
+import { DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillBreakthrough";
 import { classCounts, DEFAULT_SELECTED_CLASSES, DRILL_CLASSES } from "@/lib/drillPasses";
 import {
   holesForClasses,
   subPlanForSelection,
   holeIdsInRunOrder,
 } from "@/lib/drillSelection";
-import { estimateDrill } from "@/lib/drillEstimate";
 import { DrillMapCanvas } from "@/components/drill/DrillMapCanvas";
 import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
 import { DrillCanvasTopBar } from "@/components/drill/DrillCanvasTopBar";
@@ -244,17 +248,79 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     return { ...subPlan, groups, unmatchedDiametersMm };
   }, [subPlan, bitOverrides]);
 
-  // Route computed from the sub-plan (with overrides); null while plan/panel unavailable.
-  const route = useMemo(() => {
-    if (!subPlanWithOverrides || !panel) return null;
-    const start = datumCornerPanelPoint(drillDatumCorner, panel.width_mm, panel.height_mm);
-    return planDrillRoute(subPlanWithOverrides, start, zones, {
-      minX: 0,
-      minY: 0,
-      maxX: panel.width_mm,
-      maxY: panel.height_mm,
-    });
-  }, [subPlanWithOverrides, panel, drillDatumCorner, zones]);
+  // Assemble the backend `drill_plan` input from the editor state. The Rust core
+  // owns routing, G-code emission and the (kinematics-aware) time estimate; the
+  // frontend only marshals the plan + shop settings. `kinematics` is a zeroed
+  // placeholder — the backend overwrites it with its cached GRBL limits.
+  // `startMachineXY` is omitted for the preview/estimate plan and supplied only at
+  // run start (so the first traverse routes from the real bit position).
+  const buildPlanInput = useCallback(
+    (startMachineXY?: { x: number; y: number }): DrillPlanInput | null => {
+      if (!subPlanWithOverrides || !panel || !cncProfile) return null;
+      return {
+        plan: { groups: subPlanWithOverrides.groups },
+        datum: drillDatumCorner,
+        panelWidthMm: panel.width_mm,
+        panelHeightMm: panel.height_mm,
+        tools: tools.map((t) => ({
+          id: t.id,
+          diameterMm: t.diameterMm,
+          name: t.name,
+          recommendedRpm: t.recommendedRpm,
+          recommendedPlungeMmMin: t.recommendedPlungeMmMin,
+        })),
+        cnc: {
+          safeZMm: cncProfile.safeZMm,
+          toolChangeZMm: cncProfile.toolChangeZMm,
+          spindleControllable: cncProfile.spindleControllable,
+          spindleMaxRpm: cncProfile.spindleMaxRpm,
+          prependGcode: cncProfile.prependGcode,
+          appendGcode: cncProfile.appendGcode,
+        },
+        kinematics: ZERO_KINEMATICS,
+        substrateThicknessMm,
+        keepOutZones: zones,
+        startMachineXY,
+      };
+    },
+    [subPlanWithOverrides, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
+  );
+
+  // Plan result (route + program + estimate) computed in the Rust core. Recomputed
+  // whenever the plan input changes; the preview/estimate plan omits startMachineXY.
+  const [planResult, setPlanResult] = useState<DrillPlanResult | null>(null);
+  // Stringify the preview input so the effect only re-fires on a real change (the
+  // memoized object identity flips on every render that touches its deps).
+  const previewInput = useMemo(() => buildPlanInput(), [buildPlanInput]);
+  const previewInputKey = previewInput ? JSON.stringify(previewInput) : null;
+  useEffect(() => {
+    if (!previewInput) {
+      setPlanResult(null);
+      return;
+    }
+    // Anti-race: a stale resolution (input changed mid-flight) is dropped — only
+    // the latest in-flight request is allowed to write the result.
+    let cancelled = false;
+    void api.drill
+      .plan(previewInput)
+      .then((res) => {
+        if (!cancelled) setPlanResult(res);
+      })
+      .catch(() => {
+        if (!cancelled) setPlanResult(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // previewInputKey captures the meaningful input change; previewInput is the
+    // value sent (stable for a given key).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewInputKey]);
+
+  const route = planResult?.route ?? null;
+  const totalEstimateSec = planResult ? Math.round(planResult.estimate.motionSec) : 0;
+  // The tool-change count rides along on `estimate` (shown by the preflight summary).
+  const estimate = planResult?.estimate ?? null;
 
   // Clear inspected hole when the route changes (datum/override/selection switch).
   useEffect(() => {
@@ -289,28 +355,6 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
       })
     : { valid: true };
 
-  const buildProgram = useCallback(
-    (startMachineXY?: { x: number; y: number }) => {
-      if (!subPlanWithOverrides || !panel || !cncProfile) return null;
-      return emitDrillProgram(subPlanWithOverrides, {
-        panelHeightMm: panel.height_mm,
-        panelWidthMm: panel.width_mm,
-        datumCorner: drillDatumCorner,
-        profile: cncProfile,
-        tools,
-        substrateThicknessMm,
-        keepOutZones: zones,
-        startMachineXY,
-      });
-    },
-    [subPlanWithOverrides, panel, cncProfile, tools, substrateThicknessMm, zones, drillDatumCorner],
-  );
-
-  const totalEstimateSec = useMemo(() => {
-    if (!route || !cncProfile) return 0;
-    return estimateDrill(route, tools, cncProfile, substrateThicknessMm).timeSec;
-  }, [route, tools, cncProfile, substrateThicknessMm]);
-
   const run = useDrillRun();
   const machineWork = useMachinePosition();
 
@@ -318,24 +362,33 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   // unsaved project). Set on start, cleared when the terminal outcome is written.
   const runUidRef = useRef<string | null>(null);
 
-  const handleStart = useCallback(() => {
-    const exec = buildProgram(machineWork ? { x: machineWork.x, y: machineWork.y } : undefined);
-    if (!exec) return;
-    void run.start(exec.steps);
+  const handleStart = useCallback(async () => {
+    // Re-plan with the real machine work position so the FIRST traverse routes
+    // around clamps from where the bit actually is (the preview plan omits it).
+    const input = buildPlanInput(machineWork ? { x: machineWork.x, y: machineWork.y } : undefined);
+    if (!input) return;
+    let exec: DrillPlanResult;
+    try {
+      exec = await api.drill.plan(input);
+    } catch {
+      return;
+    }
+    const steps = exec.program.steps;
+    void run.start(steps);
     // Best-effort journal write — never blocks or aborts the real run. Skipped for
     // an unsaved project (no stable path to key history on).
     const projectPath = snap.currentPath;
     if (projectPath) {
       const uid = crypto.randomUUID();
       runUidRef.current = uid;
-      const holesTotal = exec.steps.filter((s) => s.kind === "hole").length;
+      const holesTotal = steps.filter((s) => s.kind === "hole").length;
       const params = {
         selectedHoleIds: [...selectedHoleIds],
         bitOverrides: Object.fromEntries(bitOverrides),
         datum: drillDatumCorner,
         feedOverridePct,
         workZeroMachineXY,
-        estimateSec: totalEstimateSec,
+        estimateSec: Math.round(exec.estimate.motionSec),
         // Distinct tools (bit groups) — for the history summary.
         toolCount: subPlanWithOverrides?.groups.length ?? 0,
       };
@@ -344,7 +397,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
         .catch(() => {});
     }
   }, [
-    buildProgram,
+    buildPlanInput,
     machineWork,
     run,
     snap.currentPath,
@@ -353,7 +406,6 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     drillDatumCorner,
     feedOverridePct,
     workZeroMachineXY,
-    totalEstimateSec,
     subPlanWithOverrides,
   ]);
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
@@ -544,7 +596,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             panelHeightMm={panel.height_mm}
             tools={tools}
             cncProfile={cncProfile}
-            substrateThicknessMm={substrateThicknessMm}
+            estimate={estimate}
             workZeroSet={workZeroMachineXY !== null}
             onBind={handleBindZero}
             onClear={handleClearZero}

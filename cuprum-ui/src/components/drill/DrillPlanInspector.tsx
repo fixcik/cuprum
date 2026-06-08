@@ -4,7 +4,7 @@ import { AlertTriangle, ListChecks } from "lucide-react";
 import { AlarmActions } from "@/components/machine/AlarmActions";
 import { LimitRecoveryNotice } from "@/components/machine/LimitRecoveryNotice";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
-import type { DrillClass } from "@/lib/api";
+import type { DrillClass, DrillEstimate } from "@/lib/api";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
@@ -53,12 +53,13 @@ export interface DrillPlanInspectorProps {
   onDatumChange: (d: DatumCorner) => void;
   panelWidthMm: number;
   panelHeightMm: number;
-  /** Tool library (for preflight time estimate). */
+  /** Tool library (for the tools-order list). */
   tools: Tool[];
-  /** CNC profile (for preflight time estimate). */
+  /** CNC profile (probe params for run mode). */
   cncProfile: CncProfile;
-  /** Substrate thickness in mm (for preflight time estimate). */
-  substrateThicknessMm: number;
+  /** Backend-computed motion-time estimate (for the preflight summary). Null
+   *  while the plan is still being computed. */
+  estimate: DrillEstimate | null;
   /** Whether the XY work zero has been bound. Drives the gate + zero-mode badge. */
   workZeroSet: boolean;
   /** Bind the work zero. Returns true on success so the zero mode can close. */
@@ -116,7 +117,7 @@ export function DrillPlanInspector({
   panelHeightMm,
   tools,
   cncProfile,
-  substrateThicknessMm,
+  estimate,
   workZeroSet,
   onBind,
   onClear,
@@ -296,15 +297,12 @@ export function DrillPlanInspector({
               </div>
             )}
 
-            {/* Preflight 2×2 summary */}
-            <div className={selectedHoleId ? "" : "pt-3"}>
-              <DrillPreflightSummary
-                route={route}
-                tools={tools}
-                cncProfile={cncProfile}
-                substrateThicknessMm={substrateThicknessMm}
-              />
-            </div>
+            {/* Preflight 2×2 summary — shown once the backend estimate is ready */}
+            {estimate && (
+              <div className={selectedHoleId ? "" : "pt-3"}>
+                <DrillPreflightSummary route={route} estimate={estimate} />
+              </div>
+            )}
 
             {/* Work zero — compact status card-button (opens the zero-binding mode) */}
             <div className="border-t border-border">

@@ -2,7 +2,6 @@ import { invoke as rawInvoke, Channel } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { type NestSettings } from "@/lib/nest";
-import type { DrillStep } from "@/lib/drillGcode";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
 
@@ -460,6 +459,140 @@ export interface DrillRunToolChange {
   diameterMm: number;
 }
 
+// ── Drill planning DTOs (mirror cuprum-drill serde camelCase) ─────────────────
+
+/** A hole position in panel space (mm). `id` is the stable hole id attached by
+ *  the selection sub-plan; absent on raw plan/route. Mirrors Rust `PlanHole`. */
+export interface PlanHole {
+  xMm: number;
+  yMm: number;
+  id?: string;
+}
+
+/** Holes of one diameter+class, with the assigned drill tool (null if no match).
+ *  Mirrors Rust `DrillGroup`. */
+export interface DrillGroup {
+  diameterMm: number;
+  class: DrillClass;
+  toolId: string | null;
+  holes: PlanHole[];
+}
+
+/** The drill plan grouped by diameter+class. Mirrors Rust `PanelDrillPlan` (the
+ *  backend input shape — only `groups`; richer frontend `PanelDrillPlan` in
+ *  panelDrill.ts carries extra UI fields). */
+export interface DrillPlanGroups {
+  groups: DrillGroup[];
+}
+
+/** Drill tool fields the backend planner needs. Mirrors Rust `Tool`. */
+export interface ToolDto {
+  id: string;
+  diameterMm: number;
+  name: string;
+  recommendedRpm: number;
+  recommendedPlungeMmMin: number;
+}
+
+/** CNC params the backend planner needs. Mirrors Rust `CncParams`. */
+export interface CncParamsDto {
+  safeZMm: number;
+  toolChangeZMm: number;
+  spindleControllable: boolean;
+  spindleMaxRpm: number;
+  prependGcode: string;
+  appendGcode: string;
+}
+
+/** GRBL motion limits. The backend ALWAYS overwrites this with its cached
+ *  kinematics, but serde requires the field, so the frontend sends a zeroed
+ *  placeholder. Mirrors Rust `Kinematics`. */
+export interface KinematicsDto {
+  maxRateXyMmMin: number;
+  maxRateZMmMin: number;
+  accelXyMmS2: number;
+  accelZMmS2: number;
+}
+
+/** Axis-aligned rectangle (top-left origin + size); mirrors Rust `Rect` =
+ *  keepoutGeometry.Rect. */
+export interface DrillRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Which panel corner is machine (0,0). Mirrors Rust `DatumCorner`. */
+export type DatumCornerDto = "bottom-left" | "bottom-right" | "top-left" | "top-right";
+
+/** Everything the backend needs to plan a drill run. Mirrors Rust
+ *  `DrillPlanInput`. `kinematics` is ignored by the command (taken from the
+ *  backend cache) but serde requires it — send a zeroed placeholder. */
+export interface DrillPlanInput {
+  plan: DrillPlanGroups;
+  datum: DatumCornerDto;
+  panelWidthMm: number;
+  panelHeightMm: number;
+  tools: ToolDto[];
+  cnc: CncParamsDto;
+  kinematics: KinematicsDto;
+  substrateThicknessMm: number;
+  breakthroughMm?: number;
+  peckDepthMm?: number;
+  keepOutZones: DrillRect[];
+  startMachineXY?: { x: number; y: number };
+}
+
+/** One drill route group (ordered holes). Mirrors Rust `RouteGroup`. */
+export interface RouteGroup {
+  diameterMm: number;
+  class: DrillClass;
+  toolId: string | null;
+  orderedHoles: PlanHole[];
+}
+
+/** Ordered drill route (panel space). Mirrors Rust `DrillRoute`. */
+export interface DrillRoute {
+  groups: RouteGroup[];
+  pathPoints: PlanHole[];
+  totalHoles: number;
+  toolCount: number;
+}
+
+/** One streamed step of the drill program. Mirrors Rust `DrillStep`. */
+export interface DrillStep {
+  lines: string[];
+  kind: "preamble" | "toolchange" | "hole" | "postamble";
+  pauseForToolChange?: boolean;
+  toolName?: string;
+  diameterMm?: number;
+  holeIndex?: number;
+}
+
+/** The full G-code program. Mirrors Rust `DrillProgram`. */
+export interface DrillProgram {
+  gcode: string;
+  steps: DrillStep[];
+  skippedDiametersMm: number[];
+}
+
+/** Motion-time estimate (movement only; tool changes counted, not timed).
+ *  Mirrors Rust `DrillEstimate`. */
+export interface DrillEstimate {
+  travelMm: number;
+  motionSec: number;
+  toolChanges: number;
+}
+
+/** Result of `drill_plan`: route + program + estimate. Mirrors Rust
+ *  `DrillPlanResult`. */
+export interface DrillPlanResult {
+  route: DrillRoute;
+  program: DrillProgram;
+  estimate: DrillEstimate;
+}
+
 export const api = {
   discover: () => invoke<PrinterInfo>("discover"),
   renderPreview: async (path: string, maxPx = 2600) => {
@@ -826,6 +959,23 @@ export const api = {
     lastParams: (projectPath: string, opType: string) =>
       invoke<string | null>("operation_run_last_params", { projectPath, opType }),
   },
+
+  /** Drill planning in the Rust core: route + G-code program + motion-time
+   *  estimate from one input. The `kinematics` field is ignored by the backend
+   *  (it uses its cached GRBL limits) but serde requires it — send a zeroed
+   *  placeholder (`ZERO_KINEMATICS`). */
+  drill: {
+    plan: (input: DrillPlanInput) => invoke<DrillPlanResult>("drill_plan", { input }),
+  },
+};
+
+/** Zeroed kinematics placeholder for `DrillPlanInput`: the backend overwrites it
+ *  with its cached GRBL limits, but serde requires the (non-Option) field. */
+export const ZERO_KINEMATICS: KinematicsDto = {
+  maxRateXyMmMin: 0,
+  maxRateZMmMin: 0,
+  accelXyMmS2: 0,
+  accelZMmS2: 0,
 };
 
 /** Labels passed to the native menu; keys match the Rust `MenuLabels` struct. */

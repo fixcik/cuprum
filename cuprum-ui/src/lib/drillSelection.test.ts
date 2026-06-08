@@ -7,8 +7,32 @@ import {
   remainingHoles,
   holeIdsInRunOrder,
 } from "@/lib/drillSelection";
-import { planDrillRoute } from "@/lib/drillRoute";
+import type { DrillRoute } from "@/lib/drillRoute";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
+
+// Build a route fixture from a sub-plan without invoking the (now Rust-side)
+// planner: groups in registration→ascending-diameter order, holes kept as-is.
+// holeIdsInRunOrder only reads orderedHoles ids, so order within a group is
+// irrelevant here.
+const CLASS_ORDER = { registration: 0, pth: 1, npth: 2, mechanical: 3 } as const;
+function routeFromSubPlan(sp: PanelDrillPlan): DrillRoute {
+  const groups = [...sp.groups].sort(
+    (a, b) => CLASS_ORDER[a.class] - CLASS_ORDER[b.class] || a.diameterMm - b.diameterMm,
+  );
+  const ordered = groups.map((g) => ({
+    diameterMm: g.diameterMm,
+    class: g.class,
+    toolId: g.toolId,
+    orderedHoles: g.holes,
+  }));
+  const pathPoints = ordered.flatMap((g) => g.orderedHoles);
+  return {
+    groups: ordered,
+    pathPoints,
+    totalHoles: pathPoints.length,
+    toolCount: new Set(ordered.map((g) => g.toolId).filter(Boolean)).size,
+  };
+}
 
 // Fixture plan: 3 groups — registration (1 hole), pth (2 holes), npth (1 hole).
 const plan: PanelDrillPlan = {
@@ -135,7 +159,7 @@ describe("subPlanForSelection", () => {
 describe("holeIdsInRunOrder", () => {
   test("returns stable ids in run order", () => {
     const sp = subPlanForSelection(plan, holesForClasses(plan, new Set(["registration", "pth"])));
-    const route = planDrillRoute(sp, { xMm: 0, yMm: 0 }, []);
+    const route = routeFromSubPlan(sp);
     const ids = holeIdsInRunOrder(route);
     expect(ids).toContain("0:0");
     expect(ids.length).toBe(3);
@@ -144,7 +168,7 @@ describe("holeIdsInRunOrder", () => {
 
   test("returns all selected ids (set membership)", () => {
     const sp = subPlanForSelection(plan, holesForClasses(plan, new Set(["registration", "pth"])));
-    const route = planDrillRoute(sp, { xMm: 0, yMm: 0 }, []);
+    const route = routeFromSubPlan(sp);
     const ids = new Set(holeIdsInRunOrder(route));
     expect(ids.has("0:0")).toBe(true);
     expect(ids.has("1:0")).toBe(true);
@@ -153,7 +177,7 @@ describe("holeIdsInRunOrder", () => {
 
   test("returns empty array for empty route", () => {
     const sp = subPlanForSelection(plan, new Set());
-    const route = planDrillRoute(sp, { xMm: 0, yMm: 0 }, []);
+    const route = routeFromSubPlan(sp);
     expect(holeIdsInRunOrder(route)).toEqual([]);
   });
 });
