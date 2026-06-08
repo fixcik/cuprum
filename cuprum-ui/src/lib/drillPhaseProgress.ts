@@ -17,10 +17,10 @@ export interface PhaseProgress {
   retract: number;
   /** True once the bit has reached safe-Z for THIS hole. The cycle fractions
    *  (descent/drilling/retract) only start accruing afterwards — before that the
-   *  bit is still getting INTO position (e.g. lifting off the surface after a
-   *  tool-change probe/touch-off and traversing to the hole), which must read as
-   *  `traverse`, not a (spuriously completed) descent. Optional: the smoothed,
-   *  display-only value the hook renders omits it. */
+   *  bit is still lifting INTO position off the surface after a tool-change
+   *  probe/touch-off (a Z-up move), which reads as `retract` (a lift), not a
+   *  (spuriously completed) descent. Optional: the smoothed, display-only value
+   *  the hook renders omits it. */
   armed?: boolean;
 }
 
@@ -102,10 +102,10 @@ const clamp01 = (f: number) => (f <= 0 ? 0 : f > 1 ? 1 : f);
  *  Every fraction is kept as a monotonic max so the ring never shrinks.
  *
  *  The cycle is *armed* only once the bit has reached safe-Z for this hole: until
- *  then the motion is pre-drill positioning (the lift off the surface after a
- *  tool-change probe/touch-off, then the traverse to the hole) and reads as
- *  `traverse`. Without arming, the post-probe surface Z (z≈0) would latch
- *  descent=1 and mislabel the whole lift + traverse as a descent.
+ *  then the motion is the lift off the surface after a tool-change probe/touch-off
+ *  (a Z-up move), which reads as `retract` (a lift) — not `traverse` (reserved for
+ *  the X/Y move at safe-Z) and not a descent. Without arming, the post-probe
+ *  surface Z (z≈0) would latch descent=1 and mislabel the lift as a descent.
  *
  *  @param prev      previous progress for this hole (use ZERO_PHASE_PROGRESS to start).
  *  @param zMm       latest work Z (mm); positive above the surface, negative in material.
@@ -125,10 +125,14 @@ export function nextPhaseProgress(
   const atSafe = zMm >= safeZMm - band;
 
   // Arm the cycle once the bit reaches safe-Z; stays armed for the rest of the
-  // hole. Before arming, the bit is still getting into position — pure traverse.
+  // hole. Before arming, the bit is lifting off the touch-off surface up to
+  // safe-Z (a Z-up move) before the XY traverse — label it a lift (`retract`),
+  // NOT `traverse`. `traverse` is reserved for the X/Y move at safe-Z; any Z
+  // motion reads as descent/retract. Cycle fractions stay 0 (no progress yet),
+  // so the ring is empty and the post-probe surface Z can't latch a descent.
   const armed = prev.armed || atSafe;
   if (!armed) {
-    return { phase: "traverse", descent: 0, drilling: 0, retract: 0, armed: false };
+    return { phase: "retract", descent: 0, drilling: 0, retract: 0, armed: false };
   }
 
   // Descent: how far from safe-Z toward the surface. Held at 0 within the safe-Z
