@@ -132,6 +132,7 @@
     "paused": "Paused",
     "toolChange": "Tool change",
     "zBind": "Z touch-off",
+    "stopping": "Stopping",
     "done": "Done",
     "elapsedShort": "{{elapsed}} elapsed",
     "remainingShort": "~{{remaining}} left"
