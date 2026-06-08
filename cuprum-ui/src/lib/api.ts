@@ -80,6 +80,13 @@ export interface ConsoleLine {
   ts: number;
 }
 
+/** One GRBL firmware setting `$N=value` from a `$$` query. Matches
+ *  `GrblSettingDto` in machine.rs. */
+export interface GrblSettingDto {
+  n: number;
+  value: string;
+}
+
 /** Telemetry over the connect Channel. Matches `Telemetry` in machine.rs.
  *  The "line" payload has no timestamp — it's stamped when stored. */
 export type Telemetry =
@@ -746,6 +753,8 @@ export const api = {
     /** Write a line and reject if GRBL answers error/ALARM — used for firmware
      *  settings writes whose acceptance the UI must confirm. */
     sendAwaitOk: (line: string) => invoke<void>("machine_send_await_ok", { line }),
+    /** Read the controller's full firmware settings via a `$$` query. */
+    readSettings: () => invoke<GrblSettingDto[]>("machine_read_settings"),
     onConnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://connected", () => cb()),
     onDisconnected: (cb: () => void): Promise<UnlistenFn> => listen("machine://disconnected", () => cb()),
     onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>

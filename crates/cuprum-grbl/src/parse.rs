@@ -78,6 +78,11 @@ pub enum Line {
     /// Bracketed message/feedback, inner text without the surrounding brackets.
     Message(String),
     Welcome(String),
+    /// A `$N=value` settings line from a `$$` query (e.g. `$20=1`).
+    Setting {
+        n: u16,
+        value: String,
+    },
     Unknown(String),
 }
 
@@ -179,6 +184,16 @@ pub fn parse_line(line: &str) -> Line {
     if let Some(body) = line.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
         return Line::Status(parse_status(body));
     }
+    if let Some(rest) = line.strip_prefix('$') {
+        if let Some((num, val)) = rest.split_once('=') {
+            if let Ok(n) = num.parse::<u16>() {
+                return Line::Setting {
+                    n,
+                    value: val.trim().to_string(),
+                };
+            }
+        }
+    }
     Line::Unknown(line.to_string())
 }
 
@@ -279,6 +294,29 @@ mod tests {
             Line::Message(m) => assert_eq!(m, "MSG:Enabled"),
             other => panic!("expected Message, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_settings_lines() {
+        match parse_line("$20=1") {
+            Line::Setting { n, value } => {
+                assert_eq!(n, 20);
+                assert_eq!(value, "1");
+            }
+            other => panic!("expected Setting, got {other:?}"),
+        }
+        match parse_line("$130=299.000") {
+            Line::Setting { n, value } => {
+                assert_eq!(n, 130);
+                assert_eq!(value, "299.000");
+            }
+            other => panic!("expected Setting, got {other:?}"),
+        }
+        // The `$$` query echo itself is not a setting assignment.
+        assert!(matches!(parse_line("$$"), Line::Unknown(_)));
+        // Non-numeric key / no `=` stay Unknown.
+        assert!(matches!(parse_line("$x=5"), Line::Unknown(_)));
+        assert!(matches!(parse_line("$H"), Line::Unknown(_)));
     }
 
     #[test]
