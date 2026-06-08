@@ -74,13 +74,24 @@ export function ConsoleBody({
     }
   }, [lines]);
 
-  // Resolve a pending command against the incoming reply stream: scan rx lines
-  // newer than the send point for the first terminal verdict.
+  // Resolve a pending command against the incoming reply stream — but only AFTER
+  // our own tx echo lands. `a.send` is fire-and-forget, so `afterSeq` predates the
+  // echo; anchoring the verdict on the matching tx line (the backend echoes the
+  // exact text) makes the scan ignore any `ok` from background traffic already in
+  // flight (e.g. a `$$` query whose reply interleaves), which would otherwise be
+  // misread as this command's verdict. The first `ok` after the echo commits it;
+  // the first `error:`/`ALARM` drops it.
   useEffect(() => {
     const p = pendingRef.current;
     if (!p) return;
+    let echoed = false;
     for (const l of lines) {
-      if (l.seq <= p.afterSeq || l.dir !== "rx") continue;
+      if (l.seq <= p.afterSeq) continue;
+      if (!echoed) {
+        if (l.dir === "tx" && l.text === p.cmd) echoed = true;
+        continue;
+      }
+      if (l.dir !== "rx") continue;
       const verdict = classifyResponse(l.text);
       if (verdict === "ok") {
         remember(p.cmd);
@@ -112,6 +123,9 @@ export function ConsoleBody({
     recallRef.current.push(line);
     recallPos.current = recallRef.current.length;
     draftRef.current = "";
+    // Overwrite any prior unresolved pending: a new send supersedes it. This also
+    // self-heals commands that never draw an `ok` (e.g. a bare `?` status query,
+    // sent as a real-time byte) — they'd otherwise stay pending forever.
     pendingRef.current = { cmd: line, afterSeq: lines.length ? lines[lines.length - 1].seq : 0 };
     setInput("");
   };
