@@ -35,6 +35,42 @@ export interface DrillRunState {
   toolChangeSeq: number;
   error: string | null;
   runStartedAt: number | null;
+  /** "Machine clock" — accumulated MACHINE time in ms (movement + drilling only),
+   *  excluding the operator-wait phases (`awaitingToolChange`, `paused`). `machineActiveMs`
+   *  is the time banked before the current running interval; `activeSince` is the start
+   *  of the current running interval, or null while the clock is stopped (parked / done).
+   *  The displayed "прошло" is `machineActiveMs + (activeSince ? now − activeSince : 0)`,
+   *  so it freezes during manual swaps/pauses and converges to the motion estimate. */
+  machineActiveMs: number;
+  activeSince: number | null;
+}
+
+/** Run phases during which the machine clock advances — the bit is actually moving or
+ *  cutting. `pausing` still finishes the current hole (cutting) and `stopping` is the
+ *  machine decelerating to a soft halt; both are machine time. Every other phase
+ *  (`idle`/`paused`/`awaitingToolChange`/`done`/`error`) parks the clock — `paused` and
+ *  `awaitingToolChange` are operator-wait, the rest terminal. */
+const MACHINE_RUNNING_PHASES: ReadonlySet<DrillRunPhase> = new Set([
+  "running",
+  "pausing",
+  "stopping",
+]);
+
+/** True while the machine clock should advance for the given phase (see
+ *  `MACHINE_RUNNING_PHASES`). */
+export function isMachineRunning(phase: DrillRunPhase): boolean {
+  return MACHINE_RUNNING_PHASES.has(phase);
+}
+
+/** Machine elapsed time (ms) at `now`: banked active time plus the in-flight interval
+ *  if the clock is currently running. Constant while the clock is parked (`activeSince`
+ *  null), so a single read freezes the displayed timer through pauses / tool changes. */
+export function machineElapsedMs(
+  machineActiveMs: number,
+  activeSince: number | null,
+  now: number,
+): number {
+  return Math.max(0, machineActiveMs + (activeSince != null ? now - activeSince : 0));
 }
 
 export type DrillRunEvent =
@@ -61,9 +97,48 @@ export const initialDrillRunState: DrillRunState = {
   toolChangeSeq: 0,
   error: null,
   runStartedAt: null,
+  machineActiveMs: 0,
+  activeSince: null,
 };
 
+/** Update the machine clock across a phase transition. `prev`/`next` are the states
+ *  before/after the core reducer ran. When the clock stops (active → parked) the
+ *  in-flight interval is banked into `machineActiveMs`; when it resumes (parked →
+ *  active) a fresh `activeSince` is stamped. Phase-preserving events carry the clock
+ *  fields through unchanged (via the core reducer's spread). `start`/`reset` reset the
+ *  clock explicitly (`start` runs the clock from `runStartedAt`). */
+function applyMachineClock(
+  prev: DrillRunState,
+  next: DrillRunState,
+  e: DrillRunEvent,
+): DrillRunState {
+  if (e.type === "reset") {
+    return { ...next, machineActiveMs: 0, activeSince: null };
+  }
+  if (e.type === "start") {
+    // The machine starts running immediately — clock runs from runStartedAt (reuse
+    // that timestamp rather than reading the clock twice).
+    return { ...next, machineActiveMs: 0, activeSince: next.runStartedAt };
+  }
+  const wasRunning = isMachineRunning(prev.phase);
+  const isRunning = isMachineRunning(next.phase);
+  if (wasRunning === isRunning) return next;
+  const now = Date.now();
+  if (isRunning) {
+    return { ...next, activeSince: now };
+  }
+  const banked = prev.activeSince != null ? now - prev.activeSince : 0;
+  return { ...next, machineActiveMs: prev.machineActiveMs + banked, activeSince: null };
+}
+
 export function drillRunReducer(
+  s: DrillRunState,
+  e: DrillRunEvent,
+): DrillRunState {
+  return applyMachineClock(s, drillRunReducerCore(s, e), e);
+}
+
+function drillRunReducerCore(
   s: DrillRunState,
   e: DrillRunEvent,
 ): DrillRunState {

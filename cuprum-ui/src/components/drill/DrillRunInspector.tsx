@@ -6,6 +6,7 @@ import { DrillToolChangeCard } from "@/components/drill/DrillToolChangeCard";
 import { DrillFinishCard } from "@/components/drill/DrillFinishCard";
 import { DrillFeedSlider } from "@/components/drill/DrillFeedSlider";
 import { activeGroupForHole } from "@/lib/drillRoute";
+import { machineElapsedMs } from "@/lib/drillRunState";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DrillRoute } from "@/lib/drillRoute";
@@ -50,9 +51,11 @@ export function DrillRunInspector({
   const { state } = run;
   const { phase } = state;
 
-  const elapsedSec = state.runStartedAt
-    ? Math.floor((Date.now() - state.runStartedAt) / 1000)
-    : 0;
+  // Final/elapsed reflects MACHINE time only (movement + drilling); operator-wait
+  // intervals (tool changes / pauses) are excluded via the machine clock.
+  const elapsedSec = Math.floor(
+    machineElapsedMs(state.machineActiveMs, state.activeSince, Date.now()) / 1000,
+  );
 
   // The bit being installed drills the UPCOMING group — the one holding the next
   // hole to drill (run-index === holesCompleted). `currentHoleIndex` still points at
@@ -73,6 +76,8 @@ export function DrillRunInspector({
         holesTotal={state.holesTotal}
         currentHoleIndex={state.currentHoleIndex}
         runStartedAt={state.runStartedAt}
+        machineActiveMs={state.machineActiveMs}
+        activeSince={state.activeSince}
         firstToolChange={state.toolChangeSeq === 1}
         route={route}
         datum={datum}

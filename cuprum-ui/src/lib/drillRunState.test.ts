@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   drillRunReducer,
   initialDrillRunState,
+  isMachineRunning,
+  machineElapsedMs,
   type DrillRunState,
 } from "@/lib/drillRunState";
 
@@ -281,6 +283,8 @@ describe("drillRunReducer", () => {
       toolChangeSeq: 3,
       error: "something went wrong",
       runStartedAt: 1234567890,
+      machineActiveMs: 42000,
+      activeSince: 1234567000,
     };
     const next = drillRunReducer(messy, { type: "reset" });
     expect(next).toEqual(initialDrillRunState);
@@ -309,6 +313,102 @@ describe("drillRunReducer", () => {
 
     it("initialDrillRunState has runStartedAt=null", () => {
       expect(initialDrillRunState.runStartedAt).toBeNull();
+    });
+  });
+
+  // 8b. Machine clock — "прошло" counts movement/drilling only, frozen on operator wait
+  describe("machine clock (machineActiveMs / activeSince)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("isMachineRunning: true only for running/pausing/stopping", () => {
+      expect(isMachineRunning("running")).toBe(true);
+      expect(isMachineRunning("pausing")).toBe(true);
+      expect(isMachineRunning("stopping")).toBe(true);
+      expect(isMachineRunning("paused")).toBe(false);
+      expect(isMachineRunning("awaitingToolChange")).toBe(false);
+      expect(isMachineRunning("idle")).toBe(false);
+      expect(isMachineRunning("done")).toBe(false);
+      expect(isMachineRunning("error")).toBe(false);
+    });
+
+    it("machineElapsedMs: parked returns banked, running adds the in-flight interval, clamps ≥0", () => {
+      expect(machineElapsedMs(5000, null, 9_999)).toBe(5000);
+      expect(machineElapsedMs(5000, 1_000, 4_000)).toBe(8000);
+      expect(machineElapsedMs(0, 2_000, 1_000)).toBe(0);
+    });
+
+    it("initialDrillRunState parks the clock", () => {
+      expect(initialDrillRunState.machineActiveMs).toBe(0);
+      expect(initialDrillRunState.activeSince).toBeNull();
+    });
+
+    it("start: runs the clock from runStartedAt", () => {
+      vi.setSystemTime(1_000_000);
+      const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+      expect(started.machineActiveMs).toBe(0);
+      expect(started.activeSince).toBe(1_000_000);
+    });
+
+    it("running → tool change banks the interval and parks the clock", () => {
+      vi.setSystemTime(1_000_000);
+      const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+      vi.setSystemTime(1_010_000); // +10s of cutting
+      const tc = drillRunReducer(started, { type: "toolchange", toolName: "T", diameterMm: 0.8 });
+      expect(tc.phase).toBe("awaitingToolChange");
+      expect(tc.machineActiveMs).toBe(10_000);
+      expect(tc.activeSince).toBeNull();
+    });
+
+    it("the tool-change gap is excluded — clock resumes on progress without crediting the wait", () => {
+      vi.setSystemTime(1_000_000);
+      const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+      vi.setSystemTime(1_010_000); // +10s cutting
+      const tc = drillRunReducer(started, { type: "toolchange", toolName: "T", diameterMm: 0.8 });
+      vi.setSystemTime(1_040_000); // +30s operator swap — NOT machine time
+      const resumed = drillRunReducer(tc, { type: "progress", holesCompleted: 1, holeIndex: 1 });
+      expect(resumed.phase).toBe("running");
+      expect(resumed.machineActiveMs).toBe(10_000); // gap not credited
+      expect(resumed.activeSince).toBe(1_040_000);
+      // machine elapsed 5s later = 10s banked + 5s in-flight, the 30s gap excluded
+      expect(machineElapsedMs(resumed.machineActiveMs, resumed.activeSince, 1_045_000)).toBe(15_000);
+    });
+
+    it("manual pause freezes the clock too (state{paused} banks, state{running} resumes)", () => {
+      vi.setSystemTime(1_000_000);
+      const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+      vi.setSystemTime(1_008_000); // +8s cutting
+      const paused = drillRunReducer(started, { type: "state", phase: "paused" });
+      expect(paused.machineActiveMs).toBe(8_000);
+      expect(paused.activeSince).toBeNull();
+      vi.setSystemTime(1_050_000); // +42s parked
+      const running = drillRunReducer(paused, { type: "state", phase: "running" });
+      expect(running.machineActiveMs).toBe(8_000); // pause not credited
+      expect(running.activeSince).toBe(1_050_000);
+    });
+
+    it("pausing keeps the clock running (still cutting the current hole)", () => {
+      vi.setSystemTime(1_000_000);
+      const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+      const pausing = drillRunReducer(started, { type: "state", phase: "pausing" });
+      expect(pausing.machineActiveMs).toBe(0);
+      expect(pausing.activeSince).toBe(1_000_000); // unchanged — clock still running
+    });
+
+    it("done banks the final interval and freezes elapsed", () => {
+      vi.setSystemTime(1_000_000);
+      const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+      vi.setSystemTime(1_025_000); // +25s
+      const done = drillRunReducer(started, { type: "done" });
+      expect(done.phase).toBe("done");
+      expect(done.machineActiveMs).toBe(25_000);
+      expect(done.activeSince).toBeNull();
+      // frozen: reading later still yields 25s
+      expect(machineElapsedMs(done.machineActiveMs, done.activeSince, 9_999_999)).toBe(25_000);
     });
   });
 
