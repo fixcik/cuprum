@@ -64,6 +64,25 @@ describe("evaluatePanel", () => {
     expect(f.some((x) => x.category === "overlap")).toBe(false);
   });
 
+  it("boards exactly MIN_PANEL_GAP apart → no spacing warning (Auto-gap layout is clean)", () => {
+    // a:[5,25], b at x = 25 + MIN_PANEL_GAP → gap == minGap exactly. With the tolerance
+    // this must pass (what the Auto button + solver produce).
+    const f = evaluatePanel({
+      panel: panel(100, 100, [inst("a", "d1", 5, 5), inst("b", "d1", 25 + MIN_PANEL_GAP_MM, 5)]),
+      sizes: { d1: { w: 20, h: 20 } }, profile: prof, designVerdicts: { d1: "ok" },
+    });
+    expect(f.some((x) => x.category === "spacing")).toBe(false);
+  });
+
+  it("board exactly MIN_PANEL_GAP from the panel edge → no spacing warning", () => {
+    // box [MIN_PANEL_GAP, MIN_PANEL_GAP + 20]; edge margin == minGap exactly.
+    const f = evaluatePanel({
+      panel: panel(100, 100, [inst("a", "d1", MIN_PANEL_GAP_MM, MIN_PANEL_GAP_MM)]),
+      sizes: { d1: { w: 20, h: 20 } }, profile: prof, designVerdicts: { d1: "ok" },
+    });
+    expect(f.some((x) => x.category === "spacing")).toBe(false);
+  });
+
   it("instance inside panel but past the old machine work-area limit → no extra finding", () => {
     // panel 200×150, old work area 200×100; board at y=120 (within panel, past old 100 limit).
     // After the refactor, panel DFM no longer checks machine work-area bounds — only off-panel matters.

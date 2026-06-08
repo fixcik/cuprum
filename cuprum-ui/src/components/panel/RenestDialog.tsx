@@ -156,7 +156,7 @@ export function RenestDialog({
           <button
             type="button"
             title={t("panel.add.nest.gapAutoHint")}
-            onClick={() => setNest({ gapMm: recommendedGapMm() })}
+            onClick={() => setNest({ gapMm: recommendedGapMm(), marginMm: recommendedGapMm() })}
             className="h-7 rounded-md border border-input px-2 text-[12px] text-muted-foreground hover:text-foreground"
           >
             {t("panel.add.nest.gapAuto")}
