@@ -222,6 +222,35 @@ pub fn drill_run_stop(app: AppHandle, job: State<DrillJob>) -> Result<(), String
     Ok(())
 }
 
+/// Cancel a pending graceful stop while the current hole is still finishing.
+/// Valid only in the window between "stop requested" and the runner reaching the
+/// next step boundary (where it would break out). Clears the `stopping` flag so
+/// the runner keeps streaming instead of exiting — no program restart. After the
+/// runner has committed to the stop (idle/done) or on e-stop, this is a no-op.
+#[tauri::command]
+pub fn drill_run_cancel_stop(app: AppHandle, job: State<DrillJob>) -> Result<(), String> {
+    let slot = job.0.lock().unwrap();
+    if let Some(h) = slot.as_ref() {
+        let c = &h.ctrl;
+        // Nothing to cancel unless a graceful stop is pending and the run is still
+        // live (not finished, not aborted via e-stop).
+        if c.finished.load(Relaxed) || c.abort.load(Relaxed) || !c.stopping.load(Relaxed) {
+            return Ok(());
+        }
+        c.stopping.store(false, Relaxed);
+        // Re-announce "running" so the UI drops the stop banner. If the runner had
+        // already committed to the stop (a narrow race), it emits the authoritative
+        // idle/done state right after and the UI converges there.
+        let _ = app.emit(
+            "drill-run://state",
+            StatePayload {
+                phase: "running".into(),
+            },
+        );
+    }
+    Ok(())
+}
+
 /// Emergency stop: immediate feed-hold + soft-reset. ALARM is expected and
 /// acceptable; use only when the graceful stop is insufficient.
 #[tauri::command]
@@ -355,6 +384,10 @@ async fn run_job(
 
     let mut holes_completed: u32 = 0;
     let mut aborted_msg: Option<String> = None;
+    // Whether the run is exiting because of a graceful stop. Captured at each break
+    // point rather than re-read from `ctrl.stopping` at the end, so a cancel that
+    // races in after the runner committed can't flip the final state to "done".
+    let mut graceful_stop = false;
     // Last M3 command sent — used to restart the spindle after a pause.
     let mut last_spindle_on: Option<String> = None;
 
@@ -362,8 +395,11 @@ async fn run_job(
         if ctrl.abort.load(Relaxed) {
             break;
         }
-        // Graceful-stop gate: previous step ended at safe Z — clean exit.
+        // Graceful-stop gate: previous step ended at safe Z — clean exit. This is
+        // also the point a pending stop becomes committed: a cancel landing after
+        // this load is too late (the run is already exiting).
         if ctrl.stopping.load(Relaxed) {
+            graceful_stop = true;
             break;
         }
 
@@ -385,6 +421,7 @@ async fn run_job(
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
+                graceful_stop = ctrl.stopping.load(Relaxed) && !ctrl.abort.load(Relaxed);
                 break;
             }
             // Resume: spin the spindle back up before motion resumes.
@@ -480,6 +517,7 @@ async fn run_job(
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
+                graceful_stop = ctrl.stopping.load(Relaxed) && !ctrl.abort.load(Relaxed);
                 break;
             }
             // Reclaim the lease before streaming the next group.
@@ -525,7 +563,7 @@ async fn run_job(
     } else if ctrl.abort.load(Relaxed) {
         // Emergency stop: machine may be in ALARM — spindle already addressed above.
         emit_state("idle");
-    } else if ctrl.stopping.load(Relaxed) {
+    } else if graceful_stop {
         // Graceful stop: bit is at safe Z, no ALARM, machine is re-runnable.
         emit_state("idle");
     } else {

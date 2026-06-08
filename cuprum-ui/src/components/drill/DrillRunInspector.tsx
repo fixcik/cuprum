@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Check, Loader2, OctagonX, Pause, Play, Square } from "lucide-react";
+import { Check, Loader2, OctagonX, Pause, Play, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DrillRunHeader } from "@/components/drill/DrillRunHeader";
 import { DrillToolChangeCard } from "@/components/drill/DrillToolChangeCard";
@@ -135,10 +135,23 @@ export function DrillRunInspector({
         ) : (
           <div className="flex flex-col gap-2">
             {phase === "stopping" ? (
-              /* Soft-stop requested — finishing the current hole (cancel: see #515) */
-              <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-[12px] font-medium text-warning">
-                <Loader2 className="size-4 shrink-0 animate-spin" />
-                {t("run.stopRequested")}
+              /* Soft-stop requested — finishing the current hole. The operator can
+               * still cancel while the bit is doing the current hole; cancel returns
+               * the run to "running" without restarting (#515). */
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-[12px] font-medium text-warning">
+                  <Loader2 className="size-4 shrink-0 animate-spin" />
+                  {t("run.stopRequested")}
+                </div>
+                <button
+                  type="button"
+                  onClick={run.cancelStop}
+                  title={t("run.cancelStopTitle")}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-card py-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-foreground/5"
+                >
+                  <X className="size-4" />
+                  {t("run.cancelStop")}
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">

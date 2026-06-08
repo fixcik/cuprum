@@ -907,6 +907,9 @@ export const api = {
     pause: () => invoke<void>("drill_run_pause"),
     resume: () => invoke<void>("drill_run_resume"),
     stop: () => invoke<void>("drill_run_stop"),
+    /** Cancel a pending graceful stop while the current hole is still finishing —
+     *  returns the run to "running" without restarting. No-op once stopped. */
+    cancelStop: () => invoke<void>("drill_run_cancel_stop"),
     estop: () => invoke<void>("drill_run_estop"),
     confirmToolChange: () => invoke<void>("drill_run_confirm_tool_change"),
     isConnected: () => invoke<boolean>("machine_is_connected"),

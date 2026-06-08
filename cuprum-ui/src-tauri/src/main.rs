@@ -238,6 +238,7 @@ fn main() {
             commands::drill_run::drill_run_resume,
             commands::drill_run::drill_run_confirm_tool_change,
             commands::drill_run::drill_run_stop,
+            commands::drill_run::drill_run_cancel_stop,
             commands::drill_run::drill_run_estop,
             commands::drill_run::drill_run_status,
             commands::drill_run::drill_plan
