@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Pause, Check } from "lucide-react";
 import type { DrillRunPhase } from "@/lib/drillRunState";
+import { machineElapsedMs } from "@/lib/drillRunState";
 import type { DrillRoute } from "@/lib/drillRoute";
 import { activeGroupForHole, orderedHoleList } from "@/lib/drillRoute";
 import type { DatumCorner } from "@/lib/datum";
 import { machinePoint } from "@/lib/datum";
-import { isActiveRunPhase } from "@/lib/machineMarker";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -16,6 +16,11 @@ export interface DrillRunHeaderProps {
   holesTotal: number;
   currentHoleIndex: number | null;
   runStartedAt: number | null;
+  /** Machine clock (see `DrillRunState`): banked active ms + the start of the in-flight
+   *  running interval (null while parked). The displayed "прошло" counts only machine
+   *  time, freezing during manual tool changes / pauses. */
+  machineActiveMs: number;
+  activeSince: number | null;
   /** First tool change of the run (work-Z not bound yet). On the first change the
    *  status reads «Привязка Z», not «Смена сверла» — there is no previous bit to
    *  swap, the operator is just binding Z for bit #1. */
@@ -44,6 +49,8 @@ export function DrillRunHeader({
   holesTotal,
   currentHoleIndex,
   runStartedAt,
+  machineActiveMs,
+  activeSince,
   firstToolChange,
   route,
   datum,
@@ -57,14 +64,17 @@ export function DrillRunHeader({
   const [elapsedSec, setElapsedSec] = useState(0);
 
   useEffect(() => {
-    // Keep ticking through every non-terminal phase (pauses / tool changes too),
-    // freezing only on the terminal idle/done/error.
-    if (runStartedAt == null || !isActiveRunPhase(phase)) return;
-    const tick = () => setElapsedSec(Math.floor((Date.now() - runStartedAt) / 1000));
+    // "Прошло" tracks MACHINE time only (movement + drilling), frozen during manual
+    // tool changes / pauses. While the clock runs (`activeSince` set) tick every second;
+    // while parked the value is constant, so one recompute is enough — no interval.
+    if (runStartedAt == null) return;
+    const tick = () =>
+      setElapsedSec(Math.floor(machineElapsedMs(machineActiveMs, activeSince, Date.now()) / 1000));
     tick();
+    if (activeSince == null) return;
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [runStartedAt, phase]);
+  }, [runStartedAt, machineActiveMs, activeSince]);
 
   const pct = holesTotal > 0 ? holesCompleted / holesTotal : 0;
   const circumference = 2 * Math.PI * RING_R;
