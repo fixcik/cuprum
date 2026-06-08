@@ -167,6 +167,138 @@ export function newUvMachine(machines: Machine[]): UvLcdMachine {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Config dirty / factory-reset (cards editor)
+// ---------------------------------------------------------------------------
+
+/** Editable CNC config keys shown in the cards editor. Dotted keys address
+ *  nested fields (`envelope.*`, `backlash.*`). Order is presentation order. */
+export const CNC_CONFIG_KEYS = [
+  "envelope.x",
+  "envelope.y",
+  "envelope.z",
+  "spindleMaxRpm",
+  "spindleControllable",
+  "spindleHasPwm",
+  "safeZMm",
+  "machineSafeZMm",
+  "toolChangeZMm",
+  "hasProbe",
+  "probeFeedMmMin",
+  "probeMaxDistMm",
+  "probePlateOffsetMm",
+  "runoutMm",
+  "backlash.x",
+  "backlash.y",
+  "backlash.z",
+  "baud",
+  "prependGcode",
+  "appendGcode",
+] as const;
+
+export type CncConfigKey = (typeof CNC_CONFIG_KEYS)[number];
+
+/** Read a CNC config key (incl. dotted nested ones) off a machine. */
+function cncConfigValue(m: CncMachine, key: CncConfigKey): number | boolean | string {
+  switch (key) {
+    case "envelope.x":
+      return m.workEnvelopeMm.x;
+    case "envelope.y":
+      return m.workEnvelopeMm.y;
+    case "envelope.z":
+      return m.workEnvelopeMm.z;
+    case "backlash.x":
+      return m.backlashMm.x;
+    case "backlash.y":
+      return m.backlashMm.y;
+    case "backlash.z":
+      return m.backlashMm.z;
+    case "spindleMaxRpm":
+      return m.spindleMaxRpm;
+    case "spindleControllable":
+      return m.spindleControllable;
+    case "spindleHasPwm":
+      return m.spindleHasPwm;
+    case "safeZMm":
+      return m.safeZMm;
+    case "machineSafeZMm":
+      return m.machineSafeZMm;
+    case "toolChangeZMm":
+      return m.toolChangeZMm;
+    case "hasProbe":
+      return m.hasProbe;
+    case "probeFeedMmMin":
+      return m.probeFeedMmMin;
+    case "probeMaxDistMm":
+      return m.probeMaxDistMm;
+    case "probePlateOffsetMm":
+      return m.probePlateOffsetMm;
+    case "runoutMm":
+      return m.runoutMm;
+    case "baud":
+      return m.baud;
+    case "prependGcode":
+      return m.prependGcode;
+    case "appendGcode":
+      return m.appendGcode;
+  }
+}
+
+/** Config keys whose value differs from the CNC factory default. */
+export function cncConfigDirtyKeys(m: CncMachine): Set<string> {
+  const dirty = new Set<string>();
+  for (const key of CNC_CONFIG_KEYS) {
+    if (cncConfigValue(m, key) !== cncConfigValue(DEFAULT_CNC_MACHINE, key)) dirty.add(key);
+  }
+  return dirty;
+}
+
+/** Patch resetting all CNC config fields to factory, preserving identity and
+ *  runtime state (id/name/port/workZero/jog/dialect). Apply via updateMachine. */
+export function resetCncToFactory(_m: CncMachine): Partial<CncMachine> {
+  const d = DEFAULT_CNC_MACHINE;
+  return {
+    workEnvelopeMm: { ...d.workEnvelopeMm },
+    spindleMaxRpm: d.spindleMaxRpm,
+    spindleControllable: d.spindleControllable,
+    spindleHasPwm: d.spindleHasPwm,
+    safeZMm: d.safeZMm,
+    machineSafeZMm: d.machineSafeZMm,
+    toolChangeZMm: d.toolChangeZMm,
+    hasProbe: d.hasProbe,
+    probeFeedMmMin: d.probeFeedMmMin,
+    probeMaxDistMm: d.probeMaxDistMm,
+    probePlateOffsetMm: d.probePlateOffsetMm,
+    runoutMm: d.runoutMm,
+    backlashMm: { ...d.backlashMm },
+    baud: d.baud,
+    prependGcode: d.prependGcode,
+    appendGcode: d.appendGcode,
+  };
+}
+
+/** Editable UV LCD config keys shown in the cards editor. */
+export const UV_CONFIG_KEYS = ["screenWidthMm", "screenHeightMm"] as const;
+
+export type UvConfigKey = (typeof UV_CONFIG_KEYS)[number];
+
+/** Config keys whose value differs from the UV factory default. */
+export function uvConfigDirtyKeys(m: UvLcdMachine): Set<string> {
+  const dirty = new Set<string>();
+  for (const key of UV_CONFIG_KEYS) {
+    if (m[key] !== DEFAULT_UV_MACHINE[key]) dirty.add(key);
+  }
+  return dirty;
+}
+
+/** Patch resetting UV screen size to factory, preserving id/name. */
+export function resetUvToFactory(_m: UvLcdMachine): Partial<UvLcdMachine> {
+  return {
+    screenWidthMm: DEFAULT_UV_MACHINE.screenWidthMm,
+    screenHeightMm: DEFAULT_UV_MACHINE.screenHeightMm,
+  };
+}
+
 /** Validation for the tool-change retract height. Returns a warning key or null.
  *  "below-safe": not above the travel safe-Z (or negative) → no room to swap.
  *  "over-travel": higher than the machine Z travel → unreachable. */
