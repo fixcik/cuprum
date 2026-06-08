@@ -136,11 +136,7 @@ fn blocker_edges(ctx: &Ctx, placed_spaced: &[Rect]) -> (EdgePairs, EdgePairs) {
 }
 
 /// First open point (min y, then x) over all orientations, skipping dead points.
-fn first_open(
-    ctx: &Ctx,
-    placed_spaced: &[Rect],
-    dead: &[(f64, f64)],
-) -> Option<(f64, f64)> {
+fn first_open(ctx: &Ctx, placed_spaced: &[Rect], dead: &[(f64, f64)]) -> Option<(f64, f64)> {
     let (xe, ye) = blocker_edges(ctx, placed_spaced);
     let mut best: Option<(f64, f64)> = None;
     for &(bw, bh, _) in &ctx.orients {
@@ -154,10 +150,18 @@ fn first_open(
                 }
             }
             for &x in &xs {
-                if dead.iter().any(|&(dx, dy)| (dx - x).abs() < EPS && (dy - y).abs() < EPS) {
+                if dead
+                    .iter()
+                    .any(|&(dx, dy)| (dx - x).abs() < EPS && (dy - y).abs() < EPS)
+                {
                     continue;
                 }
-                let r = Rect { min_x: x, min_y: y, max_x: x + bw, max_y: y + bh };
+                let r = Rect {
+                    min_x: x,
+                    min_y: y,
+                    max_x: x + bw,
+                    max_y: y + bh,
+                };
                 if !fits(ctx, &r, placed_spaced) {
                     continue;
                 }
@@ -202,8 +206,12 @@ fn dfs(
         return;
     }
     // Upper bound: remaining inner area / board area (obstacles ignored → safe).
-    let inner_area = (ctx.inner.max_x - ctx.inner.min_x).max(0.0) * (ctx.inner.max_y - ctx.inner.min_y).max(0.0);
-    let bound = placed.len() + ((inner_area - placed.len() as f64 * ctx.board_area) / ctx.board_area).floor().max(0.0) as usize;
+    let inner_area =
+        (ctx.inner.max_x - ctx.inner.min_x).max(0.0) * (ctx.inner.max_y - ctx.inner.min_y).max(0.0);
+    let bound = placed.len()
+        + ((inner_area - placed.len() as f64 * ctx.board_area) / ctx.board_area)
+            .floor()
+            .max(0.0) as usize;
     if bound <= s.best.len() {
         return;
     }
@@ -214,7 +222,12 @@ fn dfs(
     let (x, y) = p;
     // Branch 1..k: place a board at p in each fitting orientation (place first).
     for &(bw, bh, rotated) in &ctx.orients {
-        let r = Rect { min_x: x, min_y: y, max_x: x + bw, max_y: y + bh };
+        let r = Rect {
+            min_x: x,
+            min_y: y,
+            max_x: x + bw,
+            max_y: y + bh,
+        };
         if !fits(ctx, &r, placed_spaced) {
             continue;
         }
@@ -242,10 +255,17 @@ fn greedy(ctx: &Ctx) -> Vec<Placement> {
     let mut placed_spaced: Vec<Rect> = Vec::new();
     let dead: Vec<(f64, f64)> = Vec::new();
     while placed.len() < ctx.requested {
-        let Some((x, y)) = first_open(ctx, &placed_spaced, &dead) else { break };
+        let Some((x, y)) = first_open(ctx, &placed_spaced, &dead) else {
+            break;
+        };
         let mut put = false;
         for &(bw, bh, rotated) in &ctx.orients {
-            let r = Rect { min_x: x, min_y: y, max_x: x + bw, max_y: y + bh };
+            let r = Rect {
+                min_x: x,
+                min_y: y,
+                max_x: x + bw,
+                max_y: y + bh,
+            };
             if fits(ctx, &r, &placed_spaced) {
                 placed.push(Placement { x, y, rotated });
                 placed_spaced.push(r.inflate(ctx.gap));
@@ -277,14 +297,21 @@ pub fn pack(input: &PackInput) -> Vec<Placement> {
     let ctx = Ctx {
         inner,
         orients: orientations(input),
-        obstacles: input.obstacles.iter().map(|o| o.inflate(input.clearance_mm)).collect(),
+        obstacles: input
+            .obstacles
+            .iter()
+            .map(|o| o.inflate(input.clearance_mm))
+            .collect(),
         gap: input.gap_mm,
         board_area: (input.board_w * input.board_h).max(EPS),
         requested: input.requested,
         deadline: Instant::now() + Duration::from_millis(input.time_budget_ms.max(1)),
     };
     let incumbent = greedy(&ctx);
-    let mut s = Search { best: incumbent, timed_out: false };
+    let mut s = Search {
+        best: incumbent,
+        timed_out: false,
+    };
     // Iterative deepening on the skip budget: solutions needing few empty points are
     // found first and cheaply; widen until we hit the cap or run out of time.
     const MAX_SKIPS: i32 = 16;
@@ -293,7 +320,14 @@ pub fn pack(input: &PackInput) -> Vec<Placement> {
         let mut placed = Vec::new();
         let mut placed_spaced = Vec::new();
         let mut dead = Vec::new();
-        dfs(&ctx, &mut placed, &mut placed_spaced, &mut dead, skips, &mut s);
+        dfs(
+            &ctx,
+            &mut placed,
+            &mut placed_spaced,
+            &mut dead,
+            skips,
+            &mut s,
+        );
         skips += 1;
     }
     s.best
@@ -305,23 +339,49 @@ mod tests {
 
     fn footprint(p: &Placement, w: f64, h: f64) -> Rect {
         let (bw, bh) = if p.rotated { (h, w) } else { (w, h) };
-        Rect { min_x: p.x, min_y: p.y, max_x: p.x + bw, max_y: p.y + bh }
+        Rect {
+            min_x: p.x,
+            min_y: p.y,
+            max_x: p.x + bw,
+            max_y: p.y + bh,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn assert_valid(out: &[Placement], w: f64, h: f64, panel: (f64, f64), margin: f64, gap: f64, obstacles: &[Rect], clearance: f64) {
+    fn assert_valid(
+        out: &[Placement],
+        w: f64,
+        h: f64,
+        panel: (f64, f64),
+        margin: f64,
+        gap: f64,
+        obstacles: &[Rect],
+        clearance: f64,
+    ) {
         let boxes: Vec<Rect> = out.iter().map(|p| footprint(p, w, h)).collect();
         for (i, a) in boxes.iter().enumerate() {
             // inside margin band
-            assert!(a.min_x >= margin - 1e-3 && a.min_y >= margin - 1e-3, "off panel: {a:?}");
-            assert!(a.max_x <= panel.0 - margin + 1e-3 && a.max_y <= panel.1 - margin + 1e-3, "off panel: {a:?}");
+            assert!(
+                a.min_x >= margin - 1e-3 && a.min_y >= margin - 1e-3,
+                "off panel: {a:?}"
+            );
+            assert!(
+                a.max_x <= panel.0 - margin + 1e-3 && a.max_y <= panel.1 - margin + 1e-3,
+                "off panel: {a:?}"
+            );
             // gap between boards
             for b in boxes.iter().skip(i + 1) {
-                assert!(!a.inflate(gap).overlaps(b), "boards closer than gap: {a:?} {b:?}");
+                assert!(
+                    !a.inflate(gap).overlaps(b),
+                    "boards closer than gap: {a:?} {b:?}"
+                );
             }
             // clear of obstacles
             for o in obstacles {
-                assert!(!a.overlaps(&o.inflate(clearance)), "board in obstacle clearance: {a:?} {o:?}");
+                assert!(
+                    !a.overlaps(&o.inflate(clearance)),
+                    "board in obstacle clearance: {a:?} {o:?}"
+                );
             }
         }
     }
@@ -333,11 +393,26 @@ mod tests {
         // of ~1.1 mm; greedy packers only reach 5. The solver must find 6 at gap 1.0.
         let hole = |cx: f64, cy: f64| {
             let r = 1.5; // diameter 3 / 2
-            Rect { min_x: cx - r, min_y: cy - r, max_x: cx + r, max_y: cy + r }
+            Rect {
+                min_x: cx - r,
+                min_y: cy - r,
+                max_x: cx + r,
+                max_y: cy + r,
+            }
         };
         let obstacles = vec![
-            Rect { min_x: 0.0, min_y: 35.0, max_x: 11.0, max_y: 57.0 },
-            Rect { min_x: 91.0, min_y: 34.0, max_x: 100.0, max_y: 62.0 },
+            Rect {
+                min_x: 0.0,
+                min_y: 35.0,
+                max_x: 11.0,
+                max_y: 57.0,
+            },
+            Rect {
+                min_x: 91.0,
+                min_y: 34.0,
+                max_x: 100.0,
+                max_y: 62.0,
+            },
             hole(5.53, 94.11),
             hole(95.32, 3.72),
         ];
@@ -373,10 +448,20 @@ mod tests {
             clearance_mm: 1.5,
             mix_rotation: true,
             force_rotate: false,
-            obstacles: vec![Rect { min_x: 0.0, min_y: 35.0, max_x: 11.0, max_y: 57.0 }],
+            obstacles: vec![Rect {
+                min_x: 0.0,
+                min_y: 35.0,
+                max_x: 11.0,
+                max_y: 57.0,
+            }],
             time_budget_ms: 3000,
         };
-        let inner = Rect { min_x: 1.5, min_y: 1.5, max_x: 98.5, max_y: 98.5 };
+        let inner = Rect {
+            min_x: 1.5,
+            min_y: 1.5,
+            max_x: 98.5,
+            max_y: 98.5,
+        };
         let ctx = Ctx {
             inner,
             orients: orientations(&input),
@@ -394,10 +479,22 @@ mod tests {
     #[test]
     fn deterministic_when_completed() {
         let input = PackInput {
-            board_w: 27.1, board_h: 40.0, panel_w: 100.0, panel_h: 100.0,
-            requested: 6, margin_mm: 1.5, gap_mm: 1.5, clearance_mm: 1.5,
-            mix_rotation: true, force_rotate: false,
-            obstacles: vec![Rect { min_x: 0.0, min_y: 35.0, max_x: 11.0, max_y: 57.0 }],
+            board_w: 27.1,
+            board_h: 40.0,
+            panel_w: 100.0,
+            panel_h: 100.0,
+            requested: 6,
+            margin_mm: 1.5,
+            gap_mm: 1.5,
+            clearance_mm: 1.5,
+            mix_rotation: true,
+            force_rotate: false,
+            obstacles: vec![Rect {
+                min_x: 0.0,
+                min_y: 35.0,
+                max_x: 11.0,
+                max_y: 57.0,
+            }],
             time_budget_ms: 3000,
         };
         assert_eq!(pack(&input), pack(&input));
@@ -406,23 +503,50 @@ mod tests {
     #[test]
     fn empty_and_oversize_edge_cases() {
         let base = PackInput {
-            board_w: 27.1, board_h: 40.0, panel_w: 100.0, panel_h: 100.0,
-            requested: 0, margin_mm: 5.0, gap_mm: 1.0, clearance_mm: 1.0,
-            mix_rotation: true, force_rotate: false, obstacles: vec![], time_budget_ms: 100,
+            board_w: 27.1,
+            board_h: 40.0,
+            panel_w: 100.0,
+            panel_h: 100.0,
+            requested: 0,
+            margin_mm: 5.0,
+            gap_mm: 1.0,
+            clearance_mm: 1.0,
+            mix_rotation: true,
+            force_rotate: false,
+            obstacles: vec![],
+            time_budget_ms: 100,
         };
         assert!(pack(&base).is_empty()); // requested 0
-        let oversize = PackInput { requested: 3, board_w: 200.0, board_h: 200.0, ..base.clone() };
+        let oversize = PackInput {
+            requested: 3,
+            board_w: 200.0,
+            board_h: 200.0,
+            ..base.clone()
+        };
         assert!(pack(&oversize).is_empty()); // board larger than panel
-        let tiny_panel = PackInput { requested: 3, margin_mm: 60.0, ..base.clone() };
+        let tiny_panel = PackInput {
+            requested: 3,
+            margin_mm: 60.0,
+            ..base.clone()
+        };
         assert!(pack(&tiny_panel).is_empty()); // margin eats the whole panel
     }
 
     #[test]
     fn single_orientation_when_mix_off() {
         let input = PackInput {
-            board_w: 40.0, board_h: 15.0, panel_w: 50.0, panel_h: 42.0,
-            requested: 3, margin_mm: 0.0, gap_mm: 0.0, clearance_mm: 0.0,
-            mix_rotation: false, force_rotate: false, obstacles: vec![], time_budget_ms: 500,
+            board_w: 40.0,
+            board_h: 15.0,
+            panel_w: 50.0,
+            panel_h: 42.0,
+            requested: 3,
+            margin_mm: 0.0,
+            gap_mm: 0.0,
+            clearance_mm: 0.0,
+            mix_rotation: false,
+            force_rotate: false,
+            obstacles: vec![],
+            time_budget_ms: 500,
         };
         let out = pack(&input);
         assert!(out.iter().all(|p| !p.rotated));

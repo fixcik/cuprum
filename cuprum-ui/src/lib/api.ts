@@ -554,6 +554,24 @@ export const api = {
     traceSession?: number,
   ) => invoke<BoardMetricsResult>("project_board_metrics", { workingDir, gerbers, traceSession }),
 
+  /** Dense panel packing (greedy + corner-point branch-and-bound) — runs in Rust
+   *  off the UI thread. Returns each placed footprint's top-left (mm) + 90° flag,
+   *  capped at `requested`. The frontend keeps a light greedy packer for preview. */
+  packPanel: (req: {
+    boardW: number;
+    boardH: number;
+    panelW: number;
+    panelH: number;
+    requested: number;
+    marginMm: number;
+    gapMm: number;
+    clearanceMm: number;
+    mixRotation: boolean;
+    forceRotate: boolean;
+    obstacles: { minX: number; minY: number; maxX: number; maxY: number }[];
+    timeBudgetMs: number;
+  }) => invoke<{ x: number; y: number; rotated: boolean }[]>("pack_panel", { req }),
+
   displayPxPerMm: () => invoke<number>("display_px_per_mm"),
 
   /** Open (or focus) the "Add design to panel" child window. */
