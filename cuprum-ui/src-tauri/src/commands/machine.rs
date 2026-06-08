@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast;
 
 use cuprum_core::grbl::{self, Dir, GrblEvent, GrblHandle, MachineState as GrblState};
@@ -132,6 +133,133 @@ pub struct GrblSettingDto {
     value: String,
 }
 
+/// Per-axis GRBL motion limits cached from `$$` (or live `$NNN=` console edits).
+/// Stored raw (per axis) rather than as the aggregated `Kinematics` so a single
+/// console assignment (`$110=...`) patches exactly one field; the aggregate (xy =
+/// min of the two axes) is derived on demand in `to_kinematics`. Persisted to
+/// `kinematics.json` so a fresh session has the controller's real limits before
+/// the first `$$` read.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct KinematicsRaw {
+    /// $110 / $111 / $112 — max rate per axis, mm/min.
+    pub max_rate_x: f64,
+    pub max_rate_y: f64,
+    pub max_rate_z: f64,
+    /// $120 / $121 / $122 — acceleration per axis, mm/s².
+    pub accel_x: f64,
+    pub accel_y: f64,
+    pub accel_z: f64,
+}
+
+impl Default for KinematicsRaw {
+    /// Stock 3018/GRBL defaults until `$$` is read or `kinematics.json` is loaded.
+    fn default() -> Self {
+        Self {
+            max_rate_x: 1000.0,
+            max_rate_y: 1000.0,
+            max_rate_z: 500.0,
+            accel_x: 30.0,
+            accel_y: 30.0,
+            accel_z: 30.0,
+        }
+    }
+}
+
+impl KinematicsRaw {
+    /// Collapse per-axis limits into the aggregated `Kinematics` the planner
+    /// consumes: XY takes the min of the two axes (the slower axis governs a
+    /// diagonal traverse), Z is its own axis.
+    pub fn to_kinematics(self) -> cuprum_core::drilling::Kinematics {
+        cuprum_core::drilling::Kinematics {
+            max_rate_xy_mm_min: self.max_rate_x.min(self.max_rate_y),
+            max_rate_z_mm_min: self.max_rate_z,
+            accel_xy_mm_s2: self.accel_x.min(self.accel_y),
+            accel_z_mm_s2: self.accel_z,
+        }
+    }
+}
+
+/// Whether GRBL setting number `n` feeds the cached kinematics ($110-$112 rates,
+/// $120-$122 accelerations).
+fn is_kinematics_setting(n: u16) -> bool {
+    matches!(n, 110 | 111 | 112 | 120 | 121 | 122)
+}
+
+/// Fold a batch of `$$` settings into the cached kinematics. Only the relevant
+/// numbers ($110-$112, $120-$122) are applied; a value that fails to parse as
+/// `f64` leaves the corresponding field unchanged (a malformed reply must not
+/// clobber a good cached limit). Pure — unit-tested.
+fn apply_settings(prev: KinematicsRaw, settings: &[(u16, String)]) -> KinematicsRaw {
+    let mut k = prev;
+    for (n, value) in settings {
+        if !is_kinematics_setting(*n) {
+            continue;
+        }
+        if let Ok(v) = value.trim().parse::<f64>() {
+            k = patch_assignment(k, *n, v);
+        }
+    }
+    k
+}
+
+/// Parse a GRBL setting assignment `$<num>=<val>` (tolerating surrounding
+/// whitespace) into `(num, val)`. Returns `None` for anything that is not an
+/// assignment (plain G-code, a bare `$110`, `?`, etc.). Pure — unit-tested.
+fn parse_assignment(line: &str) -> Option<(u16, f64)> {
+    let line = line.trim();
+    let rest = line.strip_prefix('$')?;
+    let (num, val) = rest.split_once('=')?;
+    let n = num.trim().parse::<u16>().ok()?;
+    let v = val.trim().parse::<f64>().ok()?;
+    Some((n, v))
+}
+
+/// Apply a single setting assignment to the cached kinematics. Relevant numbers
+/// ($110-$112, $120-$122) update their axis; everything else returns `prev`
+/// unchanged. Pure — unit-tested.
+fn patch_assignment(prev: KinematicsRaw, n: u16, v: f64) -> KinematicsRaw {
+    let mut k = prev;
+    match n {
+        110 => k.max_rate_x = v,
+        111 => k.max_rate_y = v,
+        112 => k.max_rate_z = v,
+        120 => k.accel_x = v,
+        121 => k.accel_y = v,
+        122 => k.accel_z = v,
+        _ => {}
+    }
+    k
+}
+
+/// Path to the persisted kinematics cache inside the app data dir (created if
+/// missing). Mirrors `project::catalog_db_path`.
+fn kinematics_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("kinematics.json"))
+}
+
+/// Load the persisted kinematics, falling back to `Default` on any error
+/// (missing file, unreadable, malformed JSON) — a stale cache must never block
+/// startup.
+fn load_kinematics(app: &AppHandle) -> KinematicsRaw {
+    kinematics_path(app)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Best-effort persist of the kinematics cache; errors are swallowed (a failed
+/// write just means the next session re-reads `$$`).
+fn save_kinematics(app: &AppHandle, k: &KinematicsRaw) {
+    if let Ok(path) = kinematics_path(app) {
+        if let Ok(json) = serde_json::to_string_pretty(k) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
+
 /// Application-level machine state: the optional live connection plus a capped
 /// ring buffer of recent console lines shared by all windows. The line log is
 /// cleared on every new connect (fresh session) and grows up to
@@ -141,6 +269,9 @@ pub struct MachineState {
     /// Capped ring buffer of recent console lines; seeded into follower windows
     /// (e.g. the console window) via `machine_console_backlog`.
     line_log: Arc<Mutex<VecDeque<ConsoleLine>>>,
+    /// Cached GRBL motion limits (per axis), kept fresh by reading `$$` and by
+    /// snooping console `$NNN=` writes; read by the `drill_plan` command.
+    kinematics: Mutex<KinematicsRaw>,
 }
 
 impl Default for MachineState {
@@ -148,6 +279,7 @@ impl Default for MachineState {
         Self {
             conn: Mutex::new(None),
             line_log: Arc::new(Mutex::new(VecDeque::with_capacity(CONSOLE_BACKLOG_CAP))),
+            kinematics: Mutex::new(KinematicsRaw::default()),
         }
     }
 }
@@ -466,10 +598,18 @@ pub async fn machine_home_await(state: State<'_, MachineState>) -> Result<(), St
 /// Read the controller's full firmware settings (`$$`).
 #[tauri::command]
 pub async fn machine_read_settings(
+    app: AppHandle,
     state: State<'_, MachineState>,
 ) -> Result<Vec<GrblSettingDto>, String> {
     let handle = state.handle().ok_or("not connected")?;
     let settings = handle.read_settings().await.map_err(|e| e.to_string())?;
+    // Invalidation point 1: a full `$$` read refreshes the cached kinematics, then
+    // persists so the next session starts with the controller's real limits.
+    {
+        let mut k = state.kinematics.lock().unwrap();
+        *k = apply_settings(*k, &settings);
+        save_kinematics(&app, &k);
+    }
     Ok(settings
         .into_iter()
         .map(|(n, value)| GrblSettingDto { n, value })
@@ -582,7 +722,18 @@ pub async fn machine_send(
             }
         }
     } else {
-        handle.send_line(&line).await.map_err(|e| e.to_string())
+        handle.send_line(&line).await.map_err(|e| e.to_string())?;
+        // Invalidation point 2: snoop a console `$NNN=value` write. Only after the
+        // send succeeds, and only for the kinematics settings, patch the cached
+        // axis and persist — so a live `$110=...` edit is reflected without a `$$`.
+        if let Some((n, v)) = parse_assignment(&line) {
+            if is_kinematics_setting(n) {
+                let mut k = state.kinematics.lock().unwrap();
+                *k = patch_assignment(*k, n, v);
+                save_kinematics(&app, &k);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -591,6 +742,12 @@ pub async fn machine_send(
 /// `$130=...`) the UI must know were actually applied — a blind send can be
 /// silently dropped, so the change would never reach EEPROM yet the UI assumes
 /// success.
+///
+/// Note: this path does NOT snoop kinematics like `machine_send` does. Its only
+/// kinematics-writing caller is the settings UI (`GrblTab.doApply`), which always
+/// re-reads `$$` via `machine_read_settings` afterwards — so the cache refreshes
+/// through the read path. Any future caller writing `$110`–`$122` here WITHOUT a
+/// following `$$` read would leave the kinematics cache stale.
 #[tauri::command]
 pub async fn machine_send_await_ok(
     state: State<'_, MachineState>,
@@ -689,6 +846,19 @@ impl MachineState {
     pub(crate) fn is_connected(&self) -> bool {
         self.conn.lock().unwrap().is_some()
     }
+
+    /// Snapshot of the cached kinematics aggregated for the planner. The single
+    /// accessor `drill_plan` goes through.
+    pub(crate) fn kinematics(&self) -> cuprum_core::drilling::Kinematics {
+        self.kinematics.lock().unwrap().to_kinematics()
+    }
+
+    /// Seed the cached kinematics from the persisted `kinematics.json` on startup
+    /// (called from `main`'s `.setup`). Best-effort: a missing/bad file leaves the
+    /// `Default` seeded by `Default::default`.
+    pub(crate) fn load_persisted(&self, app: &AppHandle) {
+        *self.kinematics.lock().unwrap() = load_kinematics(app);
+    }
 }
 
 #[tauri::command]
@@ -721,4 +891,94 @@ pub fn machine_reattach(
 #[tauri::command]
 pub fn machine_console_backlog(state: State<MachineState>) -> Vec<ConsoleLine> {
     state.line_log.lock().unwrap().iter().cloned().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_settings_updates_kinematics_fields() {
+        let prev = KinematicsRaw::default();
+        let settings = vec![
+            (110, "1200".to_string()),
+            (111, "1100".to_string()),
+            (112, "600".to_string()),
+            (120, "40".to_string()),
+            (121, "35".to_string()),
+            (122, "25".to_string()),
+            // Irrelevant settings are ignored.
+            (3, "4".to_string()),
+            (130, "200".to_string()),
+        ];
+        let k = apply_settings(prev, &settings);
+        assert_eq!(k.max_rate_x, 1200.0);
+        assert_eq!(k.max_rate_y, 1100.0);
+        assert_eq!(k.max_rate_z, 600.0);
+        assert_eq!(k.accel_x, 40.0);
+        assert_eq!(k.accel_y, 35.0);
+        assert_eq!(k.accel_z, 25.0);
+    }
+
+    #[test]
+    fn apply_settings_keeps_prev_on_parse_error() {
+        let prev = KinematicsRaw::default();
+        let settings = vec![(110, "not-a-number".to_string())];
+        let k = apply_settings(prev, &settings);
+        assert_eq!(k.max_rate_x, prev.max_rate_x);
+    }
+
+    #[test]
+    fn to_kinematics_aggregates_xy_as_min() {
+        let raw = KinematicsRaw {
+            max_rate_x: 1200.0,
+            max_rate_y: 800.0,
+            max_rate_z: 500.0,
+            accel_x: 40.0,
+            accel_y: 30.0,
+            accel_z: 20.0,
+        };
+        let agg = raw.to_kinematics();
+        assert_eq!(agg.max_rate_xy_mm_min, 800.0);
+        assert_eq!(agg.max_rate_z_mm_min, 500.0);
+        assert_eq!(agg.accel_xy_mm_s2, 30.0);
+        assert_eq!(agg.accel_z_mm_s2, 20.0);
+    }
+
+    #[test]
+    fn parse_assignment_recognizes_settings() {
+        assert_eq!(parse_assignment("$110=1200"), Some((110, 1200.0)));
+        assert_eq!(parse_assignment("$3=4"), Some((3, 4.0)));
+        // Leading/trailing whitespace tolerated.
+        assert_eq!(parse_assignment("  $122=25.5  "), Some((122, 25.5)));
+    }
+
+    #[test]
+    fn parse_assignment_rejects_non_assignments() {
+        assert_eq!(parse_assignment("G0 X1"), None);
+        assert_eq!(parse_assignment("$110"), None);
+        assert_eq!(parse_assignment("?"), None);
+        assert_eq!(parse_assignment("$$"), None);
+        assert_eq!(parse_assignment("$x=1"), None);
+    }
+
+    #[test]
+    fn patch_assignment_updates_relevant_axis() {
+        let prev = KinematicsRaw::default();
+        assert_eq!(patch_assignment(prev, 110, 1500.0).max_rate_x, 1500.0);
+        assert_eq!(patch_assignment(prev, 122, 99.0).accel_z, 99.0);
+    }
+
+    #[test]
+    fn patch_assignment_ignores_irrelevant_setting() {
+        let prev = KinematicsRaw::default();
+        let after = patch_assignment(prev, 3, 4.0);
+        // No field changed.
+        assert_eq!(after.max_rate_x, prev.max_rate_x);
+        assert_eq!(after.max_rate_y, prev.max_rate_y);
+        assert_eq!(after.max_rate_z, prev.max_rate_z);
+        assert_eq!(after.accel_x, prev.accel_x);
+        assert_eq!(after.accel_y, prev.accel_y);
+        assert_eq!(after.accel_z, prev.accel_z);
+    }
 }

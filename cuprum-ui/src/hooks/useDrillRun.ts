@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { api } from "@/lib/api";
-import type { DrillStep } from "@/lib/drillGcode";
+import type { DrillStep } from "@/lib/api";
 import {
   drillRunReducer,
   initialDrillRunState,
