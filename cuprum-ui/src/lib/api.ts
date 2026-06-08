@@ -734,6 +734,9 @@ export const api = {
       listen<string>("machine://error", (e) => cb(e.payload)),
     onStatus: (cb: (s: MachineStatusEvent) => void): Promise<UnlistenFn> =>
       listen<MachineStatusEvent>("machine://status", (e) => cb(e.payload)),
+    /** Fired (global) whenever unlock ($X) is sent from any window — lets alarm
+     *  banners optimistically hide before the next status poll confirms. */
+    onUnlock: (cb: () => void): Promise<UnlistenFn> => listen("machine://unlock", () => cb()),
   },
 
   drillRun: {

@@ -702,7 +702,11 @@ pub async fn machine_home_await(
 
 #[tauri::command]
 pub fn machine_unlock(app: AppHandle, state: State<MachineState>) -> Result<(), String> {
-    send_line(&state, &app, grbl::unlock())
+    send_line(&state, &app, grbl::unlock())?;
+    // Broadcast so every window's alarm banner can optimistically hide at once,
+    // before the next status poll confirms the cleared state (~200 ms later).
+    let _ = app.emit("machine://unlock", ());
+    Ok(())
 }
 
 #[tauri::command]
