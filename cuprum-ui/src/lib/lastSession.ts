@@ -11,10 +11,13 @@ export interface LastSession {
   view: View;
 }
 
-const VIEWS: readonly View[] = ["home", "project", "equipment", "settings"];
+// `satisfies Record<View, true>` makes this fail to compile if a View member is
+// missing — so adding a new view to the union forces updating this set, and the
+// restore never silently drops an unknown view to Home.
+const VIEW_SET = { home: true, project: true, equipment: true, settings: true } satisfies Record<View, true>;
 
 function isView(v: unknown): v is View {
-  return typeof v === "string" && (VIEWS as readonly string[]).includes(v);
+  return typeof v === "string" && Object.prototype.hasOwnProperty.call(VIEW_SET, v);
 }
 
 /** Parse a persisted last-session blob, tolerating absent/corrupt storage and

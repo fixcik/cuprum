@@ -98,7 +98,12 @@ export default function App() {
         // non-project view the user was on — for "project" the open already set
         // it, and a failed open correctly stays Home.
         if (last.path) await useShell.getState().openProjectByPath(last.path);
-        if (last.view !== "project") useShell.getState().setView(last.view);
+        // Only honor a non-project view once the open (if any) actually
+        // succeeded — currentPath is set on success, null on not-found/error.
+        // Otherwise a failed open would navigate away from Home and hide its
+        // error/notice (which only HomePage renders).
+        const openOk = !last.path || useShell.getState().currentPath === last.path;
+        if (openOk && last.view !== "project") useShell.getState().setView(last.view);
       })();
     }
     const pending = api.onOpenFile((path) => void useShell.getState().openProjectByPath(path));
