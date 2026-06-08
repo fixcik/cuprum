@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { DatumCorner } from "@/lib/datum";
@@ -44,7 +44,18 @@ export function DrillTableMap({
 }: DrillTableMapProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
-  const svgRef = useRef<SVGSVGElement>(null);
+
+  // Hover crosshair: the prospective click target in the machine frame plus the
+  // pointer pixel position (relative to the svg) for the floating X/Y label, and
+  // edge flags so the label flips away from the right/bottom edge.
+  const [hover, setHover] = useState<{
+    mx: number;
+    my: number;
+    px: number;
+    py: number;
+    flipX: boolean;
+    flipY: boolean;
+  } | null>(null);
 
   // Live spindle position (machine frame) = where the datum corner currently sits.
   const mposX = useMachine((s) => s.status.mpos[0]);
@@ -89,20 +100,33 @@ export function DrillTableMap({
     height: y1 - y0,
   });
 
-  const onClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!enabled) return;
-    const el = svgRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
+  /** Pointer event → prospective machine target (clamped to travel) + pointer px
+   *  relative to the svg. Shared by the click (jog) and the hover crosshair so the
+   *  label reads the exact coords the click would drive to. */
+  const pointerTarget = (e: React.MouseEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    const py = e.clientY - r.top;
     // client → viewBox user coords (height:auto keeps aspect, so this is linear).
-    const ux = -MARGIN_MM + ((e.clientX - r.left) / r.width) * vbW;
-    const uy = -MARGIN_MM + ((e.clientY - r.top) / r.height) * vbH;
+    const ux = -MARGIN_MM + (px / r.width) * vbW;
+    const uy = -MARGIN_MM + (py / r.height) * vbH;
     // user → machine (undo the Y flip), clamped to the travel.
     const mx = Math.min(maxXMm, Math.max(0, ux));
     const my = Math.min(maxYMm, Math.max(0, maxYMm - uy));
+    return { mx, my, px, py, w: r.width, h: r.height };
+  };
+
+  const onClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!enabled) return;
+    const { mx, my } = pointerTarget(e);
     // machine → work (live WCO at click time), then jog the datum corner there.
     const { mpos, wpos } = useMachine.getState().status;
     void jogTo({ x: mx - (mpos[0] - wpos[0]), y: my - (mpos[1] - wpos[1]) });
+  };
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const { mx, my, px, py, w, h } = pointerTarget(e);
+    setHover({ mx, my, px, py, flipX: px > w * 0.62, flipY: py > h * 0.78 });
   };
 
   // Overflow detail string, e.g. "X +20.0 mm, Y +5.0 mm".
@@ -119,11 +143,13 @@ export function DrillTableMap({
 
   return (
     <div className="flex flex-col gap-1.5">
+      <div className="relative">
       <svg
-        ref={svgRef}
         viewBox={`${-MARGIN_MM} ${-MARGIN_MM} ${vbW} ${vbH}`}
         onClick={onClick}
-        className={`block w-full rounded-lg border border-border bg-[#0c0e11] ${enabled ? "cursor-pointer" : "cursor-not-allowed"}`}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHover(null)}
+        className={`block w-full rounded-lg border border-border bg-[#0c0e11] ${enabled ? "cursor-crosshair" : "cursor-not-allowed"}`}
         style={{ height: "auto" }}
       >
         {/* Machine travel rect (dashed) */}
@@ -182,7 +208,64 @@ export function DrillTableMap({
           strokeWidth={1.2}
           vectorEffect="non-scaling-stroke"
         />
+
+        {/* Hover crosshair: full-span guides through the prospective target,
+         *  clipped to the travel rect (informational — never blocks the click). */}
+        {hover && (
+          <g pointerEvents="none">
+            <line
+              x1={sx(hover.mx)}
+              y1={sy(0)}
+              x2={sx(hover.mx)}
+              y2={sy(maxYMm)}
+              stroke="#9aa4b2"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+              opacity={0.55}
+              vectorEffect="non-scaling-stroke"
+            />
+            <line
+              x1={sx(0)}
+              y1={sy(hover.my)}
+              x2={sx(maxXMm)}
+              y2={sy(hover.my)}
+              stroke="#9aa4b2"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+              opacity={0.55}
+              vectorEffect="non-scaling-stroke"
+            />
+            <circle
+              cx={sx(hover.mx)}
+              cy={sy(hover.my)}
+              r={datumR * 0.8}
+              fill="none"
+              stroke="#cfd6df"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        )}
       </svg>
+
+      {/* Floating X/Y readout following the cursor (machine frame = where the
+       *  datum corner jogs to on click). Flips away from the right/bottom edge. */}
+      {hover && (
+        <div
+          className="pointer-events-none absolute z-10 flex gap-2 rounded-md border border-border bg-background/90 px-1.5 py-0.5 font-mono text-[11px] tabular-nums shadow-sm backdrop-blur-sm"
+          style={{
+            left: hover.px,
+            top: hover.py,
+            transform: `translate(${hover.flipX ? "calc(-100% - 10px)" : "10px"}, ${
+              hover.flipY ? "calc(-100% - 10px)" : "10px"
+            })`,
+          }}
+        >
+          <span className="text-axis-x">X {fmtLen(hover.mx)}</span>
+          <span className="text-axis-y">Y {fmtLen(hover.my)}</span>
+        </div>
+      )}
+      </div>
 
       {/* Caption */}
       <p className="text-[10px] text-muted-foreground/70">
