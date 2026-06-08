@@ -7,6 +7,12 @@ import { DEFAULT_CUT_GAP_MM, recommendedGapMm } from "@/lib/nest";
 /** Back-compat alias; the single source is {@link recommendedGapMm} (see #436). */
 export const MIN_PANEL_GAP_MM = DEFAULT_CUT_GAP_MM;
 
+/** Spacing/edge tolerance (mm). A layout packed at exactly the recommended gap (what
+ *  the "Auto" button + the solver produce) must validate clean, so we only warn when
+ *  a board is closer than `minGap` by more than this — absorbing float noise from the
+ *  centre-pivot transform and the solver's own epsilon. Physically negligible. */
+const SPACING_TOL_MM = 1e-3;
+
 export type PanelFindingCategory =
   | "off-panel"
   | "overlap"
@@ -113,7 +119,7 @@ export function evaluatePanel(opts: {
       if (boxesOverlap(a, b)) {
         overlapIds.add(sized[i].inst.id);
         overlapIds.add(sized[j].inst.id);
-      } else if (gapBetween(a, b) < minGap) {
+      } else if (gapBetween(a, b) < minGap - SPACING_TOL_MM) {
         spacingIds.add(sized[i].inst.id);
         spacingIds.add(sized[j].inst.id);
       }
@@ -130,7 +136,7 @@ export function evaluatePanel(opts: {
       panel.width_mm - box.maxX,
       panel.height_mm - box.maxY,
     );
-    if (margin >= 0 && margin < minGap) spacingIds.add(inst.id);
+    if (margin >= 0 && margin < minGap - SPACING_TOL_MM) spacingIds.add(inst.id);
   }
   if (overlapIds.size) {
     out.push({
