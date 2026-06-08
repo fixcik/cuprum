@@ -128,11 +128,13 @@
     "bindRejected": "Привязка отклонена станком ({{error}}) — ноль не установлен. Переустановите и привяжите заново."
   },
   "runHeader": {
-    "drilling": "Сверление…",
+    "drilling": "Сверление",
     "paused": "Пауза",
     "toolChange": "Смена сверла",
+    "zBind": "Привязка Z",
     "done": "Готово",
-    "elapsed": "{{elapsed}} · ~{{remaining}}"
+    "elapsedShort": "{{elapsed}} прошло",
+    "remainingShort": "осталось ~{{remaining}}"
   },
   "phase": {
     "traverse": "Перемещение",

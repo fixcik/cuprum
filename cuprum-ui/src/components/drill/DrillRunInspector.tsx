@@ -71,6 +71,7 @@ export function DrillRunInspector({
         holesTotal={state.holesTotal}
         currentHoleIndex={state.currentHoleIndex}
         runStartedAt={state.runStartedAt}
+        firstToolChange={state.toolChangeSeq === 1}
         route={route}
         datum={datum}
         panelWidthMm={panelWidthMm}

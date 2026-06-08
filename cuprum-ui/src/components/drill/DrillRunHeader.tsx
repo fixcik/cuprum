@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Pause, Wrench, Check } from "lucide-react";
+import { Loader2, Pause, Check } from "lucide-react";
 import type { DrillRunPhase } from "@/lib/drillRunState";
 import type { DrillRoute } from "@/lib/drillRoute";
 import { activeGroupForHole, orderedHoleList } from "@/lib/drillRoute";
@@ -15,6 +15,10 @@ export interface DrillRunHeaderProps {
   holesTotal: number;
   currentHoleIndex: number | null;
   runStartedAt: number | null;
+  /** First tool change of the run (work-Z not bound yet). On the first change the
+   *  status reads «Привязка Z», not «Смена сверла» — there is no previous bit to
+   *  swap, the operator is just binding Z for bit #1. */
+  firstToolChange: boolean;
   route: DrillRoute;
   datum: DatumCorner;
   panelWidthMm: number;
@@ -30,12 +34,18 @@ function fmtMmSs(sec: number): string {
 
 const ACTIVE_PHASES: Set<DrillRunPhase> = new Set(["running", "pausing", "stopping"]);
 
+// Ring geometry — compact 92px so the header reads as one horizontal row.
+const RING = 92;
+const RING_R = 34;
+const RING_SW = 7;
+
 export function DrillRunHeader({
   phase,
   holesCompleted,
   holesTotal,
   currentHoleIndex,
   runStartedAt,
+  firstToolChange,
   route,
   datum,
   panelWidthMm,
@@ -56,12 +66,12 @@ export function DrillRunHeader({
   }, [runStartedAt, phase]);
 
   const pct = holesTotal > 0 ? holesCompleted / holesTotal : 0;
-  const r = 44;
-  const circumference = 2 * Math.PI * r;
+  const circumference = 2 * Math.PI * RING_R;
   const offset = circumference * (1 - pct);
 
   const activeGroup = activeGroupForHole(route, currentHoleIndex);
-  const ringColor = activeGroup ? groupColor(activeGroup.gi) : "#4f9cf9";
+  // Progress arc takes the current bit's colour; falls back to the Z-axis blue.
+  const ringColor = activeGroup ? groupColor(activeGroup.gi) : "hsl(var(--axis-z))";
 
   const holes = orderedHoleList(route);
   const currentHole =
@@ -75,7 +85,7 @@ export function DrillRunHeader({
   const elapsed = fmtMmSs(elapsedSec);
   const remainingFmt = fmtMmSs(remaining);
 
-  const statusLabel = () => {
+  const statusLabel = (): string | null => {
     switch (phase) {
       case "running":
       case "pausing":
@@ -84,7 +94,7 @@ export function DrillRunHeader({
       case "paused":
         return t("runHeader.paused");
       case "awaitingToolChange":
-        return t("runHeader.toolChange");
+        return firstToolChange ? t("runHeader.zBind") : t("runHeader.toolChange");
       case "done":
         return t("runHeader.done");
       default:
@@ -97,106 +107,116 @@ export function DrillRunHeader({
       case "running":
       case "pausing":
       case "stopping":
-        return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
+        return <Loader2 className="size-3.5 animate-spin" />;
       case "paused":
-        return <Pause className="h-3.5 w-3.5" />;
       case "awaitingToolChange":
-        return <Wrench className="h-3.5 w-3.5" />;
+        return <Pause className="size-3.5" />;
       case "done":
-        return <Check className="h-3.5 w-3.5" />;
+        return <Check className="size-3.5" />;
       default:
         return null;
     }
   };
 
+  const statusCls = (): string => {
+    switch (phase) {
+      case "paused":
+        return "text-muted-foreground";
+      case "awaitingToolChange":
+        return "text-warning";
+      case "done":
+        return "text-primary";
+      default:
+        return "text-foreground";
+    }
+  };
+
+  const label = statusLabel();
+
   return (
-    <div className="flex flex-col items-center gap-3 px-4 pt-4 pb-3 border-b border-border">
-      {/* Progress ring */}
-      <svg width={110} height={110} viewBox="0 0 110 110" className="shrink-0">
-        {/* Track */}
-        <circle
-          cx={55}
-          cy={55}
-          r={r}
-          fill="none"
-          stroke="rgba(255,255,255,0.08)"
-          strokeWidth={6}
-        />
-        {/* Progress arc */}
-        <circle
-          cx={55}
-          cy={55}
-          r={r}
-          fill="none"
-          stroke={ringColor}
-          strokeWidth={6}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          transform="rotate(-90 55 55)"
-          style={{ transition: "stroke-dashoffset 0.4s ease, stroke 0.3s ease" }}
-        />
-        {/* Percent text */}
-        <text
-          x={55}
-          y={55}
-          textAnchor="middle"
-          dominantBaseline="central"
-          className="font-mono tabular-nums"
-          fill="currentColor"
-          fontSize={18}
-          fontWeight={600}
-        >
-          {Math.round(pct * 100)}%
-        </text>
-      </svg>
-
-      {/* Status label */}
-      {statusLabel() && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {statusIcon()}
-          <span>{statusLabel()}</span>
+    <div className="border-b border-border px-3 py-3">
+      <div className="flex items-center gap-3">
+        {/* Progress ring with the percent centred inside */}
+        <div className="relative grid shrink-0 place-items-center">
+          <svg width={RING} height={RING} viewBox={`0 0 ${RING} ${RING}`} className="-rotate-90">
+            <circle
+              cx={RING / 2}
+              cy={RING / 2}
+              r={RING_R}
+              fill="none"
+              stroke="hsl(var(--muted))"
+              strokeWidth={RING_SW}
+            />
+            <circle
+              cx={RING / 2}
+              cy={RING / 2}
+              r={RING_R}
+              fill="none"
+              stroke={ringColor}
+              strokeWidth={RING_SW}
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              style={{ transition: "stroke-dashoffset 0.3s ease, stroke 0.3s ease" }}
+            />
+          </svg>
+          <div className="absolute text-center">
+            <div className="text-[18px] font-bold leading-none tabular-nums text-foreground">
+              {Math.round(pct * 100)}
+              <span className="text-[11px] font-medium">%</span>
+            </div>
+          </div>
         </div>
-      )}
 
-      {/* Hole counter */}
-      <div className="text-2xl font-semibold tabular-nums text-foreground">
-        {holesCompleted}/{holesTotal}
+        {/* Status · counter · bit chip + coords */}
+        <div className="min-w-0 flex-1">
+          {label && (
+            <div className={`flex items-center gap-1.5 text-[12px] font-semibold ${statusCls()}`}>
+              {statusIcon()}
+              <span>{label}</span>
+            </div>
+          )}
+
+          <div className="mt-0.5 text-[20px] font-bold tabular-nums text-foreground">
+            {holesCompleted}
+            <span className="text-[13px] font-medium text-muted-foreground"> / {holesTotal}</span>
+          </div>
+
+          <div className="mt-1 flex items-center gap-2 text-[11px]">
+            {activeGroup && (
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2 py-0.5">
+                <span
+                  className="inline-block size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: groupColor(activeGroup.gi) }}
+                />
+                <span className="tabular-nums text-foreground">
+                  {fmtLen(activeGroup.group.diameterMm)}
+                </span>
+              </span>
+            )}
+            {currentHole && (
+              <span className="truncate tabular-nums text-muted-foreground">
+                {(() => {
+                  const [mx, my] = machinePoint(
+                    currentHole.xMm,
+                    currentHole.yMm,
+                    datum,
+                    panelWidthMm,
+                    panelHeightMm,
+                  );
+                  return `X ${mx.toFixed(1)} Y ${my.toFixed(1)}`;
+                })()}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Current bit chip */}
-      {activeGroup && (
-        <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/30 px-2.5 py-1 text-xs">
-          <span
-            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-            style={{ backgroundColor: groupColor(activeGroup.gi) }}
-          />
-          <span className="tabular-nums text-slate-300">
-            Ø{fmtLen(activeGroup.group.diameterMm)}
-          </span>
-        </div>
-      )}
-
-      {/* Current hole coords */}
-      {currentHole && (
-        <div className="text-xs tabular-nums text-muted-foreground">
-          {(() => {
-            const [mx, my] = machinePoint(
-              currentHole.xMm,
-              currentHole.yMm,
-              datum,
-              panelWidthMm,
-              panelHeightMm,
-            );
-            return `X${mx.toFixed(2)} Y${my.toFixed(2)}`;
-          })()}
-        </div>
-      )}
-
-      {/* Elapsed / remaining time */}
+      {/* Elapsed / remaining */}
       {runStartedAt != null && (
-        <div className="text-[11px] text-muted-foreground/70">
-          {t("runHeader.elapsed", { elapsed, remaining: remainingFmt })}
+        <div className="mt-3 flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
+          <span>{t("runHeader.elapsedShort", { elapsed })}</span>
+          <span>{t("runHeader.remainingShort", { remaining: remainingFmt })}</span>
         </div>
       )}
     </div>
