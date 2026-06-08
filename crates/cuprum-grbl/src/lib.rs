@@ -1,7 +1,11 @@
-//! GRBL 1.1 client: serial transport (`connection`), status/line parsing
-//! (`parse`) and command encoding (`command`). Synchronous, mirrors the
-//! `cuprum-sdcp` leaf-crate idiom. No serde — DTO mapping lives in the UI layer.
+//! GRBL 1.1 client: async-actor connection (`actor`), status/line parsing
+//! (`parse`) and command encoding (`command`). One tokio task owns the port;
+//! callers use a cloneable `GrblHandle`. No serde — DTO mapping lives in the UI
+//! layer. The legacy blocking transport in `connection` is retained for port
+//! discovery (`list_ports`); its `open`/`GrblReader`/`GrblWriter` are slated for
+//! removal once the UI is fully on the actor.
 
+pub mod actor;
 pub mod command;
 pub mod connection;
 pub mod parse;
@@ -14,6 +18,7 @@ pub use command::{
     SPINDLE_OVERRIDE_MINUS_10, SPINDLE_OVERRIDE_PLUS_1, SPINDLE_OVERRIDE_PLUS_10,
     SPINDLE_OVERRIDE_STOP, SPINDLE_STOP_TOGGLE, STATUS_QUERY,
 };
+pub use actor::{connect, Dir, GrblError, GrblEvent, GrblHandle, GrblLease};
 pub use connection::{list_ports, open, GrblReader, GrblWriter, PortInfo};
 pub use parse::{
     parse_line, Line, MachineState, PinState, ResolvedStatus, StatusReport, StatusTracker,

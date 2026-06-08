@@ -9,3 +9,9 @@ description = "GRBL 1.1 client: serial transport, status/line parsing, command e
 anyhow.workspace = true
 serialport.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "io-util"] }
+tokio-serial.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "io-util", "rt-multi-thread", "test-util"] }
