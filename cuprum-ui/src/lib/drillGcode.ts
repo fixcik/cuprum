@@ -2,7 +2,8 @@ import type { PanelDrillPlan, DrillGroup } from "@/lib/panelDrill";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
 import type { Rect } from "@/lib/keepoutGeometry";
-import { avoidZones, KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
+import { KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
+import { routeAvoiding } from "@/lib/visibilityRoute";
 import { orderNearest } from "@/lib/drillRoute";
 import { type DatumCorner, machinePoint } from "@/lib/datum";
 
@@ -94,6 +95,23 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
     const minY = Math.min(y1, y2);
     return { x: minX, y: minY, w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
   });
+
+  // Panel rectangle in MACHINE space, so traverse detours stay on the panel. The
+  // datum corner decides which quadrant the panel maps to (machinePoint can flip
+  // either axis → negative-origin rect), so map the panel's own opposite corners
+  // and take min/max — same construction as zonesMachine. Undefined when the width
+  // is unknown → unbounded routing (avoids zones, no panel clamp).
+  const panelMachine = (() => {
+    if (!(wMm > 0 && panelHeightMm > 0)) return undefined;
+    const [px1, py1] = machinePoint(0, 0, datum, wMm, panelHeightMm);
+    const [px2, py2] = machinePoint(wMm, panelHeightMm, datum, wMm, panelHeightMm);
+    return {
+      minX: Math.min(px1, px2),
+      minY: Math.min(py1, py2),
+      maxX: Math.max(px1, px2),
+      maxY: Math.max(py1, py2),
+    };
+  })();
 
   const allLines: string[] = [];
   const steps: DrillStep[] = [];
@@ -208,11 +226,12 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
 
       // Emit detour waypoints (XY-only rapids at safe Z) before the hole rapid.
       if (zonesMachine.length > 0) {
-        const waypoints = avoidZones(
+        const waypoints = routeAvoiding(
           { x: travelX, y: travelY },
           { x: mx, y: my },
           zonesMachine,
           KEEPOUT_TRAVERSE_MARGIN_MM,
+          panelMachine,
         );
         for (const wp of waypoints) {
           const wpLine = `G0 X${fmt(wp.x)} Y${fmt(wp.y)}`;

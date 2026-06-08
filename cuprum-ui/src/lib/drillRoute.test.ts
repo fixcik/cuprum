@@ -216,6 +216,34 @@ describe("planDrillRoute with keepout zones", () => {
     expect(route.totalHoles).toBe(2);
   });
 
+  it("keeps detour waypoints inside the panel for an edge keep-out (#492)", () => {
+    // Zone flush to the left edge; holes above and below it on the same x. The
+    // straight line crosses the zone, and the only in-panel detour is to the
+    // right — no waypoint may leave the panel rectangle.
+    const panel = { minX: 0, minY: 0, maxX: 100, maxY: 60 };
+    const zone: Rect = { x: 0, y: 20, w: 12, h: 20 };
+    const plan = makePlan([
+      {
+        diameterMm: 0.8,
+        class: "pth",
+        toolId: "t1",
+        holes: [{ xMm: 6, yMm: 10 }, { xMm: 6, yMm: 50 }],
+      },
+    ]);
+    const start = { xMm: 6, yMm: 10 };
+    const route = planDrillRoute(plan, start, [zone], panel);
+
+    expect(route.pathPoints.length).toBeGreaterThan(2);
+    const MARGIN = 1.0;
+    expect(noSegmentCrossesZone(route.pathPoints, start, zone, MARGIN)).toBe(true);
+    for (const p of route.pathPoints) {
+      expect(p.xMm).toBeGreaterThanOrEqual(0);
+      expect(p.xMm).toBeLessThanOrEqual(panel.maxX);
+      expect(p.yMm).toBeGreaterThanOrEqual(0);
+      expect(p.yMm).toBeLessThanOrEqual(panel.maxY);
+    }
+  });
+
   it("pathPoints equals holes-only when no zones passed (unchanged behaviour)", () => {
     const plan = makePlan([
       {
