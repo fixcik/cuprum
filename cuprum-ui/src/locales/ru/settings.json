@@ -15,7 +15,7 @@
     "addDevice": "Добавить",
     "delete": "Удалить",
     "cancel": "Отмена",
-    "empty": "Выберите станок для редактирования",
+    "emptyEditor": "Выберите станок для редактирования",
     "tab": {
       "config": "Настройка",
       "control": "Управление"
@@ -30,6 +30,7 @@
     "dirtyCount_other": "{{count}} изменений",
     "factoryDefaults": "Заводские настройки",
     "resetToFactory": "Сбросить к заводским",
+    "deleteDevice": "Удалить оборудование",
     "cards": {
       "workField": "Рабочее поле",
       "spindle": "Шпиндель",

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Check, RotateCcw, Search, X } from "lucide-react";
+import { Check, RotateCcw, Search, Trash2, X } from "lucide-react";
 
 /** Search input for the settings cards. Clears with the trailing X when filled. */
 export function SearchBox({ query, setQuery }: { query: string; setQuery: (q: string) => void }) {
@@ -27,9 +27,17 @@ export function SearchBox({ query, setQuery }: { query: string; setQuery: (q: st
   );
 }
 
-/** Changed-from-factory indicator + reset-to-factory button. No "save" — config
- *  persists live via updateMachine. */
-export function DirtyBar({ dirtyCount, onReset }: { dirtyCount: number; onReset: () => void }) {
+/** Changed-from-factory indicator + reset-to-factory button, plus an optional
+ *  delete-device button. No "save" — config persists live via updateMachine. */
+export function DirtyBar({
+  dirtyCount,
+  onReset,
+  onDelete,
+}: {
+  dirtyCount: number;
+  onReset: () => void;
+  onDelete?: () => void;
+}) {
   const { t } = useTranslation("settings");
   return (
     <div className="flex items-center gap-2">
@@ -54,6 +62,17 @@ export function DirtyBar({ dirtyCount, onReset }: { dirtyCount: number; onReset:
       >
         <RotateCcw className="size-4" />
       </button>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          title={t("equipment.deleteDevice")}
+          aria-label={t("equipment.deleteDevice")}
+          className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      )}
     </div>
   );
 }

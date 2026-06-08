@@ -17,6 +17,7 @@ export function EquipmentSection() {
   const activeUvMachineId = useSettings((s) => s.activeUvMachineId);
   const setActiveCncMachineId = useSettings((s) => s.setActiveCncMachineId);
   const setActiveUvMachineId = useSettings((s) => s.setActiveUvMachineId);
+  const removeMachine = useSettings((s) => s.removeMachine);
   const [selectedId, setSelectedId] = useState<string | null>(
     () => activeCncMachineId ?? activeUvMachineId ?? machines[0]?.id ?? null,
   );
@@ -40,12 +41,25 @@ export function EquipmentSection() {
   // just added by MachineList — not yet in this render's closure — is found.
   const handleSelect = (id: string | null) => {
     setSelectedId(id);
-    const machine = id
-      ? useSettings.getState().machines.find((m) => m.id === id)
-      : null;
+    // Clearing the selection (id == null) happens only on delete; the store's
+    // removeMachine retargets the per-kind active pointers, so nothing to do here.
+    if (!id) return;
+    const machine = useSettings.getState().machines.find((m) => m.id === id);
     if (!machine) return;
     if (machine.kind === "cnc") setActiveCncMachineId(id);
     else setActiveUvMachineId(id);
+  };
+
+  // Delete a machine from the editor. Move the selection to a sensible neighbour
+  // first (the one after it, else the previous), then remove it. The store
+  // retargets the per-kind "last selected" pointers; an empty list falls through
+  // to the EmptyState below on the next render.
+  const handleDelete = (id: string) => {
+    const idx = machines.findIndex((m) => m.id === id);
+    const remaining = machines.filter((m) => m.id !== id);
+    const next = remaining[idx] ?? remaining[idx - 1] ?? null;
+    if (selectedId === id) handleSelect(next?.id ?? null);
+    removeMachine(id);
   };
 
   // The selected machine, or null if its id was deleted out from under us.
@@ -119,7 +133,11 @@ export function EquipmentSection() {
       {/* The pane only lays out flex height; scroll + padding live INSIDE each
        *  editor tab so the control tab (console/jog) can fill the height. */}
       <div className="flex min-h-0 flex-1 flex-col">
-        <MachineEditor key={effectiveSelected?.id ?? "none"} machine={effectiveSelected} />
+        <MachineEditor
+          key={effectiveSelected?.id ?? "none"}
+          machine={effectiveSelected}
+          onDelete={handleDelete}
+        />
       </div>
     </div>
   );

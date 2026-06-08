@@ -15,7 +15,7 @@
     "addDevice": "Add",
     "delete": "Remove",
     "cancel": "Cancel",
-    "empty": "Select a machine to edit",
+    "emptyEditor": "Select a machine to edit",
     "tab": {
       "config": "Configuration",
       "control": "Control"
@@ -30,6 +30,7 @@
     "dirtyCount_other": "{{count}} changes",
     "factoryDefaults": "Factory defaults",
     "resetToFactory": "Reset to factory",
+    "deleteDevice": "Remove device",
     "cards": {
       "workField": "Work area",
       "spindle": "Spindle",
