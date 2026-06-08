@@ -12,6 +12,10 @@ export interface MachineToolbarProps {
    *  a window that follows machine state via global broadcasts (e.g. the console
    *  window) never builds a telemetry Channel and steals it from the main window. */
   skipReattach?: boolean;
+  /** Compact connection control for narrow windows (the console): a machine picker
+   *  + a slim, truncating connected summary that shrinks (`min-w-0 flex-1`) so the
+   *  whole toolbar — action buttons, status, E-Stop — fits on a single row. */
+  compactConn?: boolean;
 }
 
 /** Status/connection toolbar: ConnBar on the left; the machine action buttons +
@@ -21,14 +25,19 @@ export interface MachineToolbarProps {
  *  the E-Stop / status off the edge — the emergency stop must never be clipped.
  *  The E-Stop is the Phase-1 emergency stop: it fires a soft reset immediately,
  *  without confirmation. */
-export function MachineToolbar({ skipReattach = false }: MachineToolbarProps = {}) {
+export function MachineToolbar({ skipReattach = false, compactConn = false }: MachineToolbarProps = {}) {
   const a = useMachineActions();
   const feed = useMachine((s) => s.status.feed);
   const spindle = useMachine((s) => s.status.spindle);
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2">
-      <ConnBar skipReattach={skipReattach} />
+      <ConnBar
+        skipReattach={skipReattach}
+        machinePicker={compactConn}
+        connectedSummary={compactConn}
+        className={compactConn ? "min-w-0 flex-1" : undefined}
+      />
       <div className="ml-auto flex items-center gap-3">
         <QuickActions />
         <div className="h-6 w-px bg-border" />
