@@ -35,8 +35,6 @@
       "spindle": "Шпиндель",
       "safetyZ": "Безопасность Z",
       "probe": "Пробник Z",
-      "advanced": "Дополнительно",
-      "advancedSub": "люфты, биение, порт",
       "mechanics": "Механика и точность",
       "connection": "Подключение",
       "gcode": "G-code",

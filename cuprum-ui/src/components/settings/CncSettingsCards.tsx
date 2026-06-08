@@ -1,16 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  ChevronRight,
-  Crosshair,
-  Fan,
-  Plug,
-  Ruler,
-  Scan,
-  ShieldCheck,
-  SlidersHorizontal,
-  Terminal,
-} from "lucide-react";
+import { Crosshair, Fan, Plug, Ruler, Scan, ShieldCheck, Terminal } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { Card } from "@/components/ui/Card";
 import { Row } from "@/components/ui/Row";
@@ -37,7 +27,6 @@ export function CncSettingsCards({
   const { t } = useTranslation("settings");
   const update = useSettings((s) => s.updateMachine);
   const { toDisplay, unitLabel } = useUnitFormat();
-  const [advOpen, setAdvOpen] = useState(true);
   // Active axis highlights its dim label in the WorkZone while editing X/Y/Z.
   const [activeAxis, setActiveAxis] = useState<WorkZoneAxis | undefined>();
 
@@ -81,26 +70,21 @@ export function CncSettingsCards({
     [t, machine.hasProbe],
   );
 
-  const advancedDirty = ["runoutMm", "backlash.x", "backlash.y", "backlash.z", "baud", "prependGcode", "appendGcode"].some(
-    (k) => dirty.has(k),
-  );
-  // Advanced cards should still be searchable even while collapsed.
-  const advancedVisible =
-    cardVisible(tMechanics, labels.mechanics) ||
-    cardVisible(tConnection, labels.connection) ||
-    cardVisible(tGcode, labels.gcode);
-
   const showWorkField = cardVisible(tWorkField, [t("cnc.envX"), t("cnc.envY"), t("cnc.envZ")]);
   const showSpindle = cardVisible(tSpindle, labels.spindle);
   const showSafety = cardVisible(tSafetyZ, labels.safety);
   // Probe rows beyond the toggle only exist when hasProbe; still searchable by title.
   const showProbe = cardVisible(tProbe, labels.probe);
+  const showMechanics = cardVisible(tMechanics, labels.mechanics);
+  const showConnection = cardVisible(tConnection, labels.connection);
+  const showGcode = cardVisible(tGcode, labels.gcode);
 
   return (
-    <div className="mx-auto grid max-w-[1180px] grid-cols-12 gap-4">
-      {/* Work field — hero card with the WorkZone viz + X/Y/Z editors. */}
+    <div className="mx-auto max-w-[1180px] [column-fill:_balance] [column-gap:1rem] sm:columns-2 2xl:columns-3 [&>*]:mb-4 [&>*]:break-inside-avoid">
+      {/* Cards flow in a balanced multi-column (masonry) layout so uneven heights
+          pack without leaving large gaps. Each card is a direct child kept intact
+          via break-inside-avoid. Work field — viz + X/Y/Z editors. */}
       {showWorkField && (
-        <div className="col-span-12 lg:col-span-4">
           <Card
             icon={Scan}
             title={tWorkField}
@@ -133,13 +117,9 @@ export function CncSettingsCards({
               ))}
             </div>
           </Card>
-        </div>
       )}
 
-      {/* Right column: spindle / safety / probe tiled two-up. */}
-      <div className="col-span-12 lg:col-span-8">
-        <div className="grid gap-4 sm:grid-cols-2">
-          {showSpindle && (
+      {showSpindle && (
             <Card icon={Fan} title={tSpindle}>
               <div className="divide-y divide-border/50">
                 {rowVisible(tSpindle, t("cnc.spindleMaxRpm")) && (
@@ -262,30 +242,8 @@ export function CncSettingsCards({
               </div>
             </Card>
           )}
-        </div>
-      </div>
-
-      {/* Advanced accordion: mechanics / connection / G-code. */}
-      {advancedVisible && (
-        <div className="col-span-12">
-          <div className="rounded-xl border border-border bg-card/40">
-            <button
-              type="button"
-              onClick={() => setAdvOpen((o) => !o)}
-              className="flex w-full items-center gap-2 px-3.5 py-3 text-left"
-            >
-              <ChevronRight
-                className={`size-4 text-muted-foreground transition-transform ${advOpen ? "rotate-90" : ""}`}
-              />
-              <SlidersHorizontal className="size-4 text-muted-foreground" />
-              <span className="text-[12px] font-semibold text-foreground">{t("equipment.cards.advanced")}</span>
-              <span className="text-[11px] text-muted-foreground">{t("equipment.cards.advancedSub")}</span>
-              {advancedDirty && <span className="size-1.5 rounded-full bg-primary" />}
-            </button>
-            {advOpen && (
-              <div className="grid gap-4 border-t border-border/70 p-3.5 sm:grid-cols-2">
-                {cardVisible(tMechanics, labels.mechanics) && (
-                  <Card icon={Ruler} title={tMechanics} className="bg-card/60">
+      {showMechanics && (
+                  <Card icon={Ruler} title={tMechanics}>
                     <div className="divide-y divide-border/50">
                       {rowVisible(tMechanics, t("cnc.runout")) && (
                         <Row label={t("cnc.runout")}>
@@ -331,8 +289,8 @@ export function CncSettingsCards({
                   </Card>
                 )}
 
-                {cardVisible(tConnection, labels.connection) && (
-                  <Card icon={Plug} title={tConnection} className="bg-card/60">
+      {showConnection && (
+                  <Card icon={Plug} title={tConnection}>
                     <div className="divide-y divide-border/50">
                       {rowVisible(tConnection, t("cnc.baud")) && (
                         <Row label={t("cnc.baud")}>
@@ -348,8 +306,8 @@ export function CncSettingsCards({
                   </Card>
                 )}
 
-                {cardVisible(tGcode, labels.gcode) && (
-                  <Card icon={Terminal} title={tGcode} className="bg-card/60 sm:col-span-2">
+      {showGcode && (
+                  <Card icon={Terminal} title={tGcode}>
                     <div className="flex flex-col gap-3">
                       {rowVisible(tGcode, t("cnc.dialect")) && (
                         <Row label={t("cnc.dialect")}>
@@ -380,11 +338,6 @@ export function CncSettingsCards({
                       )}
                     </div>
                   </Card>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
       )}
     </div>
   );

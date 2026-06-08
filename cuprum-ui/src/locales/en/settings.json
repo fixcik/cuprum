@@ -35,8 +35,6 @@
       "spindle": "Spindle",
       "safetyZ": "Z safety",
       "probe": "Z-probe",
-      "advanced": "Advanced",
-      "advancedSub": "backlash, runout, port",
       "mechanics": "Mechanics & accuracy",
       "connection": "Connection",
       "gcode": "G-code",
