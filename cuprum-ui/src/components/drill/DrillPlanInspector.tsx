@@ -199,7 +199,9 @@ export function DrillPlanInspector({
             <div>{run.state.error}</div>
             <div className="text-rose-300/70">{t("run.errorHint")}</div>
           </div>
-          <AlarmActions />
+          {/* Unlocking clears the alarm; also dismiss this banner (gated on the
+              run's own error phase, which $X alone won't change). */}
+          <AlarmActions onUnlock={() => run.reset()} />
           <button
             type="button"
             aria-label={t("hole.clear")}
