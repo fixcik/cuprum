@@ -29,3 +29,12 @@ export function rpmToSWord(rpm: number, physMax: number, sMax: number): number {
   const clamped = Math.min(Math.max(rpm, 0), physMax);
   return Math.round((clamped / physMax) * sMax);
 }
+
+/** Convert a GRBL S word (e.g. the $31 min-speed setting) to real shaft RPM,
+ *  scaling by the firmware ceiling. Inverse of {@link rpmToSWord}. Clamps the input
+ *  to [0, sMax] first. Returns 0 when sMax is unknown/non-positive. */
+export function sWordToRpm(s: number, physMax: number, sMax: number): number {
+  if (sMax <= 0) return 0;
+  const clamped = Math.min(Math.max(s, 0), sMax);
+  return Math.round((clamped / sMax) * physMax);
+}
