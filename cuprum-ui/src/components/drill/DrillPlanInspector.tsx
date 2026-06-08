@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
 import { AlarmActions } from "@/components/machine/AlarmActions";
+import { LimitRecoveryNotice } from "@/components/machine/LimitRecoveryNotice";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillClass } from "@/lib/api";
 import type { DrillRoute } from "@/lib/drillRoute";
@@ -212,6 +213,14 @@ export function DrillPlanInspector({
           </button>
         </div>
       )}
+
+      {/* Stuck limit-switch recovery — plain `$X` (above) can't pull off an engaged
+          switch with hard limits on, and `$H` then can't home. Self-gating: renders
+          only when a limit pin is active. Same flow as manual control, surfaced here
+          so an alarm during drilling isn't a dead end in this window. */}
+      <div className="px-4 py-2 [&:empty]:hidden">
+        <LimitRecoveryNotice />
+      </div>
 
       {mode === "run" ? (
         /* ── RUN mode ── */

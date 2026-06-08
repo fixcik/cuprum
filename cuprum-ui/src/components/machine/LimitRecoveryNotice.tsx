@@ -10,8 +10,9 @@ type Axis = "x" | "y" | "z";
 const AXES: Axis[] = ["x", "y", "z"];
 
 /** Jog steps (mm) offered while nudging off a stuck switch. Deliberately small —
- *  protection is disabled in this mode, so moves must be deliberate. */
-const STEPS_MM = [1, 5] as const;
+ *  protection is disabled in this mode, so moves must be deliberate. Defaults to the
+ *  finest (0.1) for a careful first nudge off the switch. */
+const STEPS_MM = [0.1, 1, 5] as const;
 
 /** Recovery flow for a stuck limit switch (typically the *far* end after a crash:
  *  both end switches of an axis share one GRBL pin, so the controller can't tell
