@@ -15,6 +15,13 @@ export interface PhaseProgress {
   drilling: number;
   /** Retract: travel from target depth back to safe-Z (Z −depth → safeZ). */
   retract: number;
+  /** True once the bit has reached safe-Z for THIS hole. The cycle fractions
+   *  (descent/drilling/retract) only start accruing afterwards — before that the
+   *  bit is still getting INTO position (e.g. lifting off the surface after a
+   *  tool-change probe/touch-off and traversing to the hole), which must read as
+   *  `traverse`, not a (spuriously completed) descent. Optional: the smoothed,
+   *  display-only value the hook renders omits it. */
+  armed?: boolean;
 }
 
 /** Segment colours for the three phases (single source of truth for the ring).
@@ -60,18 +67,25 @@ export function phaseColor(
   return phase === "drilling" ? bitColor : PHASE_COLORS[phase];
 }
 
-/** A hole that has not started: every phase empty, current phase = descent. */
+/** A hole that has not started: every phase empty, current phase = traverse. */
 export const ZERO_PHASE_PROGRESS: PhaseProgress = {
   phase: "traverse",
   descent: 0,
   drilling: 0,
   retract: 0,
+  armed: false,
 };
 
 /** Drilling must be essentially complete before any upward motion counts as the
  *  final retract — otherwise a peck cycle's intermediate G0-to-safe-Z would be
  *  mistaken for the retract phase. */
 const DRILL_DONE = 0.98;
+
+/** Tolerance band (mm) just below safe-Z treated as "at safe height": both arms
+ *  the cycle and keeps descent at 0 there, so a sample that lands a hair under
+ *  safe-Z (sampling/easing, or the top of the pre-drill lift) never blips a
+ *  sliver of descent that would then latch and mislabel the traverse. */
+const SAFE_Z_BAND_MM = 0.2;
 
 const clamp01 = (f: number) => (f <= 0 ? 0 : f > 1 ? 1 : f);
 
@@ -87,6 +101,12 @@ const clamp01 = (f: number) => (f <= 0 ? 0 : f > 1 ? 1 : f);
  *
  *  Every fraction is kept as a monotonic max so the ring never shrinks.
  *
+ *  The cycle is *armed* only once the bit has reached safe-Z for this hole: until
+ *  then the motion is pre-drill positioning (the lift off the surface after a
+ *  tool-change probe/touch-off, then the traverse to the hole) and reads as
+ *  `traverse`. Without arming, the post-probe surface Z (z≈0) would latch
+ *  descent=1 and mislabel the whole lift + traverse as a descent.
+ *
  *  @param prev      previous progress for this hole (use ZERO_PHASE_PROGRESS to start).
  *  @param zMm       latest work Z (mm); positive above the surface, negative in material.
  *  @param depthMm   target plunge depth (positive magnitude: substrate + breakthrough).
@@ -101,9 +121,20 @@ export function nextPhaseProgress(
   // Degenerate machine config — nothing meaningful to show.
   if (depthMm <= 0 || safeZMm <= 0) return prev;
 
-  // Descent: how far from safe-Z toward the surface. At/below the surface this is
-  // fully done (1). Monotonic.
-  const descentRaw = zMm <= 0 ? 1 : clamp01((safeZMm - zMm) / safeZMm);
+  const band = Math.min(SAFE_Z_BAND_MM, safeZMm * 0.5);
+  const atSafe = zMm >= safeZMm - band;
+
+  // Arm the cycle once the bit reaches safe-Z; stays armed for the rest of the
+  // hole. Before arming, the bit is still getting into position — pure traverse.
+  const armed = prev.armed || atSafe;
+  if (!armed) {
+    return { phase: "traverse", descent: 0, drilling: 0, retract: 0, armed: false };
+  }
+
+  // Descent: how far from safe-Z toward the surface. Held at 0 within the safe-Z
+  // band (parked / traversing) so a traverse never reads as descent; at/below the
+  // surface it's fully done (1). Monotonic.
+  const descentRaw = zMm <= 0 ? 1 : atSafe ? 0 : clamp01((safeZMm - zMm) / safeZMm);
   const descent = Math.max(prev.descent, descentRaw);
 
   // Drilling: fraction of target depth reached. Monotonic.
@@ -123,5 +154,5 @@ export function nextPhaseProgress(
   const phase: DrillHolePhase =
     retract > 0 ? "retract" : drilling > 0 ? "drilling" : descent > 0 ? "descent" : "traverse";
 
-  return { phase, descent, drilling, retract };
+  return { phase, descent, drilling, retract, armed: true };
 }
