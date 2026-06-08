@@ -8,7 +8,6 @@ import {
   parseSoftLimitsEnabled,
   parseMaxTravel,
   parseMaxSpindle,
-  parseMinSpindle,
 } from "@/lib/workZero";
 import { shouldInferHomed } from "@/lib/homing";
 
@@ -50,10 +49,6 @@ interface MachineStore {
    *  100 % PWM. null until the $$ query reports it; the spindle gauge falls back
    *  to the profile's spindleMaxRpm meanwhile. */
   maxSpindleRpm: number | null;
-  /** GRBL min spindle speed ($31, S-word) — the minimum PWM floor: below this S
-   *  word (but above 0) the spindle still spins at its slowest. null until the $$
-   *  query reports it; 0 means no floor. Drives the spindle slider's lower bound. */
-  minSpindleRpm: number | null;
   /** True once a homing cycle has completed this session (state home → idle).
    *  Cleared on connect, alarm, and disconnect/reset. Gates machine-coordinate
    *  auto-moves (G53 retracts) so they never run against an unreferenced frame. */
@@ -115,9 +110,6 @@ export const useMachine = create<MachineStore>((set, get) => {
         // Max spindle speed ($30) — the real scale for the spindle gauge.
         const maxSpindle = parseMaxSpindle(msg.text);
         if (maxSpindle !== null) set({ maxSpindleRpm: maxSpindle });
-        // Min spindle speed ($31) — the slider's lower bound.
-        const minSpindle = parseMinSpindle(msg.text);
-        if (minSpindle !== null) set({ minSpindleRpm: minSpindle });
         // Max travel per axis ($130/$131/$132). Accumulate into a partial buffer
         // and only publish the [X,Y,Z] tuple once ALL three axes are known, so the
         // soft-limit mismatch notice can't flash on a half-filled tuple.
@@ -150,7 +142,6 @@ export const useMachine = create<MachineStore>((set, get) => {
       softLimitsEnabled: null,
       maxTravelMm: null,
       maxSpindleRpm: null,
-      minSpindleRpm: null,
     });
     // Query firmware settings to detect homing support ($22).
     await api.machine.send("$$");
@@ -183,7 +174,6 @@ export const useMachine = create<MachineStore>((set, get) => {
     softLimitsEnabled: null,
     maxTravelMm: null,
     maxSpindleRpm: null,
-    minSpindleRpm: null,
     homed: false,
     homing: false,
     connect: async (port, baud) => {
@@ -264,7 +254,6 @@ export const useMachine = create<MachineStore>((set, get) => {
         softLimitsEnabled: null,
         maxTravelMm: null,
         maxSpindleRpm: null,
-        minSpindleRpm: null,
         homed: false,
         homing: false,
       });
