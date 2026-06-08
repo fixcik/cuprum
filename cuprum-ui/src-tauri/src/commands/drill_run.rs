@@ -3,17 +3,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::broadcast;
 
-use cuprum_core::grbl;
+use cuprum_core::grbl::{self, GrblEvent, GrblHandle, GrblLease, MachineState as GrblState};
 
-use super::machine::{Activity, MachineState};
-
-/// Abort the run if GRBL goes completely silent (no line — not even a status
-/// poll reply) for this long: a real stall/disconnect.
-const STALL_SILENCE: Duration = Duration::from_secs(4);
-/// Abort if GRBL reports Idle (buffer drained, nothing executing) for this long
-/// after a line was sent without an `ok`: the `ok` was lost on the wire.
-const IDLE_NO_ACK: Duration = Duration::from_millis(2500);
+use super::machine::MachineState;
 
 // ── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +40,10 @@ struct Control {
 
 struct JobHandle {
     ctrl: Arc<Control>,
-    handle: Option<std::thread::JoinHandle<()>>,
+    /// The runner task. Not joined: completion is signalled by `ctrl.finished`,
+    /// and a new run reclaims the slot once that is set.
+    #[allow(dead_code)]
+    task: tauri::async_runtime::JoinHandle<()>,
 }
 
 #[derive(Default)]
@@ -80,84 +77,66 @@ struct ErrorPayload {
     message: String,
 }
 
-// ── Helper: send a realtime byte via the machine writer ──────────────────────
-
-fn send_rt(machine: &State<MachineState>, byte: u8) {
-    if let Some(w) = machine.writer() {
-        let _ = w.lock().unwrap().write_realtime(byte);
-    }
-}
-
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn drill_run_start(
+pub async fn drill_run_start(
     app: AppHandle,
-    machine: State<MachineState>,
-    job: State<DrillJob>,
+    machine: State<'_, MachineState>,
+    job: State<'_, DrillJob>,
     steps: Vec<DrillStepDto>,
 ) -> Result<(), String> {
-    if !machine.is_connected() {
-        return Err("not connected".into());
-    }
+    let handle = machine.handle().ok_or("not connected")?;
 
-    let writer = machine.writer().ok_or("not connected")?;
-    let ack_slot = machine.ack_slot().ok_or("not connected")?;
-    let activity = machine.activity().ok_or("not connected")?;
-
-    // Register the ack channel so the reader thread can forward ok/error/alarm.
-    // The runner keeps a clone (RunConn.tx) so it can release the slot during a
-    // tool-change pause and reclaim it afterwards.
-    let (tx, rx) = std::sync::mpsc::channel::<grbl::Line>();
-    *ack_slot.lock().unwrap() = Some(tx.clone());
-
-    let ctrl = Arc::new(Control::default());
-    let ctrl_thread = ctrl.clone();
-
-    let holes_total = steps.iter().filter(|s| s.kind == "hole").count() as u32;
-    let app_thread = app.clone();
-
-    // Hold the slot lock across the entire check-reclaim-insert sequence so
-    // no concurrent start can observe a None slot mid-reinit.
-    // The runner thread never locks the DrillJob slot (it uses ack_slot + ctrl
-    // only), so there is no deadlock risk here.
-    let mut slot = job.0.lock().unwrap();
-    if let Some(h) = slot.as_ref() {
-        if h.ctrl.finished.load(Relaxed) {
-            // Previous run is done — join the thread (returns immediately for a
-            // finished thread; safe while holding the slot lock).
-            let finished = slot.take().unwrap();
-            if let Some(handle) = finished.handle {
-                let _ = handle.join();
+    // Reclaim a finished job's slot, or refuse if one is still live. Held only
+    // briefly; the runner task never locks this slot.
+    {
+        let mut slot = job.0.lock().unwrap();
+        if let Some(h) = slot.as_ref() {
+            if h.ctrl.finished.load(Relaxed) {
+                slot.take();
+            } else {
+                return Err("already running".into());
             }
-        } else {
-            return Err("already running".into());
         }
     }
 
-    let handle = std::thread::spawn(move || {
-        run_job(
-            app_thread,
-            RunConn {
-                writer,
-                rx,
-                ack_slot,
-                tx,
-                activity,
-            },
-            ctrl_thread,
-            steps,
-            holes_total,
-        );
-    });
+    // Take the exclusive line-lane lease for the whole run: interactive line
+    // commands (jog, set-zero…) are refused with `busy` until it is released, so
+    // nothing can interleave the drill stream. Real-time bytes (feed-hold, e-stop,
+    // overrides) still pass. A previous run's lease is released on its task end;
+    // retry briefly in case that release is still in flight.
+    let lease = acquire_lease_retry(&handle).await?;
+    let status = handle.subscribe();
 
-    *slot = Some(JobHandle {
-        ctrl,
-        handle: Some(handle),
-    });
-    drop(slot);
+    let ctrl = Arc::new(Control::default());
+    let holes_total = steps.iter().filter(|s| s.kind == "hole").count() as u32;
 
+    let task = tauri::async_runtime::spawn(run_job(
+        app.clone(),
+        handle,
+        lease,
+        status,
+        ctrl.clone(),
+        steps,
+        holes_total,
+    ));
+
+    *job.0.lock().unwrap() = Some(JobHandle { ctrl, task });
     Ok(())
+}
+
+/// Acquire the line-lane lease, retrying briefly while it reports `Busy` (a prior
+/// run's lease release may still be in flight). Gives up after ~1 s.
+async fn acquire_lease_retry(handle: &GrblHandle) -> Result<GrblLease, String> {
+    for _ in 0..20 {
+        match handle.acquire_lease().await {
+            Ok(lease) => return Ok(lease),
+            Err(grbl::GrblError::Busy) => tokio::time::sleep(Duration::from_millis(50)).await,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Err("machine busy".into())
 }
 
 #[tauri::command]
@@ -226,13 +205,28 @@ pub fn drill_run_stop(app: AppHandle, job: State<DrillJob>) -> Result<(), String
 /// Emergency stop: immediate feed-hold + soft-reset. ALARM is expected and
 /// acceptable; use only when the graceful stop is insufficient.
 #[tauri::command]
-pub fn drill_run_estop(machine: State<MachineState>, job: State<DrillJob>) -> Result<(), String> {
-    let slot = job.0.lock().unwrap();
-    if let Some(h) = slot.as_ref() {
-        h.ctrl.abort.store(true, Relaxed);
-        drop(slot);
-        send_rt(&machine, grbl::FEED_HOLD);
-        send_rt(&machine, grbl::SOFT_RESET);
+pub async fn drill_run_estop(
+    machine: State<'_, MachineState>,
+    job: State<'_, DrillJob>,
+) -> Result<(), String> {
+    let aborting = {
+        let slot = job.0.lock().unwrap();
+        match slot.as_ref() {
+            Some(h) => {
+                h.ctrl.abort.store(true, Relaxed);
+                true
+            }
+            None => false,
+        }
+    };
+    if aborting {
+        // Real-time bytes bypass the lease, so they reach GRBL even though the
+        // runner holds the line lane. The soft-reset's welcome banner also
+        // unblocks the runner's in-flight `send_await` (resolved as a reset).
+        if let Some(handle) = machine.handle() {
+            let _ = handle.send_realtime(grbl::FEED_HOLD).await;
+            let _ = handle.send_realtime(grbl::SOFT_RESET).await;
+        }
     }
     Ok(())
 }
@@ -280,36 +274,53 @@ pub fn drill_run_status(job: State<DrillJob>) -> DrillRunStatus {
     }
 }
 
-// ── Runner thread ────────────────────────────────────────────────────────────
+// ── Runner task ────────────────────────────────────────────────────────────────
 
-/// Connection handles the runner owns (cloned out of `MachineState` before the
-/// thread spawns, so no `State<>` crosses the thread boundary).
-struct RunConn {
-    writer: Arc<Mutex<cuprum_core::grbl::GrblWriter>>,
-    rx: std::sync::mpsc::Receiver<grbl::Line>,
-    ack_slot: Arc<Mutex<Option<std::sync::mpsc::Sender<grbl::Line>>>>,
-    /// A clone of the ack sender. During a tool-change pause the runner releases the
-    /// ack slot (sets it to None) so the operator's per-tool Z bind (probe / manual
-    /// touch-off, both ok-waiters) can claim it; this clone keeps `rx` alive and lets
-    /// the runner reclaim the slot before streaming the next group.
-    tx: std::sync::mpsc::Sender<grbl::Line>,
-    activity: Arc<Mutex<Activity>>,
+/// Wait until GRBL reports a FRESH Idle (bit physically at safe Z after a
+/// retract). Stale buffered status is drained first, so we wait for a report
+/// taken once this step's motion was underway. Returns early on abort (and, when
+/// `stop_on_stopping`, on a graceful stop); times out after 30 s so a lost link
+/// can't hang the runner. Driven by the actor's 200 ms status broadcast.
+async fn wait_idle(
+    status: &mut broadcast::Receiver<GrblEvent>,
+    ctrl: &Control,
+    stop_on_stopping: bool,
+) {
+    while status.try_recv().is_ok() {}
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if ctrl.abort.load(Relaxed) || (stop_on_stopping && ctrl.stopping.load(Relaxed)) {
+            return;
+        }
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return;
+        }
+        let wait = (deadline - now).min(Duration::from_millis(150));
+        match tokio::time::timeout(wait, status.recv()).await {
+            Ok(Ok(GrblEvent::Status { status: s, .. })) if matches!(s.state, GrblState::Idle) => {
+                return
+            }
+            Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
+            Ok(Err(broadcast::error::RecvError::Closed)) => return,
+            Err(_) => {} // timeout slice — loop to re-check flags
+        }
+    }
 }
 
-fn run_job(
+async fn run_job(
     app: AppHandle,
-    conn: RunConn,
+    handle: GrblHandle,
+    lease: GrblLease,
+    mut status: broadcast::Receiver<GrblEvent>,
     ctrl: Arc<Control>,
     steps: Vec<DrillStepDto>,
     holes_total: u32,
 ) {
-    let RunConn {
-        writer,
-        rx,
-        ack_slot,
-        tx,
-        activity,
-    } = conn;
+    // Held for the whole run; released (set to None) during a tool-change pause so
+    // the operator's per-tool Z bind (non-leased probe / manual touch-off) can run,
+    // then reacquired before streaming the next group.
+    let mut lease = Some(lease);
 
     let emit_state = |phase: &str| {
         let _ = app.emit(
@@ -318,21 +329,6 @@ fn run_job(
                 phase: phase.to_string(),
             },
         );
-    };
-
-    // Wait until GRBL reports Idle (bit physically at safe Z after a retract).
-    // Times out after 30 s to avoid hanging indefinitely on a lost connection.
-    let wait_idle = |ctrl: &Control, activity: &Arc<Mutex<Activity>>| {
-        let deadline = std::time::Instant::now() + Duration::from_secs(30);
-        while std::time::Instant::now() < deadline {
-            if ctrl.abort.load(Relaxed)
-                || ctrl.stopping.load(Relaxed)
-                || activity.lock().unwrap().idle
-            {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
     };
 
     emit_state("running");
@@ -346,7 +342,6 @@ fn run_job(
         if ctrl.abort.load(Relaxed) {
             break;
         }
-
         // Graceful-stop gate: previous step ended at safe Z — clean exit.
         if ctrl.stopping.load(Relaxed) {
             break;
@@ -357,22 +352,26 @@ fn run_job(
             // Stop the spindle if it was running, then wait for the bit to
             // physically reach safe Z before blocking.
             if last_spindle_on.is_some() {
-                let _ = writer.lock().unwrap().write_line("M5");
+                if let Some(l) = lease.as_ref() {
+                    let _ = l.send_line("M5").await;
+                }
             }
-            wait_idle(&ctrl, &activity);
+            wait_idle(&mut status, &ctrl, true).await;
             emit_state("paused");
             while ctrl.paused.load(Relaxed)
                 && !ctrl.abort.load(Relaxed)
                 && !ctrl.stopping.load(Relaxed)
             {
-                std::thread::sleep(Duration::from_millis(50));
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
             if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
                 break;
             }
             // Resume: spin the spindle back up before motion resumes.
             if let Some(s) = &last_spindle_on {
-                let _ = writer.lock().unwrap().write_line(s);
+                if let Some(l) = lease.as_ref() {
+                    let _ = l.send_line(s).await;
+                }
             }
             emit_state("running");
         }
@@ -405,95 +404,36 @@ fn run_job(
             if line.trim_start().starts_with("M3") {
                 last_spindle_on = Some(line.clone());
             }
-            if let Err(e) = writer.lock().unwrap().write_line(line) {
-                aborted_msg = Some(format!("write failed: {e}"));
+            let Some(l) = lease.as_ref() else {
+                aborted_msg = Some("lost machine lease".into());
                 break 'outer;
-            }
-            // Wait for ok based on GRBL LIVENESS, not a fixed deadline: a long
-            // move keeps GRBL in Run and the 200 ms status poll flowing, so we
-            // keep waiting as long as the link is alive. Abort only on a real
-            // stall (no line at all for STALL_SILENCE), a lost ok (GRBL Idle —
-            // buffer drained — with no ack for IDLE_NO_ACK), abort, or error.
-            // (Soft-reset on Stop replies with a banner, not an ok, so abort is
-            // re-checked at the top each tick.)
-            let sent = std::time::Instant::now();
-            loop {
-                if ctrl.abort.load(Relaxed) {
+            };
+            // The actor waits for `ok` based on GRBL liveness (a long move keeps the
+            // status flowing) and surfaces error/alarm/timeout/reset. A soft-reset on
+            // e-stop resolves this as `reset`; abort is re-checked below.
+            match l.send_await(line).await {
+                Ok(()) => {}
+                Err(e) => {
+                    if !ctrl.abort.load(Relaxed) {
+                        aborted_msg = Some(e.to_string());
+                    }
                     break 'outer;
-                }
-                match rx.recv_timeout(Duration::from_millis(100)) {
-                    Ok(grbl::Line::Ok) => break,
-                    Ok(grbl::Line::Error(n)) => {
-                        aborted_msg = Some(format!("error:{n}"));
-                        break 'outer;
-                    }
-                    Ok(grbl::Line::Alarm(n)) => {
-                        aborted_msg = Some(format!("ALARM:{n}"));
-                        break 'outer;
-                    }
-                    // Stray non-ok line: keep waiting for the real ack.
-                    Ok(_) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        let (silent, idle) = {
-                            let a = activity.lock().unwrap();
-                            (a.last.elapsed(), a.idle)
-                        };
-                        if silent > STALL_SILENCE {
-                            aborted_msg = Some("no response from machine".into());
-                            break 'outer;
-                        }
-                        if idle && sent.elapsed() > IDLE_NO_ACK {
-                            aborted_msg = Some("machine idle, no ack (lost ok)".into());
-                            break 'outer;
-                        }
-                        // else GRBL is alive and busy — keep waiting.
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        aborted_msg = Some("connection lost".into());
-                        break 'outer;
-                    }
                 }
             }
         }
 
         // Sync to physical completion before any gate or the next step. GRBL acks
-        // each line on buffer-accept, NOT on motion-done, so without this the
-        // runner races ahead by the planner-buffer depth (~15 blocks ≈ a few
-        // holes) and a pause/stop would only take effect after the already-buffered
-        // holes had drained — the operator sees the spindle overrun the current
-        // hole. We pre-clear `idle` (motion was just queued, so any prior Idle is
-        // stale) and poll status until GRBL reports a fresh Idle, so the pause/stop
-        // gates land on the true hole boundary. E-stop (`abort`) skips the wait; a
-        // graceful stop does NOT — the current hole's buffered retract to safe Z is
-        // allowed to finish (that is the point of a clean stop). A lost link times
-        // out at 30 s and the next streamed line surfaces the real error.
-        {
-            activity.lock().unwrap().idle = false;
-            let deadline = std::time::Instant::now() + Duration::from_secs(30);
-            // Skip the idle check on the first iteration: a stale `<Idle>` status
-            // generated before this step's motion started could still be buffered
-            // and get parsed by the reader thread right after the pre-clear. Our
-            // own `?` below is FIFO-ordered after it, so by the second iteration
-            // `idle` reflects a fresh report taken once motion was underway.
-            let mut first = true;
-            while std::time::Instant::now() < deadline {
-                if ctrl.abort.load(Relaxed) {
-                    break;
-                }
-                // Poll promptly — the background poller only queries every 200 ms.
-                let _ = writer.lock().unwrap().write_realtime(grbl::STATUS_QUERY);
-                std::thread::sleep(Duration::from_millis(40));
-                if !first && activity.lock().unwrap().idle {
-                    break;
-                }
-                first = false;
-            }
-        }
+        // each line on buffer-accept, NOT on motion-done, so without this the runner
+        // races ahead by the planner-buffer depth (~15 blocks ≈ a few holes) and a
+        // pause/stop would only take effect after the already-buffered holes had
+        // drained. Wait for a fresh Idle so the pause/stop gates land on the true
+        // hole boundary. E-stop (`abort`) skips the wait; a graceful stop does NOT —
+        // the current hole's buffered retract to safe Z is allowed to finish.
+        wait_idle(&mut status, &ctrl, false).await;
 
-        // Tool-change gate — AFTER the step's lines (the spindle was stopped and
-        // Z retracted above), so the operator swaps the bit with the spindle off.
-        // Spindle-up (M3 S…) lives on the next group's first hole step, streamed
-        // only after the operator confirms.
+        // Tool-change gate — AFTER the step's lines (spindle stopped, Z retracted),
+        // so the operator swaps the bit with the spindle off. Spindle-up (M3 S…)
+        // lives on the next group's first hole step, streamed only after confirm.
         if step.pause_for_tool_change {
             ctrl.confirm_tool_change.store(false, Relaxed);
             let _ = app.emit(
@@ -503,27 +443,33 @@ fn run_job(
                     diameter_mm: step.diameter_mm.unwrap_or(0.0),
                 },
             );
+            // Release the lease — AWAITING the actor — BEFORE prompting the
+            // operator, so their per-tool Z bind (`machine_probe_z` G38.2 or
+            // `machine_set_zero` manual touch-off, both non-leased line commands)
+            // is guaranteed to pass the lease gate the instant they tap probe. A
+            // fire-and-forget drop could let the prompt beat the release and make
+            // the first probe fail with "machine busy".
+            if let Some(l) = lease.take() {
+                l.release().await;
+            }
             emit_state("awaitingToolChange");
-            // Release the ack channel for the duration of the pause so the operator's
-            // per-tool Z bind — `machine_probe_z` (G38.2) or `machine_set_zero` (manual
-            // touch-off), both of which claim the slot to wait for GRBL's ok — can run.
-            // The runner only polls `confirm_tool_change` here; it streams nothing and
-            // needs no ok routing until it reclaims the slot below.
-            *ack_slot.lock().unwrap() = None;
             while !ctrl.confirm_tool_change.load(Relaxed)
                 && !ctrl.abort.load(Relaxed)
                 && !ctrl.stopping.load(Relaxed)
             {
-                std::thread::sleep(Duration::from_millis(50));
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
             if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
                 break;
             }
-            // Reclaim the slot before streaming the next group, and drop any line that
-            // arrived while it was released (a stray ok from the operator's bind) so the
-            // next line's ok-wait can't consume a stale token.
-            *ack_slot.lock().unwrap() = Some(tx.clone());
-            while rx.try_recv().is_ok() {}
+            // Reclaim the lease before streaming the next group.
+            match acquire_lease_retry(&handle).await {
+                Ok(l) => lease = Some(l),
+                Err(e) => {
+                    aborted_msg = Some(e);
+                    break;
+                }
+            }
             emit_state("running");
         }
 
@@ -541,27 +487,33 @@ fn run_job(
         }
     }
 
-    // Teardown: unregister the ack sender so the reader thread no longer
-    // tries to forward lines into a dropped channel.
-    *ack_slot.lock().unwrap() = None;
+    // Best-effort spindle off on every exit path. Prefer the lease if still held
+    // (a non-leased send would be refused while we hold it); otherwise the lease
+    // was released at a tool-change gate and a plain send is fine.
+    match &lease {
+        Some(l) => {
+            let _ = l.send_line("M5").await;
+        }
+        None => {
+            let _ = handle.send_line("M5").await;
+        }
+    }
 
     if let Some(msg) = aborted_msg {
-        let _ = writer.lock().unwrap().write_line("M5"); // best-effort spindle off
         let _ = app.emit("drill-run://error", ErrorPayload { message: msg });
         emit_state("error");
     } else if ctrl.abort.load(Relaxed) {
-        // Emergency stop: machine may be in ALARM — just stop the spindle best-effort.
-        let _ = writer.lock().unwrap().write_line("M5");
+        // Emergency stop: machine may be in ALARM — spindle already addressed above.
         emit_state("idle");
     } else if ctrl.stopping.load(Relaxed) {
         // Graceful stop: bit is at safe Z, no ALARM, machine is re-runnable.
-        let _ = writer.lock().unwrap().write_line("M5");
         emit_state("idle");
     } else {
         let _ = app.emit("drill-run://done", ());
         emit_state("done");
     }
 
-    // Mark the job as finished so drill_run_start can reclaim the slot.
+    // Mark the job as finished so drill_run_start can reclaim the slot. Dropping
+    // `lease` here releases the line lane for interactive commands again.
     ctrl.finished.store(true, Relaxed);
 }

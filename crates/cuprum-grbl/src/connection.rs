@@ -1,11 +1,7 @@
-//! Blocking serial transport for a GRBL device. `open` returns a split
-//! writer/reader pair sharing the same port (one handle for each direction).
-
-use std::io::{self, Read, Write};
-use std::time::Duration;
+//! Serial-port discovery for GRBL devices. The live byte transport moved to the
+//! async actor (`actor`); this module now only enumerates plausible machine ports.
 
 use anyhow::{Context, Result};
-use serialport::SerialPort;
 
 /// A serial port the UI can offer for connection.
 pub struct PortInfo {
@@ -59,82 +55,6 @@ pub fn list_ports() -> Result<Vec<PortInfo>> {
         })
         .filter(|p| is_machine_port(&p.name, &p.kind))
         .collect())
-}
-
-/// Open `port` at `baud` and return (writer, reader). The two handles share the
-/// underlying device — one is used by command threads to write, the other by the
-/// reader thread to read.
-pub fn open(port: &str, baud: u32) -> Result<(GrblWriter, GrblReader)> {
-    let handle = serialport::new(port, baud)
-        .timeout(Duration::from_millis(50))
-        .open()
-        .with_context(|| format!("open serial port {port} @ {baud}"))?;
-    let read_handle = handle.try_clone().context("clone serial handle")?;
-    tracing::debug!(port, baud, "opened serial port");
-    Ok((
-        GrblWriter { port: handle },
-        GrblReader {
-            port: read_handle,
-            buf: Vec::with_capacity(256),
-        },
-    ))
-}
-
-/// Write side: lines + real-time bytes.
-pub struct GrblWriter {
-    port: Box<dyn SerialPort>,
-}
-
-impl GrblWriter {
-    /// Write `line` followed by '\n' and flush.
-    pub fn write_line(&mut self, line: &str) -> Result<()> {
-        self.port
-            .write_all(line.as_bytes())
-            .context("serial write")?;
-        self.port.write_all(b"\n").context("serial write")?;
-        self.port.flush().context("serial flush")?;
-        Ok(())
-    }
-
-    /// Write a single real-time byte (e.g. `?`, `!`, `~`, soft-reset) and flush.
-    pub fn write_realtime(&mut self, byte: u8) -> Result<()> {
-        self.port.write_all(&[byte]).context("serial write")?;
-        self.port.flush().context("serial flush")?;
-        Ok(())
-    }
-}
-
-/// Read side: yields complete lines, buffering partial reads across calls.
-pub struct GrblReader {
-    port: Box<dyn SerialPort>,
-    buf: Vec<u8>,
-}
-
-impl GrblReader {
-    /// Return the next complete line (trailing \r\n stripped), or `None` on a read
-    /// timeout (no full line available yet). Errors only on a real I/O failure
-    /// (e.g. the device was unplugged).
-    pub fn read_line(&mut self) -> Result<Option<String>> {
-        loop {
-            if let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
-                let line: Vec<u8> = self.buf.drain(..=pos).collect();
-                let s = String::from_utf8_lossy(&line);
-                return Ok(Some(s.trim_end_matches(['\r', '\n']).to_string()));
-            }
-            let mut tmp = [0u8; 256];
-            match self.port.read(&mut tmp) {
-                Ok(0) => return Ok(None),
-                Ok(n) => self.buf.extend_from_slice(&tmp[..n]),
-                Err(e) if e.kind() == io::ErrorKind::TimedOut => return Ok(None),
-                // A read interrupted by a signal is transient — loop and read again.
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => {
-                    tracing::warn!(error = %e, "serial read failed");
-                    return Err(e).context("serial read");
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
