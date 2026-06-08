@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSettings } from "@/settingsStore";
+import { EditableText } from "@/components/ui/EditableText";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CncSettingsCards } from "@/components/settings/CncSettingsCards";
 import { UvSettingsCards } from "@/components/settings/UvSettingsCards";
 import { SearchBox, DirtyBar } from "@/components/settings/SettingsToolbar";
@@ -18,8 +20,16 @@ import {
 type CncTab = "config" | "control";
 
 /** Right detail pane of the equipment section: the editor for the selected
- *  machine, dispatched by kind. Empty state when nothing is selected. */
-export function MachineEditor({ machine }: { machine: Machine | null }) {
+ *  machine, dispatched by kind. The header name is inline-editable and the
+ *  toolbar carries a delete-device action (both reachable when the list rail is
+ *  collapsed). Empty state when nothing is selected. */
+export function MachineEditor({
+  machine,
+  onDelete,
+}: {
+  machine: Machine | null;
+  onDelete: (id: string) => void;
+}) {
   const { t } = useTranslation("settings");
   const update = useSettings((s) => s.updateMachine);
   // Sub-tabs only apply to CNC machines; reset implicitly when the selected
@@ -27,6 +37,8 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
   const [tab, setTab] = useState<CncTab>("config");
   // Search query for the config-tab cards toolbar.
   const [query, setQuery] = useState("");
+  // Delete-device confirmation dialog.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // Console drawer visibility — toggled from the tab row, rendered inside the
   // control panel. Persisted so it survives remounts/tab switches.
   const [consoleOpen, setConsoleOpen] = useState(
@@ -68,10 +80,26 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
   if (machine === null) {
     return (
       <div className="p-6">
-        <p className="text-[12px] text-muted-foreground">{t("equipment.empty")}</p>
+        <p className="text-[12px] text-muted-foreground">{t("equipment.emptyEditor")}</p>
       </div>
     );
   }
+
+  // Shared across both kinds — confirms removal of the current machine.
+  const deleteDialog = (
+    <ConfirmDialog
+      open={confirmDelete}
+      onClose={() => setConfirmDelete(false)}
+      onConfirm={() => {
+        setConfirmDelete(false);
+        onDelete(machine.id);
+      }}
+      title={t("equipment.confirmDelete.title")}
+      message={t("equipment.confirmDelete.message")}
+      confirmLabel={t("equipment.delete")}
+      cancelLabel={t("equipment.cancel")}
+    />
+  );
 
   if (machine.kind === "cnc") {
     const tabs: CncTab[] = ["config", "control"];
@@ -81,7 +109,12 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-center gap-3 border-b border-border px-6 pt-4">
-          <h3 className="mr-2 text-[13px] font-semibold text-foreground">{machine.name}</h3>
+          <EditableText
+            value={machine.name}
+            onCommit={(name) => update(machine.id, { name })}
+            ariaLabel={machine.name}
+            className="mr-2 text-[13px] font-semibold text-foreground"
+          />
           <div className="flex items-center gap-1">
             {tabs.map((tb) => (
               <button
@@ -124,6 +157,7 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
                 <DirtyBar
                   dirtyCount={cncDirty.size}
                   onReset={() => update(machine.id, resetCncToFactory(machine))}
+                  onDelete={() => setConfirmDelete(true)}
                 />
               </div>
             </div>
@@ -140,6 +174,7 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
             />
           </div>
         )}
+        {deleteDialog}
       </div>
     );
   }
@@ -149,7 +184,12 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-5 pt-4">
-        <h3 className="mr-2 text-[13px] font-semibold text-foreground">{machine.name}</h3>
+        <EditableText
+          value={machine.name}
+          onCommit={(name) => update(machine.id, { name })}
+          ariaLabel={machine.name}
+          className="mr-2 text-[13px] font-semibold text-foreground"
+        />
         <span className="px-3 py-2.5 text-[12px] text-foreground">{t("equipment.tab.config")}</span>
       </div>
       <div className="flex items-center gap-3 border-b border-border px-5 py-3">
@@ -160,12 +200,14 @@ export function MachineEditor({ machine }: { machine: Machine | null }) {
           <DirtyBar
             dirtyCount={uvDirty.size}
             onReset={() => update(machine.id, resetUvToFactory(machine))}
+            onDelete={() => setConfirmDelete(true)}
           />
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
         <UvSettingsCards machine={machine} query={query} dirty={uvDirty} />
       </div>
+      {deleteDialog}
     </div>
   );
 }
