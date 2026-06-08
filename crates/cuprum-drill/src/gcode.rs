@@ -275,6 +275,11 @@ pub fn emit_drill_program(plan: &PanelDrillPlan, ctx: EmitCtx) -> DrillProgram {
     all_lines.push("M5".to_string());
     postamble_lines.push(format!("G0 Z{}", fmt_mm(safe_z)));
     all_lines.push(format!("G0 Z{}", fmt_mm(safe_z)));
+    // Return to work zero (the datum corner = G54 origin) at safe-Z so the bit
+    // parks at 0,0 — the operator can rerun without re-zeroing. Comes AFTER the Z
+    // retract so the XY move can't drag the bit across the board.
+    postamble_lines.push("G0 X0.000 Y0.000".to_string());
+    all_lines.push("G0 X0.000 Y0.000".to_string());
     if !ctx.cnc.append_gcode.trim().is_empty() {
         postamble_lines.push(ctx.cnc.append_gcode.trim().to_string());
         all_lines.push(ctx.cnc.append_gcode.trim().to_string());
@@ -387,6 +392,7 @@ G1 Z-1.900 F60
 G0 Z5.000
 M5
 G0 Z5.000
+G0 X0.000 Y0.000
 M2
 ";
         assert_eq!(prog.gcode, expected);
@@ -405,6 +411,19 @@ M2
         assert_eq!(holes.len(), 2);
         assert_eq!(holes[0].hole_index, Some(0));
         assert_eq!(holes[1].hole_index, Some(1));
+        // Postamble parks at work zero (0,0) on safe-Z, after the Z retract.
+        let post = prog
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::Postamble)
+            .unwrap();
+        let zi = post.lines.iter().position(|l| l == "G0 Z5.000").unwrap();
+        let xi = post
+            .lines
+            .iter()
+            .position(|l| l == "G0 X0.000 Y0.000")
+            .unwrap();
+        assert!(zi < xi, "XY return must come after the Z retract");
     }
 
     #[test]
