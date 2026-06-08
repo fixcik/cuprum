@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Copy, ExternalLink, PanelRightClose, Terminal } from "lucide-react";
+import { Copy, ExternalLink, History, PanelRightClose, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useMachine } from "@/machineStore";
 import { useMachineActions } from "@/components/machine/MachineActionsContext";
+import { classifyResponse, loadHistory, useConsoleHistory } from "@/lib/consoleHistory";
 
 /** Local wall-clock time of a console line as HH:MM:SS.mmm. */
 function fmtTime(ts: number): string {
@@ -27,8 +28,36 @@ export function ConsoleBody({
   const connected = useMachine((s) => s.connected);
   const [input, setInput] = useState("");
   const [copied, setCopied] = useState(false);
+  const [histOpen, setHistOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
   const firstScroll = useRef(true);
+
+  // Persisted, successful-only command history (shared across windows) — drives
+  // the dropdown picker. The up/down recall walks a separate in-memory list that
+  // also includes failed attempts (see `recallRef`).
+  const { history, remember } = useConsoleHistory();
+
+  // In-memory recall ring for the up/down arrows. Seeded from the saved history
+  // on mount so the first ↑ already reaches past successful commands, then every
+  // submitted command (success OR failure) is appended live. `recallPos` indexes
+  // it; `=== length` means "at the live draft" (not navigating). `draftRef` keeps
+  // the in-progress text stashed while the user walks back through history.
+  const recallRef = useRef<string[]>([]);
+  const recallPos = useRef(0);
+  const draftRef = useRef("");
+
+  // Awaiting GRBL's verdict for the last manually-sent command: the first `ok`
+  // after `afterSeq` commits it to the saved history; the first `error:`/`ALARM`
+  // drops it. Only set by manual console sends, so auto-traffic never pollutes it.
+  const pendingRef = useRef<{ cmd: string; afterSeq: number } | null>(null);
+
+  // Seed the recall ring from the saved history once, on mount.
+  useEffect(() => {
+    recallRef.current = loadHistory();
+    recallPos.current = recallRef.current.length;
+  }, []);
 
   // Auto-scroll the log to the bottom on new lines — but scroll ONLY this
   // container (`scrollTop`), never `scrollIntoView`, which would also yank every
@@ -45,11 +74,81 @@ export function ConsoleBody({
     }
   }, [lines]);
 
+  // Resolve a pending command against the incoming reply stream: scan rx lines
+  // newer than the send point for the first terminal verdict.
+  useEffect(() => {
+    const p = pendingRef.current;
+    if (!p) return;
+    for (const l of lines) {
+      if (l.seq <= p.afterSeq || l.dir !== "rx") continue;
+      const verdict = classifyResponse(l.text);
+      if (verdict === "ok") {
+        remember(p.cmd);
+        pendingRef.current = null;
+        break;
+      }
+      if (verdict === "error") {
+        pendingRef.current = null;
+        break;
+      }
+    }
+  }, [lines, remember]);
+
+  // Close the history dropdown on an outside click.
+  useEffect(() => {
+    if (!histOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (rowRef.current && !rowRef.current.contains(e.target as Node)) setHistOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [histOpen]);
+
   const send = () => {
     const line = input.trim();
-    if (line && connected) {
-      a.send(line);
-      setInput("");
+    if (!line || !connected) return;
+    a.send(line);
+    // Always recall-able (success or not); mark pending for the success verdict.
+    recallRef.current.push(line);
+    recallPos.current = recallRef.current.length;
+    draftRef.current = "";
+    pendingRef.current = { cmd: line, afterSeq: lines.length ? lines[lines.length - 1].seq : 0 };
+    setInput("");
+  };
+
+  // Replace the input with `value` and leave recall at the live draft, so a
+  // following ↑ starts a fresh walk from the newest command.
+  const setLive = (value: string) => {
+    setInput(value);
+    recallPos.current = recallRef.current.length;
+  };
+
+  const pick = (cmd: string) => {
+    setLive(cmd);
+    setHistOpen(false);
+    inputRef.current?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      send();
+      return;
+    }
+    const r = recallRef.current;
+    if (e.key === "ArrowUp") {
+      if (r.length === 0) return;
+      e.preventDefault();
+      // Entering navigation from the live draft — stash what was typed.
+      if (recallPos.current === r.length) draftRef.current = input;
+      if (recallPos.current > 0) {
+        recallPos.current -= 1;
+        setInput(r[recallPos.current]);
+      }
+    } else if (e.key === "ArrowDown") {
+      if (recallPos.current >= r.length) return;
+      e.preventDefault();
+      recallPos.current += 1;
+      setInput(recallPos.current === r.length ? draftRef.current : r[recallPos.current]);
     }
   };
 
@@ -136,13 +235,40 @@ export function ConsoleBody({
           </div>
         ))}
       </div>
-      <div className="flex shrink-0 items-center gap-2 border-t border-border p-2.5">
+      <div
+        ref={rowRef}
+        className="relative flex shrink-0 items-center gap-2 border-t border-border p-2.5"
+      >
+        {histOpen && history.length > 0 && (
+          <div className="absolute bottom-full left-2.5 right-2.5 mb-2 max-h-56 overflow-auto rounded-md border border-border bg-popover py-1 shadow-2xl">
+            {[...history].reverse().map((cmd, i) => (
+              <button
+                key={`${i}-${cmd}`}
+                type="button"
+                onClick={() => pick(cmd)}
+                className="block w-full select-none truncate px-3 py-1.5 text-left font-mono text-[12px] text-foreground hover:bg-foreground/10"
+              >
+                {cmd}
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          title={t("console.history")}
+          disabled={history.length === 0}
+          onClick={() => setHistOpen((v) => !v)}
+          className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-40"
+        >
+          <History className="size-4" />
+        </button>
         <input
+          ref={inputRef}
           value={input}
           disabled={!connected}
           placeholder={t("console.placeholder")}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          onChange={(e) => setLive(e.target.value)}
+          onKeyDown={onKeyDown}
           className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 font-mono text-[12px] outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
         />
         <Button onClick={send} disabled={!connected}>
