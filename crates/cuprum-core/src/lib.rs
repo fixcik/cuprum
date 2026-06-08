@@ -43,3 +43,8 @@ pub use cuprum_dfm as dfm;
 // GRBL machine client lives in its own leaf crate; re-export under `cuprum_core::grbl`
 // so the UI (Tauri machine commands) reaches it through the core facade, like sdcp.
 pub use cuprum_grbl as grbl;
+
+// Drill routing / G-code / time estimate live in their own leaf crate. Re-export
+// under `cuprum_core::drilling` (the bare `drill` name is taken by the Excellon
+// parser re-export above) so the UI reaches it through the core facade.
+pub use cuprum_drill as drilling;
