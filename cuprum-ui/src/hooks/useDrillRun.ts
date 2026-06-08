@@ -15,6 +15,9 @@ export interface UseDrillRun {
   pause: () => void;
   resume: () => void;
   stop: () => void;
+  /** Cancel a pending graceful stop while the current hole is still finishing —
+   *  returns the run to "running" without restarting. */
+  cancelStop: () => void;
   estop: () => void;
   confirmToolChange: () => void;
   /** Mark Z as bound for the current bit (probe or manual touch-off succeeded) —
@@ -94,6 +97,10 @@ export function useDrillRun(): UseDrillRun {
     void api.drillRun.stop();
   }, []);
 
+  const cancelStop = useCallback(() => {
+    void api.drillRun.cancelStop();
+  }, []);
+
   const estop = useCallback(() => {
     void api.drillRun.estop();
   }, []);
@@ -127,6 +134,7 @@ export function useDrillRun(): UseDrillRun {
     pause,
     resume,
     stop,
+    cancelStop,
     estop,
     confirmToolChange,
     markZBound,

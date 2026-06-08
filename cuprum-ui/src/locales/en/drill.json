@@ -196,6 +196,8 @@
     "stopping": "Stopping…",
     "stopRequested": "Stopping after the current hole",
     "stopTitle": "Graceful stop — finishes the current hole and lifts to safe height",
+    "cancelStop": "Cancel",
+    "cancelStopTitle": "Change your mind and keep running — while the machine finishes the current hole",
     "done": "Done",
     "estop": "Emergency stop",
     "estopFull": "Emergency stop · instant",
