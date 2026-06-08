@@ -107,9 +107,11 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
   const preambleLines: string[] = [];
   if (profile.prependGcode.trim()) preambleLines.push(profile.prependGcode.trim());
   preambleLines.push("G21 G90 G94 G17");
-  // Park high for the first bit insertion (the first group's tool-change step skips
-  // its own retract since we're already here).
-  preambleLines.push(`G0 Z${fmt(toolChangeZ)}`);
+  // NO Z park here. In the per-tool-Z model work-Z is unbound until the first
+  // tool-change probe (which runs AFTER this preamble), so a work-frame Z move
+  // (`G0 Z<toolChangeZ>`) would target the stale EEPROM G54 Z offset and trip the
+  // Z soft limit → ALARM:2 on start. The bit stays at its post-homing Z for the
+  // first bit insertion; the first probe establishes work-Z (see DrillToolChangeCard).
   for (const l of preambleLines) allLines.push(l);
   steps.push({ kind: "preamble", lines: preambleLines });
 
@@ -140,9 +142,10 @@ function buildDrillProgram(plan: PanelDrillPlan, ctx: DrillGcodeCtx): DrillProgr
     tcLines.push("M5");
     allLines.push("M5");
 
-    // The preamble already parked at the tool-change Z, so the first group is there;
-    // later groups end at safe Z after their last hole, so retract to the high
-    // tool-change Z before pausing for the swap.
+    // First group: no Z retract — work-Z isn't bound yet (the first probe sets it),
+    // so any work-frame Z move would be unsafe. The bit is at its post-homing Z.
+    // Later groups: work-Z is bound from the previous tool's probe and every hole
+    // ends at safe Z, so retract to the high tool-change Z before the swap.
     if (!firstGroup) {
       tcLines.push(`G0 Z${fmt(toolChangeZ)}`);
       allLines.push(`G0 Z${fmt(toolChangeZ)}`);

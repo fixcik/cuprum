@@ -56,13 +56,32 @@ describe("emitDrillGcode", () => {
       panelHeightMm: 10, profile: profile({ safeZMm: 3, toolChangeZMm: 25 }),
       tools: [tool("t1", 0.8), tool("t2", 1.0)], substrateThicknessMm: 1.6,
     });
-    // First-bit park + the second group's tool-change retract to tool-change Z.
+    // The second group's tool-change retracts to the high tool-change Z.
     expect(gcode).toContain("G0 Z25.000");
     // Per-hole retract stays at safe-Z.
     expect(gcode).toContain("G0 Z3.000");
-    // The very first Z move (preamble) is the high park, not safe-Z.
+    // The preamble no longer parks Z (work-Z is unbound until the first probe), so
+    // the FIRST Z move is the first hole's safe-Z retract; the high tool-change Z
+    // shows up only at the second group's tool change, after the first hole drilled.
     const firstZ = gcode.indexOf("G0 Z");
-    expect(gcode.slice(firstZ, firstZ + 9)).toBe("G0 Z25.00");
+    expect(gcode.slice(firstZ, firstZ + 9)).toBe("G0 Z3.000");
+    expect(gcode.indexOf("G0 Z25.000")).toBeGreaterThan(gcode.indexOf("G1 Z-"));
+  });
+
+  it("emits no Z park in the preamble (work-Z is unbound until the first probe)", () => {
+    // Regression: a work-frame Z park here tripped the Z soft limit → ALARM:2 on
+    // start, because the per-tool-Z model binds work-Z only at the first tool change.
+    const p = plan([{ diameterMm: 0.8, class: "pth", toolId: "t1", holes: [{ xMm: 0, yMm: 0 }] }]);
+    const { gcode } = emitDrillGcode(p, {
+      panelHeightMm: 10, profile: profile({ safeZMm: 3, toolChangeZMm: 25 }),
+      tools: [tool("t1", 0.8)], substrateThicknessMm: 1.6,
+    });
+    // Single group → the high tool-change Z must never appear (no preamble park, and
+    // the first group's tool change skips its retract).
+    expect(gcode).not.toContain("G0 Z25.000");
+    // The preamble line is followed directly by a lateral move / spindle-up, not a Z park.
+    const afterPreamble = gcode.slice(gcode.indexOf("G21 G90 G94 G17") + "G21 G90 G94 G17".length);
+    expect(afterPreamble.trimStart().startsWith("G0 Z")).toBe(false);
   });
 
   it("orders groups registration-first then by ascending diameter", () => {
@@ -131,7 +150,10 @@ describe("emitDrillGcode", () => {
     ls.forEach((l, i) => {
       if (/^G0 [XY]/.test(l)) {
         const prevZ = ls.slice(0, i).reverse().find((x) => /^G[01] Z/.test(x)) ?? "";
-        expect(prevZ).toMatch(/^G0 Z/); // last Z move before a lateral rapid was a retract
+        // If a Z move preceded this lateral, it must be a retract (never a plunge).
+        // The very first lateral has no prior Z move (the preamble no longer parks Z,
+        // and nothing has plunged yet) — safe, so only assert when a prior Z exists.
+        if (prevZ) expect(prevZ).toMatch(/^G0 Z/);
       }
     });
   });

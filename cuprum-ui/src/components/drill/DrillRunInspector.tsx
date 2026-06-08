@@ -23,7 +23,13 @@ export interface DrillRunInspectorProps {
   onFeedChange: (pct: number) => void;
   onRunDone: () => void;
   hasProbe: boolean;
-  probe: { maxDistMm: number; feedMmMin: number; offsetMm: number; safeZMm: number };
+  probe: {
+    maxDistMm: number;
+    feedMmMin: number;
+    offsetMm: number;
+    safeZMm: number;
+    firstMaxDistMm: number;
+  };
 }
 
 /** RUN-mode inspector: progress header, tool-change/finish cards, feed slider, and
@@ -81,6 +87,7 @@ export function DrillRunInspector({
             diameterMm={state.toolChange.diameterMm}
             nextColor={nextColor}
             hasProbe={hasProbe}
+            firstToolChange={state.toolChangeSeq === 1}
             probe={probe}
             zBound={state.zBound}
             onZBound={run.markZBound}

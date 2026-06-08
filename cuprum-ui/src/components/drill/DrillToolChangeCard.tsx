@@ -15,6 +15,11 @@ export interface ProbeConfig {
   feedMmMin: number;
   offsetMm: number;
   safeZMm: number;
+  /** Probe seek distance (mm) for the FIRST tool change, where no work-Z exists
+   *  yet so the fast «high park → rapid to safe-Z → short probe» can't run. Here
+   *  G38.2 descends the full distance from the current (post-homing) Z to find the
+   *  surface. Typically the Z work envelope. */
+  firstMaxDistMm: number;
 }
 
 export interface DrillToolChangeCardProps {
@@ -23,6 +28,10 @@ export interface DrillToolChangeCardProps {
   nextColor: string;
   /** Whether a Z-probe is available (shows the «Щупом» tab + makes it default). */
   hasProbe: boolean;
+  /** The very first tool change of the run (work-Z not bound yet). On the first
+   *  change the probe must NOT rapid to a work-frame safe-Z (it's a stale offset →
+   *  unsafe); G38.2 descends from the current Z instead. */
+  firstToolChange: boolean;
   probe: ProbeConfig;
   /** Z bound for the current bit — gates the confirm button. */
   zBound: boolean;
@@ -37,6 +46,7 @@ export function DrillToolChangeCard({
   diameterMm,
   nextColor,
   hasProbe,
+  firstToolChange,
   probe,
   zBound,
   onZBound,
@@ -70,9 +80,13 @@ export function DrillToolChangeCard({
     setBusy(true);
     setError(null);
     try {
-      // Approach down to safe-Z first: the tool-change park sits high (room to swap),
-      // so descend to safe-Z before the short G38.2 probe reaches the surface.
-      await api.machine.probeZ(probe.maxDistMm, probe.feedMmMin, probe.offsetMm, probe.safeZMm, probe.safeZMm);
+      // First tool change: work-Z is unbound, so there is no valid safe-Z to rapid
+      // to — descend the full distance from the current (post-homing) Z with G38.2
+      // and no work-frame approach. Later changes: the previous tool's work-Z is
+      // bound, so rapid down to safe-Z first, then a short probe.
+      const approachZ = firstToolChange ? undefined : probe.safeZMm;
+      const maxDist = firstToolChange ? probe.firstMaxDistMm : probe.maxDistMm;
+      await api.machine.probeZ(maxDist, probe.feedMmMin, probe.offsetMm, probe.safeZMm, approachZ);
       onZBound();
     } catch {
       setError(t("toolChange.probeFail"));
