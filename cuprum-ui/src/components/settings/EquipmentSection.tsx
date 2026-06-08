@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { MachineList } from "@/components/settings/MachineList";
 import { MachineEditor } from "@/components/settings/MachineEditor";
@@ -101,9 +101,9 @@ export function EquipmentSection() {
             className="ml-auto grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
           >
             {collapsed ? (
-              <PanelLeftOpen className="size-4" />
+              <ChevronsRight className="size-4" />
             ) : (
-              <PanelLeftClose className="size-4" />
+              <ChevronsLeft className="size-4" />
             )}
           </button>
         </div>
