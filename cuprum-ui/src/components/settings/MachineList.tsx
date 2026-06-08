@@ -72,10 +72,10 @@ export function MachineList({
               type="button"
               onClick={() => onSelect(m.id)}
               title={`${t(`equipment.type.${m.kind}`)} · ${m.name}`}
-              className={`grid size-11 place-items-center rounded-md border transition-colors ${
+              className={`grid size-11 place-items-center rounded-md border border-transparent transition-colors ${
                 active
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
               }`}
             >
               <Icon className="size-5" />
@@ -98,44 +98,51 @@ export function MachineList({
 
   return (
     <div className="flex flex-col gap-1 p-2">
-      {machines.map((m) => (
-        <div
-          key={m.id}
-          role="button"
-          tabIndex={0}
-          onClick={() => onSelect(m.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onSelect(m.id);
-            }
-          }}
-          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
-            selectedId === m.id ? "bg-primary/15" : "hover:bg-foreground/5"
-          }`}
-        >
-          <span className="shrink-0 rounded bg-foreground/10 px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-            {t(`equipment.type.${m.kind}`)}
-          </span>
-          <EditableText
-            value={m.name}
-            onCommit={(name) => updateMachine(m.id, { name })}
-            ariaLabel={m.name}
-            className="min-w-0 flex-1 text-[12px] text-foreground"
-          />
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteId(m.id);
+      {machines.map((m) => {
+        const active = selectedId === m.id;
+        return (
+          <div
+            key={m.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect(m.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(m.id);
+              }
             }}
-            aria-label={t("equipment.delete")}
-            className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+            className={`group flex items-center gap-2 rounded-lg border px-2.5 py-2.5 text-left transition-colors ${
+              active ? "border-primary/40 bg-primary/10" : "border-transparent hover:bg-foreground/5"
+            }`}
           >
-            <Trash2 className="size-4" />
-          </button>
-        </div>
-      ))}
+            <span
+              className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                active ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {t(`equipment.type.${m.kind}`)}
+            </span>
+            <EditableText
+              value={m.name}
+              onCommit={(name) => updateMachine(m.id, { name })}
+              ariaLabel={m.name}
+              className="min-w-0 flex-1 text-[13px] font-medium text-foreground"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteId(m.id);
+              }}
+              aria-label={t("equipment.delete")}
+              className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/0 transition-colors group-hover:text-muted-foreground focus-visible:text-muted-foreground hover:text-red-400!"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </div>
+        );
+      })}
 
       <button
         type="button"
