@@ -120,6 +120,7 @@ export function DrillZeroInspector({
           workZeroSet={workZeroSet}
           maxXMm={maxXMm}
           maxYMm={maxYMm}
+          maxZMm={maxZMm}
           xyGate={xyGate}
         />
 

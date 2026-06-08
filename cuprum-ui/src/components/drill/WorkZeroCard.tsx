@@ -11,6 +11,8 @@ import {
   ArrowUpLeft,
   ArrowUpRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Crosshair,
   Info,
 } from "lucide-react";
@@ -27,13 +29,21 @@ export interface WorkZeroCardProps {
   /** Machine travel (mm, positive) per axis — source for the machine-frame clamp. */
   maxXMm: number;
   maxYMm: number;
+  /** Z travel (mm, positive). Z jog here only LOWERS the spindle to aim at the datum
+   *  corner — it does NOT bind Z (that's probed per-bit). Clamp range is [-maxZMm, 0]. */
+  maxZMm: number;
   /** XY gate result (hole bbox vs machine envelope) — drives the XY overrun banner. */
   xyGate: XYGateResult;
 }
 
-/** Axis colours from the design tokens (X red, Y green) — used for the X/Y badges. */
+/** Axis colours from the design tokens (X red, Y green, Z blue) — used for the badges. */
 const X_COLOR = "#d9534f";
 const Y_COLOR = "#3fbf6f";
+const Z_COLOR = "#4f8cd9";
+
+/** Z± jog button (matches the manual control's Z bar). */
+const zBtn =
+  "flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground active:bg-primary/10 disabled:pointer-events-none disabled:opacity-30";
 
 /** Shared button style for the XY jog pad arrows. */
 const padBtn =
@@ -44,24 +54,27 @@ const centerBtn =
   "flex h-9 w-full items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-30";
 
 /** Machine-frame jog body for binding the work zero: an 8-way XY pad with a centre
- *  go-to-zero, the live X/Y readout as coloured badges, a step selector in the
- *  header, the bound-zero status line, the XY gate banner, and an informational
- *  note that Z is probed per-bit. The bind/reset actions live in the inspector's
- *  sticky footer (DrillZeroInspector), not here. */
-export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, xyGate }: WorkZeroCardProps) {
+ *  go-to-zero, a Z± bar to lower the spindle for aiming (Z is NOT bound here — it's
+ *  probed per-bit), the live X/Y/Z readout as coloured badges, a step selector in the
+ *  header, the bound-zero status line, the XY gate banner, and an informational note
+ *  that Z is probed per-bit. The bind/reset actions live in the inspector's sticky
+ *  footer (DrillZeroInspector), not here. */
+export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, maxZMm, xyGate }: WorkZeroCardProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
 
-  // Live MPos readout for the two-axis DRO.
+  // Live MPos readout for the three-axis DRO.
   const mposX = useMachine((s) => s.status.mpos[0]);
   const mposY = useMachine((s) => s.status.mpos[1]);
+  const mposZ = useMachine((s) => s.status.mpos[2]);
 
-  // Machine-frame clamp: X,Y travel from 0 to max; z=[0,0] because Z jog is
-  // no longer driven from this card (Z is probed per-bit at run time).
+  // Machine-frame clamp: X,Y travel from 0 to max; Z from -max to the ceiling 0
+  // (same convention as manual control). Z jog here only LOWERS the spindle to aim
+  // at the datum corner — it does not bind Z (that's probed per-bit at run time).
   const bounds = {
     x: [0, maxXMm] as [number, number],
     y: [0, maxYMm] as [number, number],
-    z: [0, 0] as [number, number],
+    z: [-maxZMm, 0] as [number, number],
   };
 
   const { enabled, step, setStep, continuous, go, startContinuous, stopContinuous, jogTo } =
@@ -86,6 +99,20 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, xyGate }: WorkZeroCa
           onPointerCancel: () => stopContinuous(),
         }
       : { onClick: () => go(dx, dy, 0) };
+
+  // Z± button event props: step-click or press-hold continuous (mirrors xyProps).
+  const zPropsFor = (dz: number) =>
+    continuous
+      ? {
+          onPointerDown: (e: React.PointerEvent) => {
+            e.preventDefault();
+            void startContinuous(0, 0, dz);
+          },
+          onPointerUp: () => stopContinuous(),
+          onPointerLeave: () => stopContinuous(),
+          onPointerCancel: () => stopContinuous(),
+        }
+      : { onClick: () => go(0, 0, dz) };
 
   // One directional pad button. dx/dy ∈ {-1,0,1}.
   const dirBtn = (dx: number, dy: number, label: string, icon: React.ReactNode) => (
@@ -128,7 +155,7 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, xyGate }: WorkZeroCa
         />
       </div>
 
-      {/* 3×3 jog pad (left) + live X/Y badges (right) */}
+      {/* 3×3 XY jog pad (left) + Z± bar + live X/Y/Z badges (right) */}
       <div className="flex items-center gap-4">
         <div className="grid w-[150px] grid-cols-3 gap-1.5">
           {dirBtn(-1, 1, "↖", <ArrowUpLeft className="h-4 w-4" />)}
@@ -150,9 +177,35 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, xyGate }: WorkZeroCa
           {dirBtn(1, -1, "↘", <ArrowDownRight className="h-4 w-4" />)}
         </div>
 
+        {/* Z± bar — lower/raise the spindle to aim at the datum (does not bind Z) */}
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="text-[11px] font-bold" style={{ color: Z_COLOR }}>
+            Z
+          </span>
+          <button
+            type="button"
+            title={`Z+ ${fmtLen(typeof step === "number" ? step : 0)}`}
+            disabled={!enabled}
+            className={zBtn}
+            {...zPropsFor(1)}
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title={`Z− ${fmtLen(typeof step === "number" ? step : 0)}`}
+            disabled={!enabled}
+            className={zBtn}
+            {...zPropsFor(-1)}
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+
         <div className="flex flex-col gap-2.5">
           {axisBadge("X", X_COLOR, mposX)}
           {axisBadge("Y", Y_COLOR, mposY)}
+          {axisBadge("Z", Z_COLOR, mposZ)}
         </div>
       </div>
 
