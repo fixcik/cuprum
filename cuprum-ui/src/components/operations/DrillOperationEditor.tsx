@@ -190,7 +190,6 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   const machineConnected = useMachine((s) => s.connected);
   const machineState = useMachine((s) => s.status.state);
   const machineHomed = useMachine((s) => s.homed);
-  const grblFeedPct = useMachine((s) => s.status.overrides?.[0]);
 
   // Homing/disconnect voids the work zero — force re-bind.
   useEffect(() => {
@@ -613,7 +612,6 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             spindleControllable={cncProfile.spindleControllable ?? false}
             hasHoles={selectedHoleIds.size > 0}
             feedOverridePct={feedOverridePct}
-            grblFeedPct={grblFeedPct}
             onFeedChange={handleFeedChange}
             onRunDone={handleRunDone}
             totalEstimateSec={totalEstimateSec}

@@ -19,7 +19,6 @@ export interface DrillRunInspectorProps {
   panelHeightMm: number;
   totalEstimateSec: number;
   feedOverridePct: number;
-  grblFeedPct: number | undefined;
   onFeedChange: (pct: number) => void;
   onRunDone: () => void;
   hasProbe: boolean;
@@ -42,7 +41,6 @@ export function DrillRunInspector({
   panelHeightMm,
   totalEstimateSec,
   feedOverridePct,
-  grblFeedPct,
   onFeedChange,
   onRunDone,
   hasProbe,
@@ -115,12 +113,7 @@ export function DrillRunInspector({
       {/* Feed override slider */}
       {showFeedSlider && (
         <div className="px-4 py-3 border-t border-border">
-          <DrillFeedSlider
-            value={feedOverridePct}
-            grblPct={grblFeedPct}
-            onChange={onFeedChange}
-            disabled={false}
-          />
+          <DrillFeedSlider value={feedOverridePct} onChange={onFeedChange} disabled={false} />
         </div>
       )}
 
