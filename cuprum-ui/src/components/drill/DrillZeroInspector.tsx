@@ -6,6 +6,7 @@ import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { XYGateResult } from "@/lib/xyGate";
 import { api } from "@/lib/api";
 import { useMachine } from "@/machineStore";
+import { useUnlockSuppressed } from "@/hooks/useUnlockSuppressed";
 import { canMove } from "@/lib/machineControls";
 import { Button } from "@/components/ui/Button";
 import { AlarmActions } from "@/components/machine/AlarmActions";
@@ -62,6 +63,8 @@ export function DrillZeroInspector({
   const machineState = useMachine((s) => s.status.state);
   const connected = useMachine((s) => s.connected);
   const canBind = canMove(machineState, connected);
+  // Hide the alarm reason at once when unlock is pressed in any window.
+  const unlockSuppressed = useUnlockSuppressed();
   // Local in-flight guard so the bind button shows a disabled state during the
   // async setZero round-trip (otherwise it looks unresponsive on slow GRBL links).
   const [isBinding, setIsBinding] = useState(false);
@@ -132,7 +135,7 @@ export function DrillZeroInspector({
       {/* Why the bind is disabled — surfaced here so the operator needn't open the
           Equipment window to discover the machine is in alarm / busy / offline. The
           alarm case offers in-place recovery (unlock / soft-reset / console). */}
-      {!canBind && (
+      {!canBind && !(machineState === "alarm" && unlockSuppressed) && (
         <div className="shrink-0 px-3 pb-2">
           {!connected ? (
             <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] text-warning">
