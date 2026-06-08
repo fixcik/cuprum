@@ -17,8 +17,9 @@ export interface PackResult {
   requested: number;
   /** Actually placed = clamp(requested, 0, max). overflow = requested > max. */
   n: number;
-  /** Top-left positions of each placed board, in panel mm. */
-  placements: { x: number; y: number }[];
+  /** Top-left of each placed footprint, in panel mm, with its 90° flag. The grid
+   *  path sets one flag for all (= nest.rotate); MaxRects sets it per board. */
+  placements: { x: number; y: number; rotated: boolean }[];
 }
 
 /** Strict AABB overlap (touching edges do not count) with a float tolerance. */
@@ -51,16 +52,16 @@ export function clampZoneRect(
   return { x_mm: cx, y_mm: cy, width_mm: cw, height_mm: ch };
 }
 
-/** Like {@link packLayout}, but avoids `obstacles` (existing instances' AABBs, mm).
+/** Pack `nest` copies of a board into a panel, avoiding `obstacles` (existing
+ *  instances' AABBs, tooling holes, keep-out / clamp zones — all mm). Hybrid:
  *
- * - **No obstacles** → exact even grid (identical to packLayout; preserves parity).
- * - **Obstacles present** → greedy fill on a FIXED candidate lattice whose step is
- *   `nest.snapMm > 0 ? nest.snapMm : 1` mm, independent of `gap`. A larger gap can
- *   only shrink the set of feasible positions, so the placed count is monotonically
- *   non-increasing as gap grows (no phase-flip artefacts from the grid pitch).
- *   Each candidate is accepted when it fits inside the margin band, does not overlap
- *   any obstacle inflated by `clearanceMm`, and does not overlap any already-placed
- *   copy inflated by `gap`. `cols/rows/max/requested` are computed as before.
+ *  - **No obstacles** and either single orientation OR the grid already places
+ *    everything requested → exact even grid (the predictable look, parity with the
+ *    old behaviour). `cols/rows/max/requested` come from the single-orientation grid.
+ *  - **Otherwise** (obstacles present, or mixed orientation could fit more) →
+ *    {@link packMaxRects}: a dense MaxRects pack with per-board 90° rotation that
+ *    weaves around obstacles. `cols/rows/max` stay the grid reference (so fill-%
+ *    capacity and overflow reporting are unchanged); `n`/`placements` come from it.
  */
 export function packLayoutAvoiding(
   boardWmm: number,
@@ -91,9 +92,10 @@ export function packLayoutAvoiding(
   else if (nest.fillMode === "copies") requested = nest.copies;
   else requested = Math.floor((max * nest.fillPct) / 100);
 
-  // Clean panel → exact even grid (unchanged; preserves packLayout parity).
-  if (obstacles.length === 0) {
-    const placements: { x: number; y: number }[] = [];
+  // Clean even grid (single orientation per nest.rotate) — the predictable look.
+  const gridResult = (): PackResult => {
+    const rotatedFlag = nest.enabled && nest.rotate;
+    const placements: { x: number; y: number; rotated: boolean }[] = [];
     for (let i = 0; i < max && placements.length < requested; i++) {
       let r: number;
       let c: number;
@@ -116,69 +118,151 @@ export function packLayoutAvoiding(
         x = Math.round(x / nest.snapMm) * nest.snapMm;
         y = Math.round(y / nest.snapMm) * nest.snapMm;
       }
-      placements.push({ x, y });
+      placements.push({ x, y, rotated: rotatedFlag });
     }
     return { bw, bh, cols, rows, max, requested, n: placements.length, placements };
+  };
+
+  // No obstacles: a single-orientation grid is optimal. Use it unless the user wants
+  // mixed orientation AND the grid couldn't already place everything requested (then
+  // MaxRects may fit more by rotating individual boards).
+  if (obstacles.length === 0) {
+    const grid = gridResult();
+    if (!nest.mixRotation || grid.n >= requested) return grid;
   }
 
-  // Obstacles present → greedy fill on a FIXED candidate lattice (independent of gap),
-  // so a larger gap can only remove feasible positions, never add (monotonic).
-  const inflate = (b: Box, by: number): Box => ({
-    minX: b.minX - by,
-    minY: b.minY - by,
-    maxX: b.maxX + by,
-    maxY: b.maxY + by,
-  });
-  const infObstacles = obstacles.map((o) => inflate(o, clearanceMm));
-  const step = nest.snapMm > 0 ? nest.snapMm : 1; // gap-independent lattice pitch (mm)
-  const x0 = margin;
-  const y0 = margin;
-  const xEnd = panelWmm - margin - bw; // last fitting top-left x
-  const yEnd = panelHmm - margin - bh; // last fitting top-left y
-  // Candidate coordinates honouring the anchor corner. Generated directly in the
-  // anchor direction so the corner-adjacent position (xEnd/yEnd) is always included
-  // even when `step` doesn't divide the range — the first candidate sits flush to
-  // the chosen corner. Order controls which cells win the `requested` cap, not the count.
-  const axisCandidates = (start: number, end: number, fromEnd: boolean): number[] => {
-    const out: number[] = [];
-    if (fromEnd) {
-      for (let v = end; v >= start - 1e-9; v -= step) out.push(v);
-    } else {
-      for (let v = start; v <= end + 1e-9; v += step) out.push(v);
-    }
-    return out;
-  };
-  const xs = axisCandidates(x0, xEnd, nest.corner === "tr" || nest.corner === "br");
-  const ys = axisCandidates(y0, yEnd, nest.corner === "bl" || nest.corner === "br");
-  const placed: Box[] = [];
-  const placements: { x: number; y: number }[] = [];
-  const tryCell = (x: number, y: number): void => {
-    if (placements.length >= requested) return;
-    const cell = { minX: x, minY: y, maxX: x + bw, maxY: y + bh };
-    if (infObstacles.some((o) => boxesOverlap(cell, o))) return;
-    if (placed.some((p) => boxesOverlap(cell, inflate(p, gap)))) return; // gap between copies
-    placed.push(cell);
-    placements.push({ x, y });
-  };
-  // dir "cols" → iterate columns (x outer), else rows (y outer) — mirrors the grid path.
-  if (nest.dir === "cols") {
-    for (const x of xs) {
-      if (placements.length >= requested) break;
-      for (const y of ys) {
-        if (placements.length >= requested) break;
-        tryCell(x, y);
-      }
-    }
+  // Obstacles present, or mixed orientation could help → dense MaxRects pack.
+  const runPack = (mix: boolean, force: boolean) =>
+    packMaxRects({
+      boardW: boardWmm,
+      boardH: boardHmm,
+      panelW: panelWmm,
+      panelH: panelHmm,
+      requested,
+      marginMm: margin,
+      gapMm: gap,
+      clearanceMm,
+      corner: nest.corner,
+      mixRotation: mix,
+      forceRotate: force,
+      obstacles,
+    });
+  let placements: { x: number; y: number; rotated: boolean }[];
+  if (nest.enabled && nest.mixRotation) {
+    // Best-of: a greedy per-board heuristic can fragment space and underperform a
+    // uniform layout, so try all-0°, all-90° and mixed, keep the fullest. `reduce`
+    // keeps the first max → uniform 0° wins ties (the tidiest look).
+    placements = [runPack(false, false), runPack(false, true), runPack(true, false)].reduce(
+      (best, c) => (c.length > best.length ? c : best),
+    );
   } else {
-    for (const y of ys) {
-      if (placements.length >= requested) break;
-      for (const x of xs) {
-        if (placements.length >= requested) break;
-        tryCell(x, y);
+    placements = runPack(false, nest.enabled && nest.rotate);
+  }
+  return { bw: boardWmm, bh: boardHmm, cols, rows, max, requested, n: placements.length, placements };
+}
+
+/** MaxRects rectangle packer (best-short-side-fit) with 90° rotation and obstacle
+ *  seeding. Pure and deterministic (stable free-list order, fixed tie-breaks; no
+ *  Math.random). Returns the placed footprints' top-left + rotation flag, capped at
+ *  `requested`. Used by {@link packLayoutAvoiding} when a plain grid won't do.
+ *
+ *  - Free rectangles seed = panel inset by `marginMm`, minus every obstacle inflated
+ *    by `clearanceMm` (callers pass the board gap as clearance — matches the legacy
+ *    uniform inflation).
+ *  - Each placed copy is subtracted inflated by `gapMm`, so neighbours keep ≥ gap.
+ *  - `corner` is the anchor: a copy hugs that corner of its chosen free rect, and
+ *    ties break toward that panel corner.
+ *  - Orientations tried: `mixRotation` → [0°, 90°]; else only `forceRotate`'s one. */
+export function packMaxRects(p: {
+  boardW: number;
+  boardH: number;
+  panelW: number;
+  panelH: number;
+  requested: number;
+  marginMm: number;
+  gapMm: number;
+  clearanceMm: number;
+  corner: NestSettings["corner"];
+  mixRotation: boolean;
+  forceRotate: boolean;
+  obstacles: Box[];
+}): { x: number; y: number; rotated: boolean }[] {
+  const {
+    boardW, boardH, panelW, panelH, requested, marginMm, gapMm, clearanceMm,
+    corner, mixRotation, forceRotate, obstacles,
+  } = p;
+  if (requested <= 0) return [];
+  const EPS = 1e-6;
+  const anchorLeft = corner === "tl" || corner === "bl";
+  const anchorTop = corner === "tl" || corner === "tr";
+
+  const inflate = (b: Box, by: number): Box => ({
+    minX: b.minX - by, minY: b.minY - by, maxX: b.maxX + by, maxY: b.maxY + by,
+  });
+  const area = (b: Box): number => (b.maxX - b.minX) * (b.maxY - b.minY);
+  const contains = (b: Box, a: Box): boolean =>
+    b.minX <= a.minX + EPS && b.minY <= a.minY + EPS && b.maxX >= a.maxX - EPS && b.maxY >= a.maxY - EPS;
+
+  // Free-rectangle list, seeded with the margin-inset panel.
+  let free: Box[] = [];
+  const inner: Box = { minX: marginMm, minY: marginMm, maxX: panelW - marginMm, maxY: panelH - marginMm };
+  if (inner.maxX - inner.minX > EPS && inner.maxY - inner.minY > EPS) free.push(inner);
+
+  // Remove `cut` from every overlapped free rect (split into ≤4 slabs), then prune
+  // any rect fully contained in another (keeps the set near-maximal and bounded).
+  const subtract = (cut: Box): void => {
+    const next: Box[] = [];
+    for (const f of free) {
+      if (!boxesOverlap(f, cut)) { next.push(f); continue; }
+      if (cut.minX > f.minX + EPS) next.push({ minX: f.minX, minY: f.minY, maxX: cut.minX, maxY: f.maxY });
+      if (cut.maxX < f.maxX - EPS) next.push({ minX: cut.maxX, minY: f.minY, maxX: f.maxX, maxY: f.maxY });
+      if (cut.minY > f.minY + EPS) next.push({ minX: f.minX, minY: f.minY, maxX: f.maxX, maxY: cut.minY });
+      if (cut.maxY < f.maxY - EPS) next.push({ minX: f.minX, minY: cut.maxY, maxX: f.maxX, maxY: f.maxY });
+    }
+    // Prune a when some other b contains it and is strictly larger, or equal-and-earlier
+    // (so identical duplicate rects don't mutually delete each other).
+    free = next.filter((a, i) =>
+      !next.some((b, j) => i !== j && contains(b, a) && (area(b) > area(a) + EPS || j < i)));
+  };
+
+  for (const o of obstacles) subtract(inflate(o, clearanceMm));
+
+  const orients = mixRotation ? [false, true] : [forceRotate];
+  const out: { x: number; y: number; rotated: boolean }[] = [];
+  for (let k = 0; k < requested; k++) {
+    let best: { x: number; y: number; rotated: boolean; s1: number; s2: number; bias: number } | null = null;
+    for (const f of free) {
+      const fw = f.maxX - f.minX;
+      const fh = f.maxY - f.minY;
+      for (const rotated of orients) {
+        const bw = rotated ? boardH : boardW;
+        const bh = rotated ? boardW : boardH;
+        if (bw > fw + EPS || bh > fh + EPS) continue;
+        const x = anchorLeft ? f.minX : f.maxX - bw;
+        const y = anchorTop ? f.minY : f.maxY - bh;
+        const leftoverW = fw - bw;
+        const leftoverH = fh - bh;
+        const s1 = Math.min(leftoverW, leftoverH); // best short-side fit
+        const s2 = Math.max(leftoverW, leftoverH); // tie: best long-side fit
+        const ax = anchorLeft ? x : panelW - (x + bw);
+        const ay = anchorTop ? y : panelH - (y + bh);
+        const bias = ax + ay; // tie: hug the anchor corner
+        const better =
+          best === null ||
+          s1 < best.s1 - EPS ||
+          (Math.abs(s1 - best.s1) <= EPS &&
+            (s2 < best.s2 - EPS ||
+              (Math.abs(s2 - best.s2) <= EPS && bias < best.bias - EPS)));
+        if (better) best = { x, y, rotated, s1, s2, bias };
       }
     }
+    if (!best) break;
+    out.push({ x: best.x, y: best.y, rotated: best.rotated });
+    const bw = best.rotated ? boardH : boardW;
+    const bh = best.rotated ? boardW : boardH;
+    subtract(inflate({ minX: best.x, minY: best.y, maxX: best.x + bw, maxY: best.y + bh }, gapMm));
   }
-  return { bw, bh, cols, rows, max, requested, n: placements.length, placements };
+  return out;
 }
 
 /** Grid-pack `nest` copies of a board into a panel, anchored to a corner.
@@ -450,10 +534,9 @@ export function renestSelection(opts: {
     groups.get(s.design_id)!.push(s.id);
   }
 
-  // groupNest forces enabled:true (re-nest always grids), so the packer swaps the
-  // footprint on nest.rotate alone — the pose flip must follow the same flag, NOT
-  // the raw nest.enabled (false by default → would desync pose from the packed cell).
-  const rotated = nest.rotate;
+  // groupNest forces enabled:true so the packer is active even with the persisted
+  // default nest.enabled === false; the 90° flag now travels per placement (p.rotated),
+  // so mixed-orientation MaxRects packs and single-orientation grids both work.
   const placedBoxes: Box[] = [];
   const transforms: RenestTransform[] = [];
   let requested = 0;
@@ -478,15 +561,18 @@ export function renestSelection(opts: {
     );
     placed += pack.n;
     pack.placements.forEach((p, k) => {
+      // Footprint of this (possibly rotated) copy; centre-pivot keeps the board
+      // centre on the packed cell, so the rotated AABB still fills it. Mirrors
+      // addBoardInstances.
+      const fw = p.rotated ? sz.h : sz.w;
+      const fh = p.rotated ? sz.w : sz.h;
       transforms.push({
         id: ids[k],
-        // Centre-pivot shift: footprint swapped to (h×w); unrotated origin offset
-        // so the board centre lands at the same point. Mirrors addBoardInstances.
-        x_mm: rotated ? p.x + (sz.h - sz.w) / 2 : p.x,
-        y_mm: rotated ? p.y + (sz.w - sz.h) / 2 : p.y,
-        rotation_deg: rotated ? 90 : 0,
+        x_mm: p.rotated ? p.x + (sz.h - sz.w) / 2 : p.x,
+        y_mm: p.rotated ? p.y + (sz.w - sz.h) / 2 : p.y,
+        rotation_deg: p.rotated ? 90 : 0,
       });
-      placedBoxes.push({ minX: p.x, minY: p.y, maxX: p.x + pack.bw, maxY: p.y + pack.bh });
+      placedBoxes.push({ minX: p.x, minY: p.y, maxX: p.x + fw, maxY: p.y + fh });
     });
   }
   return { transforms, requested, placed };

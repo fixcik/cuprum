@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   packLayout,
   packLayoutAvoiding,
+  packMaxRects,
+  boxesOverlap,
   instanceBounds,
   isOffPanel,
   clampDeltaToPanel,
@@ -22,6 +24,7 @@ import {
   clampZonesForHoles,
   type AlignEdge,
   type GuideLine,
+  type Box,
 } from "@/lib/panelPlacement";
 import { DEFAULT_NEST } from "@/lib/nest";
 import type { NestSettings } from "@/lib/nest";
@@ -36,7 +39,7 @@ describe("packLayout", () => {
     // (0, …). 40×30 board on a 100×100 panel, bl corner.
     const r = packLayout(40, 30, 100, 100, nest({ enabled: false }));
     expect(r.n).toBe(1);
-    expect(r.placements).toEqual([{ x: 0, y: 70 }]);
+    expect(r.placements).toEqual([{ x: 0, y: 70, rotated: false }]);
     expect([r.bw, r.bh]).toEqual([40, 30]);
   });
 
@@ -48,16 +51,16 @@ describe("packLayout", () => {
     const r = packLayout(228, 98, 240, 200, nest({ enabled: false, marginMm: 10 }));
     expect(r.max).toBeGreaterThanOrEqual(1);
     expect(r.n).toBe(1);
-    expect(r.placements).toEqual([{ x: 0, y: 102 }]);
+    expect(r.placements).toEqual([{ x: 0, y: 102, rotated: false }]);
   });
 
   it("fills a row-major grid from the top-left for an explicit copy count", () => {
     const r = packLayout(40, 30, 100, 100, nest({ enabled: true, fillMode: "copies", copies: 3, corner: "tl" }));
     expect(r.n).toBe(3);
     expect(r.placements).toEqual([
-      { x: 5, y: 5 },
-      { x: 47, y: 5 },
-      { x: 5, y: 37 },
+      { x: 5, y: 5, rotated: false },
+      { x: 47, y: 5, rotated: false },
+      { x: 5, y: 37, rotated: false },
     ]);
   });
 
@@ -69,7 +72,9 @@ describe("packLayout", () => {
   });
 
   it("applies a 90° rotation to the effective footprint when rotate is on", () => {
-    const r = packLayout(30, 40, 100, 100, nest({ enabled: true, rotate: true }));
+    // Grid path (single orientation) reports the swapped footprint; pin mixRotation
+    // off so the dispatch stays on the grid rather than falling to MaxRects.
+    const r = packLayout(30, 40, 100, 100, nest({ enabled: true, rotate: true, mixRotation: false }));
     expect([r.bw, r.bh]).toEqual([40, 30]);
   });
 
@@ -362,75 +367,149 @@ describe("packLayoutAvoiding", () => {
     expect([b.n, b.requested, b.max]).toEqual([a.n, a.requested, a.max]);
   });
 
-  it("skips a cell occupied by an existing instance", () => {
-    // tl grid of 40×30 on 100×100: cells at (0,0),(42? no gap) ... use no-gap nesting.
-    // With gap=0,margin=0: cols=floor(100/40)=2, rows=floor(100/30)=3 → cell at (0,0),(40,0),(0,30)...
-    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, fillMode: "copies", copies: 2, corner: "tl" });
-    // Obstacle covering the first cell [0,40]×[0,30].
+  it("places copies that avoid an existing instance", () => {
+    // With an obstacle present the packer is MaxRects; pin a single orientation so
+    // the assertion is about avoidance, not which rotation the heuristic prefers.
+    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, fillMode: "copies", copies: 2, corner: "tl", mixRotation: false });
     const obst = [{ minX: 0, minY: 0, maxX: 40, maxY: 30 }];
     const r = packLayoutAvoiding(40, 30, 100, 100, nest, obst, 0);
     expect(r.n).toBe(2);
-    // First free cells skip (0,0): expect (40,0) then (0,30) [row-major].
-    expect(r.placements).toEqual([{ x: 40, y: 0 }, { x: 0, y: 30 }]);
+    const boxes = r.placements.map((p) => ({ minX: p.x, minY: p.y, maxX: p.x + 40, maxY: p.y + 30 }));
+    for (const b of boxes) expect(boxesOverlap(b, obst[0])).toBe(false);
+    expect(boxesOverlap(boxes[0], boxes[1])).toBe(false);
   });
 
   it("keeps the clearance gap from an existing instance", () => {
-    // Single snug copy (nesting off) 40×30 on 100×100, tl corner → would sit at (0,0).
-    // Obstacle at the bottom-right far away; clearance shouldn't matter → still (0,0).
+    // Single snug copy (nesting off) 40×30 on 100×100, tl corner; far obstacle →
+    // MaxRects still anchors the lone copy at the corner (0,0).
     const nest = n({ enabled: false, corner: "tl" });
     const r = packLayoutAvoiding(40, 30, 100, 100, nest, [{ minX: 60, minY: 60, maxX: 90, maxY: 90 }], 5);
-    expect(r.placements).toEqual([{ x: 0, y: 0 }]);
+    expect(r.placements).toEqual([{ x: 0, y: 0, rotated: false }]);
   });
 
-  it("treats a cell within the clearance of an obstacle as occupied", () => {
-    // nesting off, tl, margin=0, gap=0. Obstacle [41,0]-[80,30]; clearance=5 →
-    // inflated obstacle [36,-5]-[85,35]. Greedy lattice (step=1) places the board
-    // flush against the clearance boundary: first y where [0,40]×[y,y+30] clears
-    // the inflated obstacle's maxY=35 is y=35 (strict overlap test: 35 < 35 is false).
-    // Old grid logic placed at (0,60) because it only tested board-pitch-aligned cells.
-    const nestOpts = n({ enabled: false, marginMm: 0, gapMm: 0, corner: "tl" });
+  it("packs flush against an obstacle's clearance boundary", () => {
+    // nesting off, tl, margin=0, gap=0, single orientation. Obstacle [41,0]-[80,30],
+    // clearance 5 → inflated [36,-5]-[85,35]. The board can't fit left of x=36 (needs
+    // width 40), so MaxRects drops it just below the clearance band at (0,35).
+    const nestOpts = n({ enabled: false, marginMm: 0, gapMm: 0, corner: "tl", mixRotation: false });
     const r = packLayoutAvoiding(40, 30, 100, 100, nestOpts, [{ minX: 41, minY: 0, maxX: 80, maxY: 30 }], 5);
-    // Greedy packs tight to the clearance boundary, not to a board-pitch grid cell.
-    expect(r.placements).toEqual([{ x: 0, y: 35 }]);
+    expect(r.placements).toEqual([{ x: 0, y: 35, rotated: false }]);
   });
 
   it("flags overflow via requested when free cells run out", () => {
-    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, fillMode: "copies", copies: 6, corner: "tl" });
-    // Occupy the entire left column-ish: block first row fully (3 cells across? cols=2,rows=3 → 6 cells).
-    // Obstacle covering left half [0,40]×[0,100] removes column 0 (3 cells) → 3 free remain.
+    // Pin a single orientation: with rotation the packer would fit MORE than 3.
+    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, fillMode: "copies", copies: 6, corner: "tl", mixRotation: false });
+    // Obstacle covering left half [0,40]×[0,100] leaves the right 60mm band → 1 col × 3 rows.
     const r = packLayoutAvoiding(40, 30, 100, 100, nest, [{ minX: 0, minY: 0, maxX: 40, maxY: 100 }], 0);
     expect(r.max).toBe(6);
     expect(r.requested).toBe(6);
     expect(r.n).toBe(3);
   });
 
-  it("placed count is non-increasing as the board gap grows (with obstacles)", () => {
-    // 18 obstacles (27.1×40 in a 6×3 grid), gerber 11.4×7 on 200×150, edge 4, fill 15%.
-    const obst: ReturnType<typeof box>[] = [];
-    const mw = 27.1, mh = 40, mg = 2, mm = 5;
-    for (let r = 0; r < 3; r++)
-      for (let c = 0; c < 6; c++)
-        obst.push({ minX: mm + c * (mw + mg), minY: mm + r * (mh + mg), maxX: mm + c * (mw + mg) + mw, maxY: mm + r * (mh + mg) + mh });
-    let prev = Infinity;
-    for (const gap of [1, 1.5, 2, 2.5, 3]) {
-      const r = packLayoutAvoiding(11.4, 7, 200, 150, n({ enabled: true, marginMm: 4, gapMm: gap, fillMode: "fill", fillPct: 15, corner: "tl" }), obst, gap);
-      expect(r.n).toBeLessThanOrEqual(prev); // bigger gap never fits MORE
-      prev = r.n;
-    }
-  });
-
-  it("anchors the greedy fill flush to the corner even when step doesn't divide the range", () => {
-    // board 10×10 on 100×95, no margin/gap, snap 3 (step 3 ∤ yEnd=85), corner bl, 1 copy.
-    // Obstacle parked at the top so it doesn't block the bottom-left target.
-    const nest = n({ enabled: true, marginMm: 0, gapMm: 0, snapMm: 3, corner: "bl", fillMode: "copies", copies: 1 });
-    const r = packLayoutAvoiding(10, 10, 100, 95, nest, [box(0, 0, 10, 10)], 0);
-    // bl → first candidate flush to the bottom (yEnd = 95−10 = 85), not 84 (the
-    // largest multiple of 3 from y0). Left-anchored x stays at 0.
-    expect(r.placements[0]).toEqual({ x: 0, y: 85 });
+  it("packs 6 copies of 40×27.1 around side keep-outs (mixRotation on)", () => {
+    // The user's regression: 6 boards fit by hand around two side keep-out zones,
+    // but the old fixed-lattice packer placed 5 with an overlap. A 2×3 single-
+    // orientation witness fits (cols x=5,47; rows y=5,34.1,63.2; boards end at x=87),
+    // and both keep-outs live in the free right band (x≥89), clear by ≥gap.
+    const keepouts: Box[] = [
+      { minX: 89, minY: 10, maxX: 95, maxY: 40 },
+      { minX: 89, minY: 55, maxX: 95, maxY: 85 },
+    ];
+    const nest = n({ enabled: true, fillMode: "copies", copies: 6, gapMm: 2, marginMm: 5, corner: "tl", mixRotation: true });
+    const r = packLayoutAvoiding(40, 27.1, 100, 100, nest, keepouts, 2);
+    expect(r.n).toBe(6);
+    const boxes = r.placements.map((p) => ({
+      minX: p.x, minY: p.y,
+      maxX: p.x + (p.rotated ? 27.1 : 40), maxY: p.y + (p.rotated ? 40 : 27.1),
+    }));
+    for (let i = 0; i < boxes.length; i++)
+      for (let j = i + 1; j < boxes.length; j++)
+        expect(boxesOverlap(boxes[i], boxes[j])).toBe(false);
+    for (const b of boxes)
+      for (const k of keepouts)
+        expect(boxesOverlap(b, { minX: k.minX - 2, minY: k.minY - 2, maxX: k.maxX + 2, maxY: k.maxY + 2 })).toBe(false);
   });
 });
 
-const NEST = { ...DEFAULT_NEST, enabled: true, marginMm: 0, gapMm: 0, corner: "tl" as const, rotate: false };
+describe("packMaxRects", () => {
+  it("fits 6 single-orientation copies around side keep-out zones", () => {
+    // Core packer in one orientation finds the 2×3 witness around the right-band
+    // keep-outs (the mixed best-of is exercised via packLayoutAvoiding above).
+    const keepouts: Box[] = [
+      { minX: 89, minY: 10, maxX: 95, maxY: 40 },
+      { minX: 89, minY: 55, maxX: 95, maxY: 85 },
+    ];
+    const out = packMaxRects({
+      boardW: 40, boardH: 27.1, panelW: 100, panelH: 100,
+      requested: 6, marginMm: 5, gapMm: 2, clearanceMm: 2,
+      corner: "tl", mixRotation: false, forceRotate: false, obstacles: keepouts,
+    });
+    expect(out.length).toBe(6);
+    const boxes = out.map((p) => ({
+      minX: p.x, minY: p.y,
+      maxX: p.x + (p.rotated ? 27.1 : 40), maxY: p.y + (p.rotated ? 40 : 27.1),
+    }));
+    for (let i = 0; i < boxes.length; i++)
+      for (let j = i + 1; j < boxes.length; j++)
+        expect(boxesOverlap(boxes[i], boxes[j])).toBe(false);
+    for (const b of boxes) {
+      for (const k of keepouts)
+        expect(boxesOverlap(b, { minX: k.minX - 2, minY: k.minY - 2, maxX: k.maxX + 2, maxY: k.maxY + 2 })).toBe(false);
+      expect(b.minX).toBeGreaterThanOrEqual(5 - 1e-6);
+      expect(b.minY).toBeGreaterThanOrEqual(5 - 1e-6);
+      expect(b.maxX).toBeLessThanOrEqual(95 + 1e-6);
+      expect(b.maxY).toBeLessThanOrEqual(95 + 1e-6);
+    }
+  });
+
+  it("rotates copies to fit more when mixRotation is on", () => {
+    // 40×15 board on 50×42, no margin/gap. 0° → 1 col × 2 rows = 2; 90° (15×40) →
+    // 3 across × 1 = 3. mixRotation must place 3, all rotated.
+    const out = packMaxRects({
+      boardW: 40, boardH: 15, panelW: 50, panelH: 42,
+      requested: 3, marginMm: 0, gapMm: 0, clearanceMm: 0,
+      corner: "tl", mixRotation: true, forceRotate: false, obstacles: [],
+    });
+    expect(out.length).toBe(3);
+    expect(out.every((p) => p.rotated)).toBe(true);
+  });
+
+  it("keeps a single orientation when mixRotation is off", () => {
+    const out = packMaxRects({
+      boardW: 40, boardH: 15, panelW: 50, panelH: 42,
+      requested: 3, marginMm: 0, gapMm: 0, clearanceMm: 0,
+      corner: "tl", mixRotation: false, forceRotate: false, obstacles: [],
+    });
+    expect(out.length).toBe(2);
+    expect(out.every((p) => !p.rotated)).toBe(true);
+  });
+
+  it("is deterministic", () => {
+    const args = {
+      boardW: 40, boardH: 27.1, panelW: 100, panelH: 100,
+      requested: 6, marginMm: 5, gapMm: 2, clearanceMm: 2,
+      corner: "tl" as const, mixRotation: true, forceRotate: false,
+      obstacles: [{ minX: 89, minY: 10, maxX: 95, maxY: 40 }] as Box[],
+    };
+    expect(packMaxRects(args)).toEqual(packMaxRects(args));
+  });
+
+  it("respects the board gap between placed copies", () => {
+    const out = packMaxRects({
+      boardW: 40, boardH: 10, panelW: 100, panelH: 30,
+      requested: 2, marginMm: 0, gapMm: 5, clearanceMm: 0,
+      corner: "tl", mixRotation: false, forceRotate: false, obstacles: [],
+    });
+    expect(out.length).toBe(2);
+    const b = out.map((p) => ({ minX: p.x, minY: p.y, maxX: p.x + 40, maxY: p.y + 10 }));
+    expect(boxesOverlap(
+      { minX: b[0].minX - 5, minY: b[0].minY - 5, maxX: b[0].maxX + 5, maxY: b[0].maxY + 5 },
+      b[1],
+    )).toBe(false);
+  });
+});
+
+const NEST = { ...DEFAULT_NEST, enabled: true, marginMm: 0, gapMm: 0, corner: "tl" as const, rotate: false, mixRotation: false };
 
 describe("renestSelection", () => {
   it("packs one design's selection into a corner grid", () => {

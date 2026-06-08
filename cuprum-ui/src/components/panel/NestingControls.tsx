@@ -140,10 +140,25 @@ export function NestingControls() {
           </Group>
 
           <Group title={t("panel.add.nest.layout")}>
-            <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <label
+              className="flex items-center gap-1.5 text-[12px] text-muted-foreground"
+              title={t("panel.add.nest.mixRotationHint")}
+            >
+              {t("panel.add.nest.mixRotation")}
+              <Switch
+                checked={nest.mixRotation}
+                onCheckedChange={(v) => setNest({ mixRotation: v })}
+              />
+            </label>
+            <label
+              className={`flex items-center gap-1.5 text-[12px] ${
+                nest.mixRotation ? "text-muted-foreground/40" : "text-muted-foreground"
+              }`}
+            >
               {t("panel.add.nest.rotate")}
               <Switch
                 checked={nest.rotate}
+                disabled={nest.mixRotation}
                 onCheckedChange={(v) => setNest({ rotate: v })}
               />
             </label>

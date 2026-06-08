@@ -128,6 +128,8 @@
         "gapEdge": "Edge",
         "layout": "Layout",
         "rotate": "Rotate",
+        "mixRotation": "Mix orientation",
+        "mixRotationHint": "Let the packer rotate individual boards to fit more",
         "corner": "Corner",
         "cornerTl": "Top-left",
         "cornerTr": "Top-right",
