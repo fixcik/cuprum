@@ -276,6 +276,7 @@ describe("drillRunReducer", () => {
       currentHoleIndex: 3,
       toolChange: { toolName: "Сверло 1.2", diameterMm: 1.2 },
       zBound: true,
+      probeChecked: true,
       toolChangeSeq: 3,
       error: "something went wrong",
       runStartedAt: 1234567890,
@@ -332,6 +333,33 @@ describe("drillRunReducer — zBound (per-tool Z gate)", () => {
   it("reset clears zBound", () => {
     const bound = drillRunReducer(initialDrillRunState, { type: "zbound" });
     expect(drillRunReducer(bound, { type: "reset" }).zBound).toBe(false);
+  });
+});
+
+describe("drillRunReducer — probeChecked (once-per-session circuit test)", () => {
+  it("starts unchecked", () => {
+    expect(initialDrillRunState.probeChecked).toBe(false);
+    const started = drillRunReducer(initialDrillRunState, { type: "start", holesTotal: 5 });
+    expect(started.probeChecked).toBe(false);
+  });
+
+  it("probechecked sets probeChecked true", () => {
+    const s = drillRunReducer(initialDrillRunState, { type: "probechecked" });
+    expect(s.probeChecked).toBe(true);
+  });
+
+  it("persists across a tool change (verified once per session)", () => {
+    const checked = drillRunReducer(initialDrillRunState, { type: "probechecked" });
+    const tc = drillRunReducer(checked, { type: "toolchange", toolName: "0.8mm", diameterMm: 0.8 });
+    expect(tc.probeChecked).toBe(true);
+    // ...while zBound (the per-bit gate) does reset on the same tool change.
+    expect(tc.zBound).toBe(false);
+  });
+
+  it("reset and a fresh start clear probeChecked", () => {
+    const checked = drillRunReducer(initialDrillRunState, { type: "probechecked" });
+    expect(drillRunReducer(checked, { type: "reset" }).probeChecked).toBe(false);
+    expect(drillRunReducer(checked, { type: "start", holesTotal: 5 }).probeChecked).toBe(false);
   });
 });
 

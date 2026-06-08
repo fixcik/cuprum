@@ -56,7 +56,11 @@ export function DrillRunInspector({
     ? Math.floor((Date.now() - state.runStartedAt) / 1000)
     : 0;
 
-  const nextGroup = activeGroupForHole(route, state.currentHoleIndex);
+  // The bit being installed drills the UPCOMING group — the one holding the next
+  // hole to drill (run-index === holesCompleted). `currentHoleIndex` still points at
+  // the just-finished hole during a tool-change pause, so it would name the previous
+  // (completed) group; `holesCompleted` names the next one (and group 0 at the start).
+  const nextGroup = activeGroupForHole(route, state.holesCompleted);
   const nextColor = groupColor(nextGroup?.gi ?? 0);
 
   const showFeedSlider =
@@ -84,14 +88,16 @@ export function DrillRunInspector({
         <div className="pt-3">
           <DrillToolChangeCard
             key={state.toolChangeSeq}
-            toolName={state.toolChange.toolName}
             diameterMm={state.toolChange.diameterMm}
             nextColor={nextColor}
+            holesAhead={nextGroup?.group.orderedHoles.length ?? 0}
             hasProbe={hasProbe}
             firstToolChange={state.toolChangeSeq === 1}
             probe={probe}
             zBound={state.zBound}
+            probeChecked={state.probeChecked}
             onZBound={run.markZBound}
+            onProbeChecked={run.markProbeChecked}
             onConfirm={run.confirmToolChange}
           />
         </div>

@@ -17,9 +17,15 @@ export interface DrillRunState {
   /** Whether Z has been re-bound for the CURRENT bit (probe or manual touch-off).
    *  Resets when a tool change begins; gates "Продолжить"/"Начать". Frontend-only. */
   zBound: boolean;
+  /** Whether the probe circuit has been tested THIS session (operator touched the
+   *  probe to the bit and the pin latched). Persists across tool changes/resume —
+   *  the circuit is verified once per run, so later changes skip "step 1" and go
+   *  straight to "set Z by probe". Reset only on a fresh start/reset. Frontend-only. */
+  probeChecked: boolean;
   /** Monotonic counter incremented on every tool-change pause. Used only as a React
-   *  remount key for the tool-change card so its local state (probe self-test, tab,
-   *  busy, error) resets each pause — even on back-to-back tool changes. */
+   *  remount key for the tool-change card so its card-local state (tab, busy, error)
+   *  resets each pause — even on back-to-back tool changes. The session-level
+   *  `probeChecked`/`zBound` flags live here in the reducer, not in the card. */
   toolChangeSeq: number;
   error: string | null;
   runStartedAt: number | null;
@@ -33,7 +39,8 @@ export type DrillRunEvent =
   | { type: "error"; message: string }
   | { type: "done" }
   | { type: "reset" }
-  | { type: "zbound" };
+  | { type: "zbound" }
+  | { type: "probechecked" };
 
 export const initialDrillRunState: DrillRunState = {
   phase: "idle",
@@ -42,6 +49,7 @@ export const initialDrillRunState: DrillRunState = {
   currentHoleIndex: null,
   toolChange: null,
   zBound: false,
+  probeChecked: false,
   toolChangeSeq: 0,
   error: null,
   runStartedAt: null,
@@ -83,6 +91,9 @@ export function drillRunReducer(
 
     case "zbound":
       return { ...s, zBound: true };
+
+    case "probechecked":
+      return { ...s, probeChecked: true };
 
     case "state": {
       if (e.phase === "running") {
