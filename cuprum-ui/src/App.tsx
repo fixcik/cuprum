@@ -7,6 +7,7 @@ import { EquipmentPage } from "@/pages/EquipmentPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
+import { loadLastSession } from "@/lib/lastSession";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
 import { useDrillBridge } from "@/hooks/useDrillBridge";
@@ -15,6 +16,10 @@ import { useConsoleBridge } from "@/hooks/useConsoleBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import i18n from "@/i18n";
+
+// Module-scoped so cold-start restore runs once even under React StrictMode's
+// dev-only double-mount (a second run would double-extract a working dir).
+let coldStartHandled = false;
 
 export default function App() {
   const view = useShell((s) => s.view);
@@ -72,16 +77,35 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Open-by-click: consume a queued path on cold start, then stay subscribed for
-  // relaunch / macOS Opened events. Both route through the shell's open flow.
+  // Cold start: an OS open-by-click request wins; otherwise restore the last
+  // session (open project + view) so a webview reload or app restart lands the
+  // user back where they left off. Then stay subscribed for relaunch / macOS
+  // Opened events. Guarded so React StrictMode's double-mount (dev) doesn't run
+  // the restore twice and double-extract a working dir.
   useEffect(() => {
-    const openByPath = useShell.getState().openProjectByPath;
-    api
-      .takePendingOpen()
-      .then((path) => {
-        if (path) void openByPath(path);
-      })
-      .catch(() => {});
+    if (!coldStartHandled) {
+      coldStartHandled = true;
+      void (async () => {
+        const pending = await api.takePendingOpen().catch(() => null);
+        if (pending) {
+          await useShell.getState().openProjectByPath(pending);
+          return;
+        }
+        const last = loadLastSession();
+        if (!last) return;
+        // Reopen the project first (this forces the "project" view on success;
+        // a not-found path leaves the shell on Home with a notice). Then honor a
+        // non-project view the user was on — for "project" the open already set
+        // it, and a failed open correctly stays Home.
+        if (last.path) await useShell.getState().openProjectByPath(last.path);
+        // Only honor a non-project view once the open (if any) actually
+        // succeeded — currentPath is set on success, null on not-found/error.
+        // Otherwise a failed open would navigate away from Home and hide its
+        // error/notice (which only HomePage renders).
+        const openOk = !last.path || useShell.getState().currentPath === last.path;
+        if (openOk && last.view !== "project") useShell.getState().setView(last.view);
+      })();
+    }
     const pending = api.onOpenFile((path) => void useShell.getState().openProjectByPath(path));
     return () => {
       void pending.then((unlisten) => unlisten());

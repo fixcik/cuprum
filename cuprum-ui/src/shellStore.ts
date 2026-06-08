@@ -8,6 +8,7 @@ import { panelObstacles, clampToolingHoleCenter, registrationSetPositions, clamp
 import { solvePanelPlacements } from "@/lib/packSolve";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
+import { saveLastSession } from "@/lib/lastSession";
 import { useSettings } from "@/settingsStore";
 
 /** Debounce window before flushing freshly-computed artifacts into the .cuprum. */
@@ -1131,3 +1132,15 @@ export const useShell = create<ShellStore>((set, get) => ({
     });
   },
 }));
+
+// Persist the open project path + current view so a webview reload or app
+// restart can restore exactly what was on screen (consumed by App's cold-start
+// restore via lib/lastSession). Fires on every state change but only writes when
+// path or view actually changes, so artifact/progress churn doesn't hit storage.
+let _lastPersistKey = "";
+useShell.subscribe((s) => {
+  const key = `${s.currentPath ?? ""} ${s.view}`;
+  if (key === _lastPersistKey) return;
+  _lastPersistKey = key;
+  saveLastSession({ path: s.currentPath, view: s.view });
+});
