@@ -1,6 +1,7 @@
 import type { PanelDrillPlan, DrillGroup, PlanHole } from "@/lib/panelDrill";
 import type { Rect } from "@/lib/keepoutGeometry";
-import { avoidZones, KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
+import { KEEPOUT_TRAVERSE_MARGIN_MM } from "@/lib/keepoutGeometry";
+import { routeAvoiding, type PanelBounds } from "@/lib/visibilityRoute";
 
 /** Greedy nearest-neighbour ordering from a start point. Stable: ties resolve to
  *  the earlier index, so output is deterministic. Shared by the G-code emitter and
@@ -60,6 +61,7 @@ export function planDrillRoute(
   plan: PanelDrillPlan,
   start: { xMm: number; yMm: number },
   zones: Rect[] = [],
+  panel?: PanelBounds,
 ): DrillRoute {
   const groups = [...plan.groups].sort(
     (a, b) => CLASS_ORDER[a.class] - CLASS_ORDER[b.class] || a.diameterMm - b.diameterMm,
@@ -90,11 +92,12 @@ export function planDrillRoute(
   let prevY = start.yMm;
   for (const h of orderedHolesList) {
     if (zones.length > 0) {
-      const waypoints = avoidZones(
+      const waypoints = routeAvoiding(
         { x: prevX, y: prevY },
         { x: h.xMm, y: h.yMm },
         zones,
         KEEPOUT_TRAVERSE_MARGIN_MM,
+        panel,
       );
       for (const wp of waypoints) {
         path.push({ xMm: wp.x, yMm: wp.y });
