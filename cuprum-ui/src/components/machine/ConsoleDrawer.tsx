@@ -267,15 +267,6 @@ export function ConsoleBody({
             ))}
           </div>
         )}
-        <button
-          type="button"
-          title={t("console.history")}
-          disabled={history.length === 0}
-          onClick={() => setHistOpen((v) => !v)}
-          className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-40"
-        >
-          <History className="size-4" />
-        </button>
         <input
           ref={inputRef}
           value={input}
@@ -285,6 +276,15 @@ export function ConsoleBody({
           onKeyDown={onKeyDown}
           className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 font-mono text-[12px] outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
         />
+        <button
+          type="button"
+          title={t("console.history")}
+          disabled={history.length === 0}
+          onClick={() => setHistOpen((v) => !v)}
+          className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-40"
+        >
+          <History className="size-4" />
+        </button>
         <Button onClick={send} disabled={!connected}>
           {t("console.send")}
         </Button>
