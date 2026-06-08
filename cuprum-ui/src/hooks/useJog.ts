@@ -4,7 +4,7 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { api } from "@/lib/api";
 import { canMove } from "@/lib/machineControls";
-import { clampJogDelta, continuousJogRoom } from "@/lib/jogClamp";
+import { clampJogDelta, continuousJogRoom, JOG_EDGE_MARGIN_MM } from "@/lib/jogClamp";
 import { resolveJogBounds } from "@/lib/jogBounds";
 import type { JogBounds } from "@/lib/jogBounds";
 
@@ -132,9 +132,15 @@ export function useJog(opts?: { bounds?: JogBounds }) {
       const { mpos, wpos } = useMachine.getState().status;
       // Clamp each work-space target to the bounds via the live work offset
       // (wco = machine − work), so the target stays within [lo, hi] in machine coords.
+      // Hold back JOG_EDGE_MARGIN_MM from each edge so an edge-of-travel target (a
+      // click on the very corner/border) can't land the absolute jog on/just past
+      // the soft limit through the f64→GRBL-f32 round-trip, which GRBL rejects with
+      // error:15 and the move never starts — the same pull-off the continuous jog
+      // uses. Skip the margin when the band is too narrow to hold it.
       const clampWork = (work: number, axis: 0 | 1 | 2, lo: number, hi: number): number => {
         const wco = mpos[axis] - wpos[axis];
-        return Math.min(hi, Math.max(lo, work + wco)) - wco;
+        const m = hi - lo > 2 * JOG_EDGE_MARGIN_MM ? JOG_EDGE_MARGIN_MM : 0;
+        return Math.min(hi - m, Math.max(lo + m, work + wco)) - wco;
       };
       const tx = target.x !== undefined ? clampWork(target.x, 0, bx0, bx1) : undefined;
       const ty = target.y !== undefined ? clampWork(target.y, 1, by0, by1) : undefined;
