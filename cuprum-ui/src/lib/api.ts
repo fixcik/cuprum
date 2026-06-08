@@ -902,8 +902,16 @@ export const api = {
   drillRun: {
     start: (steps: DrillStep[]) => invoke<void>("drill_run_start", { steps }),
     /** Current run status, for a window opening/reopening mid-run (re-attach).
-     *  `active` false when no run is live; `phase` is derived from control flags. */
-    status: () => invoke<{ active: boolean; phase: string }>("drill_run_status"),
+     *  `active` false when no run is live; `phase` is derived from control flags.
+     *  In `awaitingToolChange`, `toolName`/`diameterMm` carry the current prompt so
+     *  the window can rebuild its tool-change card. */
+    status: () =>
+      invoke<{
+        active: boolean;
+        phase: string;
+        toolName?: string;
+        diameterMm?: number;
+      }>("drill_run_status"),
     pause: () => invoke<void>("drill_run_pause"),
     resume: () => invoke<void>("drill_run_resume"),
     stop: () => invoke<void>("drill_run_stop"),

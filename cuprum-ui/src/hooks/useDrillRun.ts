@@ -44,7 +44,18 @@ export function useDrillRun(): UseDrillRun {
     api.drillRun
       .status()
       .then((st) => {
-        if (st.active) dispatch({ type: "state", phase: st.phase as DrillRunPhase });
+        if (!st.active) return;
+        // Mid-tool-change re-attach: rebuild the tool-change card from the snapshot
+        // (the one-shot `toolchange` event won't re-fire for a late follower).
+        if (
+          st.phase === "awaitingToolChange" &&
+          st.toolName != null &&
+          st.diameterMm != null
+        ) {
+          dispatch({ type: "toolchange", toolName: st.toolName, diameterMm: st.diameterMm });
+        } else {
+          dispatch({ type: "state", phase: st.phase as DrillRunPhase });
+        }
       })
       .catch(() => {});
 

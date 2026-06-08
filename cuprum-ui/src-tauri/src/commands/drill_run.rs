@@ -54,7 +54,17 @@ struct Control {
     /// Graceful stop: runner breaks at the next step boundary (safe Z).
     stopping: AtomicBool,
     paused: AtomicBool,
+    /// Operator confirmed the tool change (one-shot command flag): set by
+    /// `drill_run_confirm_tool_change`, reset by the runner when it enters the
+    /// tool-change wait. NOT a phase indicator — see `awaiting_tool_change`.
     confirm_tool_change: AtomicBool,
+    /// Phase flag: the runner is parked at a tool-change prompt waiting for the
+    /// operator. Distinct from `confirm_tool_change` (which is false during the
+    /// wait), so `drill_run_status` reports the right phase to a re-attaching window.
+    awaiting_tool_change: AtomicBool,
+    /// The current tool-change prompt's (name, diameter mm), held while awaiting so a
+    /// window opening mid-change can rebuild its card. Cleared when the wait ends.
+    tool_change_info: Mutex<Option<(String, f32)>>,
     finished: AtomicBool,
 }
 
@@ -284,11 +294,18 @@ pub async fn drill_run_estop(
 /// to re-attach. Phase is derived from the control flags — `holesCompleted` is not
 /// tracked here (the runner emits it per hole), so a fresh follower fills progress in
 /// from the next `drill-run://progress` event. `active` is false when no run is live.
+/// When phase is `awaitingToolChange`, `toolName`/`diameterMm` carry the current
+/// prompt so the window can rebuild its tool-change card (the one-shot `toolchange`
+/// event won't re-fire for a late follower).
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DrillRunStatus {
     active: bool,
     phase: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diameter_mm: Option<f32>,
 }
 
 /// Report the current run status so a (re)opened drill window can reflect an
@@ -302,23 +319,37 @@ pub fn drill_run_status(job: State<DrillJob>) -> DrillRunStatus {
         // window doesn't briefly show a stale live phase before `finished` is set.
         Some(h) if !h.ctrl.finished.load(Relaxed) && !h.ctrl.abort.load(Relaxed) => {
             let c = &h.ctrl;
-            let phase = if c.stopping.load(Relaxed) {
-                "stopping"
-            } else if c.confirm_tool_change.load(Relaxed) {
-                "awaitingToolChange"
+            // Order: a graceful stop overrides a pending tool change; awaiting the
+            // tool change overrides a pause. `awaiting_tool_change` is the phase flag,
+            // NOT `confirm_tool_change` (which is false while we wait for confirm).
+            let (phase, tool_change) = if c.stopping.load(Relaxed) {
+                ("stopping", None)
+            } else if c.awaiting_tool_change.load(Relaxed) {
+                (
+                    "awaitingToolChange",
+                    c.tool_change_info.lock().unwrap().clone(),
+                )
             } else if c.paused.load(Relaxed) {
-                "paused"
+                ("paused", None)
             } else {
-                "running"
+                ("running", None)
+            };
+            let (tool_name, diameter_mm) = match tool_change {
+                Some((name, dia)) => (Some(name), Some(dia)),
+                None => (None, None),
             };
             DrillRunStatus {
                 active: true,
                 phase: phase.into(),
+                tool_name,
+                diameter_mm,
             }
         }
         _ => DrillRunStatus {
             active: false,
             phase: "idle".into(),
+            tool_name: None,
+            diameter_mm: None,
         },
     }
 }
@@ -493,11 +524,17 @@ async fn run_job(
         // lives on the next group's first hole step, streamed only after confirm.
         if step.pause_for_tool_change {
             ctrl.confirm_tool_change.store(false, Relaxed);
+            let tool_name = step.tool_name.clone().unwrap_or_default();
+            let diameter_mm = step.diameter_mm.unwrap_or(0.0);
+            // Publish the prompt as the live phase BEFORE emitting, so a window that
+            // re-attaches mid-change reads "awaitingToolChange" + rebuilds the card.
+            *ctrl.tool_change_info.lock().unwrap() = Some((tool_name.clone(), diameter_mm));
+            ctrl.awaiting_tool_change.store(true, Relaxed);
             let _ = app.emit(
                 "drill-run://toolchange",
                 ToolChangePayload {
-                    tool_name: step.tool_name.clone().unwrap_or_default(),
-                    diameter_mm: step.diameter_mm.unwrap_or(0.0),
+                    tool_name,
+                    diameter_mm,
                 },
             );
             // Release the lease — AWAITING the actor — BEFORE prompting the
@@ -516,6 +553,9 @@ async fn run_job(
             {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
+            // Leave the tool-change phase on every exit path (confirm, abort, stop).
+            ctrl.awaiting_tool_change.store(false, Relaxed);
+            *ctrl.tool_change_info.lock().unwrap() = None;
             if ctrl.abort.load(Relaxed) || ctrl.stopping.load(Relaxed) {
                 graceful_stop = ctrl.stopping.load(Relaxed) && !ctrl.abort.load(Relaxed);
                 break;
