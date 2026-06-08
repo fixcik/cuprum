@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Crosshair, Fan, LocateFixed, Move, Move3d, SlidersHorizontal } from "lucide-react";
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { canMove } from "@/lib/machineControls";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
-import { api } from "@/lib/api";
 import {
   MachineActionsProvider,
   mainMachineActions,
@@ -34,9 +33,11 @@ import { HomingOverlay } from "@/components/machine/HomingOverlay";
 export function MachineControlPanel({
   consoleOpen = false,
   onCloseConsole,
+  onPopOut,
 }: {
   consoleOpen?: boolean;
   onCloseConsole?: () => void;
+  onPopOut?: () => void;
 }) {
   const { t } = useTranslation("machine");
 
@@ -45,26 +46,6 @@ export function MachineControlPanel({
   // would otherwise re-render every useMachineActions() consumer at that rate.
   const actions = useMemo(() => mainMachineActions(), []);
 
-  // Track whether the console OS window is open so the drawer shows a stub.
-  // Driven by authoritative signals, not JS unmount: console:ready (covers
-  // pop-out AND a webview reload remount) sets it true; console:closed (the Rust
-  // Destroyed event) sets it false.
-  const [consoleWindowOpen, setConsoleWindowOpen] = useState(false);
-  useEffect(() => {
-    const ps = [
-      api.onConsoleReady(() => setConsoleWindowOpen(true)),
-      api.onConsoleClosed(() => setConsoleWindowOpen(false)),
-    ];
-    return () => {
-      ps.forEach((p) => void p.then((f) => f()));
-    };
-  }, []);
-
-  const popOutConsole = () => {
-    void api.openConsoleWindow();
-    // Optimistic: instant stub feedback before the ready handshake lands.
-    setConsoleWindowOpen(true);
-  };
   // Datum-corner labels live in the `drill` namespace (shared work-zero vocabulary).
   const { t: tDrill } = useTranslation("drill");
   const safeZMm = useSettings((s) => s.cncProfile.safeZMm);
@@ -135,9 +116,7 @@ export function MachineControlPanel({
         <ConsoleDrawer
           open={consoleOpen}
           onClose={() => onCloseConsole?.()}
-          windowOpen={consoleWindowOpen}
-          onPopOut={popOutConsole}
-          onFocusWindow={() => void api.openConsoleWindow()}
+          onPopOut={onPopOut}
         />
       </div>
     </div>
