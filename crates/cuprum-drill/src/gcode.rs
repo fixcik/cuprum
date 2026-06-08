@@ -150,7 +150,11 @@ pub fn emit_drill_program(plan: &PanelDrillPlan, ctx: EmitCtx) -> DrillProgram {
         }
         first_group = false;
 
-        let comment_line = format!("(insert drill D{} — {})", fmt_mm(tool.diameter_mm), tool.name);
+        let comment_line = format!(
+            "(insert drill D{} — {})",
+            fmt_mm(tool.diameter_mm),
+            tool.name
+        );
         tc_lines.push(comment_line.clone());
         all_lines.push(comment_line);
 
@@ -326,6 +330,9 @@ mod gcode_tests {
         // Half-away-from-zero (toFixed-style), not Rust's half-to-even.
         assert_eq!(fmt_mm(0.0005), "0.001");
         assert_eq!(fmt_mm(2.0005), "2.001");
+        // Same rounding direction on the negative side (toFixed is symmetric).
+        assert_eq!(fmt_mm(-0.0005), "-0.001");
+        assert_eq!(fmt_mm(-2.0005), "-2.001");
     }
 
     #[test]
@@ -515,7 +522,10 @@ M2
         );
         // More than the 2 hole rapids → a detour waypoint G0 X was inserted.
         let xy_rapids = prog.gcode.matches("G0 X").count();
-        assert!(xy_rapids > 2, "expected detour waypoint, got {xy_rapids} G0 X lines");
+        assert!(
+            xy_rapids > 2,
+            "expected detour waypoint, got {xy_rapids} G0 X lines"
+        );
     }
 
     #[test]

@@ -90,9 +90,18 @@ pub fn route_avoiding(
     let panel_ref = panel.as_ref();
     let mut nodes: Vec<Pt> = vec![a, b];
     for r in &expanded {
-        push_node(Pt { x: r.x, y: r.y }, bounded, panel_ref, &expanded, &mut nodes);
         push_node(
-            Pt { x: r.x + r.w, y: r.y },
+            Pt { x: r.x, y: r.y },
+            bounded,
+            panel_ref,
+            &expanded,
+            &mut nodes,
+        );
+        push_node(
+            Pt {
+                x: r.x + r.w,
+                y: r.y,
+            },
             bounded,
             panel_ref,
             &expanded,
@@ -109,7 +118,10 @@ pub fn route_avoiding(
             &mut nodes,
         );
         push_node(
-            Pt { x: r.x, y: r.y + r.h },
+            Pt {
+                x: r.x,
+                y: r.y + r.h,
+            },
             bounded,
             panel_ref,
             &expanded,
@@ -400,7 +412,12 @@ mod route_tests {
         let r = plan_drill_route(&plan, (10.0, 10.0), &zones, Some(panel));
         // path has at least the 2 holes; if a detour was inserted, waypoints stay in-panel.
         for p in &r.path_points {
-            assert!(p.x_mm >= -1e-9 && p.x_mm <= 100.0 + 1e-9 && p.y_mm >= -1e-9 && p.y_mm <= 60.0 + 1e-9);
+            assert!(
+                p.x_mm >= -1e-9
+                    && p.x_mm <= 100.0 + 1e-9
+                    && p.y_mm >= -1e-9
+                    && p.y_mm <= 60.0 + 1e-9
+            );
         }
     }
 

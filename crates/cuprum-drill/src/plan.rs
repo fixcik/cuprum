@@ -21,7 +21,10 @@ pub struct DrillPlanInput {
     pub breakthrough_mm: Option<f64>,
     pub peck_depth_mm: Option<f64>,
     pub keep_out_zones: Vec<Rect>,
-    pub start_machine_xy: Option<(f64, f64)>,
+    // `xy` lowercases to `Xy` under camelCase; the TS field is `startMachineXY`,
+    // so rename explicitly. MachineXY (object), not a tuple (array).
+    #[serde(rename = "startMachineXY")]
+    pub start_machine_xy: Option<MachineXY>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -72,7 +75,7 @@ pub fn drill_plan(input: DrillPlanInput) -> DrillPlanResult {
             breakthrough_mm: input.breakthrough_mm,
             peck_depth_mm: input.peck_depth_mm,
             keep_out_zones: input.keep_out_zones.clone(),
-            start_machine_xy: input.start_machine_xy,
+            start_machine_xy: input.start_machine_xy.map(|m| (m.x, m.y)),
         },
     );
     let estimate = estimate_drill(
@@ -146,5 +149,30 @@ mod plan_tests {
         assert!(res.program.gcode.contains("M2"));
         assert!(res.estimate.motion_sec > 0.0);
         assert_eq!(res.estimate.tool_changes, 1);
+    }
+
+    // The frontend sends `startMachineXY` as an object `{x,y}`; serde must accept
+    // it (not the camelCase-mangled `startMachineXy` nor a tuple array).
+    #[test]
+    fn deserializes_start_machine_xy_object_from_frontend_json() {
+        let json = r#"{
+            "plan": { "groups": [] },
+            "datum": "bottom-left",
+            "panelWidthMm": 100.0,
+            "panelHeightMm": 60.0,
+            "tools": [],
+            "cnc": { "safeZMm": 5.0, "toolChangeZMm": 20.0, "spindleControllable": false,
+                     "spindleMaxRpm": 9000.0, "prependGcode": "", "appendGcode": "" },
+            "kinematics": { "maxRateXyMmMin": 1000.0, "maxRateZMmMin": 500.0,
+                            "accelXyMmS2": 30.0, "accelZMmS2": 30.0 },
+            "substrateThicknessMm": 1.6,
+            "keepOutZones": [],
+            "startMachineXY": { "x": 90.0, "y": 12.0 }
+        }"#;
+        let input: DrillPlanInput = serde_json::from_str(json).unwrap();
+        let m = input
+            .start_machine_xy
+            .expect("startMachineXY must deserialize");
+        assert_eq!((m.x, m.y), (90.0, 12.0));
     }
 }
