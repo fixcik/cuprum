@@ -24,7 +24,7 @@ import { DrillPlanInspector } from "@/components/drill/DrillPlanInspector";
 import { DrillCanvasTopBar } from "@/components/drill/DrillCanvasTopBar";
 import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { useDrillPhaseProgress } from "@/hooks/useDrillPhaseProgress";
-import { shouldShowMarker } from "@/lib/machineMarker";
+import { shouldShowMarker, drillMarkerStatus } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
@@ -470,7 +470,12 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
 
   const targetDepthMm = substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM;
   const currentHolePhase = useDrillPhaseProgress({
-    active: run.state.phase === "running" && run.state.currentHoleIndex !== null,
+    // The bit is still cutting the current hole while `pausing` (the soft-pause only
+    // takes effect after the in-flight hole completes), so track the micro-phase in
+    // both `running` and `pausing` — otherwise it would snap back to `traverse`.
+    active:
+      (run.state.phase === "running" || run.state.phase === "pausing") &&
+      run.state.currentHoleIndex !== null,
     currentHoleIndex: run.state.currentHoleIndex,
     zMm: machineWork?.z ?? null,
     depthMm: targetDepthMm,
@@ -484,23 +489,21 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     return cls ? DRILL_CLASS_COLOR[cls] : undefined;
   }, [route, run.state.currentHoleIndex]);
 
-  // Idle = the machine is holding (paused or awaiting a tool change), not cutting.
-  // Transient phases (pausing/stopping) don't show the marker at all (gated by
-  // ACTIVE_PHASES in shouldShowMarker), so they need no idle handling here.
-  const runIdle =
-    run.state.phase === "paused" || run.state.phase === "awaitingToolChange";
+  // Single source of truth for the marker's idle (not-cutting) state and label key
+  // across every run phase (see drillMarkerStatus). First tool change = no previous
+  // bit to swap, just binding Z for bit #1 (same predicate the run header uses).
+  const markerStatus = drillMarkerStatus(
+    run.state.phase,
+    currentHolePhase.phase,
+    run.state.toolChangeSeq === 1,
+  );
+  const runIdle = markerStatus.idle;
 
-  // Localized phase label for the marker pill (only during an active run).
-  const currentPhaseLabel = useMemo(() => {
-    if (
-      run.state.phase === "idle" ||
-      run.state.phase === "done" ||
-      run.state.phase === "error"
-    )
-      return undefined;
-    const key = runIdle ? "idle" : currentHolePhase.phase;
-    return t(`phase.${key}`);
-  }, [run.state.phase, runIdle, currentHolePhase.phase, t]);
+  // Localized phase label for the marker pill (null on terminal phases → no row).
+  const currentPhaseLabel = useMemo(
+    () => (markerStatus.labelKey ? t(markerStatus.labelKey) : undefined),
+    [markerStatus.labelKey, t],
+  );
 
   const hasAnyHoles = !!(plan && plan.totalHoles > 0);
 

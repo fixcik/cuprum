@@ -6,6 +6,7 @@ import type { DrillRoute } from "@/lib/drillRoute";
 import { activeGroupForHole, orderedHoleList } from "@/lib/drillRoute";
 import type { DatumCorner } from "@/lib/datum";
 import { machinePoint } from "@/lib/datum";
+import { isActiveRunPhase } from "@/lib/machineMarker";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
@@ -32,8 +33,6 @@ function fmtMmSs(sec: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-const ACTIVE_PHASES: Set<DrillRunPhase> = new Set(["running", "pausing", "stopping"]);
-
 // Ring geometry — compact 92px so the header reads as one horizontal row.
 const RING = 92;
 const RING_R = 34;
@@ -58,7 +57,9 @@ export function DrillRunHeader({
   const [elapsedSec, setElapsedSec] = useState(0);
 
   useEffect(() => {
-    if (runStartedAt == null || !ACTIVE_PHASES.has(phase)) return;
+    // Keep ticking through every non-terminal phase (pauses / tool changes too),
+    // freezing only on the terminal idle/done/error.
+    if (runStartedAt == null || !isActiveRunPhase(phase)) return;
     const tick = () => setElapsedSec(Math.floor((Date.now() - runStartedAt) / 1000));
     tick();
     const id = setInterval(tick, 1000);

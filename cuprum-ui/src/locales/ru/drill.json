@@ -132,6 +132,7 @@
     "paused": "Пауза",
     "toolChange": "Смена сверла",
     "zBind": "Привязка Z",
+    "stopping": "Остановка",
     "done": "Готово",
     "elapsedShort": "{{elapsed}} прошло",
     "remainingShort": "осталось ~{{remaining}}"
