@@ -91,7 +91,8 @@
     "windowTitle": "Machine console",
     "popOut": "Open in separate window",
     "inWindow": "Console is open in a separate window",
-    "focusWindow": "Bring to front"
+    "focusWindow": "Bring to front",
+    "history": "Command history"
   },
   "alarm": "Machine in alarm — unlock or soft-reset to continue.",
   "softLimits": {
