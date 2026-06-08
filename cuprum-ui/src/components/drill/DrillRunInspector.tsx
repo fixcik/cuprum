@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Check, Loader2, OctagonX, Pause, Play, Square } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { DrillRunHeader } from "@/components/drill/DrillRunHeader";
 import { DrillToolChangeCard } from "@/components/drill/DrillToolChangeCard";
 import { DrillFinishCard } from "@/components/drill/DrillFinishCard";
@@ -108,11 +108,7 @@ export function DrillRunInspector({
       {/* Finish card — only in done phase */}
       {phase === "done" && (
         <div className="pt-3">
-          <DrillFinishCard
-            holesTotal={state.holesTotal}
-            elapsedSec={elapsedSec}
-            onDone={onRunDone}
-          />
+          <DrillFinishCard holesTotal={state.holesTotal} elapsedSec={elapsedSec} />
         </div>
       )}
 
@@ -131,62 +127,87 @@ export function DrillRunInspector({
       {/* Spacer pushes footer to bottom */}
       <div className="flex-1" />
 
-      {/* Sticky footer: pause/resume/stop controls (hidden on done) */}
-      {phase !== "done" && (
-        <div className="sticky bottom-0 mt-auto border-t border-border bg-panel p-3 flex flex-wrap gap-2">
-          {/* Pause: visible while running */}
-          {phase === "running" && (
-            <Button size="sm" variant="secondary" onClick={run.pause} className="flex-1">
-              {t("run.pause")}
-            </Button>
-          )}
-
-          {/* Resume: visible while paused */}
-          {phase === "paused" && (
-            <Button size="sm" variant="secondary" onClick={run.resume} className="flex-1">
-              {t("run.resume")}
-            </Button>
-          )}
-
-          {/* Pausing spinner */}
-          {phase === "pausing" && (
-            <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground flex-1">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("run.pausing")}
-            </span>
-          )}
-
-          {/* Stopping spinner */}
-          {phase === "stopping" && (
-            <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground flex-1">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("run.stopping")}
-            </span>
-          )}
-
-          {/* Stop: visible while running, paused, or awaiting tool change */}
-          {(phase === "running" || phase === "paused" || phase === "awaitingToolChange") && (
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={run.stop}
-              title={t("run.stopTitle")}
-            >
-              {t("run.stop")}
-            </Button>
-          )}
-
-          {/* Emergency stop: always visible while active */}
-          <Button
-            size="sm"
-            className="border border-red-700 bg-red-600 font-semibold text-white shadow-md hover:bg-red-700 active:bg-red-800"
-            onClick={run.estop}
-            title={t("run.estopTitle")}
+      {/* Sticky footer */}
+      <div className="sticky bottom-0 mt-auto border-t border-border bg-panel px-3 py-3">
+        {phase === "done" ? (
+          /* Finish: single dominant primary */
+          <button
+            type="button"
+            onClick={onRunDone}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-[13px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
           >
-            {t("run.estop")}
-          </Button>
-        </div>
-      )}
+            <Check className="size-4" />
+            {t("run.done")}
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {phase === "stopping" ? (
+              /* Soft-stop requested — finishing the current hole (cancel: see #515) */
+              <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-[12px] font-medium text-warning">
+                <Loader2 className="size-4 shrink-0 animate-spin" />
+                {t("run.stopRequested")}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {/* Pause / Resume — disabled while a tool change or a pause is settling */}
+                <button
+                  type="button"
+                  disabled={phase === "awaitingToolChange" || phase === "pausing"}
+                  onClick={phase === "paused" ? run.resume : run.pause}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card py-2.5 text-[12px] font-medium transition-colors",
+                    phase === "awaitingToolChange" || phase === "pausing"
+                      ? "pointer-events-none text-muted-foreground/40"
+                      : "text-foreground hover:bg-foreground/5",
+                  )}
+                >
+                  {phase === "paused" ? (
+                    <>
+                      <Play className="size-4" />
+                      {t("run.resume")}
+                    </>
+                  ) : phase === "pausing" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      {t("run.pausing")}
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="size-4" />
+                      {t("run.pause")}
+                    </>
+                  )}
+                </button>
+
+                {/* Stop — outline red, two-line (graceful: finishes the current hole) */}
+                <button
+                  type="button"
+                  onClick={run.stop}
+                  title={t("run.stopTitle")}
+                  className="flex flex-col items-center justify-center gap-0.5 rounded-lg border border-[hsl(0_60%_45%)]/40 bg-[hsl(0_60%_45%)]/10 py-2 text-[hsl(0_70%_65%)] transition-colors hover:bg-[hsl(0_60%_45%)]/20"
+                >
+                  <span className="flex items-center gap-1.5 text-[12px] font-medium">
+                    <Square className="size-3.5" />
+                    {t("run.stop")}
+                  </span>
+                  <span className="text-[10px] opacity-70">{t("run.stopCaption")}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Emergency stop — dominant solid red, full width */}
+            <button
+              type="button"
+              onClick={run.estop}
+              title={t("run.estopTitle")}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-700 bg-red-600 py-2.5 text-[13px] font-semibold text-white shadow-md transition-colors hover:bg-red-700 active:bg-red-800"
+            >
+              <OctagonX className="size-4" />
+              {t("run.estopFull")}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

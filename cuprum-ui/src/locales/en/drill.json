@@ -180,14 +180,10 @@
     "resumeMore": "Continue"
   },
   "finish": {
-    "title_one": "Done · {{count}} hole · {{time}}",
-    "title_few": "Done · {{count}} holes · {{time}}",
-    "title_many": "Done · {{count}} holes · {{time}}",
-    "title_other": "Done · {{count}} holes · {{time}}",
-    "dismiss": "Dismiss"
+    "heading": "Drilling complete"
   },
   "feed": {
-    "label": "Feed override",
+    "label": "Spindle feed override",
     "grbl": "GRBL: {{pct}}%"
   },
   "run": {
@@ -196,9 +192,13 @@
     "pausing": "Pausing…",
     "resume": "Resume",
     "stop": "Stop",
+    "stopCaption": "finishes the hole",
     "stopping": "Stopping…",
+    "stopRequested": "Stopping after the current hole",
     "stopTitle": "Graceful stop — finishes the current hole and lifts to safe height",
+    "done": "Done",
     "estop": "Emergency stop",
+    "estopFull": "Emergency stop · instant",
     "estopTitle": "Immediate halt — machine stops without a safe-Z move",
     "progress": "{{done}}/{{total}} holes",
     "toolChangeTitle": "Tool change",
