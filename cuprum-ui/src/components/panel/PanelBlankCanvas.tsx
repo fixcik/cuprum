@@ -304,12 +304,27 @@ export function PanelBlankCanvas({
         return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: rot });
       });
     if (boxes.length === 0) return null;
-    return {
-      minX: Math.min(...boxes.map((b) => b.minX)),
-      minY: Math.min(...boxes.map((b) => b.minY)),
-      maxX: Math.max(...boxes.map((b) => b.maxX)),
-      maxY: Math.max(...boxes.map((b) => b.maxY)),
-    };
+    const minX = Math.min(...boxes.map((b) => b.minX));
+    const minY = Math.min(...boxes.map((b) => b.minY));
+    const maxX = Math.max(...boxes.map((b) => b.maxX));
+    const maxY = Math.max(...boxes.map((b) => b.maxY));
+    // Anchor for the rotation knob: the bottom-right corner of a REAL selected board
+    // nearest the union AABB's bottom-right corner. For a multi-selection that union
+    // corner usually falls in the empty gap between boards, leaving the knob floating
+    // in the void; pinning it to the closest actual board corner keeps it attached.
+    // Single selection: the nearest box IS the union, so this is a no-op.
+    let anchorX = maxX;
+    let anchorY = maxY;
+    let best = Infinity;
+    for (const b of boxes) {
+      const d = Math.hypot(b.maxX - maxX, b.maxY - maxY);
+      if (d < best) {
+        best = d;
+        anchorX = b.maxX;
+        anchorY = b.maxY;
+      }
+    }
+    return { minX, minY, maxX, maxY, anchorX, anchorY };
   }, [instances, selected, sizes, rotPreview]);
 
   // Pull a (possibly just-rotated) selection back inside the panel with one move.
@@ -873,8 +888,11 @@ export function PanelBlankCanvas({
               pxPerMm={viewport.pxPerMm}
             />
             {tool === "select" && !dragDelta && selectionBBox && viewport.pxPerMm > 0 && (() => {
-              // Knob hangs off the bottom-right bbox corner (diagonal stub), leaving the
-              // top-centre clear for the selection HUD; rotation pivot stays the centre.
+              // Knob hangs off the bottom-right corner of the nearest selected board
+              // (diagonal stub), leaving the top-centre clear for the selection HUD;
+              // rotation pivot stays the union centre. Anchoring to a real board corner
+              // (not the union AABB corner) keeps the knob attached under multi-select,
+              // where the union corner often floats in the empty gap between boards.
               // Offset and radius are constant SCREEN px (÷ pxPerMm → mm), like the
               // corner handles, so the knob neither balloons in nor vanishes on zoom.
               // Gated on a measured viewport (pxPerMm>0) so the knob never renders as a
@@ -885,10 +903,10 @@ export function PanelBlankCanvas({
                 <RotationHandle
                   cx={(selectionBBox.minX + selectionBBox.maxX) / 2}
                   cy={(selectionBBox.minY + selectionBBox.maxY) / 2}
-                  anchorX={selectionBBox.maxX}
-                  anchorY={selectionBBox.maxY}
-                  knobX={selectionBBox.maxX + k}
-                  knobY={selectionBBox.maxY + k}
+                  anchorX={selectionBBox.anchorX}
+                  anchorY={selectionBBox.anchorY}
+                  knobX={selectionBBox.anchorX + k}
+                  knobY={selectionBBox.anchorY + k}
                   radiusMm={ROT_KNOB_R_PX * mmPerPx}
                   pointerMm={pointerMm}
                   onRotate={onRotatePreview}
