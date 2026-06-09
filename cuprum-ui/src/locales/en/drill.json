@@ -177,7 +177,10 @@
     "manualConfirm": "Z is set — confirm",
     "manualFail": "Couldn't set Z — check the machine connection",
     "resumeFirst": "Start drilling",
-    "resumeMore": "Continue"
+    "resumeMore": "Continue",
+    "zTooLowTitle": "Work zero is too low",
+    "zTooLowMsg": "There isn't enough Z travel below the zero for the cut (need {{needed}}, available {{available}}). Re-zero higher, or move the board up.",
+    "zRebind": "Re-zero higher"
   },
   "finish": {
     "heading": "Drilling complete"

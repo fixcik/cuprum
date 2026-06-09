@@ -615,6 +615,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             onFeedChange={handleFeedChange}
             onRunDone={handleRunDone}
             totalEstimateSec={totalEstimateSec}
+            plungeDepthMm={targetDepthMm}
           />
       )}
     </div>

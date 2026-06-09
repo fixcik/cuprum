@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowDownToLine,
+  ArrowUpToLine,
   CheckCircle2,
   Hand,
   Loader2,
@@ -9,10 +10,12 @@ import {
   Play,
   PlugZap,
   ScanLine,
+  TriangleAlert,
 } from "lucide-react";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useMachine } from "@/machineStore";
 import { useJog } from "@/hooks/useJog";
+import { checkZHeadroom } from "@/lib/drillZHeadroom";
 import { DrillManualZBar } from "@/components/drill/DrillManualZBar";
 import { api } from "@/lib/api";
 
@@ -44,6 +47,9 @@ export interface DrillToolChangeCardProps {
   probe: ProbeConfig;
   /** Z bound for the current bit — gates the confirm/resume button. */
   zBound: boolean;
+  /** Deepest plunge depth (mm, positive) = substrate thickness + breakthrough. Used
+   *  by the Z-headroom guard to verify the bound zero leaves room for the cut. */
+  plungeDepthMm: number;
   /** Probe circuit tested THIS session (once per run). When true the probe path
    *  skips «step 1 · circuit test» and goes straight to «set Z by probe». */
   probeChecked: boolean;
@@ -52,6 +58,9 @@ export interface DrillToolChangeCardProps {
   lastManualZMm: number | null;
   /** Called after a successful probe / manual touch-off (dispatches the Z gate). */
   onZBound: () => void;
+  /** Re-open the touch-off flow (the bound zero left too little travel for the cut —
+   *  the operator must re-zero higher). */
+  onZUnbind: () => void;
   /** Called once the probe circuit is confirmed closed (latches `probeChecked`). */
   onProbeChecked: () => void;
   /** Records the machine Z of a manual touch-off (for the «previous Z» mark). */
@@ -73,9 +82,11 @@ export function DrillToolChangeCard({
   firstToolChange,
   probe,
   zBound,
+  plungeDepthMm,
   probeChecked,
   lastManualZMm,
   onZBound,
+  onZUnbind,
   onProbeChecked,
   onManualZ,
   onConfirm,
@@ -91,6 +102,29 @@ export function DrillToolChangeCard({
   const probeActive = useMachine((s) => s.status.pins?.probe ?? false);
   // Live machine Z — captured at a manual confirm to seed the «previous Z» mark.
   const machineZ = useMachine((s) => s.status.mpos[2]);
+  // Live work Z + soft-limit settings for the Z-headroom guard (relayed to this
+  // window via `machine://derived`; null until the main window has read `$$`).
+  const workZ = useMachine((s) => s.status.wpos[2]);
+  const homed = useMachine((s) => s.homed);
+  const softLimitsEnabled = useMachine((s) => s.softLimitsEnabled);
+  const maxTravelMm = useMachine((s) => s.maxTravelMm);
+
+  // After Z is bound, verify the bound zero leaves enough travel below for the
+  // plunge — otherwise the cut would trip a GRBL soft limit (ALARM:2) mid-run. Only
+  // meaningful once bound; skipped when the floor isn't computable (see checkZHeadroom).
+  const headroom = useMemo(
+    () =>
+      checkZHeadroom({
+        mposZ: machineZ,
+        wposZ: workZ,
+        homed,
+        softLimitsEnabled,
+        maxTravelZMm: maxTravelMm?.[2] ?? null,
+        plungeDepthMm,
+      }),
+    [machineZ, workZ, homed, softLimitsEnabled, maxTravelMm, plungeDepthMm],
+  );
+  const zTooLow = zBound && !headroom.skipped && !headroom.ok;
 
   // Auto-advance step 1 → step 2 the moment the operator touches the probe to the
   // bit (pin latches). The explicit button below is the affordance/fallback.
@@ -310,8 +344,33 @@ export function DrillToolChangeCard({
           </li>
         </ol>
 
-        {/* Action: resume once Z is bound, else the Z touch-off flow */}
-        {zBound ? (
+        {/* Action: resume once Z is bound (unless the bound zero is too low — block
+            and offer to re-zero), else the Z touch-off flow */}
+        {zTooLow ? (
+          <div
+            className="rounded-lg border px-3 py-2.5"
+            style={{ borderColor: "hsl(0 70% 55% / 0.5)", backgroundColor: "hsl(0 70% 55% / 0.08)" }}
+          >
+            <div className="flex items-center gap-1.5 text-[12px] font-semibold text-red-400">
+              <TriangleAlert className="size-4 shrink-0" />
+              {t("toolChange.zTooLowTitle")}
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              {t("toolChange.zTooLowMsg", {
+                needed: fmtLen(headroom.neededMm),
+                available: fmtLen(Math.max(0, headroom.availableMm)),
+              })}
+            </p>
+            <button
+              type="button"
+              onClick={onZUnbind}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card py-2 text-[12px] font-semibold text-foreground transition-colors hover:bg-foreground/5"
+            >
+              <ArrowUpToLine className="size-4" />
+              {t("toolChange.zRebind")}
+            </button>
+          </div>
+        ) : zBound ? (
           <button type="button" className={SOLID_WARNING} onClick={onConfirm}>
             <Play className="size-4" />
             {firstToolChange ? t("toolChange.resumeFirst") : t("toolChange.resumeMore")}

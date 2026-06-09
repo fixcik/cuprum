@@ -82,6 +82,7 @@ export type DrillRunEvent =
   | { type: "done" }
   | { type: "reset" }
   | { type: "zbound" }
+  | { type: "zunbound" }
   | { type: "probechecked" }
   | { type: "manualz"; zMm: number };
 
@@ -174,6 +175,11 @@ function drillRunReducerCore(
 
     case "zbound":
       return { ...s, zBound: true };
+
+    case "zunbound":
+      // Re-open the Z touch-off flow for the current bit (e.g. the bound zero left
+      // too little travel below for the plunge — the operator must re-zero higher).
+      return { ...s, zBound: false };
 
     case "probechecked":
       return { ...s, probeChecked: true };

@@ -435,6 +435,12 @@ describe("drillRunReducer — zBound (per-tool Z gate)", () => {
     const bound = drillRunReducer(initialDrillRunState, { type: "zbound" });
     expect(drillRunReducer(bound, { type: "reset" }).zBound).toBe(false);
   });
+
+  it("zunbound re-opens the touch-off flow (zBound back to false)", () => {
+    const bound = drillRunReducer(initialDrillRunState, { type: "zbound" });
+    expect(bound.zBound).toBe(true);
+    expect(drillRunReducer(bound, { type: "zunbound" }).zBound).toBe(false);
+  });
 });
 
 describe("drillRunReducer — probeChecked (once-per-session circuit test)", () => {
