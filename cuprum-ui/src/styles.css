@@ -1,4 +1,12 @@
-@import "tailwindcss";
+/* Scope class detection to our own source only. Tailwind v4 (oxide) auto-detects
+   sources by walking the project tree; from some checkouts that reaches beyond
+   cuprum-ui (crates/, testdata/, docs/, build output…) and ingests garbage
+   "candidates", producing corrupted utilities (e.g. `border-warning/50` resolving
+   to the wrong colour, stray `* {}` / `color: red` rules). `source(none)` disables
+   auto-detection; we then register only `src` (all React/TSX class usage lives
+   there — index.html carries no Tailwind utilities). */
+@import "tailwindcss" source(none);
+@source "../src";
 
 @custom-variant dark (&:is(.dark *));
 
