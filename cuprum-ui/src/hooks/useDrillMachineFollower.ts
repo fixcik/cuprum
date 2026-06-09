@@ -43,6 +43,14 @@ export function useDrillMachineFollower(): void {
     api.machine.onDisconnected(() =>
       useMachine.setState({ connected: false, status: IDLE_STATUS, homed: false }),
     ),
-    api.onMachineDerived(({ homed }) => useMachine.setState({ homed })),
+    api.onMachineDerived((d) =>
+      // Patch only the fields present in this relay (soft-limit settings may be null
+      // until the main window has read `$$`); `homed` is always sent.
+      useMachine.setState({
+        homed: d.homed,
+        ...(d.softLimitsEnabled !== undefined ? { softLimitsEnabled: d.softLimitsEnabled } : {}),
+        ...(d.maxTravelMm !== undefined ? { maxTravelMm: d.maxTravelMm } : {}),
+      }),
+    ),
   ]);
 }

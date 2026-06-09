@@ -14,7 +14,12 @@ import { useBridgeListeners } from "@/hooks/useTauriListeners";
 export function useDrillBridge() {
   // Same snapshot the editor used inline — built from the main-window stores.
   const snap = useDrillScreenData();
+  // Machine state the backend broadcast doesn't carry but the drill window needs:
+  // the JS-derived `homed` flag and the soft-limit settings ($20 / $132) the
+  // Z-headroom guard relies on — the drill window never reads `$$` itself.
   const homed = useMachine((s) => s.homed);
+  const softLimitsEnabled = useMachine((s) => s.softLimitsEnabled);
+  const maxTravelMm = useMachine((s) => s.maxTravelMm);
 
   // Ref so the mount-time ready listener pushes the latest snapshot without
   // re-binding on every change.
@@ -26,16 +31,21 @@ export function useDrillBridge() {
     void api.emitDrillSnapshot(snap);
   }, [snap]);
 
-  // Relay the JS-derived homed flag (absent from the backend broadcast).
+  // Relay the derived/firmware machine state (absent from the backend broadcast).
   useEffect(() => {
-    void api.emitMachineDerived({ homed });
-  }, [homed]);
+    void api.emitMachineDerived({ homed, softLimitsEnabled, maxTravelMm });
+  }, [homed, softLimitsEnabled, maxTravelMm]);
 
   useBridgeListeners(() => [
     api.onDrillReady(() => {
-      // Seed a freshly-opened window with the current snapshot + derived flag.
+      // Seed a freshly-opened window with the current snapshot + derived state.
       void api.emitDrillSnapshot(snapRef.current);
-      void api.emitMachineDerived({ homed: useMachine.getState().homed });
+      const m = useMachine.getState();
+      void api.emitMachineDerived({
+        homed: m.homed,
+        softLimitsEnabled: m.softLimitsEnabled,
+        maxTravelMm: m.maxTravelMm,
+      });
       // Hand off a pending "repeat run" prefill to the just-opened window (one-shot).
       const pending = useShell.getState().pendingDrillPrefill;
       if (pending) {

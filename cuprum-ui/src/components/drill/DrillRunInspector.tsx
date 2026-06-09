@@ -19,6 +19,9 @@ export interface DrillRunInspectorProps {
   panelWidthMm: number;
   panelHeightMm: number;
   totalEstimateSec: number;
+  /** Deepest plunge depth (mm) = substrate thickness + breakthrough; feeds the
+   *  tool-change card's Z-headroom guard. */
+  plungeDepthMm: number;
   feedOverridePct: number;
   onFeedChange: (pct: number) => void;
   onRunDone: () => void;
@@ -41,6 +44,7 @@ export function DrillRunInspector({
   panelWidthMm,
   panelHeightMm,
   totalEstimateSec,
+  plungeDepthMm,
   feedOverridePct,
   onFeedChange,
   onRunDone,
@@ -98,9 +102,11 @@ export function DrillRunInspector({
             firstToolChange={state.toolChangeSeq === 1}
             probe={probe}
             zBound={state.zBound}
+            plungeDepthMm={plungeDepthMm}
             probeChecked={state.probeChecked}
             lastManualZMm={state.lastManualZMm}
             onZBound={run.markZBound}
+            onZUnbind={run.markZUnbound}
             onProbeChecked={run.markProbeChecked}
             onManualZ={run.markManualZ}
             onConfirm={run.confirmToolChange}

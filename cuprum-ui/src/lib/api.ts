@@ -54,6 +54,19 @@ export interface MachineStatus {
   pins?: Pins;
 }
 
+/** Payload of the `machine://derived` relay: machine state the main window derives
+ *  or reads from `$$` but the backend status broadcast doesn't carry, forwarded to
+ *  the drill window (which never reads `$$` itself). `homed` is JS-derived; the
+ *  soft-limit fields ($20 / $130-132) feed the Z-headroom guard. Fields are optional
+ *  so the drill follower only patches what's present (and unknown stays null). */
+export interface MachineDerived {
+  homed: boolean;
+  /** GRBL soft-limits ($20); null = not yet known from a `$$` read. */
+  softLimitsEnabled?: boolean | null;
+  /** GRBL max travel per axis [X,Y,Z] mm ($130/$131/$132); null until known. */
+  maxTravelMm?: [number, number, number] | null;
+}
+
 /** Payload of the global `machine://status` event (machine.rs `MachinePos`).
  *  Full status (not just position) so a follower window (drill) has parity with
  *  the main window's per-connection Channel. */
@@ -801,10 +814,12 @@ export const api = {
   emitDrillPrefill: (paramsJson: string) => emit("drill:prefill", { paramsJson }),
   onDrillPrefill: (cb: (paramsJson: string) => void): Promise<UnlistenFn> =>
     listen<{ paramsJson: string }>("drill:prefill", (e) => cb(e.payload.paramsJson)),
-  /** Relay the main window's JS-derived machine flags (homed) to the drill window. */
-  emitMachineDerived: (d: { homed: boolean }) => emit("machine://derived", d),
-  onMachineDerived: (cb: (d: { homed: boolean }) => void): Promise<UnlistenFn> =>
-    listen<{ homed: boolean }>("machine://derived", (e) => cb(e.payload)),
+  /** Relay the main window's JS-derived/firmware machine state to the drill window
+   *  (a separate JS context that never reads `$$` itself): the `homed` flag plus the
+   *  soft-limit settings ($20 / $132) the Z-headroom guard needs. */
+  emitMachineDerived: (d: MachineDerived) => emit("machine://derived", d),
+  onMachineDerived: (cb: (d: MachineDerived) => void): Promise<UnlistenFn> =>
+    listen<MachineDerived>("machine://derived", (e) => cb(e.payload)),
   /** Drill window → main: reclassify a drill diameter (project mutation). */
   emitDrillSetClassOverride: (diameterKey: string, klass: DrillClass | null) =>
     emit("drill:set-class-override", { diameterKey, klass }),

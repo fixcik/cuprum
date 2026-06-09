@@ -90,6 +90,9 @@ export interface DrillPlanInspectorProps {
   onRunDone: () => void;
   /** Total estimated run time in seconds (for the run header). */
   totalEstimateSec: number;
+  /** Deepest plunge depth (mm) = substrate thickness + breakthrough; feeds the
+   *  tool-change card's Z-headroom guard. */
+  plungeDepthMm: number;
 }
 
 /** Right-panel inspector for the drill operation.
@@ -132,6 +135,7 @@ export function DrillPlanInspector({
   onFeedChange,
   onRunDone,
   totalEstimateSec,
+  plungeDepthMm,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -229,6 +233,7 @@ export function DrillPlanInspector({
           panelWidthMm={panelWidthMm}
           panelHeightMm={panelHeightMm}
           totalEstimateSec={totalEstimateSec}
+          plungeDepthMm={plungeDepthMm}
           feedOverridePct={feedOverridePct}
           onFeedChange={onFeedChange}
           onRunDone={onRunDone}

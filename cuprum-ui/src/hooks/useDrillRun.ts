@@ -23,6 +23,9 @@ export interface UseDrillRun {
   /** Mark Z as bound for the current bit (probe or manual touch-off succeeded) —
    *  unlocks "Продолжить"/"Начать". Frontend-only; no machine command here. */
   markZBound: () => void;
+  /** Re-open the Z touch-off flow for the current bit (e.g. the bound zero left too
+   *  little travel below for the plunge). Frontend-only; no machine command here. */
+  markZUnbound: () => void;
   /** Mark the probe circuit as tested for THIS session — the operator touched the
    *  probe to the bit and the pin latched. Persists across tool changes (the check
    *  is once per run). Frontend-only; no machine command here. */
@@ -124,6 +127,10 @@ export function useDrillRun(): UseDrillRun {
     dispatch({ type: "zbound" });
   }, []);
 
+  const markZUnbound = useCallback(() => {
+    dispatch({ type: "zunbound" });
+  }, []);
+
   const markProbeChecked = useCallback(() => {
     dispatch({ type: "probechecked" });
   }, []);
@@ -149,6 +156,7 @@ export function useDrillRun(): UseDrillRun {
     estop,
     confirmToolChange,
     markZBound,
+    markZUnbound,
     markProbeChecked,
     markManualZ,
     reset,
