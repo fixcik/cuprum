@@ -77,8 +77,14 @@ const hsMid = (h: GeoHotspot): [number, number] => [(h.a[0] + h.b[0]) / 2, (h.a[
  *  (strokes whose midpoints are within `radius` mm chain together). A silk text
  *  block becomes a single rectangle covering all its letters; separate silk
  *  elsewhere stays its own box. Grouped per side (top/bottom never merge). The
- *  box value is the worst (thinnest) stroke in the group. */
-function clusterBoxes(hs: GeoHotspot[], radius: number): GeoHotspot[] {
+ *  box value is the worst (thinnest) stroke in the group.
+ *
+ *  Candidate pairs come from a uniform grid of `radius`-sized cells: midpoints
+ *  closer than `radius` always land in the same or an adjacent cell, so scanning
+ *  the 3×3 neighbourhood reproduces the exact connectivity of the all-pairs
+ *  version while staying ~O(n) for spread-out hotspots (the metrics side caps
+ *  the input at HIGHLIGHT_CAP=4000 strokes, where all-pairs cost tens of ms). */
+export function clusterBoxes(hs: GeoHotspot[], radius: number): GeoHotspot[] {
   const out: GeoHotspot[] = [];
   const bySide = new Map<string, GeoHotspot[]>();
   for (const h of hs) {
@@ -93,11 +99,29 @@ function clusterBoxes(hs: GeoHotspot[], radius: number): GeoHotspot[] {
     const parent = Array.from({ length: n }, (_, i) => i);
     const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
     const r2 = radius * radius;
+    const cells = new Map<string, number[]>();
     for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const dx = mids[i][0] - mids[j][0];
-        const dy = mids[i][1] - mids[j][1];
-        if (dx * dx + dy * dy < r2) parent[find(i)] = find(j);
+      const key = `${Math.floor(mids[i][0] / radius)},${Math.floor(mids[i][1] / radius)}`;
+      const arr = cells.get(key) ?? [];
+      arr.push(i);
+      cells.set(key, arr);
+    }
+    for (let i = 0; i < n; i++) {
+      const cx = Math.floor(mids[i][0] / radius);
+      const cy = Math.floor(mids[i][1] / radius);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const bucket = cells.get(`${cx + dx},${cy + dy}`);
+          if (!bucket) continue;
+          for (const j of bucket) {
+            // j <= i pairs were already visited from the other endpoint; equal
+            // roots need no distance check (union would be a no-op).
+            if (j <= i || find(i) === find(j)) continue;
+            const ddx = mids[i][0] - mids[j][0];
+            const ddy = mids[i][1] - mids[j][1];
+            if (ddx * ddx + ddy * ddy < r2) parent[find(i)] = find(j);
+          }
+        }
       }
     }
     const groups = new Map<number, number[]>();

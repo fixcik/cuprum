@@ -4,12 +4,15 @@ import type { BoardMetrics, GeoHotspot } from "@/lib/api";
 import { DEFAULT_PROFILE } from "@/lib/capabilityProfile";
 import i18n from "@/i18n";
 
-// Worst-case dense board: every located-hotspot family filled to the HOT_N=500
-// cap (PR #79), split across top/bottom so per-side findings (silk, thin-trace)
-// and the O(n²) silk clusterBoxes run at full size. This is the upper bound of
-// the per-recompute main-thread work the roadmap item worried about; if it's
-// well under a frame budget here, a Web Worker is unjustified.
+// Worst-case dense board: every located-hotspot family filled to its Rust-side
+// cap, split across top/bottom so per-side findings (silk, thin-trace) and the
+// silk clusterBoxes run at full size. Sweep-style families cap at HOT_N=500
+// (PR #79); stroke-highlight families (silk, thin-trace conductors) cap at
+// HIGHLIGHT_CAP=4000 (cuprum-dfm/src/metrics/copper.rs). This is the upper
+// bound of the per-recompute main-thread work; if it's well under a frame
+// budget here, a Web Worker is unjustified.
 const HOT_N = 500;
+const HIGHLIGHT_N = 4000;
 
 /** N hotspots at value `v` on `side`, spread out so silk clustering does real
  *  work (distinct midpoints → many union-find groups, not one trivial blob). */
@@ -57,12 +60,12 @@ const denseMetrics = (): BoardMetrics => ({
     clearanceHotspots: [...hots(HOT_N / 2, 0.1, "top"), ...hots(HOT_N / 2, 0.1, "bottom")],
     copperWidthHotspots: [...hots(HOT_N / 2, 0.1, "top"), ...hots(HOT_N / 2, 0.1, "bottom")],
     // thin-trace: conds (hoverBoxes) + segs (hotspots), per side
-    thinTraceConductors: [...hots(HOT_N / 2, 0.1, "top"), ...hots(HOT_N / 2, 0.1, "bottom")],
-    traceHotspots: [...hots(HOT_N / 2, 0.1, "top"), ...hots(HOT_N / 2, 0.1, "bottom")],
-    traceCount: HOT_N,
+    thinTraceConductors: [...hots(HIGHLIGHT_N / 2, 0.1, "top"), ...hots(HIGHLIGHT_N / 2, 0.1, "bottom")],
+    traceHotspots: [...hots(HIGHLIGHT_N / 2, 0.1, "top"), ...hots(HIGHLIGHT_N / 2, 0.1, "bottom")],
+    traceCount: HIGHLIGHT_N,
     traceTotalLengthMm: 1000,
-    // silk: failing → clusterBoxes O(n²) per side
-    silkHotspots: [...hots(HOT_N / 2, 0.1, "top"), ...hots(HOT_N / 2, 0.1, "bottom")],
+    // silk: failing → clusterBoxes per side, at the full highlight cap
+    silkHotspots: [...hots(HIGHLIGHT_N / 2, 0.1, "top"), ...hots(HIGHLIGHT_N / 2, 0.1, "bottom")],
     annularHotspots: hots(HOT_N, 0.1, "both"),
     maskDamHotspots: hots(HOT_N, 0.07, "top"),
     overshootHotspots: hots(HOT_N, 0.3, "both"),
@@ -98,7 +101,7 @@ function deriveMarkersAndIssues(findings: Finding[]) {
   return { markers, issues };
 }
 
-describe("feasibility worst-case (500/family)", () => {
+describe("feasibility worst-case (families at their caps)", () => {
   // Sanity: log the workload size once (bench output omits it otherwise).
   const f0 = evaluate(denseMetrics(), profile);
   const totalHot = f0.reduce((n, f) => n + (f.hotspots?.length ?? 0) + (f.hoverBoxes?.length ?? 0), 0);
