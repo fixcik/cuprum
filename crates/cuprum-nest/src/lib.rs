@@ -97,7 +97,7 @@ fn axis_candidates(lo: f64, hi: f64, size: f64, blockers_edges: &[(f64, f64)]) -
         out.push(near - size); // place flush against a blocker's near edge
     }
     out.retain(|&v| v >= lo - EPS && v <= hi - size + EPS);
-    out.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    out.sort_by(|a, b| a.total_cmp(b));
     out.dedup_by(|a, b| (*a - *b).abs() < EPS);
     out
 }

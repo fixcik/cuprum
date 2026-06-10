@@ -5,6 +5,7 @@
 //! polarity, coordinates). We own only the rasterizer: walk the primitives and
 //! paint them into a `tiny-skia` Pixmap (white = UV on, black = UV off).
 
+use crate::lock_recover;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -439,22 +440,22 @@ pub fn parse_layer_cached(bytes: &[u8]) -> anyhow::Result<Arc<GerberLayer>> {
         return Ok(Arc::new(parse_layer(bytes)?));
     }
     let key = cuprum_diskcache::diskcache::key_for(&[bytes]);
-    if let Some(v) = parse_cache().lock().unwrap().get(&key) {
+    if let Some(v) = lock_recover(parse_cache()).get(&key) {
         return Ok(v.clone());
     }
     let flight = {
-        let mut reg = parse_inflight().lock().unwrap();
+        let mut reg = lock_recover(parse_inflight());
         reg.entry(key.clone())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     };
-    let _flight = flight.lock().unwrap();
+    let _flight = lock_recover(&flight);
     // Re-check: the winner may have populated the LRU while we waited.
-    if let Some(v) = parse_cache().lock().unwrap().get(&key) {
+    if let Some(v) = lock_recover(parse_cache()).get(&key) {
         return Ok(v.clone());
     }
     let drop_inflight = || {
-        let mut reg = parse_inflight().lock().unwrap();
+        let mut reg = lock_recover(parse_inflight());
         if let Some(existing) = reg.get(&key) {
             if Arc::ptr_eq(existing, &flight) {
                 reg.remove(&key);
@@ -468,10 +469,7 @@ pub fn parse_layer_cached(bytes: &[u8]) -> anyhow::Result<Arc<GerberLayer>> {
             return Err(e);
         }
     };
-    parse_cache()
-        .lock()
-        .unwrap()
-        .put(key.clone(), layer.clone());
+    lock_recover(parse_cache()).put(key.clone(), layer.clone());
     drop_inflight();
     Ok(layer)
 }
@@ -485,8 +483,8 @@ mod parse_cache_tests {
         // Unique aperture diameter → a guaranteed-cold key regardless of test order.
         const UNIQ: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,1.111*%\nD10*\nX0Y0D03*\nM02*\n";
         let key = cuprum_diskcache::diskcache::key_for(&[UNIQ]);
-        parse_cache().lock().unwrap().pop(&key);
-        parse_inflight().lock().unwrap().remove(&key);
+        lock_recover(parse_cache()).pop(&key);
+        lock_recover(parse_inflight()).remove(&key);
 
         // Concurrent cold misses → single-flight → exactly one parse, shared by all
         // callers. If any thread parsed independently its Arc would not be ptr-equal.
