@@ -1,3 +1,86 @@
+mod malformed_aperture_block_tests {
+    use std::convert::TryFrom;
+
+    use gerber_types::{
+        Aperture, ApertureBlock, ApertureDefinition, Circle, Command, CoordinateFormat,
+        CoordinateMode, CoordinateNumber, Coordinates, DCode, ExtendedCode, Operation, Unit,
+        ZeroOmission,
+    };
+
+    use crate::viewer::layer::{GerberLayer, GerberPrimitive};
+
+    fn flash_at(x: f64, y: f64) -> Command {
+        let format = CoordinateFormat::new(ZeroOmission::Leading, CoordinateMode::Absolute, 3, 5);
+        DCode::Operation(Operation::Flash(Some(Coordinates::new(
+            CoordinateNumber::try_from(x).unwrap(),
+            CoordinateNumber::try_from(y).unwrap(),
+            format,
+        ))))
+        .into()
+    }
+
+    #[test]
+    fn unclosed_aperture_block_does_not_panic() {
+        // An AB open without a matching close never registers the block in the
+        // discovery pass; the third pass must skip it gracefully, not unwrap.
+        let commands: Vec<Command> = vec![
+            Command::ExtendedCode(ExtendedCode::Unit(Unit::Millimeters)),
+            Command::ExtendedCode(ExtendedCode::ApertureBlock(ApertureBlock::Open {
+                code: 10,
+            })),
+            Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
+                11,
+                Aperture::Circle(Circle::new(1.0)),
+            ))),
+            DCode::SelectAperture(11).into(),
+            flash_at(0.0, 0.0),
+        ];
+
+        let layer = GerberLayer::new(commands);
+        // The flash after the orphaned AB open is still processed.
+        assert_eq!(layer.primitives().len(), 1);
+        assert!(matches!(
+            layer.primitives()[0],
+            GerberPrimitive::Circle { .. }
+        ));
+    }
+
+    #[test]
+    fn aperture_block_code_reused_by_standard_aperture_does_not_panic() {
+        // The block code 10 is later redefined as a standard aperture; pass two
+        // keeps the last definition, so the third pass finds a Standard under
+        // the AB open code. It must skip the whole block (including its close)
+        // instead of replaying the body and hitting the AB close.
+        let commands: Vec<Command> = vec![
+            Command::ExtendedCode(ExtendedCode::Unit(Unit::Millimeters)),
+            Command::ExtendedCode(ExtendedCode::ApertureBlock(ApertureBlock::Open {
+                code: 10,
+            })),
+            Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
+                11,
+                Aperture::Circle(Circle::new(1.0)),
+            ))),
+            DCode::SelectAperture(11).into(),
+            flash_at(0.0, 0.0),
+            Command::ExtendedCode(ExtendedCode::ApertureBlock(ApertureBlock::Close)),
+            Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
+                10,
+                Aperture::Circle(Circle::new(2.0)),
+            ))),
+            DCode::SelectAperture(10).into(),
+            flash_at(5.0, 5.0),
+        ];
+
+        let layer = GerberLayer::new(commands);
+        // Only the flash after the skipped block body is processed.
+        assert_eq!(layer.primitives().len(), 1);
+        assert!(matches!(
+            layer.primitives()[0],
+            GerberPrimitive::Circle { .. }
+        ));
+    }
+}
+
 mod circular_plotting_tests {
     use std::convert::TryFrom;
     use std::f64::consts::{FRAC_PI_2, PI};

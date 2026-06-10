@@ -29,6 +29,30 @@ mod region;
 #[cfg(test)]
 mod tests;
 
+/// Index just past the AB close matching the AB open at `open_index`,
+/// honouring nested blocks. Returns `commands.len()` when there is no
+/// matching close (the rest of the stream is skipped).
+fn skip_aperture_block(commands: &[Command], open_index: usize) -> usize {
+    let mut depth: usize = 0;
+    let mut index = open_index;
+    while let Some(cmd) = commands.get(index) {
+        match cmd {
+            Command::ExtendedCode(ExtendedCode::ApertureBlock(ApertureBlock::Open { .. })) => {
+                depth += 1;
+            }
+            Command::ExtendedCode(ExtendedCode::ApertureBlock(ApertureBlock::Close)) => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    commands.len()
+}
+
 impl GerberLayer {
     fn update_position(
         current_pos: &mut Point2<f64>,
@@ -397,19 +421,37 @@ impl GerberLayer {
 
                     // we already discovered the block, get the corresponding block then
                     // jump the the command after it.
-                    let block = apertures.get(code).unwrap();
-                    if let LocalApertureKind::Block(block) = block {
-                        // +1 for the AB close itself, +1 again so we start on the command after it.
-                        index = block.range.end + 2;
-                        trace!("AB (open), skipping to: {:?}", index);
-                        continue;
-                    } else {
-                        error!("AB (open) not using an aperture block definition");
+                    match apertures.get(code) {
+                        Some(LocalApertureKind::Block(block)) => {
+                            // +1 for the AB close itself, +1 again so we start on the command after it.
+                            index = block.range.end + 2;
+                            trace!("AB (open), skipping to: {:?}", index);
+                            continue;
+                        }
+                        Some(_) => {
+                            // The code was redefined by a later standard aperture
+                            // definition (pass two keeps the last definition per
+                            // code). Skip the whole block body including its
+                            // matching AB close instead of replaying it here.
+                            error!(
+                                "AB (open) not using an aperture block definition. code: {}",
+                                code
+                            );
+                            index = skip_aperture_block(commands, index);
+                            continue;
+                        }
+                        None => {
+                            // An AB open without a matching close never registers
+                            // a block in the discovery pass; skip the orphaned
+                            // open instead of panicking.
+                            error!("AB (open) without a discovered block. code: {}", code);
+                        }
                     }
                 }
                 Command::ExtendedCode(ExtendedCode::ApertureBlock(ApertureBlock::Close)) => {
                     // this shouldn't happen, since the block range should cause this to be skipped
-                    // when the AP (open) is processed
+                    // when the AB (open) is processed; reachable only with malformed
+                    // input (e.g. an AB close without a matching open) - skip it.
                     error!("AB (close) encountered during 3rd pass");
 
                     if !aperture_block_replay_stack.is_empty() {
@@ -417,7 +459,6 @@ impl GerberLayer {
                     } else {
                         // we're waiting for a block aperture to be selected
                     }
-                    unreachable!()
                 }
                 Command::ExtendedCode(ExtendedCode::StepAndRepeat(StepAndRepeat::Open {
                     repeat_x,
