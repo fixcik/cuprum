@@ -51,6 +51,9 @@ export const GRBL_SETTINGS: GrblSettingDef[] = [
   { n: 11, key: "junctionDeviation", group: "general", type: "float", unit: "mm", step: "0.001" },
   { n: 12, key: "arcTolerance", group: "general", type: "float", unit: "mm", step: "0.001" },
   { n: 13, key: "reportInches", group: "general", type: "bool" },
+  // grblHAL stepper/comms extras ($37, $39). Absent on stock GRBL 1.1.
+  { n: 37, key: "stepperDeenergize", group: "general", type: "mask", bits: XYZ_BITS },
+  { n: 39, key: "realtimeChars", group: "general", type: "bool" },
   // Limits & homing
   { n: 20, key: "softLimits", group: "limits", type: "bool" },
   { n: 21, key: "hardLimits", group: "limits", type: "bool", critical: true },
@@ -70,6 +73,8 @@ export const GRBL_SETTINGS: GrblSettingDef[] = [
   { n: 34, key: "spindleOffPwm", group: "spindle", type: "float", unit: "percent", step: "1" },
   { n: 35, key: "spindleMinPwm", group: "spindle", type: "float", unit: "percent", step: "1" },
   { n: 36, key: "spindleMaxPwm", group: "spindle", type: "float", unit: "percent", step: "1" },
+  // grblHAL spindle encoder ($38). For spindle-synchronized motion (threading).
+  { n: 38, key: "spindleEncoderPpr", group: "spindle", type: "int", unit: "ppr", step: "1" },
   // Axes
   { n: 100, key: "xSteps", group: "axis", type: "float", unit: "stepsPerMm", step: "1", critical: true },
   { n: 101, key: "ySteps", group: "axis", type: "float", unit: "stepsPerMm", step: "1", critical: true },

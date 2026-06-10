@@ -33,7 +33,8 @@
     "rpm": "rpm",
     "stepsPerMm": "steps/mm",
     "hz": "Hz",
-    "percent": "%"
+    "percent": "%",
+    "ppr": "ppr"
   },
   "maskBit": {
     "x": "X",
@@ -54,6 +55,8 @@
     "junctionDeviation": { "label": "Junction deviation", "desc": "Cornering smoothing parameter, mm. Higher is faster and sharper at corners." },
     "arcTolerance": { "label": "Arc tolerance", "desc": "Arc-to-segment approximation tolerance, mm." },
     "reportInches": { "label": "Report in inches", "desc": "Report coordinates in inches instead of millimeters." },
+    "stepperDeenergize": { "label": "Stepper deenergize", "desc": "Axis mask of motors that drop current when idle (after the $1 delay). A set bit deenergizes that axis when motion completes; a clear bit keeps the motor powered to hold position." },
+    "realtimeChars": { "label": "Printable realtime commands", "desc": "Let `?`, `~`, `!` act as realtime commands (status / start / hold). When off they're treated as plain text." },
     "softLimits": { "label": "Soft limits", "desc": "Software guard against leaving the work envelope. Requires homing." },
     "hardLimits": { "label": "Hard limits", "desc": "Hardware limit switches halt motion when triggered." },
     "homingCycle": { "label": "Homing cycle", "desc": "Enable the homing cycle ($H) using limit switches." },
@@ -69,6 +72,7 @@
     "spindleOffPwm": { "label": "Spindle off PWM", "desc": "PWM duty (%) output when the spindle is off (M5). Usually 0." },
     "spindleMinPwm": { "label": "Min spindle PWM", "desc": "PWM duty (%) at the minimum RPM ($31). Raise it so the spindle actually starts at low RPM — at $31 the duty equals this value." },
     "spindleMaxPwm": { "label": "Max spindle PWM", "desc": "PWM duty (%) at the maximum RPM ($30). Usually 100." },
+    "spindleEncoderPpr": { "label": "Spindle encoder pulses", "desc": "Spindle encoder pulses per revolution — used for spindle-synchronized motion (threading). 0 disables it. Driver dependent." },
     "xSteps": { "label": "X steps/mm", "desc": "Motor steps per millimeter on X. Wrong value means wrong distances." },
     "ySteps": { "label": "Y steps/mm", "desc": "Motor steps per millimeter on Y. Wrong value means wrong distances." },
     "zSteps": { "label": "Z steps/mm", "desc": "Motor steps per millimeter on Z. Wrong value means wrong distances." },
