@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useShell } from "@/shellStore";
+import { useArtifacts } from "@/artifactsStore";
 import { api } from "@/lib/api";
 import { useBridgeListeners } from "@/hooks/useTauriListeners";
 
@@ -35,7 +36,7 @@ export function useInspectorBridge() {
       void useShell.getState().setDesignLayerType(designId, path, type);
     }),
     api.onInspectorArtifactsFresh(({ fresh }) => {
-      useShell.getState().scheduleArtifactFlush(fresh);
+      useArtifacts.getState().scheduleArtifactFlush(fresh);
     }),
   ]);
 }

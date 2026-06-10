@@ -7,6 +7,7 @@ import { OperationHistory } from "@/components/operations/OperationHistory";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
+import { useArtifacts } from "@/artifactsStore";
 import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
@@ -33,8 +34,8 @@ export function ProjectPage() {
   const [pointsOpen, setPointsOpen] = useState(false);
   // Which operation card is open inline (null = list view).
 
-  const artifactProgress = useShell((s) => s.artifactProgress);
-  const pruneArtifactProgress = useShell((s) => s.pruneArtifactProgress);
+  const artifactProgress = useArtifacts((s) => s.artifactProgress);
+  const pruneArtifactProgress = useArtifacts((s) => s.pruneArtifactProgress);
   const prep = overallProgress(artifactProgress);
 
   const designIds = useMemo(

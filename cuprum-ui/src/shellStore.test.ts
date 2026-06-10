@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useShell } from "@/shellStore";
+import { useArtifacts } from "@/artifactsStore";
 import { api, type AddedDesign, type Manifest, type ProjectDesign } from "@/lib/api";
 
-// Reset the singleton store before each test for isolation.
+// Reset the singleton stores before each test for isolation.
 const initial = useShell.getState();
-beforeEach(() => useShell.setState(initial, true));
+const initialArtifacts = useArtifacts.getState();
+beforeEach(() => {
+  useShell.setState(initial, true);
+  useArtifacts.setState(initialArtifacts, true);
+});
 
 const manifest = (n: number) => ({ schema_version: n }) as unknown as Manifest;
 
@@ -21,25 +26,37 @@ describe("view", () => {
 
 describe("artifact progress map", () => {
   it("reports a fraction per design and overwrites in place", () => {
-    useShell.getState().reportArtifactProgress("d1", 0.5);
-    useShell.getState().reportArtifactProgress("d2", 1);
-    expect(useShell.getState().artifactProgress).toEqual({ d1: 0.5, d2: 1 });
-    useShell.getState().reportArtifactProgress("d1", 0.9);
-    expect(useShell.getState().artifactProgress).toEqual({ d1: 0.9, d2: 1 });
+    useArtifacts.getState().reportArtifactProgress("d1", 0.5);
+    useArtifacts.getState().reportArtifactProgress("d2", 1);
+    expect(useArtifacts.getState().artifactProgress).toEqual({ d1: 0.5, d2: 1 });
+    useArtifacts.getState().reportArtifactProgress("d1", 0.9);
+    expect(useArtifacts.getState().artifactProgress).toEqual({ d1: 0.9, d2: 1 });
   });
 
   it("prunes entries whose design is no longer live", () => {
-    useShell.setState({ artifactProgress: { a: 0.1, b: 0.2, c: 0.3 } });
-    useShell.getState().pruneArtifactProgress(["a", "c"]);
-    expect(useShell.getState().artifactProgress).toEqual({ a: 0.1, c: 0.3 });
+    useArtifacts.setState({ artifactProgress: { a: 0.1, b: 0.2, c: 0.3 } });
+    useArtifacts.getState().pruneArtifactProgress(["a", "c"]);
+    expect(useArtifacts.getState().artifactProgress).toEqual({ a: 0.1, c: 0.3 });
   });
 
   it("clears one design, leaves the rest, and ignores unknown ids", () => {
-    useShell.setState({ artifactProgress: { a: 0.1, b: 0.2 } });
-    useShell.getState().clearArtifactProgress("a");
-    expect(useShell.getState().artifactProgress).toEqual({ b: 0.2 });
-    useShell.getState().clearArtifactProgress("zzz");
-    expect(useShell.getState().artifactProgress).toEqual({ b: 0.2 });
+    useArtifacts.setState({ artifactProgress: { a: 0.1, b: 0.2 } });
+    useArtifacts.getState().clearArtifactProgress("a");
+    expect(useArtifacts.getState().artifactProgress).toEqual({ b: 0.2 });
+    useArtifacts.getState().clearArtifactProgress("zzz");
+    expect(useArtifacts.getState().artifactProgress).toEqual({ b: 0.2 });
+  });
+
+  it("reset clears trace tokens, progress, and import counters", () => {
+    useArtifacts.setState({
+      artifactProgress: { a: 0.5 },
+      traceSessions: { a: 7 },
+      importingCount: 2,
+    });
+    useArtifacts.getState().reset();
+    expect(useArtifacts.getState().artifactProgress).toEqual({});
+    expect(useArtifacts.getState().traceSessions).toEqual({});
+    expect(useArtifacts.getState().importingCount).toBe(0);
   });
 });
 

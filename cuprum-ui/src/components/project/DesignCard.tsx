@@ -5,6 +5,7 @@ import { api, type ProjectDesign } from "@/lib/api";
 import { type Verdict, VERDICT_KEY } from "@/lib/feasibility";
 import { SEVERITY } from "@/lib/severity";
 import { useShell } from "@/shellStore";
+import { useArtifacts } from "@/artifactsStore";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useDesignVerdict } from "@/hooks/useDesignVerdict";
@@ -31,11 +32,11 @@ export function DesignCard({
   const layerColors = useShell((s) => s.currentManifest?.layer_colors);
   const panel = useShell((s) => s.currentManifest?.panel ?? null);
   const stackup = useShell((s) => s.currentManifest?.stackup ?? null);
-  const scheduleArtifactFlush = useShell((s) => s.scheduleArtifactFlush);
-  const reportArtifactProgress = useShell((s) => s.reportArtifactProgress);
-  const clearArtifactProgress = useShell((s) => s.clearArtifactProgress);
+  const scheduleArtifactFlush = useArtifacts((s) => s.scheduleArtifactFlush);
+  const reportArtifactProgress = useArtifacts((s) => s.reportArtifactProgress);
+  const clearArtifactProgress = useArtifacts((s) => s.clearArtifactProgress);
   // Opaque trace-session token set at import time; undefined for disk-opened designs.
-  const traceSession = useShell((s) => s.traceSessions[design.id]);
+  const traceSession = useArtifacts((s) => s.traceSessions[design.id]);
   const profile = useSettings((s) => s.profile);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
