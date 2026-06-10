@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace", "crates/cuprum-diskcache", "crates/cuprum-cache", "crates/cuprum-goo", "crates/cuprum-gerber", "crates/cuprum-mesh", "crates/cuprum-dfm", "crates/cuprum-sdcp", "crates/cuprum-grbl", "crates/cuprum-nest", "crates/cuprum-drill"]
+members = ["crates/cuprum-core", "crates/cuprum-cli", "crates/cuprum-project", "crates/cuprum-trace", "crates/cuprum-diskcache", "crates/cuprum-cache", "crates/cuprum-goo", "crates/cuprum-gerber", "crates/cuprum-mesh", "crates/cuprum-dfm", "crates/cuprum-sdcp", "crates/cuprum-grbl", "crates/cuprum-nest", "crates/cuprum-drill", "crates/cuprum-mill"]
 # cuprum-ui/src-tauri is its own workspace (heavy tauri deps) — keep core/CLI builds fast
 exclude = ["cuprum-ui/src-tauri"]
 

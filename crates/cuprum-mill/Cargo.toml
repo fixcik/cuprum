@@ -1,0 +1,13 @@
+[package]
+name = "cuprum-mill"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cuprum isolation-milling G-code emission and time estimation (pure, no Tauri)"
+
+[dependencies]
+serde.workspace = true
+cuprum-drill = { path = "../cuprum-drill" }
+
+[dev-dependencies]
+serde_json.workspace = true
