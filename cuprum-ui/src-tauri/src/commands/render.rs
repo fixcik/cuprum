@@ -1,3 +1,4 @@
+use crate::commands::error::CmdResult;
 use base64::Engine;
 use tauri::AppHandle;
 
@@ -24,9 +25,9 @@ pub(crate) struct HoleDto {
 }
 
 #[tauri::command]
-pub(crate) fn read_drill(working_dir: String, gerber_rel: String) -> Result<Vec<HoleDto>, String> {
+pub(crate) fn read_drill(working_dir: String, gerber_rel: String) -> CmdResult<Vec<HoleDto>> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
-    let holes = cuprum_core::drill::parse_drill(&bytes).map_err(|e| e.to_string())?;
+    let holes = cuprum_core::drill::parse_drill(&bytes)?;
     Ok(holes
         .into_iter()
         .map(|h| HoleDto {
@@ -72,7 +73,7 @@ pub(crate) fn render_gerber_svg(
     app: AppHandle,
     working_dir: String,
     gerber_rel: String,
-) -> Result<LayerGeometryDto, String> {
+) -> CmdResult<LayerGeometryDto> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     cuprum_core::trace::operation("svg", &traces_dir(&app), || {
         render_svg_dto(&working_dir, &bytes).map(|(dto, _)| dto)
@@ -90,7 +91,7 @@ pub(crate) async fn render_layers_svg(
     working_dir: String,
     rels: Vec<String>,
     trace_session: Option<u64>,
-) -> Result<Vec<LayerSvgResult>, String> {
+) -> CmdResult<Vec<LayerSvgResult>> {
     let traces = traces_dir(&app);
     tauri::async_runtime::spawn_blocking(move || {
         cuprum_core::trace::operation_in_session(trace_session, "svg_batch", &traces, || {
@@ -113,7 +114,7 @@ pub(crate) async fn render_layers_svg(
                             Err(e) => LayerSvgResult {
                                 rel: rel.clone(),
                                 geometry: None,
-                                error: Some(e),
+                                error: Some(e.message().to_string()),
                                 fresh: false,
                             },
                         }
@@ -123,7 +124,7 @@ pub(crate) async fn render_layers_svg(
         })
     })
     .await
-    .map_err(|e| format!("batch svg join error: {e}"))
+    .map_err(|e| format!("batch svg join error: {e}").into())
 }
 
 // ---- Copper polygons (2D boolean booleans in Rust core) ----
@@ -161,7 +162,7 @@ pub(crate) fn layer_polygons(
     working_dir: String,
     gerber_rel: String,
     holes: Vec<HoleInput>,
-) -> Result<Vec<PolyDto>, String> {
+) -> CmdResult<Vec<PolyDto>> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let holes: Vec<cuprum_core::geometry::Hole> = holes
         .into_iter()
@@ -171,7 +172,7 @@ pub(crate) fn layer_polygons(
             d: h.d,
         })
         .collect();
-    let polys = cuprum_core::geometry::layer_polygons(&bytes, &holes).map_err(|e| e.to_string())?;
+    let polys = cuprum_core::geometry::layer_polygons(&bytes, &holes)?;
     Ok(polys_to_dtos(polys))
 }
 
@@ -181,7 +182,7 @@ pub(crate) fn copper_polygons(
     working_dir: String,
     gerber_rel: String,
     holes: Vec<HoleInput>,
-) -> Result<Vec<PolyDto>, String> {
+) -> CmdResult<Vec<PolyDto>> {
     layer_polygons(working_dir, gerber_rel, holes)
 }
 
@@ -193,7 +194,7 @@ pub(crate) fn mask_polygons(
     working_dir: String,
     gerber_rel: String,
     outline_rings: Vec<Vec<[f32; 2]>>,
-) -> Result<Vec<PolyDto>, String> {
+) -> CmdResult<Vec<PolyDto>> {
     let bytes = read_workdir_file(&working_dir, &gerber_rel)?;
     let rings: Vec<Vec<[f64; 2]>> = outline_rings
         .into_iter()
@@ -203,7 +204,7 @@ pub(crate) fn mask_polygons(
                 .collect()
         })
         .collect();
-    let polys = cuprum_core::geometry::mask_polygons(&rings, &bytes).map_err(|e| e.to_string())?;
+    let polys = cuprum_core::geometry::mask_polygons(&rings, &bytes)?;
     Ok(polys_to_dtos(polys))
 }
 
@@ -222,13 +223,13 @@ pub(crate) fn artifact_fresh(kind_dir: &std::path::Path, key: &str) -> bool {
 pub(crate) fn render_svg_dto(
     working_dir: &str,
     bytes: &[u8],
-) -> Result<(LayerGeometryDto, bool), String> {
+) -> CmdResult<(LayerGeometryDto, bool)> {
     let dir = std::path::Path::new(working_dir)
         .join("artifacts")
         .join("svg");
     let key = cuprum_core::cache::svg_artifact_key(bytes);
     let fresh = artifact_fresh(&dir, &key);
-    let g = cuprum_core::cache::layer_svg_artifact(&dir, bytes).map_err(|e| e.to_string())?;
+    let g = cuprum_core::cache::layer_svg_artifact(&dir, bytes)?;
     Ok((
         LayerGeometryDto {
             svg_body: g.svg_body,
@@ -257,10 +258,10 @@ pub(crate) async fn render_design_preview(
     gerbers: Vec<GerberRef>,
     layer_colors: Option<std::collections::HashMap<String, String>>,
     trace_session: Option<u64>,
-) -> Result<PreviewDto, String> {
+) -> CmdResult<PreviewDto> {
     let _ = &design_id; // label/trace only
     let overrides = layer_colors.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || -> Result<PreviewDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> CmdResult<PreviewDto> {
         let mut layers: Vec<cuprum_core::preview::PreviewLayer> = Vec::new();
         for g in &gerbers {
             // IPC camelCase string (e.g. "topCopper"/"drill") — MUST match the
@@ -286,8 +287,7 @@ pub(crate) async fn render_design_preview(
         let png =
             cuprum_core::trace::operation_in_session(trace_session, "preview", &traces, || {
                 cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, max_px)
-            })
-            .map_err(|e| e.to_string())?;
+            })?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(PreviewDto {
             png_data_url: format!("data:image/png;base64,{b64}"),

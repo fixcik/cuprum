@@ -1,3 +1,4 @@
+use crate::commands::error::{CmdError, CmdResult};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -116,13 +117,13 @@ pub(crate) fn take_pending_open(state: tauri::State<PendingOpen>) -> Option<Stri
 /// main window; the SPA branches on the window label. Title is set by the JS side
 /// (localised), so we use a neutral one here.
 #[tauri::command]
-pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
+pub(crate) fn open_add_design_window(app: AppHandle) -> CmdResult<()> {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if let Some(w) = app.get_webview_window("add-design") {
         // May still be hidden (first snapshot pending) — show before focusing so a
         // repeat open reveals it immediately instead of waiting on the JS path.
         let _ = w.show();
-        return w.set_focus().map_err(|e| e.to_string());
+        return w.set_focus().map_err(CmdError::from);
     }
     let win = WebviewWindowBuilder::new(&app, "add-design", WebviewUrl::App("index.html".into()))
         .title("Cuprum")
@@ -134,8 +135,7 @@ pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
         // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
         // so it never flashes the blank webview + boot spinner.
         .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build()?;
     // Center the window over the main window so on multi-monitor setups it opens
     // on the same screen the user is working on, not the primary one. All physical
     // coords (no scale-factor mismatch); falls back to the builder's .center() if
@@ -156,12 +156,12 @@ pub(crate) fn open_add_design_window(app: AppHandle) -> Result<(), String> {
 /// branches on the label and mounts <ConsoleWindow>. Created hidden so the JS side
 /// can reveal it only once content has rendered (show-on-ready recipe).
 #[tauri::command]
-pub(crate) fn open_console_window(app: AppHandle) -> Result<(), String> {
+pub(crate) fn open_console_window(app: AppHandle) -> CmdResult<()> {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if let Some(w) = app.get_webview_window("console") {
         // May still be hidden (first snapshot pending) — show before focusing.
         let _ = w.show();
-        return w.set_focus().map_err(|e| e.to_string());
+        return w.set_focus().map_err(CmdError::from);
     }
     let win = WebviewWindowBuilder::new(&app, "console", WebviewUrl::App("index.html".into()))
         .title("Cuprum")
@@ -172,8 +172,7 @@ pub(crate) fn open_console_window(app: AppHandle) -> Result<(), String> {
         .focused(true)
         // Created hidden; the SPA reveals it once content has rendered (show-on-ready).
         .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build()?;
     // Center over the main window so it opens on the screen the user is on.
     if let Some(main) = app.get_webview_window("main") {
         if let (Ok(pos), Ok(main_size), Ok(child_size)) =
@@ -192,7 +191,7 @@ pub(crate) fn open_console_window(app: AppHandle) -> Result<(), String> {
 /// the existing window. Same bundle as the main window; the SPA branches on the
 /// label. Title is set (localised) by the JS side.
 #[tauri::command]
-pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result<(), String> {
+pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> CmdResult<()> {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     // Separator is a hyphen, not a colon: a ':' in a window label is silently
     // rejected by WebView2 on Windows and the webview loads a blank page (the
@@ -203,7 +202,7 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result
         // May still be hidden (first snapshot pending) — show before focusing so a
         // repeat open reveals it immediately instead of waiting on the JS path.
         let _ = w.show();
-        return w.set_focus().map_err(|e| e.to_string());
+        return w.set_focus().map_err(CmdError::from);
     }
     let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
         .title("Cuprum")
@@ -215,8 +214,7 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result
         // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
         // so it never flashes the blank webview + boot spinner.
         .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build()?;
     // Center over the main window so it opens on the screen the user is on.
     if let Some(main) = app.get_webview_window("main") {
         if let (Ok(pos), Ok(main_size), Ok(child_size)) =
@@ -240,13 +238,13 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> Result
 /// open window is listening, so prefill it immediately; a fresh one consumes the
 /// pending prefill on its ready handshake instead.
 #[tauri::command]
-pub(crate) fn open_drill_window(app: AppHandle) -> Result<bool, String> {
+pub(crate) fn open_drill_window(app: AppHandle) -> CmdResult<bool> {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if let Some(w) = app.get_webview_window("drill") {
         // May still be hidden (first snapshot pending) — show before focusing so a
         // repeat open reveals it immediately instead of waiting on the JS path.
         let _ = w.show();
-        w.set_focus().map_err(|e| e.to_string())?;
+        w.set_focus()?;
         return Ok(true);
     }
     let win = WebviewWindowBuilder::new(&app, "drill", WebviewUrl::App("index.html".into()))
@@ -259,8 +257,7 @@ pub(crate) fn open_drill_window(app: AppHandle) -> Result<bool, String> {
         // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
         // so it never flashes the blank webview + boot spinner.
         .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build()?;
     // Center over the main window so it opens on the screen the user is on.
     if let Some(main) = app.get_webview_window("main") {
         if let (Ok(pos), Ok(main_size), Ok(child_size)) =

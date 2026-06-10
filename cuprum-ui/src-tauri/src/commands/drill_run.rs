@@ -1,3 +1,4 @@
+use crate::commands::error::{CmdError, CmdResult};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,14 +20,14 @@ use super::machine::MachineState;
 pub async fn drill_plan(
     state: State<'_, MachineState>,
     mut input: cuprum_core::drilling::DrillPlanInput,
-) -> Result<cuprum_core::drilling::DrillPlanResult, String> {
+) -> CmdResult<cuprum_core::drilling::DrillPlanResult> {
     // Snapshot the cached kinematics on the IPC thread (cheap lock), then run the
     // route/G-code/estimate off-thread: the planner is non-trivial and the editor
     // re-plans on every preview tweak, so it must not block the IPC thread.
     input.kinematics = state.kinematics();
     tauri::async_runtime::spawn_blocking(move || cuprum_core::drilling::drill_plan(input))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 // ── DTOs ────────────────────────────────────────────────────────────────────
@@ -115,7 +116,7 @@ pub async fn drill_run_start(
     machine: State<'_, MachineState>,
     job: State<'_, DrillJob>,
     steps: Vec<DrillStepDto>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let handle = machine.handle().ok_or("not connected")?;
 
     // Reclaim a finished job's slot, or refuse if one is still live. Held only
@@ -158,19 +159,19 @@ pub async fn drill_run_start(
 
 /// Acquire the line-lane lease, retrying briefly while it reports `Busy` (a prior
 /// run's lease release may still be in flight). Gives up after ~1 s.
-async fn acquire_lease_retry(handle: &GrblHandle) -> Result<GrblLease, String> {
+async fn acquire_lease_retry(handle: &GrblHandle) -> CmdResult<GrblLease> {
     for _ in 0..20 {
         match handle.acquire_lease().await {
             Ok(lease) => return Ok(lease),
             Err(grbl::GrblError::Busy) => tokio::time::sleep(Duration::from_millis(50)).await,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(e.into()),
         }
     }
     Err("machine busy".into())
 }
 
 #[tauri::command]
-pub fn drill_run_pause(app: AppHandle, job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_pause(app: AppHandle, job: State<DrillJob>) -> CmdResult<()> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         // Idempotent: if already paused, do nothing.
@@ -191,7 +192,7 @@ pub fn drill_run_pause(app: AppHandle, job: State<DrillJob>) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn drill_run_resume(job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_resume(job: State<DrillJob>) -> CmdResult<()> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         h.ctrl.paused.store(false, Relaxed);
@@ -201,7 +202,7 @@ pub fn drill_run_resume(job: State<DrillJob>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn drill_run_confirm_tool_change(job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_confirm_tool_change(job: State<DrillJob>) -> CmdResult<()> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         h.ctrl.confirm_tool_change.store(true, Relaxed);
@@ -212,7 +213,7 @@ pub fn drill_run_confirm_tool_change(job: State<DrillJob>) -> Result<(), String>
 /// Graceful stop: the runner finishes the current hole (bit returns to safe Z)
 /// then stops cleanly — no ALARM, re-runnable.
 #[tauri::command]
-pub fn drill_run_stop(app: AppHandle, job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_stop(app: AppHandle, job: State<DrillJob>) -> CmdResult<()> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         // Idempotent: a second stop while already stopping is a no-op.
@@ -238,7 +239,7 @@ pub fn drill_run_stop(app: AppHandle, job: State<DrillJob>) -> Result<(), String
 /// the runner keeps streaming instead of exiting — no program restart. After the
 /// runner has committed to the stop (idle/done) or on e-stop, this is a no-op.
 #[tauri::command]
-pub fn drill_run_cancel_stop(app: AppHandle, job: State<DrillJob>) -> Result<(), String> {
+pub fn drill_run_cancel_stop(app: AppHandle, job: State<DrillJob>) -> CmdResult<()> {
     let slot = job.0.lock().unwrap();
     if let Some(h) = slot.as_ref() {
         let c = &h.ctrl;
@@ -267,7 +268,7 @@ pub fn drill_run_cancel_stop(app: AppHandle, job: State<DrillJob>) -> Result<(),
 pub async fn drill_run_estop(
     machine: State<'_, MachineState>,
     job: State<'_, DrillJob>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let aborting = {
         let slot = job.0.lock().unwrap();
         match slot.as_ref() {
@@ -564,7 +565,7 @@ async fn run_job(
             match acquire_lease_retry(&handle).await {
                 Ok(l) => lease = Some(l),
                 Err(e) => {
-                    aborted_msg = Some(e);
+                    aborted_msg = Some(e.message().to_string());
                     break;
                 }
             }

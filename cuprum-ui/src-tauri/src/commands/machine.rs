@@ -1,3 +1,4 @@
+use crate::commands::error::{CmdError, CmdResult};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -5,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::broadcast;
 
 use cuprum_core::grbl::{self, Dir, GrblEvent, GrblHandle, MachineState as GrblState};
@@ -274,10 +275,8 @@ fn patch_assignment(prev: KinematicsRaw, n: u16, v: f64) -> KinematicsRaw {
 
 /// Path to the persisted kinematics cache inside the app data dir (created if
 /// missing). Mirrors `project::catalog_db_path`.
-fn kinematics_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("kinematics.json"))
+fn kinematics_path(app: &AppHandle) -> CmdResult<PathBuf> {
+    Ok(super::app_data_dir(app)?.join("kinematics.json"))
 }
 
 /// Load the persisted kinematics, falling back to `Default` on any error
@@ -452,10 +451,9 @@ async fn forward_events(
 }
 
 #[tauri::command]
-pub async fn list_serial_ports() -> Result<Vec<PortDto>, String> {
+pub async fn list_serial_ports() -> CmdResult<Vec<PortDto>> {
     tauri::async_runtime::spawn_blocking(grbl::list_ports)
-        .await
-        .map_err(|e| e.to_string())?
+        .await?
         .map(|ports| {
             ports
                 .into_iter()
@@ -465,7 +463,7 @@ pub async fn list_serial_ports() -> Result<Vec<PortDto>, String> {
                 })
                 .collect()
         })
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -475,7 +473,7 @@ pub async fn machine_connect(
     port: String,
     baud: u32,
     telemetry: Channel<Telemetry>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     // Idempotent reconnect: if the backend already holds this exact port (e.g. a
     // webview reload left the connection live and the user pressed Connect), just
     // swap in the fresh telemetry Channel rather than failing or reopening. A
@@ -506,7 +504,7 @@ pub async fn machine_connect(
         Err(e) => {
             // Release the slot so a retry after a failed open is possible.
             state.connecting.store(false, Ordering::SeqCst);
-            return Err(e.to_string());
+            return Err(e.into());
         }
     };
     let telemetry = Arc::new(Mutex::new(telemetry));
@@ -545,10 +543,7 @@ pub async fn machine_connect(
 }
 
 #[tauri::command]
-pub async fn machine_disconnect(
-    app: AppHandle,
-    state: State<'_, MachineState>,
-) -> Result<(), String> {
+pub async fn machine_disconnect(app: AppHandle, state: State<'_, MachineState>) -> CmdResult<()> {
     let conn = state.conn.lock().unwrap().take();
     if let Some(conn) = conn {
         conn.forwarder.abort();
@@ -586,12 +581,12 @@ pub async fn machine_jog(
     dy: f32,
     dz: f32,
     feed: f32,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
     handle
         .send_line(&grbl::jog(dx, dy, dz, feed))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 /// Absolute jog (work coords): drive the given axes to their targets. Used by the
@@ -604,24 +599,18 @@ pub async fn machine_jog_to(
     y: Option<f32>,
     z: Option<f32>,
     feed: f32,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
     handle
         .send_line(&grbl::jog_to(x, y, z, feed))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub async fn machine_jog_cancel(
-    app: AppHandle,
-    state: State<'_, MachineState>,
-) -> Result<(), String> {
+pub async fn machine_jog_cancel(app: AppHandle, state: State<'_, MachineState>) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle
-        .send_realtime(grbl::JOG_CANCEL)
-        .await
-        .map_err(|e| e.to_string())?;
+    handle.send_realtime(grbl::JOG_CANCEL).await?;
     echo_tx(&state, &app, "jog-cancel");
     Ok(())
 }
@@ -635,30 +624,27 @@ pub async fn machine_set_zero(
     x: bool,
     y: bool,
     z: bool,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
     handle
         .send_await(&grbl::set_work_zero(x, y, z))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub async fn machine_home(state: State<'_, MachineState>) -> Result<(), String> {
+pub async fn machine_home(state: State<'_, MachineState>) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle
-        .send_line(grbl::home())
-        .await
-        .map_err(|e| e.to_string())
+    handle.send_line(grbl::home()).await.map_err(CmdError::from)
 }
 
 /// Home ($H) and resolve only once the cycle completes, so the UI can show
 /// progress and mark the frame homed only when GRBL confirms it (Err on
 /// failure/abort/timeout). The actor tolerates the long mid-cycle silence.
 #[tauri::command]
-pub async fn machine_home_await(state: State<'_, MachineState>) -> Result<(), String> {
+pub async fn machine_home_await(state: State<'_, MachineState>) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle.home().await.map_err(|e| e.to_string())
+    handle.home().await.map_err(CmdError::from)
 }
 
 /// Read the controller's full firmware settings (`$$`).
@@ -666,9 +652,9 @@ pub async fn machine_home_await(state: State<'_, MachineState>) -> Result<(), St
 pub async fn machine_read_settings(
     app: AppHandle,
     state: State<'_, MachineState>,
-) -> Result<Vec<GrblSettingDto>, String> {
+) -> CmdResult<Vec<GrblSettingDto>> {
     let handle = state.handle().ok_or("not connected")?;
-    let settings = handle.read_settings().await.map_err(|e| e.to_string())?;
+    let settings = handle.read_settings().await?;
     // Invalidation point 1: a full `$$` read refreshes the cached kinematics, then
     // persists so the next session starts with the controller's real limits.
     {
@@ -683,12 +669,9 @@ pub async fn machine_read_settings(
 }
 
 #[tauri::command]
-pub async fn machine_unlock(app: AppHandle, state: State<'_, MachineState>) -> Result<(), String> {
+pub async fn machine_unlock(app: AppHandle, state: State<'_, MachineState>) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle
-        .send_line(grbl::unlock())
-        .await
-        .map_err(|e| e.to_string())?;
+    handle.send_line(grbl::unlock()).await?;
     // Broadcast so every window's alarm banner can optimistically hide at once,
     // before the next status poll confirms the cleared state (~200 ms later).
     let _ = app.emit("machine://unlock", ());
@@ -696,18 +679,14 @@ pub async fn machine_unlock(app: AppHandle, state: State<'_, MachineState>) -> R
 }
 
 #[tauri::command]
-pub async fn machine_spindle(
-    state: State<'_, MachineState>,
-    on: bool,
-    rpm: u32,
-) -> Result<(), String> {
+pub async fn machine_spindle(state: State<'_, MachineState>, on: bool, rpm: u32) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
     let line = if on {
         grbl::spindle_on(rpm)
     } else {
         grbl::spindle_off().to_string()
     };
-    handle.send_line(&line).await.map_err(|e| e.to_string())
+    handle.send_line(&line).await.map_err(CmdError::from)
 }
 
 /// Probe Z down onto the work surface and set the G54 Z work-zero at contact
@@ -722,25 +701,21 @@ pub async fn machine_probe_z(
     offset_mm: f32,
     safe_z_mm: f32,
     approach_z_mm: Option<f32>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
 
     // Optional rapid descent to the approach height (work frame) before probing —
     // lets the tool-change park sit high (room to swap the bit) while the probe
     // still reaches the surface. Absolute (G90) so a high park descends correctly.
     if let Some(z) = approach_z_mm {
-        handle
-            .send_await(&format!("G90 G0 Z{z}"))
-            .await
-            .map_err(|e| e.to_string())?;
+        handle.send_await(&format!("G90 G0 Z{z}")).await?;
     }
 
     // Strict straight-probe. `probe()` returns Ok(false) on no-contact (bare ok /
     // s=0) and Err on an ALARM (G38.2 strict, no contact within travel).
     let contact = handle
         .probe(&grbl::probe_z(max_dist_mm, feed_mm_min))
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     if !contact {
         return Err("no contact".into());
     }
@@ -748,14 +723,13 @@ pub async fn machine_probe_z(
     // Contact confirmed: zero Z here (board top + plate offset)...
     handle
         .send_await(&format!("G10 L20 P1 Z{offset_mm}"))
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     // ...then lift clear. Fire-and-forget jog: a retract that's late doesn't
     // invalidate the just-set Z-zero.
     handle
         .send_line(&grbl::jog_to(None, None, Some(safe_z_mm), feed_mm_min))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -763,7 +737,7 @@ pub async fn machine_send(
     app: AppHandle,
     state: State<'_, MachineState>,
     line: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
     // A bare `?` is the status query; GRBL's `<...>` reply is normally kept off
     // the console (5 Hz poll noise). When the user types it explicitly, arm a
@@ -791,11 +765,11 @@ pub async fn machine_send(
                 if let (Some(echo), Some(gen)) = (echo, armed_gen) {
                     echo.cancel(gen);
                 }
-                Err(e.to_string())
+                Err(e.into())
             }
         }
     } else {
-        handle.send_line(&line).await.map_err(|e| e.to_string())?;
+        handle.send_line(&line).await?;
         // Invalidation point 2: snoop a console `$NNN=value` write. Only after the
         // send succeeds, and only for the kinematics settings, patch the cached
         // axis and persist — so a live `$110=...` edit is reflected without a `$$`.
@@ -822,52 +796,31 @@ pub async fn machine_send(
 /// through the read path. Any future caller writing `$110`–`$122` here WITHOUT a
 /// following `$$` read would leave the kinematics cache stale.
 #[tauri::command]
-pub async fn machine_send_await_ok(
-    state: State<'_, MachineState>,
-    line: String,
-) -> Result<(), String> {
+pub async fn machine_send_await_ok(state: State<'_, MachineState>, line: String) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle.send_await(&line).await.map_err(|e| e.to_string())
+    handle.send_await(&line).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub async fn machine_soft_reset(
-    app: AppHandle,
-    state: State<'_, MachineState>,
-) -> Result<(), String> {
+pub async fn machine_soft_reset(app: AppHandle, state: State<'_, MachineState>) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle
-        .send_realtime(grbl::SOFT_RESET)
-        .await
-        .map_err(|e| e.to_string())?;
+    handle.send_realtime(grbl::SOFT_RESET).await?;
     echo_tx(&state, &app, "soft-reset");
     Ok(())
 }
 
 #[tauri::command]
-pub async fn machine_feed_hold(
-    app: AppHandle,
-    state: State<'_, MachineState>,
-) -> Result<(), String> {
+pub async fn machine_feed_hold(app: AppHandle, state: State<'_, MachineState>) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle
-        .send_realtime(grbl::FEED_HOLD)
-        .await
-        .map_err(|e| e.to_string())?;
+    handle.send_realtime(grbl::FEED_HOLD).await?;
     echo_tx(&state, &app, "!");
     Ok(())
 }
 
 #[tauri::command]
-pub async fn machine_cycle_start(
-    app: AppHandle,
-    state: State<'_, MachineState>,
-) -> Result<(), String> {
+pub async fn machine_cycle_start(app: AppHandle, state: State<'_, MachineState>) -> CmdResult<()> {
     let handle = state.handle().ok_or("not connected")?;
-    handle
-        .send_realtime(grbl::CYCLE_START)
-        .await
-        .map_err(|e| e.to_string())?;
+    handle.send_realtime(grbl::CYCLE_START).await?;
     echo_tx(&state, &app, "~");
     Ok(())
 }
@@ -880,7 +833,7 @@ pub async fn machine_override(
     state: State<'_, MachineState>,
     kind: String,
     action: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let byte = match (kind.as_str(), action.as_str()) {
         ("feed", "100") => grbl::FEED_OVERRIDE_100,
         ("feed", "+10") => grbl::FEED_OVERRIDE_PLUS_10,
@@ -898,13 +851,10 @@ pub async fn machine_override(
         ("spindle", "+1") => grbl::SPINDLE_OVERRIDE_PLUS_1,
         ("spindle", "-1") => grbl::SPINDLE_OVERRIDE_MINUS_1,
         ("spindle", "stop") => grbl::SPINDLE_OVERRIDE_STOP,
-        _ => return Err(format!("unknown override: {kind}/{action}")),
+        _ => return Err(format!("unknown override: {kind}/{action}").into()),
     };
     let handle = state.handle().ok_or("not connected")?;
-    handle
-        .send_realtime(byte)
-        .await
-        .map_err(|e| e.to_string())?;
+    handle.send_realtime(byte).await?;
     echo_tx(&state, &app, &format!("ov:{kind}{action}"));
     Ok(())
 }

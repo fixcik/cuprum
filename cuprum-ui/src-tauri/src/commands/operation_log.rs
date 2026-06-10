@@ -3,6 +3,7 @@
 //! their own `op_type`. The backend stamps `started_at`/`ended_at` so timestamps are
 //! authoritative.
 
+use crate::commands::error::{CmdError, CmdResult};
 use serde::Serialize;
 use tauri::AppHandle;
 
@@ -33,7 +34,7 @@ pub(crate) fn operation_run_log_start(
     op_type: String,
     progress_total: Option<i64>,
     params_json: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let db = catalog_db_path(&app)?;
     cuprum_project::operation_run_start(
         &db,
@@ -44,7 +45,7 @@ pub(crate) fn operation_run_log_start(
         progress_total,
         &params_json,
     )
-    .map_err(|e| e.to_string())
+    .map_err(CmdError::from)
 }
 
 /// Finalize a run (backend stamps `ended_at`).
@@ -55,7 +56,7 @@ pub(crate) fn operation_run_log_finish(
     outcome: String,
     progress_done: i64,
     summary_json: Option<String>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let db = catalog_db_path(&app)?;
     cuprum_project::operation_run_finish(
         &db,
@@ -65,7 +66,7 @@ pub(crate) fn operation_run_log_finish(
         progress_done,
         summary_json.as_deref(),
     )
-    .map_err(|e| e.to_string())
+    .map_err(CmdError::from)
 }
 
 /// List a project's runs (newest first), optionally filtered by `op_type`.
@@ -76,11 +77,10 @@ pub(crate) fn operation_runs_list(
     op_type: Option<String>,
     limit: i64,
     offset: i64,
-) -> Result<Vec<OperationRunDto>, String> {
+) -> CmdResult<Vec<OperationRunDto>> {
     let db = catalog_db_path(&app)?;
     let runs =
-        cuprum_project::operation_runs_list(&db, &project_path, op_type.as_deref(), limit, offset)
-            .map_err(|e| e.to_string())?;
+        cuprum_project::operation_runs_list(&db, &project_path, op_type.as_deref(), limit, offset)?;
     Ok(runs
         .into_iter()
         .map(|r| OperationRunDto {
@@ -104,8 +104,7 @@ pub(crate) fn operation_run_last_params(
     app: AppHandle,
     project_path: String,
     op_type: String,
-) -> Result<Option<String>, String> {
+) -> CmdResult<Option<String>> {
     let db = catalog_db_path(&app)?;
-    cuprum_project::operation_run_last_params(&db, &project_path, &op_type)
-        .map_err(|e| e.to_string())
+    cuprum_project::operation_run_last_params(&db, &project_path, &op_type).map_err(CmdError::from)
 }
