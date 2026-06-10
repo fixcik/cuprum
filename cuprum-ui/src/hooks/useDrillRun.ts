@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { api } from "@/lib/api";
 import type { DrillStep } from "@/lib/api";
+import { useBridgeListeners } from "@/hooks/useTauriListeners";
 import {
   drillRunReducer,
   initialDrillRunState,
@@ -61,34 +62,25 @@ export function useDrillRun(): UseDrillRun {
         }
       })
       .catch(() => {});
-
-    const subState = api.drillRun.onState((phase) =>
-      dispatch({ type: "state", phase: phase as DrillRunPhase }),
-    );
-    const subProgress = api.drillRun.onProgress((p) =>
-      dispatch({ type: "progress", holesCompleted: p.holesCompleted, holeIndex: p.holeIndex }),
-    );
-    const subToolChange = api.drillRun.onToolChange((p) =>
-      dispatch({ type: "toolchange", toolName: p.toolName, diameterMm: p.diameterMm }),
-    );
-    const subError = api.drillRun.onError((message) =>
-      dispatch({ type: "error", message }),
-    );
-    const subDone = api.drillRun.onDone(() => dispatch({ type: "done" }));
-
-    const subConnected = api.machine.onConnected(() => setConnected(true));
-    const subDisconnected = api.machine.onDisconnected(() => setConnected(false));
-
-    return () => {
-      void subState.then((un) => un());
-      void subProgress.then((un) => un());
-      void subToolChange.then((un) => un());
-      void subError.then((un) => un());
-      void subDone.then((un) => un());
-      void subConnected.then((un) => un());
-      void subDisconnected.then((un) => un());
-    };
   }, []);
+
+  // StrictMode-safe listener lifecycle (active flag + immediate unlisten of
+  // late-resolving registrations) — see useBridgeListeners.
+  useBridgeListeners(() => [
+    api.drillRun.onState((phase) =>
+      dispatch({ type: "state", phase: phase as DrillRunPhase }),
+    ),
+    api.drillRun.onProgress((p) =>
+      dispatch({ type: "progress", holesCompleted: p.holesCompleted, holeIndex: p.holeIndex }),
+    ),
+    api.drillRun.onToolChange((p) =>
+      dispatch({ type: "toolchange", toolName: p.toolName, diameterMm: p.diameterMm }),
+    ),
+    api.drillRun.onError((message) => dispatch({ type: "error", message })),
+    api.drillRun.onDone(() => dispatch({ type: "done" })),
+    api.machine.onConnected(() => setConnected(true)),
+    api.machine.onDisconnected(() => setConnected(false)),
+  ]);
 
   const start = useCallback(async (steps: DrillStep[]) => {
     dispatch({ type: "reset" });

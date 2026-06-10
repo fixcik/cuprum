@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Plus, Search, FilePlus2, FolderOpen, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { DesignCard } from "./DesignCard";
 import { DashedAddTile } from "@/components/ui/DashedAddTile";
@@ -35,23 +36,31 @@ export function DesignsGallery() {
   useEffect(() => {
     // `active` guards the narrow window between unmount (tab switch) and the
     // async unlisten() resolving — a late drop event must not import on a stale
-    // mount. Mirrors the pattern in AddDesignWindow.
+    // mount. StrictMode-safe listener lifecycle (same as useBridgeListeners):
+    // unlisten synchronously when already resolved, or immediately upon a late
+    // resolve after cleanup.
     let active = true;
-    const pending = getCurrentWebview().onDragDropEvent((e) => {
-      if (!active) return;
-      if (e.payload.type === "enter" || e.payload.type === "over") {
-        setDragOver(true);
-      } else if (e.payload.type === "leave") {
-        setDragOver(false);
-      } else if (e.payload.type === "drop") {
-        setDragOver(false);
-        const zips = e.payload.paths.filter((p) => p.toLowerCase().endsWith(".zip"));
-        if (zips.length > 0) void addDesignsFromPaths(zips);
-      }
-    });
+    let unlisten: UnlistenFn | null = null;
+    void getCurrentWebview()
+      .onDragDropEvent((e) => {
+        if (!active) return;
+        if (e.payload.type === "enter" || e.payload.type === "over") {
+          setDragOver(true);
+        } else if (e.payload.type === "leave") {
+          setDragOver(false);
+        } else if (e.payload.type === "drop") {
+          setDragOver(false);
+          const zips = e.payload.paths.filter((p) => p.toLowerCase().endsWith(".zip"));
+          if (zips.length > 0) void addDesignsFromPaths(zips);
+        }
+      })
+      .then((un) => {
+        if (active) unlisten = un;
+        else un();
+      });
     return () => {
       active = false;
-      void pending.then((unlisten) => unlisten());
+      unlisten?.();
     };
   }, [addDesignsFromPaths]);
 

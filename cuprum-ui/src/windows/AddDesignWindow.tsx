@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
@@ -17,7 +18,7 @@ import { NestingControls } from "@/components/panel/NestingControls";
 import { packLayoutAvoiding, panelObstacles, boxesForInstances } from "@/lib/panelPlacement";
 import { solvePanelPlacements, type SolvedPack } from "@/lib/packSolve";
 import { usePreviewData } from "@/hooks/usePreviewData";
-import { useSnapshotSubscription } from "@/hooks/useTauriListeners";
+import { useBridgeListeners, useSnapshotSubscription } from "@/hooks/useTauriListeners";
 import { useShowWindowWhenReady } from "@/hooks/useShowWindowWhenReady";
 
 /** Root of the separate "Add design to panel" window (label "add-design"). */
@@ -128,18 +129,30 @@ export function AddDesignWindow() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    const pending = api.onAddDesignResult((r) => {
-      if (r.ok) {
-        void getCurrentWindow().close();
-      } else {
-        setToast(t(r.messageKey, r.params as Record<string, string> | undefined));
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        toastTimerRef.current = setTimeout(() => setToast(null), 2600);
-      }
-    });
+    // StrictMode-safe listener lifecycle (same as useBridgeListeners, but local
+    // because this effect re-runs on `t`): unlisten synchronously when already
+    // resolved, or immediately upon a late resolve after cleanup.
+    let active = true;
+    let unlisten: UnlistenFn | null = null;
+    void api
+      .onAddDesignResult((r) => {
+        if (!active) return;
+        if (r.ok) {
+          void getCurrentWindow().close();
+        } else {
+          setToast(t(r.messageKey, r.params as Record<string, string> | undefined));
+          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          toastTimerRef.current = setTimeout(() => setToast(null), 2600);
+        }
+      })
+      .then((un) => {
+        if (active) unlisten = un;
+        else un();
+      });
     return () => {
+      active = false;
+      unlisten?.();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      void pending.then((un) => un());
     };
   }, [t]);
 
@@ -157,8 +170,9 @@ export function AddDesignWindow() {
   }, []);
 
   // OS drag-and-drop: accept ZIP files dropped onto this window.
-  useEffect(() => {
-    const pending = getCurrentWebview().onDragDropEvent((e) => {
+  // StrictMode-safe listener lifecycle — see useBridgeListeners.
+  useBridgeListeners(() => [
+    getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "enter" || e.payload.type === "over") setDragOver(true);
       else if (e.payload.type === "leave") setDragOver(false);
       else if (e.payload.type === "drop") {
@@ -166,9 +180,8 @@ export function AddDesignWindow() {
         const zips = e.payload.paths.filter((p) => p.toLowerCase().endsWith(".zip"));
         if (zips.length > 0) void api.emitAddDesignImport(zips);
       }
-    });
-    return () => void pending.then((un) => un());
-  }, []);
+    }),
+  ]);
 
   // Full obstacle set (boards + tooling holes + clamp zones) for the fit-line packer.
   const existingBoxes = useMemo(
