@@ -295,6 +295,26 @@ export interface AddDesignResult {
   params?: Record<string, unknown>;
 }
 
+/** Snapshot pushed from the main window to the exposure-operation window.
+ *  Contains the project identity + panel layout (so the window can show a
+ *  preview and build the run request) plus the exposure parameters that will
+ *  be editable in Phase 4. */
+export interface ExposeSnapshot {
+  workingDir: string | null;
+  /** Saved `.cuprum` path; null → operation-run journal skipped later. */
+  currentPath: string | null;
+  /** Full manifest (panel + designs); null when no project is open. */
+  manifest: Manifest | null;
+  /** Which copper side to expose. */
+  side: "top" | "bottom";
+  mirror: boolean;
+  invert: boolean;
+  /** Exposure time in seconds. */
+  exposureS: number;
+  /** UV backlight PWM (0–255). */
+  pwm: number;
+}
+
 /** Data needed to build the drill plan plus the shop settings (CNC profile,
  *  tools, DFM thresholds). Built from the main-window stores by useDrillScreenData
  *  (in the drill bridge) and pushed over IPC to the drill window. */
@@ -738,6 +758,10 @@ export const api = {
    *  if the window already existed (was focused), `false` if freshly created — used
    *  to route a "repeat run" prefill (emit now vs. hand off as a pending one-shot). */
   openDrillWindow: () => invoke<boolean>("open_drill_window"),
+  /** Open (or focus) the UV-exposure-operation window (label `expose`). Resolves
+   *  `true` if the window already existed (was focused), `false` if freshly created
+   *  — used to route a "repeat run" prefill (emit now vs. hand off as pending). */
+  openExposeWindow: () => invoke<boolean>("open_expose_window"),
   /** Open (or focus) the machine console OS window. */
   openConsoleWindow: () => invoke<void>("open_console_window"),
 
@@ -833,6 +857,21 @@ export const api = {
       "drill:set-class-override",
       (e) => cb(e.payload),
     ),
+  // Expose window bridge events (main → expose window). The expose window receives
+  // the project as a pushed snapshot and sends run commands directly via invoke.
+  // No machine relay needed (exposure is printer-driven, not CNC).
+  emitExposeReady: () => emit("expose:ready"),
+  onExposeReady: (cb: () => void): Promise<UnlistenFn> =>
+    listen("expose:ready", () => cb()),
+  emitExposeSnapshot: (s: ExposeSnapshot) => emit("expose:snapshot", s),
+  onExposeSnapshot: (cb: (s: ExposeSnapshot) => void): Promise<UnlistenFn> =>
+    listen<ExposeSnapshot>("expose:snapshot", (e) => cb(e.payload)),
+  /** Main → expose window: prefill the editor with a past run's params_json
+   *  ("repeat run"). Overrides the default last-run prefill. */
+  emitExposePrefill: (paramsJson: string) => emit("expose:prefill", { paramsJson }),
+  onExposePrefill: (cb: (paramsJson: string) => void): Promise<UnlistenFn> =>
+    listen<{ paramsJson: string }>("expose:prefill", (e) => cb(e.payload.paramsJson)),
+
   // Console window bridge events (main <-> console).
   emitConsoleReady: () => emit("console:ready"),
   onConsoleReady: (cb: () => void): Promise<UnlistenFn> => listen("console:ready", () => cb()),

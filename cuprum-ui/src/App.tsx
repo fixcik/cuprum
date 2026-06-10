@@ -11,6 +11,7 @@ import { loadLastSession } from "@/lib/lastSession";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
 import { useDrillBridge } from "@/hooks/useDrillBridge";
+import { useExposeBridge } from "@/hooks/useExposeBridge";
 import { useMachineBridge } from "@/hooks/useMachineBridge";
 import { useBridgeListeners } from "@/hooks/useTauriListeners";
 import { useConsoleBridge } from "@/hooks/useConsoleBridge";
@@ -30,6 +31,7 @@ export default function App() {
   useAddDesignBridge();
   useInspectorBridge();
   useDrillBridge();
+  useExposeBridge();
   useMachineBridge();
   useConsoleBridge();
 

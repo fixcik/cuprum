@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ArrowRight, Scissors } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ArrowRight, Scissors, Sun } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
 import { OperationHistory } from "@/components/operations/OperationHistory";
@@ -222,6 +222,31 @@ export function ProjectPage() {
                     </div>
                     <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
                       {t("operations.drill.desc")}
+                    </p>
+                  </div>
+                  <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                </button>
+
+                {/* Expose card — active */}
+                <button
+                  type="button"
+                  onClick={() => void api.openExposeWindow()}
+                  className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
+                >
+                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-amber-400/15 text-amber-400">
+                    <Sun className="size-6" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[16px] font-semibold text-foreground">
+                        {t("operations.expose.title")}
+                      </span>
+                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+                        {t("operations.expose.status")}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                      {t("operations.expose.desc")}
                     </p>
                   </div>
                   <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />

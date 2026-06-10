@@ -126,6 +126,7 @@ fn main() {
                         if label.starts_with("inspector-")
                             || label == "add-design"
                             || label == "drill"
+                            || label == "expose"
                             || label == "console"
                         {
                             let _ = w.close();
@@ -212,6 +213,7 @@ fn main() {
             commands::windows::open_console_window,
             commands::windows::open_inspector_window,
             commands::windows::open_drill_window,
+            commands::windows::open_expose_window,
             set_app_menu,
             commands::machine::list_serial_ports,
             commands::machine::machine_connect,
