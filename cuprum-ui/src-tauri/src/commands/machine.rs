@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -67,6 +67,47 @@ pub struct ConsoleLine {
 /// Maximum number of lines held in the in-memory ring buffer (per connection).
 const CONSOLE_BACKLOG_CAP: usize = 500;
 
+/// One-shot console echo of a status report, keyed by arm generation. A manual
+/// `?` arms it; the forwarder echoes the next status line once per arm. A plain
+/// boolean had two races: the 5 Hz poll firing in the arm->send window consumed
+/// the arm, and the disarm-on-send-failure could clobber a newer arm from a
+/// second `?`. Generations make the cancel precise (it only retires its own arm)
+/// while keeping the swap-once semantics (one echo per arm).
+#[derive(Default)]
+struct EchoStatus {
+    /// Generation of the latest arm (bumped by each manual `?`).
+    armed: AtomicU64,
+    /// Latest generation already echoed or cancelled; trails `armed`.
+    served: AtomicU64,
+}
+
+impl EchoStatus {
+    /// Arm an echo of the next status report; returns this arm's generation
+    /// (pass it to `cancel` if the `?` never reaches the wire).
+    fn arm(&self) -> u64 {
+        self.armed.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Swap-once consumer: true exactly once per outstanding arm (a single echo
+    /// serves all arms pending at that moment), false while disarmed.
+    fn try_consume(&self) -> bool {
+        let armed = self.armed.load(Ordering::SeqCst);
+        let served = self.served.load(Ordering::SeqCst);
+        if served >= armed {
+            return false;
+        }
+        self.served
+            .compare_exchange(served, armed, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    /// Retire the arm of generation `gen` (failed send): a stale arm must not
+    /// later swallow a poll line. A newer arm (generation > `gen`) survives.
+    fn cancel(&self, gen: u64) {
+        self.served.fetch_max(gen, Ordering::SeqCst);
+    }
+}
+
 /// Full status snapshot broadcast as the global `machine://status` event so the
 /// separate drill webview can track the tool AND control the run without the main
 /// window's per-connection Channel. Carries the same fields as `Telemetry::Status`
@@ -116,7 +157,7 @@ struct MachineConn {
     /// echoes the next status report back to them. Status replies are otherwise
     /// kept off the console (the 5 Hz poll would flood it), making a manual `?`
     /// look like it did nothing.
-    echo_status: Arc<AtomicBool>,
+    echo_status: Arc<EchoStatus>,
 }
 
 /// Returned by `machine_reattach` when the backend still holds a live connection.
@@ -266,6 +307,11 @@ fn save_kinematics(app: &AppHandle, k: &KinematicsRaw) {
 /// `CONSOLE_BACKLOG_CAP` entries, after which the oldest line is evicted.
 pub struct MachineState {
     conn: Mutex<Option<MachineConn>>,
+    /// In-flight connect guard. Taken under the `conn` lock before awaiting
+    /// `grbl::connect` (the `conn` mutex itself must not be held across the
+    /// await), so a second concurrent connect fails fast instead of racing the
+    /// first one and orphaning its forwarder task.
+    connecting: AtomicBool,
     /// Capped ring buffer of recent console lines; seeded into follower windows
     /// (e.g. the console window) via `machine_console_backlog`.
     line_log: Arc<Mutex<VecDeque<ConsoleLine>>>,
@@ -278,6 +324,7 @@ impl Default for MachineState {
     fn default() -> Self {
         Self {
             conn: Mutex::new(None),
+            connecting: AtomicBool::new(false),
             line_log: Arc::new(Mutex::new(VecDeque::with_capacity(CONSOLE_BACKLOG_CAP))),
             kinematics: Mutex::new(KinematicsRaw::default()),
         }
@@ -334,7 +381,7 @@ async fn forward_events(
     telemetry: Arc<Mutex<Channel<Telemetry>>>,
     app: AppHandle,
     line_log: Arc<Mutex<VecDeque<ConsoleLine>>>,
-    echo_status: Arc<AtomicBool>,
+    echo_status: Arc<EchoStatus>,
     disconnected_once: Arc<AtomicBool>,
 ) {
     loop {
@@ -365,7 +412,7 @@ async fn forward_events(
                     },
                 );
                 // The user typed `?`: echo this one status line to the console.
-                if echo_status.swap(false, Ordering::Acquire) {
+                if echo_status.try_consume() {
                     {
                         let t = telemetry.lock().unwrap();
                         let _ = t.send(Telemetry::Line {
@@ -444,13 +491,26 @@ pub async fn machine_connect(
             }
             return Err("connected to a different port".into());
         }
+        // Take the in-flight slot under the same lock as the check above: the
+        // `conn` mutex is released across the `grbl::connect` await below, so
+        // without this a second concurrent connect would also pass the guard,
+        // and the loser would overwrite the winner's connection, orphaning its
+        // forwarder task (telemetry silently misdirected).
+        if state.connecting.swap(true, Ordering::SeqCst) {
+            return Err("connection already in progress".into());
+        }
     }
 
-    let handle = grbl::connect(&port, baud)
-        .await
-        .map_err(|e| e.to_string())?;
+    let handle = match grbl::connect(&port, baud).await {
+        Ok(handle) => handle,
+        Err(e) => {
+            // Release the slot so a retry after a failed open is possible.
+            state.connecting.store(false, Ordering::SeqCst);
+            return Err(e.to_string());
+        }
+    };
     let telemetry = Arc::new(Mutex::new(telemetry));
-    let echo_status = Arc::new(AtomicBool::new(false));
+    let echo_status = Arc::new(EchoStatus::default());
     let disconnected_once = Arc::new(AtomicBool::new(false));
 
     // A new connect starts a fresh session: drop old lines so the console
@@ -466,14 +526,20 @@ pub async fn machine_connect(
         disconnected_once.clone(),
     ));
 
-    *state.conn.lock().unwrap() = Some(MachineConn {
-        port,
-        handle,
-        telemetry,
-        forwarder,
-        echo_status,
-        disconnected_once,
-    });
+    {
+        let mut guard = state.conn.lock().unwrap();
+        *guard = Some(MachineConn {
+            port,
+            handle,
+            telemetry,
+            forwarder,
+            echo_status,
+            disconnected_once,
+        });
+        // Release the in-flight slot only once the connection is visible under
+        // the lock, so a competing connect sees either `connecting` or `conn`.
+        state.connecting.store(false, Ordering::SeqCst);
+    }
     let _ = app.emit("machine://connected", ());
     Ok(())
 }
@@ -706,17 +772,24 @@ pub async fn machine_send(
     // before the write (so the reply can't beat the arm), disarm if the write
     // fails so a stale arm can't later swallow a poll line.
     if line.trim() == "?" {
-        if let Some(conn) = state.conn.lock().unwrap().as_ref() {
-            conn.echo_status.store(true, Ordering::Release);
-        }
+        // Hold on to this connection's EchoStatus: if the connection is swapped
+        // while the send is in flight, the cancel below must hit the same arm
+        // it took (a fresh connection starts its generations from zero).
+        let echo = state
+            .conn
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|conn| conn.echo_status.clone());
+        let armed_gen = echo.as_ref().map(|e| e.arm());
         match handle.send_realtime(grbl::STATUS_QUERY).await {
             Ok(()) => {
                 echo_tx(&state, &app, "?");
                 Ok(())
             }
             Err(e) => {
-                if let Some(conn) = state.conn.lock().unwrap().as_ref() {
-                    conn.echo_status.store(false, Ordering::Relaxed);
+                if let (Some(echo), Some(gen)) = (echo, armed_gen) {
+                    echo.cancel(gen);
                 }
                 Err(e.to_string())
             }
@@ -980,5 +1053,54 @@ mod tests {
         assert_eq!(after.accel_x, prev.accel_x);
         assert_eq!(after.accel_y, prev.accel_y);
         assert_eq!(after.accel_z, prev.accel_z);
+    }
+
+    #[test]
+    fn echo_status_disarmed_by_default() {
+        let e = EchoStatus::default();
+        assert!(!e.try_consume());
+    }
+
+    #[test]
+    fn echo_status_consumes_once_per_arm() {
+        let e = EchoStatus::default();
+        e.arm();
+        assert!(e.try_consume());
+        // Swap-once: the next status line is not echoed.
+        assert!(!e.try_consume());
+        // A new arm re-enables exactly one echo.
+        e.arm();
+        assert!(e.try_consume());
+        assert!(!e.try_consume());
+    }
+
+    #[test]
+    fn echo_status_single_echo_serves_pending_arms() {
+        let e = EchoStatus::default();
+        e.arm();
+        e.arm();
+        // Two rapid `?` before any status: one echoed line serves both arms.
+        assert!(e.try_consume());
+        assert!(!e.try_consume());
+    }
+
+    #[test]
+    fn echo_status_cancel_retires_own_arm() {
+        let e = EchoStatus::default();
+        let gen = e.arm();
+        e.cancel(gen);
+        // A cancelled arm must not swallow a later poll line.
+        assert!(!e.try_consume());
+    }
+
+    #[test]
+    fn echo_status_cancel_keeps_newer_arm() {
+        let e = EchoStatus::default();
+        let old = e.arm();
+        e.arm();
+        // Cancelling the failed older send leaves the newer arm live.
+        e.cancel(old);
+        assert!(e.try_consume());
+        assert!(!e.try_consume());
     }
 }
