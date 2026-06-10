@@ -25,6 +25,10 @@ export interface ProbeConfig {
   feedMmMin: number;
   offsetMm: number;
   safeZMm: number;
+  /** Work-frame tool-change-Z (mm) the run rapids to on a tool change — the highest
+   *  Z move of the run. Feeds the headroom guard's ceiling check (a zero bound too high
+   *  would send this rapid past Z=0 → ALARM:2). */
+  toolChangeZMm: number;
   /** Probe seek distance (mm) for the FIRST tool change, where no work-Z exists
    *  yet so the fast «high park → rapid to safe-Z → short probe» can't run. Here
    *  G38.2 descends the full distance from the current (post-homing) Z to find the
@@ -109,9 +113,10 @@ export function DrillToolChangeCard({
   const softLimitsEnabled = useMachine((s) => s.softLimitsEnabled);
   const maxTravelMm = useMachine((s) => s.maxTravelMm);
 
-  // After Z is bound, verify the bound zero leaves enough travel below for the
-  // plunge — otherwise the cut would trip a GRBL soft limit (ALARM:2) mid-run. Only
-  // meaningful once bound; skipped when the floor isn't computable (see checkZHeadroom).
+  // After Z is bound, verify the bound zero keeps the run's Z moves inside the
+  // machine envelope — too low leaves no room for the plunge, too high sends the
+  // safe-Z / tool-change rapid past Z=0; either trips a GRBL soft limit (ALARM:2)
+  // mid-run. Only meaningful once bound; skipped when the envelope isn't computable.
   const headroom = useMemo(
     () =>
       checkZHeadroom({
@@ -121,10 +126,14 @@ export function DrillToolChangeCard({
         softLimitsEnabled,
         maxTravelZMm: maxTravelMm?.[2] ?? null,
         plungeDepthMm,
+        safeZMm: probe.safeZMm,
+        toolChangeZMm: probe.toolChangeZMm,
       }),
-    [machineZ, workZ, homed, softLimitsEnabled, maxTravelMm, plungeDepthMm],
+    [machineZ, workZ, homed, softLimitsEnabled, maxTravelMm, plungeDepthMm, probe.safeZMm, probe.toolChangeZMm],
   );
-  const zTooLow = zBound && !headroom.skipped && !headroom.ok;
+  // The bound zero is unsafe and the run must not resume — "below" = too low (re-zero
+  // higher / raise board), "above" = too high (re-zero lower / lower board).
+  const zBlock = zBound && !headroom.skipped ? headroom.block : null;
 
   // Auto-advance step 1 → step 2 the moment the operator touches the probe to the
   // bit (pin latches). The explicit button below is the affordance/fallback.
@@ -320,30 +329,36 @@ export function DrillToolChangeCard({
           </li>
         </ol>
 
-        {/* Action: resume once Z is bound (unless the bound zero is too low — block
-            and offer to re-zero), else the Z touch-off flow */}
-        {zTooLow ? (
+        {/* Action: resume once Z is bound (unless the bound zero falls outside the Z
+            envelope — block and offer to re-zero), else the Z touch-off flow */}
+        {zBlock ? (
           <div
             className="rounded-lg border px-3 py-2.5"
             style={{ borderColor: "hsl(0 70% 55% / 0.5)", backgroundColor: "hsl(0 70% 55% / 0.08)" }}
           >
             <div className="flex items-center gap-1.5 text-[12px] font-semibold text-red-400">
               <TriangleAlert className="size-4 shrink-0" />
-              {t("toolChange.zTooLowTitle")}
+              {zBlock === "below" ? t("toolChange.zTooLowTitle") : t("toolChange.zTooHighTitle")}
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {t("toolChange.zTooLowMsg", {
-                needed: fmtLen(headroom.neededMm),
-                available: fmtLen(Math.max(0, headroom.availableMm)),
-              })}
+              {zBlock === "below"
+                ? t("toolChange.zTooLowMsg", {
+                    needed: fmtLen(headroom.neededMm),
+                    available: fmtLen(Math.max(0, headroom.availableMm)),
+                  })
+                : t("toolChange.zTooHighMsg", { over: fmtLen(Math.max(0, headroom.ceilingOverMm)) })}
             </p>
             <button
               type="button"
               onClick={onZUnbind}
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card py-2 text-[12px] font-semibold text-foreground transition-colors hover:bg-foreground/5"
             >
-              <ArrowUpToLine className="size-4" />
-              {t("toolChange.zRebind")}
+              {zBlock === "below" ? (
+                <ArrowUpToLine className="size-4" />
+              ) : (
+                <ArrowDownToLine className="size-4" />
+              )}
+              {zBlock === "below" ? t("toolChange.zRebind") : t("toolChange.zRebindLower")}
             </button>
           </div>
         ) : zBound ? (

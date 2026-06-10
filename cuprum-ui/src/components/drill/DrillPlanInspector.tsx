@@ -243,6 +243,7 @@ export function DrillPlanInspector({
             feedMmMin: cncProfile.probeFeedMmMin,
             offsetMm: cncProfile.probePlateOffsetMm,
             safeZMm: cncProfile.safeZMm,
+            toolChangeZMm: cncProfile.toolChangeZMm,
             // First tool has no work-Z datum to rapid toward — the probe seeks the
             // surface across the full Z travel from the current (post-homing) Z.
             firstMaxDistMm: cncProfile.workEnvelopeMm.z,

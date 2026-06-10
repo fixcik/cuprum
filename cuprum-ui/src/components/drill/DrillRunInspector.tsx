@@ -31,6 +31,7 @@ export interface DrillRunInspectorProps {
     feedMmMin: number;
     offsetMm: number;
     safeZMm: number;
+    toolChangeZMm: number;
     firstMaxDistMm: number;
   };
 }
