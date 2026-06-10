@@ -34,16 +34,31 @@ fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// stay untouched (the cached CONTENT is unchanged).
 const BLOB_MAGIC: &[u8; 4] = b"CBC1";
 
+/// Hard cap a decoded value's size: a corrupted/adversarial length field then
+/// fails cleanly instead of attempting a giant allocation, regardless of the
+/// reader backend. Generous — the largest disk tier (metrics) is capped at
+/// 256 MB total.
+const BLOB_SIZE_LIMIT: u64 = 256 * 1024 * 1024;
+
+/// One options value for BOTH encode and decode — bincode settings (int
+/// encoding, limits) must match between the two or blobs silently fail to
+/// round-trip.
+fn blob_options() -> impl bincode::Options {
+    use bincode::Options;
+    bincode::options().with_limit(BLOB_SIZE_LIMIT)
+}
+
 fn encode_blob<T: Serialize>(v: &T) -> Option<Vec<u8>> {
-    let mut blob = Vec::with_capacity(128);
-    blob.extend_from_slice(BLOB_MAGIC);
-    bincode::serialize_into(&mut blob, v).ok()?;
+    use bincode::Options;
+    let mut blob = Vec::from(*BLOB_MAGIC);
+    blob_options().serialize_into(&mut blob, v).ok()?;
     Some(blob)
 }
 
 fn decode_blob<T: DeserializeOwned>(blob: &[u8]) -> Option<T> {
+    use bincode::Options;
     let body = blob.strip_prefix(BLOB_MAGIC)?;
-    bincode::deserialize(body).ok()
+    blob_options().deserialize(body).ok()
 }
 
 /// In-memory (LRU) + disk cache with single-flight de-dup of concurrent misses.
