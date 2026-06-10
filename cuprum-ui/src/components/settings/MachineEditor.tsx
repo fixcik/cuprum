@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSettings } from "@/settingsStore";
+import { useMachine } from "@/machineStore";
 import { EditableText } from "@/components/ui/EditableText";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CncSettingsCards } from "@/components/settings/CncSettingsCards";
@@ -33,6 +34,16 @@ export function MachineEditor({
 }) {
   const { t } = useTranslation("settings");
   const update = useSettings((s) => s.updateMachine);
+  const reattach = useMachine((s) => s.reattach);
+  // Re-bind to a live backend connection regardless of which CNC sub-tab is open.
+  // Only the control tab carries a ConnBar (which reattaches on mount); the config
+  // and GRBL tabs read `connected` from the store but never trigger a rebind, so
+  // opening straight to the GRBL tab showed "not connected" until the user visited
+  // the control tab. reattach() is idempotent — a no-op when already bound or when
+  // the backend holds no connection — so this can't steal the Channel or double-connect.
+  useEffect(() => {
+    if (machine?.kind === "cnc") void reattach();
+  }, [machine?.kind, reattach]);
   // Sub-tabs only apply to CNC machines; reset implicitly when the selected
   // machine changes via the keyed remount in EquipmentSection.
   const [tab, setTab] = useState<CncTab>("config");
