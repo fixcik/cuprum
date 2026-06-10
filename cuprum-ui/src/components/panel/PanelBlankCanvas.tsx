@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect, Group, Text, Image as KonvaImage } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Maximize, Plus, Minus, LocateFixed } from "lucide-react";
+import { LocateFixed } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
+import { ZoomToolbar, ZOOM_STEP } from "@/components/ui/ZoomToolbar";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
 import { RulersOverlay } from "@/components/editor/RulersOverlay";
 import { gridSteps } from "@/lib/canvasTicks";
@@ -984,7 +985,14 @@ export function PanelBlankCanvas({
         {W} × {H} mm
       </div>
 
-      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground [&_button]:cursor-pointer">
+      <ZoomToolbar
+        zoomPct={zoomPct}
+        onZoomOut={() => zoomButton(1 / ZOOM_STEP)}
+        onZoomIn={() => zoomButton(ZOOM_STEP)}
+        onReset={realSize}
+        resetLabel={t("common:viewer.realSize")}
+        onFit={fitView}
+      >
         <button
           className={`rounded p-1 hover:bg-muted/60 ${showCrosshair ? "bg-primary/20 text-primary" : ""}`}
           aria-label={t("common:viewer.crosshair")}
@@ -993,24 +1001,7 @@ export function PanelBlankCanvas({
         >
           <LocateFixed className="size-4" />
         </button>
-        <button className="rounded p-1 hover:bg-muted/60" aria-label={t("common:viewer.zoomOut")} title={t("common:viewer.zoomOut")} onClick={() => zoomButton(1 / 1.2)}>
-          <Minus className="size-4" />
-        </button>
-        <button
-          className="min-w-12 rounded px-1.5 py-1 text-center text-[11px] tabular-nums hover:bg-muted/60"
-          aria-label={t("common:viewer.realSize")}
-          title={t("common:viewer.realSize")}
-          onClick={realSize}
-        >
-          {zoomPct}%
-        </button>
-        <button className="rounded p-1 hover:bg-muted/60" aria-label={t("common:viewer.zoomIn")} title={t("common:viewer.zoomIn")} onClick={() => zoomButton(1.2)}>
-          <Plus className="size-4" />
-        </button>
-        <button className="rounded p-1 hover:bg-muted/60" aria-label={t("common:viewer.fitAll")} title={t("common:viewer.fitAll")} onClick={fitView}>
-          <Maximize className="size-4" />
-        </button>
-      </div>
+      </ZoomToolbar>
     </div>
       </ContextMenuTrigger>
       <ContextMenuContent>

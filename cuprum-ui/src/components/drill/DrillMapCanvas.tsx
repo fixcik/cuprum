@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import Konva from "konva";
-import { Maximize, Plus, Minus } from "lucide-react";
+import { ZoomToolbar, ZOOM_STEP } from "@/components/ui/ZoomToolbar";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { DrillRoute, RouteGroup } from "@/lib/drillRoute";
 import { buildHoleToPathIndex, orderedHoleList } from "@/lib/drillRoute";
@@ -598,41 +598,13 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
         hover={hoverPx}
       />
 
-      {/* Bottom-right zoom bar — mirrors PanelBlankCanvas. */}
-      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground [&_button]:cursor-pointer">
-        <button
-          className="rounded p-1 hover:bg-muted/60"
-          aria-label="Zoom out"
-          title="Zoom out"
-          onClick={() => zoomButton(1 / 1.2)}
-        >
-          <Minus className="size-4" />
-        </button>
-        <button
-          className="min-w-12 rounded px-1.5 py-1 text-center text-[11px] tabular-nums hover:bg-muted/60"
-          aria-label="Fit view"
-          title="Fit view"
-          onClick={fitView}
-        >
-          {zoomPct}%
-        </button>
-        <button
-          className="rounded p-1 hover:bg-muted/60"
-          aria-label="Zoom in"
-          title="Zoom in"
-          onClick={() => zoomButton(1.2)}
-        >
-          <Plus className="size-4" />
-        </button>
-        <button
-          className="rounded p-1 hover:bg-muted/60"
-          aria-label="Fit all"
-          title="Fit all"
-          onClick={fitView}
-        >
-          <Maximize className="size-4" />
-        </button>
-      </div>
+      <ZoomToolbar
+        zoomPct={zoomPct}
+        onZoomOut={() => zoomButton(1 / ZOOM_STEP)}
+        onZoomIn={() => zoomButton(ZOOM_STEP)}
+        onReset={fitView}
+        onFit={fitView}
+      />
     </div>
   );
 }
