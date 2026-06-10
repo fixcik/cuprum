@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "@/shellStore";
 import { useSettings } from "@/settingsStore";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
-import { api, type BoardMetrics } from "@/lib/api";
+import type { BoardMetrics } from "@/lib/api";
+import { metricsCache } from "@/lib/metricsCache";
 import { evaluate, overallVerdict, type Severity, type Verdict } from "@/lib/feasibility";
 import { evaluatePanel, type PanelFinding } from "@/lib/panelFeasibility";
 import { worseSeverity } from "@/lib/severity";
@@ -62,8 +63,8 @@ export function usePanelFindings(): PanelFindingsResult {
       const d = designs.find((x) => x.id === id);
       if (!d) return;
       cancelRef.current.delete(id); // allow fresh fetch
-      api
-        .projectBoardMetrics(
+      metricsCache
+        .get(
           workingDir,
           d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
         )

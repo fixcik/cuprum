@@ -10,6 +10,7 @@ import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 import { saveLastSession } from "@/lib/lastSession";
 import { useSettings } from "@/settingsStore";
+import { metricsCache } from "@/lib/metricsCache";
 
 /** Debounce window before flushing freshly-computed artifacts into the .cuprum. */
 const ARTIFACT_FLUSH_MS = 1500;
@@ -538,7 +539,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     let h: number;
     try {
       const refs = design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type }));
-      const m = await api.projectBoardMetrics(workingDir, refs);
+      const m = await metricsCache.get(workingDir, refs);
       w = m.metrics.board.widthMm;
       h = m.metrics.board.heightMm;
     } catch {
@@ -555,7 +556,7 @@ export const useShell = create<ShellStore>((set, get) => ({
         const d = get().currentManifest?.designs.find((x) => x.id === id);
         if (!d) return;
         try {
-          const m = await api.projectBoardMetrics(
+          const m = await metricsCache.get(
             workingDir,
             d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
           );
