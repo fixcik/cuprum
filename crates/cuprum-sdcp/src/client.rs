@@ -443,7 +443,9 @@ mod tests {
     fn serializes_to_camel_case() {
         let progress = parse_expose_progress(&printing_status_json());
         let v = serde_json::to_value(&progress).expect("serialize ExposeProgress");
-        let obj = v.as_object().expect("ExposeProgress serializes to an object");
+        let obj = v
+            .as_object()
+            .expect("ExposeProgress serializes to an object");
 
         // camelCase keys must be present (frontend contract); snake_case absent.
         assert!(obj.contains_key("currentLayer"), "expected camelCase key");

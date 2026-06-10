@@ -99,11 +99,9 @@ pub fn panel_placements(
             }
 
             let off_x =
-                ((panel_off_x + inst.x_mm - inst.origin_mm.0) * SCREEN_PX_PER_MM_X).round()
-                    as i32;
+                ((panel_off_x + inst.x_mm - inst.origin_mm.0) * SCREEN_PX_PER_MM_X).round() as i32;
             let off_y =
-                ((panel_off_y + inst.y_mm - inst.origin_mm.1) * SCREEN_PX_PER_MM_Y).round()
-                    as i32;
+                ((panel_off_y + inst.y_mm - inst.origin_mm.1) * SCREEN_PX_PER_MM_Y).round() as i32;
 
             Placement {
                 path: inst.mask_path.clone(),
@@ -416,7 +414,10 @@ mod tests {
         assert_eq!(result.len(), 1);
 
         // Pinned concrete pixel anchors (fail if Y-flip or copper/outline delta wrong).
-        assert_eq!(result[0].off_x, 6203, "X offset wrong — copper/outline delta error?");
+        assert_eq!(
+            result[0].off_x, 6203,
+            "X offset wrong — copper/outline delta error?"
+        );
         assert_eq!(result[0].off_y, 2562, "Y offset wrong — Y-flip error?");
     }
 
@@ -447,7 +448,7 @@ mod tests {
         // exactly match `round(15 * px_per_mm)` (1071) / `round(7 * px_per_mm)` (368)
         // independently — we verify with the pinned concrete deltas instead.
         assert_eq!(result[1].off_x - result[0].off_x, 1071); // 15 mm * 71.43 px/mm
-        assert_eq!(result[1].off_y - result[0].off_y, 369);  // 7 mm * 52.63 px/mm
+        assert_eq!(result[1].off_y - result[0].off_y, 369); // 7 mm * 52.63 px/mm
     }
 
     #[test]

@@ -579,7 +579,6 @@ mod render_info_bbox_tests {
     const CIRCLE_AT_3_2: &[u8] =
         b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\nD10*\nX30000Y20000D03*\nM02*\n";
 
-
     fn approx_eq(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.01
     }
@@ -685,8 +684,8 @@ mod render_info_bbox_tests {
     fn parse_file_bytes(bytes: &[u8]) -> anyhow::Result<Vec<crate::gerber_types::Command>> {
         use crate::gerber_parser;
         let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
-        let doc = gerber_parser::parse(reader)
-            .map_err(|(_, e)| anyhow::anyhow!("parse error: {e:?}"))?;
+        let doc =
+            gerber_parser::parse(reader).map_err(|(_, e)| anyhow::anyhow!("parse error: {e:?}"))?;
         Ok(doc.into_commands())
     }
 }
