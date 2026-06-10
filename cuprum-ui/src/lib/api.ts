@@ -4,6 +4,9 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { type NestSettings } from "@/lib/nest";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
+// Type-only import: erased at compile time, so it does not create a runtime
+// import cycle with settingsStore (which imports screen constants from here).
+import type { Language } from "@/settingsStore";
 
 /** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
  *  appear in the browser Network tab — in dev builds we log every command (args,
@@ -849,6 +852,14 @@ export const api = {
 
   /** Apply localised native-menu labels (called on mount and on language change). */
   setAppMenu: (labels: MenuLabels): Promise<void> => invoke("set_app_menu", { labels }),
+
+  // Cross-window language sync. Each OS window is a separate webview with its own
+  // store + i18next instance, so a change in one (the language selector lives only
+  // in the main window's Settings) is invisible to already-open child windows.
+  // Broadcast the persisted setting so siblings switch language live.
+  emitLanguage: (language: Language): Promise<void> => emit("settings://language", { language }),
+  onLanguage: (cb: (language: Language) => void): Promise<UnlistenFn> =>
+    listen<{ language: Language }>("settings://language", (e) => cb(e.payload.language)),
 
   machine: {
     listPorts: () => invoke<SerialPortInfo[]>("list_serial_ports"),
