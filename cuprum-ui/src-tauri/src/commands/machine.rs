@@ -436,10 +436,14 @@ async fn forward_events(
                 }
                 record_and_broadcast_line(&line_log, &app, d, &text);
             }
+            // The actor's explicit teardown notice (unplug, idle-link watchdog, or
+            // shutdown). This is the reliable signal: the broadcast does NOT close
+            // while the UI holds a GrblHandle clone, so we can't wait on `Closed`.
+            Ok(GrblEvent::Disconnected) => break,
             // A slow subscriber dropped some events — status is periodic, so just
             // resume with the next one.
             Err(broadcast::error::RecvError::Lagged(_)) => continue,
-            // The actor stopped (clean shutdown or unplug): tell follower windows.
+            // Fallback: every Sender dropped (no live handle). Treat as teardown.
             Err(broadcast::error::RecvError::Closed) => break,
         }
     }

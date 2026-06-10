@@ -92,6 +92,7 @@
     "jogTitle": "Подвод по XY",
     "gotoZero": "На рабочий ноль XY",
     "openSettings": "Настроить",
+    "connectFirst": "Сначала подключите станок",
     "statusNotSet": "не выставлен",
     "statusSet": "выставлен · угол {{corner}}",
     "statusOverrun": "смещён — выход за ход станка",

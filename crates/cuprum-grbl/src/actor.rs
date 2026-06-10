@@ -24,6 +24,17 @@ const SYNC_STALL_SILENCE: Duration = Duration::from_secs(4);
 const SYNC_IDLE_NO_ACK: Duration = Duration::from_secs(3);
 /// Overall ceiling for a homing cycle (GRBL is silent for the whole cycle).
 const HOMING_TIMEOUT: Duration = Duration::from_secs(120);
+/// Idle-link watchdog: with nothing in flight, GRBL answers every 200 ms `?`
+/// poll, so this many consecutive polls with no reply means the link is dead at
+/// the device end — e.g. the machine was powered off while its USB-serial
+/// adapter stays enumerated (the read branch never errors, so an unplug-style
+/// break won't fire). 15 × 200 ms ≈ 3 s. Counted in poll ticks rather than
+/// wall-clock so a starved runtime (e.g. many parallel tests sharing cores)
+/// can't trip it: `MissedTickBehavior::Delay` fires a single catch-up tick after
+/// a stall, not a burst, so a freeze adds one tick, not the whole gap. Only
+/// armed when no command is in flight — GRBL goes silent during a homing cycle,
+/// which has its own `HOMING_TIMEOUT`, so this must not race it.
+const IDLE_WATCHDOG_MISSED_POLLS: u32 = 15;
 /// Ceiling for collecting a full `$$` settings dump.
 const SETTINGS_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -55,6 +66,14 @@ pub enum GrblEvent {
     /// reports are NOT emitted here — they arrive as [`GrblEvent::Status`] — so
     /// the 5 Hz poll can't flood the console.
     Line { dir: Dir, text: String },
+    /// The actor is shutting the link down (read/write error i.e. unplug, the
+    /// idle-link watchdog, or an explicit shutdown). Sent once as the very last
+    /// event before the task returns. Subscribers must NOT rely on the broadcast
+    /// closing to learn the link is gone: a live [`GrblHandle`] clone (the UI
+    /// holds one for the whole session) keeps a `Sender` alive, so the channel
+    /// stays open after the actor drops its own. This explicit signal is the
+    /// reliable teardown notice.
+    Disconnected,
 }
 
 /// Failure of a line command awaited to its terminal reply.
@@ -381,6 +400,9 @@ async fn actor_loop<S>(
     let mut current: Option<Pending> = None;
     let mut last_rx = Instant::now();
     let mut idle = false;
+    // Consecutive idle `?` polls (no command in flight) that drew no reply.
+    // Reset by any rx; trips the idle-link watchdog at IDLE_WATCHDOG_MISSED_POLLS.
+    let mut idle_polls_no_rx: u32 = 0;
 
     'main: loop {
         tokio::select! {
@@ -423,6 +445,19 @@ async fn actor_loop<S>(
 
             // 3. Status poll tick: query `?` and check the in-flight deadline.
             _ = poll.tick() => {
+                // Idle-link watchdog: with nothing in flight, our `?` poll is
+                // answered every tick. Enough consecutive unanswered polls means the
+                // device is gone even though the OS port is still open (powered-off
+                // machine, live adapter) — break so the actor emits its teardown
+                // notice, exactly as an unplug would. Skipped while a command is in
+                // flight: that path has its own deadlines (incl. the silent homing
+                // cycle), and its reply will reset the counter.
+                if current.is_none() {
+                    idle_polls_no_rx += 1;
+                    if idle_polls_no_rx >= IDLE_WATCHDOG_MISSED_POLLS {
+                        break;
+                    }
+                }
                 if wr.write_all(&[STATUS_QUERY]).await.is_err() || wr.flush().await.is_err() {
                     break;
                 }
@@ -430,6 +465,11 @@ async fn actor_loop<S>(
                     if let Some(err) = deadline_exceeded(&p.kind, p.started, last_rx, idle) {
                         let p = current.take().expect("checked Some above");
                         let _ = p.reply.send(Err(err));
+                        // The command resolved (by timeout, not by an rx that would
+                        // reset the counter in the read branch). Start the idle
+                        // watchdog fresh so a count accumulated before this command
+                        // can't trip it early once we fall back to idle polling.
+                        idle_polls_no_rx = 0;
                     }
                 }
             }
@@ -440,6 +480,7 @@ async fn actor_loop<S>(
                     Ok(0) | Err(_) => break, // link closed / unplugged
                     Ok(n) => {
                         last_rx = Instant::now();
+                        idle_polls_no_rx = 0; // any rx proves the link is alive
                         buf.extend_from_slice(&rdbuf[..n]);
                         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
                             let raw: Vec<u8> = buf.drain(..=pos).collect();
@@ -484,11 +525,15 @@ async fn actor_loop<S>(
     }
 
     // The actor is ending: fail any in-flight command so its caller unblocks
-    // instead of waiting for a reply that will never come. Dropping `events`
-    // (on return) closes the broadcast so subscribers learn the link is gone.
+    // instead of waiting for a reply that will never come.
     if let Some(p) = current.take() {
         let _ = p.reply.send(Err(GrblError::Disconnected));
     }
+    // Signal teardown explicitly. We can't rely on dropping `events` to close the
+    // broadcast — the UI keeps a `GrblHandle` clone (hence a live `Sender`) for the
+    // whole session, so the channel stays open. This last event is the reliable
+    // notice that the link is gone (unplug, watchdog, or shutdown).
+    let _ = events.send(GrblEvent::Disconnected);
 }
 
 /// Broadcast a parsed line: status reports resolve + emit a `Status` event
@@ -919,6 +964,38 @@ mod tests {
         assert!(
             matches!(res, Err(GrblError::Timeout("no response from machine"))),
             "got {res:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_watchdog_emits_disconnect_on_silence() {
+        // `h` is held for the whole test (like the UI holding a GrblHandle), so the
+        // broadcast never closes on its own — the teardown must come as an explicit
+        // GrblEvent::Disconnected, not a `Closed` recv error.
+        let (h, _fake) = setup();
+        // Nothing is in flight and GRBL never answers the `?` poll — the device is
+        // gone even though the (faked) port stays open, like a powered-off machine
+        // on a live USB adapter. The idle-link watchdog must tear the actor down
+        // once the silence passes IDLE_LINK_WATCHDOG. `_fake` is held so the actor's
+        // `?` writes don't error (a dropped peer would break it via EOF, not the
+        // watchdog). The clock is paused, so the runtime auto-advances through the
+        // poll ticks; the outer timeout (also virtual) fails the test instead of
+        // hanging if the watchdog never fires.
+        let mut sub = h.subscribe();
+        let got = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                match sub.recv().await {
+                    Ok(GrblEvent::Disconnected) => return true,
+                    // Idle polling emits no other events, but stay robust.
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => return false,
+                }
+            }
+        })
+        .await;
+        assert!(
+            matches!(got, Ok(true)),
+            "idle watchdog did not emit Disconnected: {got:?}"
         );
     }
 }

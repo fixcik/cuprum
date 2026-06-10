@@ -382,8 +382,12 @@ async fn wait_idle(
             Ok(Ok(GrblEvent::Status { status: s, .. })) if matches!(s.state, GrblState::Idle) => {
                 return
             }
+            // Link gone (unplug / idle-link watchdog / shutdown): stop waiting now
+            // instead of spinning to the 30 s deadline.
+            Ok(Ok(GrblEvent::Disconnected)) | Ok(Err(broadcast::error::RecvError::Closed)) => {
+                return
+            }
             Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
-            Ok(Err(broadcast::error::RecvError::Closed)) => return,
             Err(_) => {} // timeout slice — loop to re-check flags
         }
     }
