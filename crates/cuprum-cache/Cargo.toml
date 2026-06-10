@@ -8,6 +8,9 @@ description = "Shared single-flight in-memory + disk cache engine for Cuprum"
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+bincode.workspace = true
 lru.workspace = true
 cuprum-diskcache.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
