@@ -9,7 +9,7 @@ import { api, type AddDesignSnapshot, type ProjectDesign, type PanelDoc } from "
 import { DesignPickerRow } from "@/components/project/DesignPickerRow";
 import { Button } from "@/components/ui/Button";
 import { useSettings } from "@/settingsStore";
-import { useShell } from "@/shellStore";
+import { useNavigation } from "@/navigationStore";
 import { VerdictBadge } from "@/components/preview/VerdictBadge";
 import { PreviewPane, type PreviewMode } from "@/components/preview/PreviewPane";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
@@ -48,7 +48,7 @@ export function AddDesignWindow() {
   useEffect(() => { if (mode === "3d") setArmed3d(true); }, [mode]);
 
   // Accurate 2D real-size requires the display scale.
-  useEffect(() => { void useShell.getState().loadDisplayScale(); }, []);
+  useEffect(() => { void useNavigation.getState().loadDisplayScale(); }, []);
 
   // Preview mode: "design" shows the PreviewPane, "layout" shows the panel preview.
   const [previewMode, setPreviewMode] = useState<"design" | "layout">("design");

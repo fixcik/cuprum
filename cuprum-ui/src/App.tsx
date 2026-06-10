@@ -7,6 +7,7 @@ import { EquipmentPage } from "@/pages/EquipmentPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { api } from "@/lib/api";
 import { useShell, armSessionPersist } from "@/shellStore";
+import { useNavigation } from "@/navigationStore";
 import { loadLastSession } from "@/lib/lastSession";
 import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
@@ -23,9 +24,9 @@ import i18n from "@/i18n";
 let coldStartHandled = false;
 
 export default function App() {
-  const view = useShell((s) => s.view);
+  const view = useNavigation((s) => s.view);
   const manifestName = useShell((s) => s.currentManifest?.name ?? null);
-  const loadDisplayScale = useShell((s) => s.loadDisplayScale);
+  const loadDisplayScale = useNavigation((s) => s.loadDisplayScale);
 
   useAddDesignBridge();
   useInspectorBridge();
@@ -103,7 +104,7 @@ export default function App() {
           // Otherwise a failed open would navigate away from Home and hide its
           // error/notice (which only HomePage renders).
           const openOk = !last.path || useShell.getState().currentPath === last.path;
-          if (openOk && last.view !== "project") useShell.getState().setView(last.view);
+          if (openOk && last.view !== "project") useNavigation.getState().setView(last.view);
         } finally {
           // Arm persistence ONLY now — after restore has read localStorage — so
           // startup's own state churn (and secondary windows) can't clobber the

@@ -25,6 +25,7 @@ import {
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
+import { useNavigation } from "@/navigationStore";
 import { usePanelSelection } from "@/panelSelectionStore";
 import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, type GuideLine } from "@/lib/panelPlacement";
 import type { Severity } from "@/lib/feasibility";
@@ -80,7 +81,7 @@ export function PanelBlankCanvas({
   heightMm: number;
 }) {
   const { t } = useTranslation(["project", "common"]);
-  const pxPerMm = useShell((s) => s.pxPerMm);
+  const pxPerMm = useNavigation((s) => s.pxPerMm);
   const { fmtLen } = useUnitFormat();
   const clampRadiusMm = useSettings((s) => s.profile.toolingClampRadiusMm);
   const instances = useShell((s) => s.currentManifest?.panel?.instances ?? EMPTY_INSTANCES);
