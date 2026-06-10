@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShell } from "@/shellStore";
+import { useArtifacts } from "@/artifactsStore";
 import { useSettings } from "@/settingsStore";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import type { BoardMetrics } from "@/lib/api";
@@ -72,7 +73,7 @@ export function usePanelFindings(): PanelFindingsResult {
           // Freshly computed (not from a cache tier) → persist the artifact into
           // the .cuprum, same as the design card / inspector paths. Matters when
           // the user lands on the Panel view before ever opening the design.
-          if (m.fresh) useShell.getState().scheduleArtifactFlush(true);
+          if (m.fresh) useArtifacts.getState().scheduleArtifactFlush(true);
           // If this id is no longer needed (unmounted or design removed), skip.
           if (cancelRef.current.has(id)) return;
           setMetricsMap((prev) => ({ ...prev, [id]: m.metrics }));

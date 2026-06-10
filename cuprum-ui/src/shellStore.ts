@@ -11,42 +11,8 @@ import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
 import { saveLastSession } from "@/lib/lastSession";
 import { useSettings } from "@/settingsStore";
 import { metricsCache } from "@/lib/metricsCache";
-
-/** Debounce window before flushing freshly-computed artifacts into the .cuprum. */
-const ARTIFACT_FLUSH_MS = 1500;
-let _flushTimer: ReturnType<typeof setTimeout> | null = null;
-/** Serialize ALL packs (mutations, restore points, artifact flush): two concurrent
- *  packs race on the container write + gc_gerbers vs collect_entries. */
-let _packChain: Promise<unknown> = Promise.resolve();
-/** Count of packs queued-but-not-yet-settled, so the UI can show a "saving"
- *  spinner while any repack (autosave flush included) is in flight. */
-let _packInFlight = 0;
-/** Set when scheduleArtifactFlush is called while a pack is already in flight.
- *  Consumed once the queue drains: triggers exactly one trailing repack so no
- *  freshly-computed artifact is lost. */
-let _flushDirty = false;
-function serializePack(fn: () => Promise<void>): Promise<void> {
-  _packInFlight += 1;
-  if (_packInFlight === 1) useShell.setState({ saving: true });
-  const run = () =>
-    fn().finally(() => {
-      _packInFlight -= 1;
-      if (_packInFlight === 0) {
-        useShell.setState({ saving: false });
-        // If artifact flushes arrived while the pack queue was busy, fire one
-        // trailing flush now that the queue is empty.  We clear the flag first
-        // so a concurrent scheduleArtifactFlush (extremely unlikely here, but
-        // possible) will start its own fresh debounce rather than be swallowed.
-        if (_flushDirty) {
-          _flushDirty = false;
-          useShell.getState().scheduleArtifactFlush(true);
-        }
-      }
-    });
-  const next = _packChain.then(run, run);
-  _packChain = next.catch(() => {});
-  return next;
-}
+import { serializePack } from "@/lib/projectPack";
+import { useArtifacts } from "@/artifactsStore";
 
 export type View = "home" | "project" | "equipment" | "settings";
 
@@ -91,9 +57,6 @@ interface ShellStore {
    *  from the newest existing point, so reopening an unchanged project does not
    *  stack duplicate auto points. */
   _maybeAutoOpenPoint: () => Promise<void>;
-  /** Schedule a debounced repack to flush freshly-computed artifacts into the
-   *  .cuprum. No-op when `fresh` is false (artifact was served from cache). */
-  scheduleArtifactFlush: (fresh: boolean) => void;
 
   /** CSS px per mm for the host display; defaults to the 96dpi CSS reference. */
   pxPerMm: number;
@@ -153,24 +116,6 @@ interface ShellStore {
   /** Remove a design from the project (undoable). Only the manifest reference is
    *  dropped; the gerber bytes stay on disk so undo/restore points stay valid. */
   removeDesign: (designId: string) => Promise<void>;
-
-  /** Per-design artifact-prep progress (0..1), keyed by designId. */
-  artifactProgress: Record<string, number>;
-  /** A card reports its ring fraction; store keeps the map for the global chip. */
-  reportArtifactProgress: (designId: string, fraction: number) => void;
-  /** Drop progress entries for designs no longer in the manifest (and on close). */
-  pruneArtifactProgress: (liveIds: string[]) => void;
-  /** Remove one design's progress entry — e.g. its card unmounted mid-prep, so
-   *  the global chip shouldn't freeze at that design's partial fraction. */
-  clearArtifactProgress: (designId: string) => void;
-
-  /** Ephemeral opaque trace-session token per newly-imported design, keyed by
-   *  designId. Set at import time; absent for designs opened from disk. Not
-   *  persisted — an in-memory u32 has no meaning across launches. */
-  traceSessions: Record<string, number>;
-  /** Number of ZIP paths currently being imported (incremented per-path at start,
-   *  decremented in finally). Drives the importing spinner on the designs tab. */
-  importingCount: number;
 
   /** Design id to preselect when the add-design window opens next (one-shot). */
   pendingAddDesignId: string | null;
@@ -243,37 +188,9 @@ export const useShell = create<ShellStore>((set, get) => ({
   historyBusy: false,
   pxPerMm: 96 / 25.4,
   _scaleLoaded: false,
-  artifactProgress: {},
-  traceSessions: {},
-  importingCount: 0,
   pendingAddDesignId: null,
   pendingDrillPrefill: null,
   setPendingDrillPrefill: (paramsJson) => set({ pendingDrillPrefill: paramsJson }),
-
-  scheduleArtifactFlush: (fresh) => {
-    if (!fresh) return;
-    const { workingDir, currentPath } = get();
-    if (!workingDir || !currentPath) return;
-    // If a repack is already queued/running, just mark dirty and exit.  Once the
-    // pack queue drains, serializePack will fire exactly one trailing flush so
-    // freshly-computed artifacts are not lost.  This collapses N concurrent flush
-    // requests into ≤2 actual api.saveProject calls.
-    if (_packInFlight > 0) {
-      _flushDirty = true;
-      return;
-    }
-    const path = currentPath;
-    if (_flushTimer) clearTimeout(_flushTimer);
-    _flushTimer = setTimeout(() => {
-      _flushTimer = null;
-      const s = get();
-      if (s.currentPath !== path || !s.workingDir) return; // project changed/closed
-      const wd = s.workingDir;
-      void serializePack(() => api.saveProject(wd, path)).catch(() => {
-        /* best-effort; the next fresh artifact reschedules */
-      });
-    }, ARTIFACT_FLUSH_MS);
-  },
 
   loadDisplayScale: async () => {
     // Cache once per launch; the native value never changes mid-session.
@@ -322,15 +239,16 @@ export const useShell = create<ShellStore>((set, get) => ({
       // Give the fresh project a working-dir the same way `open` does, so a
       // subsequent import/edit has somewhere to extract into.
       const opened = await api.openProject(savePath);
+      // Drop any prior project's per-session artifact state (trace tokens, prep
+      // progress, import counters): design ids are reused across projects, so a
+      // stale token would mis-group a fresh import's traces.
+      useArtifacts.getState().reset();
       set({
         currentPath: savePath,
         workingDir: opened.workingDir,
         currentManifest: opened.manifest,
         view: "project",
         error: null,
-        // Drop any prior project's trace tokens: design ids are reused across
-        // projects, so a stale token would mis-group a fresh import's traces.
-        traceSessions: {},
       });
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
@@ -373,15 +291,16 @@ export const useShell = create<ShellStore>((set, get) => ({
     }
     try {
       const opened = await api.openProject(path);
+      // Drop any prior project's per-session artifact state (trace tokens, prep
+      // progress, import counters): design ids are reused across projects, so a
+      // stale token would mis-group a fresh import's traces.
+      useArtifacts.getState().reset();
       set({
         currentPath: path,
         workingDir: opened.workingDir,
         currentManifest: opened.manifest,
         view: "project",
         error: null,
-        // Drop any prior project's trace tokens: design ids are reused across
-        // projects, so a stale token would mis-group a fresh import's traces.
-        traceSessions: {},
       });
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
@@ -999,7 +918,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     const { currentPath, workingDir, currentManifest } = get();
     if (!currentPath || !workingDir || !currentManifest) return;
     if (paths.length === 0) return;
-    set((s) => ({ importingCount: s.importingCount + paths.length }));
+    useArtifacts.setState((s) => ({ importingCount: s.importingCount + paths.length }));
     try {
       const prev = currentManifest;
       // Copy each ZIP into the working dir as a new design (sequential: each add
@@ -1029,13 +948,13 @@ export const useShell = create<ShellStore>((set, get) => ({
           const base = get().currentManifest ?? prev;
           const manifest: Manifest = { ...base, designs: [...base.designs, ...added] };
           get()._recordUndo(base);
-          set((s) => ({
-            currentManifest: manifest,
-            error: null,
-            traceSessions: Object.keys(newTraceSessions).length > 0
-              ? { ...s.traceSessions, ...newTraceSessions }
-              : s.traceSessions,
-          }));
+          set({ currentManifest: manifest, error: null });
+          // Stash trace tokens for the freshly-imported designs (artifact store).
+          if (Object.keys(newTraceSessions).length > 0) {
+            useArtifacts.setState((s) => ({
+              traceSessions: { ...s.traceSessions, ...newTraceSessions },
+            }));
+          }
           // Persist: write the loose manifest then repack the .cuprum so the freshly
           // copied gerbers land in the container too.
           await get()._persistManifest(manifest);
@@ -1045,7 +964,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       }
       if (failure) set({ error: String(failure) });
     } finally {
-      set((s) => ({ importingCount: Math.max(0, s.importingCount - paths.length) }));
+      useArtifacts.setState((s) => ({ importingCount: Math.max(0, s.importingCount - paths.length) }));
     }
   },
 
@@ -1113,28 +1032,6 @@ export const useShell = create<ShellStore>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
     }
-  },
-
-  reportArtifactProgress: (designId, fraction) => {
-    set((s) => ({ artifactProgress: { ...s.artifactProgress, [designId]: fraction } }));
-  },
-  pruneArtifactProgress: (liveIds) => {
-    set((s) => {
-      const live = new Set(liveIds);
-      const next: Record<string, number> = {};
-      for (const [id, f] of Object.entries(s.artifactProgress)) {
-        if (live.has(id)) next[id] = f;
-      }
-      return { artifactProgress: next };
-    });
-  },
-  clearArtifactProgress: (designId) => {
-    set((s) => {
-      if (!(designId in s.artifactProgress)) return s;
-      const next = { ...s.artifactProgress };
-      delete next[designId];
-      return { artifactProgress: next };
-    });
   },
 }));
 

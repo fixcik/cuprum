@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { rollupVerdicts } from "@/lib/designSummary";
 import type { Verdict } from "@/lib/feasibility";
 import { useShell } from "@/shellStore";
+import { useArtifacts } from "@/artifactsStore";
 import { api } from "@/lib/api";
 
 export function DesignsGallery() {
@@ -21,7 +22,7 @@ export function DesignsGallery() {
   const addDesignsFromZips = useShell((s) => s.addDesignsFromZips);
   const addDesignsFromPaths = useShell((s) => s.addDesignsFromPaths);
   const removeDesign = useShell((s) => s.removeDesign);
-  const importingCount = useShell((s) => s.importingCount);
+  const importingCount = useArtifacts((s) => s.importingCount);
   const [dragOver, setDragOver] = useState(false);
   const [query, setQuery] = useState("");
   const [verdicts, setVerdicts] = useState<Record<string, Verdict | null>>({});
