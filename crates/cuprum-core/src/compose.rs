@@ -117,6 +117,96 @@ pub fn panel_placements(
     Ok(placements)
 }
 
+/// Input for [`resolve_panel_placements`]: one board instance with enough
+/// geometry to correctly align the copper mask to the board outline corner.
+#[derive(Clone, Debug)]
+pub struct InstancePlacementInput {
+    /// Path to the copper Gerber layer (not read here — passed through to [`Placement`]).
+    pub mask_path: PathBuf,
+    /// Copper mask bounding box in Gerber world coords (Y-up), from [`Mask`].
+    /// Fields: `(min_x_mm, min_y_mm, max_x_mm, max_y_mm)`.
+    pub mask_bbox_mm: (f32, f32, f32, f32),
+    /// Board outline bbox MIN corner (bottom-left, Gerber Y-up), from board metrics.
+    pub board_origin_mm: (f32, f32),
+    /// Board outline size in mm (`width, height`), from board metrics.
+    pub board_size_mm: (f32, f32),
+    /// Instance top-left position in panel space (mm, Y-down, origin top-left).
+    pub inst_x_mm: f32,
+    /// Instance top-left position in panel space (mm, Y-down, origin top-left).
+    pub inst_y_mm: f32,
+    /// Rotation in degrees (0, 90, 180, 270).  Only 0/180 fully supported.
+    pub rotation_deg: u16,
+}
+
+/// Resolve a panel of board instances into screen-pixel [`Placement`]s, correctly
+/// aligning each copper mask so the board outline corner lands at the instance
+/// position in panel space.
+///
+/// # Coordinate conventions
+///
+/// * Gerber / mask world: Y-up, origin somewhere in world space.
+/// * Panel space: Y-down, origin top-left.
+/// * The board outline's **top-left corner in panel space** corresponds to
+///   `(inst_x_mm, inst_y_mm)` — the same convention the drill planner uses when
+///   mapping board-local holes into panel space (`projectHoleToPanel`).
+///
+/// The copper mask's top-left pixel (`px[0]`) sits at world `(mask_min_x, mask_max_y)`
+/// (raster row 0 = world Y-maximum = gerber top edge).  To land that pixel at the
+/// correct screen position the function computes the `origin_mm` that
+/// [`panel_placements`] expects:
+///
+/// ```text
+/// origin_mm.x = board_origin_x  − mask_min_x
+/// origin_mm.y = mask_max_y      − (board_origin_y + board_h)
+/// ```
+///
+/// The X term shifts for any copper/outline horizontal offset.  The Y term
+/// applies the Y-flip: in Gerber Y-up the board outline top edge is at
+/// `board_origin_y + board_h`; subtracting `mask_max_y` from that top edge gives
+/// the downward displacement in panel Y-down.
+///
+/// # Errors / warnings
+/// Same as [`panel_placements`] (panel-too-large error; 90/270 rotation warning).
+pub fn resolve_panel_placements(
+    panel_w_mm: f32,
+    panel_h_mm: f32,
+    items: &[InstancePlacementInput],
+) -> Result<Vec<Placement>> {
+    let instances: Vec<PanelInstanceArt> = items
+        .iter()
+        .map(|item| {
+            let (mask_min_x, _mask_min_y, _mask_max_x, mask_max_y) = item.mask_bbox_mm;
+            let (board_origin_x, board_origin_y) = item.board_origin_mm;
+            let (_board_w, board_h) = item.board_size_mm;
+
+            // origin_mm is passed to panel_placements which computes:
+            //   off_x = (panel_off_x + inst_x - origin_mm.0) * px_per_mm_x
+            //   off_y = (panel_off_y + inst_y - origin_mm.1) * px_per_mm_y
+            //
+            // We want the mask top-left pixel (world x=mask_min_x, world y=mask_max_y)
+            // to appear at panel position:
+            //   px = inst_x + (mask_min_x - board_origin_x)   [board-local X offset]
+            //   py = inst_y + (board_h - (mask_max_y - board_origin_y))  [Y-flipped]
+            //
+            // Substituting into the off formula and solving for origin_mm:
+            //   origin_mm.0 = board_origin_x - mask_min_x
+            //   origin_mm.1 = mask_max_y - (board_origin_y + board_h)
+            let origin_x = board_origin_x - mask_min_x;
+            let origin_y = mask_max_y - (board_origin_y + board_h);
+
+            PanelInstanceArt {
+                mask_path: item.mask_path.clone(),
+                origin_mm: (origin_x, origin_y),
+                x_mm: item.inst_x_mm,
+                y_mm: item.inst_y_mm,
+                rotation_deg: item.rotation_deg,
+            }
+        })
+        .collect();
+
+    panel_placements(panel_w_mm, panel_h_mm, &instances)
+}
+
 /// Render + composite a layout into a full-screen exposure mask (row-major
 /// grayscale, `SCREEN_W * SCREEN_H` bytes, 0 = UV off / 255 = on).
 ///
@@ -229,6 +319,135 @@ mod tests {
         // A 300×200 mm panel exceeds the ~211.68×118.37 mm exposure screen.
         let inst = dummy_instance(0.0, 0.0, (0.0, 0.0));
         assert!(panel_placements(300.0, 200.0, &[inst]).is_err());
+    }
+
+    // ── resolve_panel_placements tests ──────────────────────────────────────
+
+    fn dummy_input(
+        inst_x: f32,
+        inst_y: f32,
+        board_origin: (f32, f32),
+        board_size: (f32, f32),
+        mask_bbox: (f32, f32, f32, f32),
+    ) -> InstancePlacementInput {
+        InstancePlacementInput {
+            mask_path: PathBuf::from("dummy.gbr"),
+            mask_bbox_mm: mask_bbox,
+            board_origin_mm: board_origin,
+            board_size_mm: board_size,
+            inst_x_mm: inst_x,
+            inst_y_mm: inst_y,
+            rotation_deg: 0,
+        }
+    }
+
+    /// Test 1 — copper bbox == board outline bbox (degenerate).
+    ///
+    /// Board outline: [0,10]×[0,8] world (origin=(0,0), size=(10,8)).
+    /// Mask bbox == board bbox: min_x=0, min_y=0, max_x=10, max_y=8.
+    /// Instance at panel (5, 3).  Panel 50×30 mm.
+    ///
+    /// Expected origin_mm = (0, 0), i.e. same as panel_placements with
+    /// board_origin passed directly.
+    ///
+    /// Hand-computed pixels (f32, SCREEN 15120×6230, pitch 14×19 µm):
+    ///   panel_off_x = (211.68 - 50) / 2 ≈ 80.84
+    ///   panel_off_y = (118.37 - 30) / 2 ≈ 44.185
+    ///   off_x = (80.84 + 5.0) * 71.4286 ≈ 6131
+    ///   off_y = (44.185 + 3.0) * 52.6316 ≈ 2483
+    #[test]
+    fn resolve_placements_copper_eq_outline_degenerate() {
+        let panel_w = 50.0f32;
+        let panel_h = 30.0f32;
+        // board outline: origin (0,0), size (10,8) → bbox [0,10]×[0,8]
+        let item = dummy_input(
+            5.0,
+            3.0,
+            (0.0, 0.0),
+            (10.0, 8.0),
+            (0.0, 0.0, 10.0, 8.0), // mask == board
+        );
+        let result = resolve_panel_placements(panel_w, panel_h, &[item]).unwrap();
+        assert_eq!(result.len(), 1);
+
+        // Must equal panel_placements with origin_mm = board_origin = (0,0).
+        let ref_item = PanelInstanceArt {
+            mask_path: PathBuf::from("dummy.gbr"),
+            origin_mm: (0.0, 0.0),
+            x_mm: 5.0,
+            y_mm: 3.0,
+            rotation_deg: 0,
+        };
+        let ref_result = panel_placements(panel_w, panel_h, &[ref_item]).unwrap();
+        assert_eq!(result[0].off_x, ref_result[0].off_x);
+        assert_eq!(result[0].off_y, ref_result[0].off_y);
+
+        // Pinned concrete pixel anchors.
+        assert_eq!(result[0].off_x, 6131);
+        assert_eq!(result[0].off_y, 2483);
+    }
+
+    /// Test 2 — copper bbox INSET from board outline (the critical Y-flip case).
+    ///
+    /// Board outline: [0,10]×[0,8] world (origin=(0,0), size=(10,8)).
+    /// Copper mask bbox: [1,9]×[1.5,6.5] world — inset 1 mm left/right, 1.5 mm
+    /// bottom, 1.5 mm top.
+    /// Instance at panel (5, 3).  Panel 50×30 mm.
+    ///
+    /// By the drill Y-flip:  mask top-left pixel is at world (1, 6.5).
+    ///   board-local: dx = 1-0 = 1, dy_up = 6.5-0 = 6.5 (Y-up from board bottom)
+    ///   panel: px = 5.0+1.0 = 6.0, py = 3.0+(8.0-6.5) = 4.5
+    ///
+    /// Hand-computed pixels:
+    ///   off_x = (panel_off_x + 6.0) * 71.4286 ≈ 6203
+    ///   off_y = (panel_off_y + 4.5) * 52.6316 ≈ 2562
+    #[test]
+    fn resolve_placements_copper_inset_from_outline() {
+        let panel_w = 50.0f32;
+        let panel_h = 30.0f32;
+        let item = dummy_input(
+            5.0,
+            3.0,
+            (0.0, 0.0),
+            (10.0, 8.0),
+            (1.0, 1.5, 9.0, 6.5), // copper inset
+        );
+        let result = resolve_panel_placements(panel_w, panel_h, &[item]).unwrap();
+        assert_eq!(result.len(), 1);
+
+        // Pinned concrete pixel anchors (fail if Y-flip or copper/outline delta wrong).
+        assert_eq!(result[0].off_x, 6203, "X offset wrong — copper/outline delta error?");
+        assert_eq!(result[0].off_y, 2562, "Y offset wrong — Y-flip error?");
+    }
+
+    /// Test 3 — two instances at different positions, same copper/outline geometry.
+    ///
+    /// Verifies that the per-instance delta depends only on the instance position
+    /// difference (the copper/outline offset is the same for both and cancels).
+    ///
+    /// Instance A at (5, 3), instance B at (20, 10) — same copper inset as Test 2.
+    /// Expected delta: dx = (20-5)*PX/mm_x, dy = (10-3)*PX/mm_y.
+    #[test]
+    fn resolve_placements_two_instances_delta_by_position() {
+        let panel_w = 50.0f32;
+        let panel_h = 30.0f32;
+        let item_a = dummy_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.5, 9.0, 6.5));
+        let item_b = dummy_input(20.0, 10.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.5, 9.0, 6.5));
+        let result = resolve_panel_placements(panel_w, panel_h, &[item_a, item_b]).unwrap();
+        assert_eq!(result.len(), 2);
+
+        // Pinned concrete pixel anchors for both (from Test 2 + delta computation).
+        assert_eq!(result[0].off_x, 6203);
+        assert_eq!(result[0].off_y, 2562);
+        assert_eq!(result[1].off_x, 7274);
+        assert_eq!(result[1].off_y, 2931);
+
+        // The offset difference must equal the instance-position difference in pixels.
+        // Note: f32 rounding accumulation means the difference (1071, 369) may not
+        // exactly match `round(15 * px_per_mm)` (1071) / `round(7 * px_per_mm)` (368)
+        // independently — we verify with the pinned concrete deltas instead.
+        assert_eq!(result[1].off_x - result[0].off_x, 1071); // 15 mm * 71.43 px/mm
+        assert_eq!(result[1].off_y - result[0].off_y, 369);  // 7 mm * 52.63 px/mm
     }
 
     #[test]
