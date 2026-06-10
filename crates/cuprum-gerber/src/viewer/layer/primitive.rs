@@ -182,6 +182,67 @@ impl GerberPrimitive {
 }
 
 #[cfg(test)]
+mod winding_tests {
+    use nalgebra::Point2;
+
+    use super::{GerberPolygon, GerberPrimitive};
+    use crate::viewer::types::Exposure;
+
+    /// Shoelace signed area; positive = counter-clockwise (Y-up).
+    fn signed_area(vertices: &[Point2<f64>]) -> f64 {
+        let mut sum = 0.0;
+        for i in 0..vertices.len() {
+            let j = (i + 1) % vertices.len();
+            sum += vertices[i].x * vertices[j].y - vertices[j].x * vertices[i].y;
+        }
+        sum / 2.0
+    }
+
+    #[test]
+    fn new_polygon_normalizes_clockwise_input_to_ccw() {
+        // Clockwise input square.
+        let polygon = GerberPolygon {
+            center: Point2::new(0.0, 0.0),
+            vertices: vec![
+                Point2::new(0.0, 1.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(0.0, 0.0),
+            ],
+            exposure: Exposure::Add,
+        };
+        let GerberPrimitive::Polygon(p) = GerberPrimitive::new_polygon(polygon) else {
+            panic!("expected polygon primitive");
+        };
+        assert!(
+            signed_area(&p.geometry.relative_vertices) > 0.0,
+            "output must be counter-clockwise"
+        );
+    }
+
+    #[test]
+    fn new_polygon_keeps_ccw_input_ccw() {
+        let polygon = GerberPolygon {
+            center: Point2::new(0.0, 0.0),
+            vertices: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(0.0, 1.0),
+            ],
+            exposure: Exposure::Add,
+        };
+        let GerberPrimitive::Polygon(p) = GerberPrimitive::new_polygon(polygon) else {
+            panic!("expected polygon primitive");
+        };
+        assert!(
+            signed_area(&p.geometry.relative_vertices) > 0.0,
+            "output must be counter-clockwise"
+        );
+    }
+}
+
+#[cfg(test)]
 mod circle_aperture_tests {
     use std::f64::consts::PI;
 
