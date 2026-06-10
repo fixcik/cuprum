@@ -19,6 +19,7 @@
 //! nearest-point queries used by DFM and mesh).
 
 mod build;
+mod isolation;
 mod measure;
 mod tess;
 
@@ -26,6 +27,7 @@ pub use build::{
     copper_polygons, fill_polygons, layer_polygons, layer_polygons_from, mask_polygons,
     region_polygons, region_polygons_from, shapes_to_polys,
 };
+pub use isolation::{isolation_paths, vbit_cut_width};
 pub use measure::{
     point_in_ring, point_ring_closest, point_seg_closest, poly_containing, polys_area,
 };
