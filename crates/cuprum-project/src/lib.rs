@@ -481,13 +481,7 @@ pub fn import_zips(
 
     // Preserve layer types the user assigned to already-imported files; the
     // rebuild above re-classified them by filename, which would wipe overrides.
-    for (i, old) in existing.designs.iter().enumerate() {
-        if let Some(new_design) = manifest.designs.get_mut(i) {
-            for (g, old_g) in new_design.gerbers.iter_mut().zip(old.gerbers.iter()) {
-                g.layer_type = old_g.layer_type;
-            }
-        }
-    }
+    restore_layer_overrides(&existing.designs, &mut manifest.designs);
 
     container::write(container, &manifest, &entries)?;
     let (count, w, h) = manifest_stats(&manifest);
@@ -502,6 +496,31 @@ pub fn import_zips(
         now,
     )?;
     Ok(manifest)
+}
+
+/// Patch user-assigned `layer_type` overrides from the pre-rebuild designs back
+/// onto the rebuilt ones (the rebuild re-classifies every gerber by filename).
+/// Designs correspond positionally (existing designs are re-imported in order,
+/// new ones appended after), but WITHIN a design files are matched by file name
+/// — not by index — so a count or order change between imports can never shift
+/// an override onto the wrong file. File names are unique within a design (they
+/// share one directory), so the name lookup is unambiguous.
+fn restore_layer_overrides(existing: &[manifest::Design], rebuilt: &mut [manifest::Design]) {
+    fn file_name(path: &str) -> &str {
+        path.rsplit('/').next().unwrap_or(path)
+    }
+    for (old, new_design) in existing.iter().zip(rebuilt.iter_mut()) {
+        let old_by_name: std::collections::HashMap<&str, layer::LayerType> = old
+            .gerbers
+            .iter()
+            .map(|g| (file_name(&g.path), g.layer_type))
+            .collect();
+        for g in new_design.gerbers.iter_mut() {
+            if let Some(lt) = old_by_name.get(file_name(&g.path)) {
+                g.layer_type = *lt;
+            }
+        }
+    }
 }
 
 /// Update project display name and description in the container manifest.
@@ -771,6 +790,82 @@ mod tests {
         let both: std::collections::HashSet<Vec<u8>> = [bytes0, bytes1].into_iter().collect();
         assert!(both.contains(b"AAA" as &[u8]), "AAA payload must be stored");
         assert!(both.contains(b"BBB" as &[u8]), "BBB payload must be stored");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn restore_layer_overrides_matches_by_file_name_not_position() {
+        use crate::layer::LayerType;
+        let gf = |path: &str, lt: LayerType| manifest::GerberFile {
+            path: path.into(),
+            layer_type: lt,
+        };
+        // The user re-assigned top.gbr (auto-classified TopCopper) to BottomCopper.
+        let existing = vec![manifest::Design {
+            id: "design-1".into(),
+            source_name: "one.zip".into(),
+            gerbers: vec![
+                gf("gerbers/design-1/top.gbr", LayerType::BottomCopper),
+                gf("gerbers/design-1/edge.gbr", LayerType::EdgeCuts),
+            ],
+        }];
+        // The rebuild produced the same files in a DIFFERENT order (and re-ran
+        // the filename classifier).
+        let mut rebuilt = vec![manifest::Design {
+            id: "design-1".into(),
+            source_name: "one.zip".into(),
+            gerbers: vec![
+                gf("gerbers/design-1/edge.gbr", LayerType::EdgeCuts),
+                gf("gerbers/design-1/top.gbr", LayerType::TopCopper),
+            ],
+        }];
+
+        restore_layer_overrides(&existing, &mut rebuilt);
+
+        let by_name = |name: &str| {
+            rebuilt[0]
+                .gerbers
+                .iter()
+                .find(|g| g.path.ends_with(name))
+                .unwrap()
+                .layer_type
+        };
+        assert_eq!(
+            by_name("top.gbr"),
+            LayerType::BottomCopper,
+            "override must follow the file, not its position"
+        );
+        assert_eq!(
+            by_name("edge.gbr"),
+            LayerType::EdgeCuts,
+            "untouched file keeps its classification"
+        );
+    }
+
+    #[test]
+    fn import_zips_keeps_layer_override_on_reimport() {
+        use crate::layer::LayerType;
+        let dir = std::env::temp_dir().join(format!("cuprum-reimp-lt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("catalog.sqlite");
+        let zip1 = make_source_zip(&dir, "one.zip");
+        let save = dir.join("proj.cuprum");
+
+        let m = create_project(&db, &save, "proj", &[zip1], 1000).unwrap();
+        // Simulate the user re-assigning the layer type of board.gbr.
+        let mut m2 = m.clone();
+        m2.designs[0].gerbers[0].layer_type = LayerType::BottomCopper;
+        container::update_manifest(&save, &m2).unwrap();
+
+        // Importing another ZIP rebuilds all designs; the override must survive.
+        let zip2 = make_source_zip(&dir, "two.zip");
+        let m3 = import_zips(&db, &save, &[zip2], 2000).unwrap();
+        assert_eq!(
+            m3.designs[0].gerbers[0].layer_type,
+            LayerType::BottomCopper,
+            "user-assigned layer type must survive re-import"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
