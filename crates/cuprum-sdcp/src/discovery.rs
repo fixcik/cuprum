@@ -28,11 +28,27 @@ pub struct DeviceData {
     pub mainboard_id: String,
 }
 
+/// Upper bound for a single `recv_from` wait. Each poll waits at most this long
+/// (or less when the deadline is closer), so `discover` returns close to its
+/// `timeout` instead of overshooting by a whole fixed read-timeout.
+const POLL_MAX: Duration = Duration::from_millis(400);
+
+/// Socket read timeout for the next poll: the time left until `deadline`,
+/// capped at [`POLL_MAX`]. `None` once the deadline has passed — stop polling
+/// (a zero read timeout would be rejected by `set_read_timeout` anyway).
+fn poll_read_timeout(deadline: Instant, now: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(now);
+    if remaining.is_zero() {
+        None
+    } else {
+        Some(remaining.min(POLL_MAX))
+    }
+}
+
 /// Broadcast discovery and collect all printers that reply within `timeout`.
 pub fn discover(timeout: Duration) -> Result<Vec<DeviceInfo>> {
     let socket = UdpSocket::bind("0.0.0.0:0").context("bind discovery socket")?;
     socket.set_broadcast(true)?;
-    socket.set_read_timeout(Some(Duration::from_millis(400)))?;
     socket
         .send_to(DISCOVERY_MSG, ("255.255.255.255", DISCOVERY_PORT))
         .context("send discovery broadcast")?;
@@ -41,7 +57,8 @@ pub fn discover(timeout: Duration) -> Result<Vec<DeviceInfo>> {
     let mut seen = HashSet::new();
     let mut buf = [0u8; 65535];
     let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
+    while let Some(read_timeout) = poll_read_timeout(deadline, Instant::now()) {
+        socket.set_read_timeout(Some(read_timeout))?;
         match socket.recv_from(&mut buf) {
             Ok((n, src)) => {
                 if !seen.insert(src) {
@@ -72,4 +89,40 @@ pub fn discover_one(timeout: Duration) -> Result<DeviceInfo> {
         .into_iter()
         .next()
         .context("no SDCP printer responded to discovery")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poll_read_timeout_caps_at_poll_max() {
+        let now = Instant::now();
+        assert_eq!(
+            poll_read_timeout(now + Duration::from_secs(10), now),
+            Some(POLL_MAX),
+            "far deadline polls at the cap"
+        );
+    }
+
+    #[test]
+    fn poll_read_timeout_shrinks_near_deadline() {
+        let now = Instant::now();
+        assert_eq!(
+            poll_read_timeout(now + Duration::from_millis(150), now),
+            Some(Duration::from_millis(150)),
+            "last poll must not overshoot the caller's deadline"
+        );
+    }
+
+    #[test]
+    fn poll_read_timeout_none_when_expired() {
+        let now = Instant::now();
+        assert_eq!(poll_read_timeout(now, now), None, "deadline reached");
+        assert_eq!(
+            poll_read_timeout(now, now + Duration::from_millis(1)),
+            None,
+            "deadline passed"
+        );
+    }
 }
