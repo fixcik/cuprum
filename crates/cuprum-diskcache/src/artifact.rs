@@ -17,26 +17,30 @@
 
 /// Bump when `svg::render_layer_svg` output changes.
 /// v2: connected line segments coalesced into one polyline path.
-pub const SVG_VERSION: &[u8] = b"svg-v2";
+/// v3: G74 single-quadrant arc center selection + polygon winding fixed.
+pub const SVG_VERSION: &[u8] = b"svg-v3";
 
 /// Bump when `dfm::board_metrics` output changes (was hard-coded in main.rs).
 /// v15: annular hotspots now carry the pad's copper side instead of hardcoded "both".
 /// v16: trace/line strokes coalesced into round-joined polylines.
 /// v17: per-family hotspot cap raised 40→500; drill/via unified onto cell dedup.
 /// v18: BoardDims gains origin_x_mm/origin_y_mm (Edge_Cuts outline min corner).
-pub const METRICS_VERSION: &[u8] = b"metrics-v18";
+/// v19: annular ring takes the worst pad across copper layers; geometry fixes
+/// (G74 arcs, winding, macro unary minus).
+pub const METRICS_VERSION: &[u8] = b"metrics-v19";
 
 /// Bump when the preview composition/palette/size changes.
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
 /// v3: substrate/mask/layers clipped to the rounded Edge_Cuts outline.
 /// v4: composite framed to the board-outline bbox (was union-of-layers bbox).
-pub const PREVIEW_VERSION: &[u8] = b"preview-v4";
+/// v5: G74 single-quadrant arc center selection + polygon winding fixed.
+pub const PREVIEW_VERSION: &[u8] = b"preview-v5";
 
 /// Bump when `mesh::board_geometry` output changes (triangulation, layer/barrel
 /// emission, substrate Z). Unlike the others this keys the OS app-cache mesh blob,
 /// not a packed `.cuprum` artifact (see module docs) — bumping just orphans the
 /// old cache entry, which the TTL/LRU reclaims.
-pub const MESH_VERSION: &[u8] = b"mesh-v6";
+pub const MESH_VERSION: &[u8] = b"mesh-v7";
 
 use std::collections::HashSet;
 use std::path::Path;
