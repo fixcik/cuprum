@@ -17,9 +17,11 @@
 - **Движок:** парс Gerber/Excellon, растеризация (tiny-skia), композ на экран
   15120×6230, `.goo`-энкодер, SDCP-клиент (discovery/upload/expose) — **UV-засветка
   работает в железе** (Elegoo Saturn 4 Ultra 16K).
-- **Архитектура:** монолит `cuprum-core` расщеплён на **11 крейтов** (core/gerber/dfm/
-  mesh/goo/sdcp/grbl/diskcache/cache/trace + project/cli); `gerber-viewer` форкнут до
-  ядра парсинга внутрь `cuprum-gerber`.
+- **Архитектура:** монолит `cuprum-core` расщеплён на **14 крейтов** (core/gerber/dfm/
+  mesh/drill/nest/goo/sdcp/grbl/diskcache/cache/trace + project/cli); `gerber-viewer`
+  форкнут до ядра парсинга внутрь `cuprum-gerber`. `cuprum-drill` — дрилл-тулчейн
+  (порядок обхода, объезд keep-out, GRBL-G-code + оценка времени); `cuprum-nest` —
+  раскладка дизайнов на панели (солвер размещения).
 - **CLI v1:** тулбокс `info`/`render`/`svg`/`3d`/`check` над папкой герберов и `.cuprum`.
 - **Документ проекта `.cuprum`:** working-dir, автосейв, undo/redo, restore points,
   персистентные рендер-артефакты; галерея дизайнов + инспектор (2D/3D + DFM).
@@ -68,5 +70,5 @@
 
 ---
 
-*Ревизия 2026-06-04. Этот файл — нарратив фаз; конкретные задачи и статусы — на
+*Ревизия 2026-06-10. Этот файл — нарратив фаз; конкретные задачи и статусы — на
 [борде](https://github.com/users/fixcik/projects/2).*

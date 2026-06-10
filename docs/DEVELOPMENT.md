@@ -248,3 +248,8 @@ bump and the changelog grouping (see `cliff.toml`). `feat` → minor, breaking
 - `docs/VISION.md` — product vision and roadmap (CAM system for home PCB production).
 - `docs/DESIGN.md` — design system (palette, typography, components) and the
   log of design decisions.
+
+---
+
+*Revision 2026-06-10. Keep this in sync when the cache version-tag rule, the
+trace setup, or the CI/release flow changes.*
