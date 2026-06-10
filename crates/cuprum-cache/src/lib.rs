@@ -15,6 +15,15 @@ use lru::LruCache;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+/// Lock a cache mutex, recovering from poisoning instead of propagating it. The
+/// `mem`/`inflight`/per-key `flight` mutexes guard a derived cache, not an
+/// invariant: if a thread panics mid-render while holding one, the data is
+/// stale-but-valid, so a later locker takes the inner guard rather than
+/// poison-panicking and bricking the cache for the whole process.
+fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// In-memory (LRU) + disk cache with single-flight de-dup of concurrent misses.
 /// Order: in-memory → disk → (NO_CACHE bypass) → per-key flight → render once.
 /// `mem` is the typed LRU store; `inflight` the per-key lock registry; `render`
@@ -84,14 +93,14 @@ where
     T: Clone + Serialize + DeserializeOwned,
 {
     if !diskcache::cache_disabled() {
-        if let Some(v) = mem.lock().unwrap().get(key) {
+        if let Some(v) = lock_recover(mem).get(key) {
             return Ok(v.clone());
         }
     }
     if !diskcache::cache_disabled() {
         if let Some(blob) = disk_get(key) {
             if let Ok(v) = serde_json::from_slice::<T>(&blob) {
-                mem.lock().unwrap().put(key.to_owned(), v.clone());
+                lock_recover(mem).put(key.to_owned(), v.clone());
                 return Ok(v);
             }
         }
@@ -100,17 +109,17 @@ where
         return render();
     }
     let flight = {
-        let mut reg = inflight.lock().unwrap();
+        let mut reg = lock_recover(inflight);
         reg.entry(key.to_owned())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     };
-    let _flight = flight.lock().unwrap();
-    if let Some(v) = mem.lock().unwrap().get(key) {
+    let _flight = lock_recover(&flight);
+    if let Some(v) = lock_recover(mem).get(key) {
         return Ok(v.clone());
     }
     let drop_inflight = || {
-        let mut reg = inflight.lock().unwrap();
+        let mut reg = lock_recover(inflight);
         if let Some(existing) = reg.get(key) {
             if Arc::ptr_eq(existing, &flight) {
                 reg.remove(key);
@@ -127,7 +136,7 @@ where
     if let Ok(blob) = serde_json::to_vec(&v) {
         disk_put(key, &blob);
     }
-    mem.lock().unwrap().put(key.to_owned(), v.clone());
+    lock_recover(mem).put(key.to_owned(), v.clone());
     drop_inflight();
     Ok(v)
 }

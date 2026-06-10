@@ -19,6 +19,18 @@ pub mod svg;
 
 mod viewer;
 
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+/// Lock a process-wide cache mutex, recovering from poisoning instead of
+/// propagating it. These mutexes guard derived caches (parsed layers, rendered
+/// SVG geometry, single-flight registries), not invariants: if a thread panics
+/// mid-render while holding the lock, the cache holds stale-but-valid data, so a
+/// later locker should take the inner guard rather than poison-panic and brick
+/// the cache for the whole process.
+pub(crate) fn lock_recover<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 // Re-export the parsing core (forked gerber-viewer) under cuprum-gerber so
 // downstream crates use a single import path.
 pub use viewer::{Exposure, GerberLayer, GerberPrimitive};
