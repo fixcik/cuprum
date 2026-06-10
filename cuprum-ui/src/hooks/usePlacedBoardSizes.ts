@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useShell } from "@/shellStore";
-import { api } from "@/lib/api";
+import { metricsCache } from "@/lib/metricsCache";
 
 const EMPTY: never[] = [];
 
@@ -22,8 +22,8 @@ export function usePlacedBoardSizes(): Record<string, { w: number; h: number }> 
     needed.forEach((id) => {
       const d = designs.find((x) => x.id === id);
       if (!d) return;
-      api
-        .projectBoardMetrics(
+      metricsCache
+        .get(
           workingDir,
           d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
         )

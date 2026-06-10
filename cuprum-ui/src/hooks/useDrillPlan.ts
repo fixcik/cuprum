@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type DrillSnapshot, type DrillClass } from "@/lib/api";
+import { metricsCache } from "@/lib/metricsCache";
 import { collectDesignHoles, buildPanelDrillPlan, type LocalHole } from "@/lib/panelDrill";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 export interface DrillPlanResult {
@@ -69,7 +70,7 @@ export function useDrillPlan(snapshot: DrillSnapshot | null): DrillPlanResult {
             let originXMm = 0;
             let originYMm = 0;
             try {
-              const metricsResult = await api.projectBoardMetrics(
+              const metricsResult = await metricsCache.get(
                 workingDir,
                 design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
               );

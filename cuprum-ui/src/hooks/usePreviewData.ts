@@ -26,6 +26,7 @@ import type { DrcMarkerInput } from "@/components/preview/DrcMarkers";
 import type { PreviewMode, DrcIssue } from "@/components/preview/PreviewPane";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useFindingText } from "@/hooks/useFindingText";
+import { metricsCache } from "@/lib/metricsCache";
 
 /** Per-gerber render status for the streaming 2D preview. */
 type SvgStatus = "none" | "pending" | "loaded" | "error";
@@ -311,7 +312,7 @@ export function usePreviewData(
     setMetricsLoading(true);
     (async () => {
       try {
-        const m = await api.projectBoardMetrics(workingDir, refs);
+        const m = await metricsCache.get(workingDir, refs);
         if (!cancelled) {
           setMetrics(m.metrics);
           onArtifactFreshRef.current?.(m.fresh);

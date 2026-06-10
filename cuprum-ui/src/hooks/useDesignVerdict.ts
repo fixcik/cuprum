@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type GerberFile, type PanelDoc, type Stackup } from "@/lib/api";
+import type { GerberFile, PanelDoc, Stackup } from "@/lib/api";
+import { metricsCache } from "@/lib/metricsCache";
 import { evaluate, overallVerdict, type Verdict } from "@/lib/feasibility";
 import { missingRequired } from "@/lib/layerColors";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
@@ -55,8 +56,8 @@ export function useDesignVerdict(
     if (!workingDir) return;
     const hasRequired = missingRequired(gerbers.map((g) => g.layer_type)).length === 0;
     setSettled(false);
-    api
-      .projectBoardMetrics(
+    metricsCache
+      .get(
         workingDir,
         gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
         traceSession,
