@@ -24,8 +24,9 @@ interface DesignInspectorProps {
   onRenameDesign: (name: string) => void;
   onSetLayerType: (path: string, type: LayerType) => void;
   onArtifactsFresh: (fresh: boolean) => void;
-  /** Fired once the preview has real content to show (first 2D layer painted, or
-   *  the missing-layers panel). Lets the host window defer reveal until ready. */
+  /** Fired once on mount, i.e. as soon as the inspector shell (tabs, layer panel,
+   *  preview area) has rendered. Lets the host window reveal itself immediately;
+   *  SVG layers stream in afterwards behind a skeleton. */
   onReady?: () => void;
 }
 
@@ -116,14 +117,13 @@ export function DesignInspector({
     hiddenTypes,
   });
 
-  // Signal "ready to view" to the host window: the preview pane has real content —
-  // either the first 2D layer has painted, or the design is missing required layers
-  // (so the missing-layers panel is what we show). Until then the window stays
-  // hidden so it doesn't flash an empty/loading preview that then pops in.
-  const previewReady = !pv.hasRequired || pv.layers.length > 0;
+  // Signal "ready to view" to the host window as soon as the shell has mounted:
+  // mounting implies the project snapshot arrived and the layout has rendered.
+  // SVG layers stream in afterwards behind the preview skeleton, so heavy designs
+  // don't keep the window hidden until the show-fallback timeout.
   useEffect(() => {
-    if (previewReady) onReady?.();
-  }, [previewReady, onReady]);
+    onReady?.();
+  }, [onReady]);
 
   const onFocus = useCallback(
     (fid: string, hi: number) => {
