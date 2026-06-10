@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect, Group, Line, Image as KImage } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { Maximize, Plus, Minus, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { SCREEN_W_MM, SCREEN_H_MM } from "@/lib/api";
 import { useStore, type Placement } from "@/store";
 import { CanvasToolbar } from "@/components/editor/CanvasToolbar";
 import { CadGrid } from "@/components/editor/CadGrid";
 import { useKonvaViewport } from "@/hooks/useKonvaViewport";
+import { ZoomToolbar, ZOOM_STEP } from "@/components/ui/ZoomToolbar";
 
 /** Build an inverted (RGB) copy of a loaded image via an offscreen canvas. */
 function invertImage(im: HTMLImageElement): HTMLImageElement {
@@ -428,25 +429,14 @@ export function PreviewCanvas() {
         screen {SCREEN_W_MM}×{SCREEN_H_MM} mm · drag to select · Space/H pans · scroll zooms
       </div>
 
-      {/* viewer zoom controls */}
-      <div className="absolute bottom-2 right-2 flex cursor-default items-center gap-0.5 rounded-md border border-border bg-card/90 p-0.5 text-muted-foreground [&_button]:cursor-pointer">
-        <button className="rounded p-1 hover:bg-muted/60" title="Zoom out" onClick={() => zoomButton(1 / 1.2)}>
-          <Minus className="size-4" />
-        </button>
-        <button
-          className="min-w-12 rounded px-1.5 py-1 text-center text-[11px] tabular-nums hover:bg-muted/60"
-          title="Reset / fit"
-          onClick={fitView}
-        >
-          {zoomPct}%
-        </button>
-        <button className="rounded p-1 hover:bg-muted/60" title="Zoom in" onClick={() => zoomButton(1.2)}>
-          <Plus className="size-4" />
-        </button>
-        <button className="rounded p-1 hover:bg-muted/60" title="Fit to screen" onClick={fitView}>
-          <Maximize className="size-4" />
-        </button>
-      </div>
+      <ZoomToolbar
+        className="cursor-default"
+        zoomPct={zoomPct}
+        onZoomOut={() => zoomButton(1 / ZOOM_STEP)}
+        onZoomIn={() => zoomButton(ZOOM_STEP)}
+        onReset={fitView}
+        onFit={fitView}
+      />
     </div>
   );
 }
