@@ -177,7 +177,7 @@ export function DrillRunInspector({
                 <button
                   type="button"
                   disabled={!controls.pause}
-                  onClick={phase === "paused" ? run.resume : run.pause}
+                  onClick={controls.pause ? (phase === "paused" ? run.resume : run.pause) : undefined}
                   className={cn(
                     "flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card py-2.5 text-[12px] font-medium transition-colors",
                     controls.pause
