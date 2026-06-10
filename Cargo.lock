@@ -620,6 +620,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cuprum-mill"
+version = "0.5.1"
+dependencies = [
+ "cuprum-drill",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cuprum-nest"
 version = "0.5.1"
 
