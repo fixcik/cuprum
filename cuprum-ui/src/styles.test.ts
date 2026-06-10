@@ -94,10 +94,12 @@ describe("styles.css cascade layering", () => {
     let body = "";
     for (const line of css.split("\n")) {
       if (depth === 0 && line.includes("{")) {
-        const selector = line.slice(0, line.indexOf("{")).trim();
+        const braceIdx = line.indexOf("{");
+        const selector = line.slice(0, braceIdx).trim();
         // At-rules (@layer/@media/@supports/@property…) are containers, not rules.
         topLevelSelector = selector.startsWith("@") ? null : selector;
-        body = "";
+        // Keep the rest of the line so single-line rules are not missed.
+        body = line.slice(braceIdx + 1);
       } else if (depth > 0 && topLevelSelector !== null) {
         body += line;
       }

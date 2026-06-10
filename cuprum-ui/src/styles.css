@@ -96,13 +96,13 @@
   * {
     border-color: hsl(var(--border));
   }
-}
 
-/* All interactive buttons get the pointer cursor (Tailwind preflight sets
-   buttons to `cursor: default`). Element-selector specificity → still
-   overridable by a `cursor-*` utility class where needed. */
-button:not(:disabled) {
-  cursor: pointer;
+  /* All interactive buttons get the pointer cursor (Tailwind preflight sets
+     buttons to `cursor: default`). In `base` so a `cursor-*` utility class
+     still overrides it where needed. */
+  button:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 html,
