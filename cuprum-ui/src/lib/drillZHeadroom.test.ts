@@ -7,6 +7,8 @@ import {
 
 // A homed frame with soft limits on, $132=73, work-zero bound at machine Z −56.18
 // (wpos 0 → WCO = −56.18). Plunge 1.9 mm. Room below = −56.18 + 73 = 16.82 mm.
+// Safe-Z 5 / tool-change-Z 20: highest rapid lands at machine −56.18 + 20 = −36.18,
+// well under the ceiling (0) → no ceiling block.
 const BASE: ZHeadroomArgs = {
   mposZ: -56.18,
   wposZ: 0,
@@ -14,37 +16,99 @@ const BASE: ZHeadroomArgs = {
   softLimitsEnabled: true,
   maxTravelZMm: 73,
   plungeDepthMm: 1.9,
+  safeZMm: 5,
+  toolChangeZMm: 20,
 };
 
 describe("checkZHeadroom", () => {
-  it("plenty of room below the work-zero → ok, not skipped", () => {
+  it("plenty of room within both bounds → ok, not skipped", () => {
     const r = checkZHeadroom(BASE);
     expect(r.skipped).toBe(false);
     expect(r.ok).toBe(true);
+    expect(r.block).toBeNull();
     expect(r.neededMm).toBeCloseTo(2.4); // 1.9 + 0.5 margin
     expect(r.availableMm).toBeCloseTo(16.82);
   });
 
-  it("work-zero at the very bottom of travel → blocks (not enough room)", () => {
-    // WCO = −72.5, floor = −73 → only 0.5 mm below, need 2.4 → blocked.
-    const r = checkZHeadroom({ ...BASE, mposZ: -72.5 });
-    expect(r.skipped).toBe(false);
+  describe("floor (work-zero too low)", () => {
+    it("work-zero at the very bottom of travel → blocks 'below' (not enough room)", () => {
+      // WCO = −72.5, floor = −73 → only 0.5 mm below, need 2.4 → blocked.
+      const r = checkZHeadroom({ ...BASE, mposZ: -72.5 });
+      expect(r.skipped).toBe(false);
+      expect(r.ok).toBe(false);
+      expect(r.block).toBe("below");
+      expect(r.availableMm).toBeCloseTo(0.5);
+      expect(r.neededMm).toBeCloseTo(2.4);
+    });
+
+    it("exactly enough room (available == needed) → ok", () => {
+      // Need 2.4 mm; place WCO so available is exactly 2.4: mposZ = 2.4 − 73 = −70.6.
+      const r = checkZHeadroom({ ...BASE, mposZ: -70.6 });
+      expect(r.availableMm).toBeCloseTo(2.4);
+      expect(r.ok).toBe(true);
+      expect(r.block).toBeNull();
+    });
+
+    it("one hair short of needed → blocks 'below'", () => {
+      const r = checkZHeadroom({ ...BASE, mposZ: -70.61 });
+      expect(r.availableMm).toBeLessThan(r.neededMm);
+      expect(r.ok).toBe(false);
+      expect(r.block).toBe("below");
+    });
+
+    it("respects a custom margin", () => {
+      const r = checkZHeadroom({ ...BASE, mposZ: -71.5, marginMm: 1.5 });
+      // available = 1.5, need = 1.9 + 1.5 = 3.4 → blocked
+      expect(r.neededMm).toBeCloseTo(3.4);
+      expect(r.ok).toBe(false);
+      expect(r.block).toBe("below");
+    });
+  });
+
+  describe("ceiling (work-zero too high)", () => {
+    it("zero near the top of travel → safe/tool-change rapid punches the ceiling → 'above'", () => {
+      // WCO = −0.5; highest rapid = max(5, 20) = 20 → machine −0.5 + 20 = +19.5,
+      // above the ceiling (0). ceilingOverMm = 19.5 + 0.5 margin = 20.
+      const r = checkZHeadroom({ ...BASE, mposZ: -0.5 });
+      expect(r.skipped).toBe(false);
+      expect(r.ok).toBe(false);
+      expect(r.block).toBe("above");
+      expect(r.ceilingOverMm).toBeCloseTo(20);
+    });
+
+    it("highest rapid sits exactly at the margin under the ceiling → ok", () => {
+      // Want WCO + 20 + 0.5 == 0 → WCO = −20.5 → mposZ = −20.5.
+      const r = checkZHeadroom({ ...BASE, mposZ: -20.5 });
+      expect(r.ceilingOverMm).toBeCloseTo(0);
+      expect(r.ok).toBe(true);
+      expect(r.block).toBeNull();
+    });
+
+    it("a hair higher than the margin → blocks 'above'", () => {
+      const r = checkZHeadroom({ ...BASE, mposZ: -20.49 });
+      expect(r.ceilingOverMm).toBeGreaterThan(0);
+      expect(r.ok).toBe(false);
+      expect(r.block).toBe("above");
+    });
+
+    it("uses max(safeZ, toolChangeZ) — the highest rapid drives the ceiling", () => {
+      // Drop the tool-change-Z below safe-Z; safe-Z (5) now dominates. WCO = −2 →
+      // machine 5 − 2 = +3 over the ceiling → still blocks 'above'.
+      const r = checkZHeadroom({ ...BASE, mposZ: -2, toolChangeZMm: 1 });
+      expect(r.block).toBe("above");
+      expect(r.ceilingOverMm).toBeCloseTo(-2 + 5 + 0.5);
+    });
+  });
+
+  it("both bounds violated (tiny envelope) → floor takes precedence ('below')", () => {
+    // $132 = 4 mm; plunge 1.9 needs 2.4 down, tool-change 20 wants to rise far above
+    // the ceiling — no zero can satisfy both. WCO = −2: down room = 2 (<2.4 → floor
+    // fails), and −2 + 20 + 0.5 = 18.5 > 0 (ceiling fails). Floor wins.
+    const r = checkZHeadroom({ ...BASE, maxTravelZMm: 4, mposZ: -2 });
     expect(r.ok).toBe(false);
-    expect(r.availableMm).toBeCloseTo(0.5);
-    expect(r.neededMm).toBeCloseTo(2.4);
-  });
-
-  it("exactly enough room (available == needed) → ok", () => {
-    // Need 2.4 mm; place WCO so available is exactly 2.4: mposZ = 2.4 − 73 = −70.6.
-    const r = checkZHeadroom({ ...BASE, mposZ: -70.6 });
-    expect(r.availableMm).toBeCloseTo(2.4);
-    expect(r.ok).toBe(true);
-  });
-
-  it("one hair short of needed → blocks", () => {
-    const r = checkZHeadroom({ ...BASE, mposZ: -70.61 });
+    expect(r.block).toBe("below");
     expect(r.availableMm).toBeLessThan(r.neededMm);
-    expect(r.ok).toBe(false);
+    expect(r.ceilingOverMm).toBeGreaterThan(0);
   });
 
   it("uses WCO (mpos − wpos), not raw mpos — robust after a probe retract", () => {
@@ -53,25 +117,21 @@ describe("checkZHeadroom", () => {
     const r = checkZHeadroom({ ...BASE, mposZ: -51.18, wposZ: 5 });
     expect(r.availableMm).toBeCloseTo(16.82);
     expect(r.ok).toBe(true);
-  });
-
-  it("respects a custom margin", () => {
-    const r = checkZHeadroom({ ...BASE, mposZ: -71.5, marginMm: 1.5 });
-    // available = 1.5, need = 1.9 + 1.5 = 3.4 → blocked
-    expect(r.neededMm).toBeCloseTo(3.4);
-    expect(r.ok).toBe(false);
+    expect(r.block).toBeNull();
   });
 
   it("default margin is 0.5 mm", () => {
     expect(DEFAULT_Z_HEADROOM_MARGIN_MM).toBe(0.5);
   });
 
-  describe("skips when the floor is not computable (treated as ok)", () => {
+  describe("skips when the envelope is not computable (treated as ok)", () => {
     it("not homed", () => {
       const r = checkZHeadroom({ ...BASE, mposZ: -72.9, homed: false });
       expect(r.skipped).toBe(true);
       expect(r.ok).toBe(true);
+      expect(r.block).toBeNull();
       expect(r.availableMm).toBe(0);
+      expect(r.ceilingOverMm).toBe(0);
     });
 
     it("soft limits off", () => {

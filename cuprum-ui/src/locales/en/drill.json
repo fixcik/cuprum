@@ -181,7 +181,10 @@
     "resumeMore": "Continue",
     "zTooLowTitle": "Work zero is too low",
     "zTooLowMsg": "There isn't enough Z travel below the zero for the cut (need {{needed}}, available {{available}}). Re-zero higher, or move the board up.",
-    "zRebind": "Re-zero higher"
+    "zRebind": "Re-zero higher",
+    "zTooHighTitle": "Work zero is too high",
+    "zTooHighMsg": "There isn't enough Z travel above the zero: the rapid to safe height and tool change would overshoot the top of travel by {{over}} and hit the limit. Re-zero lower, or move the board down.",
+    "zRebindLower": "Re-zero lower"
   },
   "finish": {
     "heading": "Drilling complete"
