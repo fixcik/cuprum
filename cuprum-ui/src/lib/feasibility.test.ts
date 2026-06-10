@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { evaluate, overallVerdict, minAbove, problemTypeOf, PROBLEM_TYPE_ORDER } from "@/lib/feasibility";
+import { evaluate, overallVerdict, minAbove, problemTypeOf, clusterBoxes, PROBLEM_TYPE_ORDER } from "@/lib/feasibility";
 import type { Finding } from "@/lib/feasibility";
-import type { BoardMetrics } from "@/lib/api";
+import type { BoardMetrics, GeoHotspot } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 import { DEFAULT_PROFILE } from "@/lib/capabilityProfile";
 
@@ -423,5 +423,136 @@ describe("evaluate — mask, silk & overshoot", () => {
     const findings = evaluate(metrics, makeProfile());
     const over = findings.find((f) => f.id === "size.overshoot");
     expect(over?.severity).toBe("warn");
+  });
+});
+
+describe("clusterBoxes", () => {
+  /** Reference all-pairs implementation (the pre-grid original) — the grid
+   *  version must reproduce its output exactly. */
+  const naiveClusterBoxes = (hs: GeoHotspot[], radius: number): GeoHotspot[] => {
+    const out: GeoHotspot[] = [];
+    const bySide = new Map<string, GeoHotspot[]>();
+    for (const h of hs) {
+      const arr = bySide.get(h.side) ?? [];
+      arr.push(h);
+      bySide.set(h.side, arr);
+    }
+    for (const [side, group] of bySide) {
+      const n = group.length;
+      const mids = group.map((h) => [(h.a[0] + h.b[0]) / 2, (h.a[1] + h.b[1]) / 2]);
+      const parent = Array.from({ length: n }, (_, i) => i);
+      const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+      const r2 = radius * radius;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const dx = mids[i][0] - mids[j][0];
+          const dy = mids[i][1] - mids[j][1];
+          if (dx * dx + dy * dy < r2) parent[find(i)] = find(j);
+        }
+      }
+      const groups = new Map<number, number[]>();
+      for (let i = 0; i < n; i++) {
+        const r = find(i);
+        const arr = groups.get(r) ?? [];
+        arr.push(i);
+        groups.set(r, arr);
+      }
+      for (const idxs of groups.values()) {
+        let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity, minV = Infinity;
+        for (const i of idxs) {
+          const h = group[i];
+          for (const p of [h.a, h.b]) {
+            minx = Math.min(minx, p[0]);
+            miny = Math.min(miny, p[1]);
+            maxx = Math.max(maxx, p[0]);
+            maxy = Math.max(maxy, p[1]);
+          }
+          minV = Math.min(minV, h.v);
+        }
+        out.push({ a: [minx, miny], b: [maxx, maxy], v: minV, side: side as GeoHotspot["side"] });
+      }
+    }
+    return out;
+  };
+
+  /** Order-independent canonical form for comparing cluster sets. */
+  const canon = (cs: GeoHotspot[]) =>
+    [...cs].sort((x, y) =>
+      x.side.localeCompare(y.side) || x.a[0] - y.a[0] || x.a[1] - y.a[1] || x.b[0] - y.b[0] || x.b[1] - y.b[1] || x.v - y.v,
+    );
+
+  const hot = (x: number, y: number, v = 0.1, side: GeoHotspot["side"] = "top"): GeoHotspot => ({
+    a: [x, y],
+    b: [x + 0.5, y],
+    v,
+    side,
+  });
+
+  /** Deterministic PRNG (mulberry32) for the randomized equivalence case. */
+  const mulberry32 = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  it("returns no clusters for an empty input", () => {
+    expect(clusterBoxes([], 4)).toEqual([]);
+  });
+
+  it("wraps a single hotspot in its own box with its value", () => {
+    expect(clusterBoxes([hot(3, 7, 0.08)], 4)).toEqual([
+      { a: [3, 7], b: [3.5, 7], v: 0.08, side: "top" },
+    ]);
+  });
+
+  it("does not merge midpoints exactly `radius` apart (strict <)", () => {
+    // Midpoints at x=0.25 and x=4.25 → distance exactly 4.
+    const clusters = clusterBoxes([hot(0, 0), hot(4, 0)], 4);
+    expect(clusters).toHaveLength(2);
+  });
+
+  it("chains a row of strokes across many grid cells into one cluster", () => {
+    // 20 strokes 3.9 mm apart: each pair is under the 4 mm radius but the row
+    // spans ~19 cells — transitivity must survive the 3×3 neighbourhood scan.
+    const row = Array.from({ length: 20 }, (_, i) => hot(i * 3.9, 0, 0.1 + i * 0.001));
+    const clusters = clusterBoxes(row, 4);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].v).toBeCloseTo(0.1, 10);
+    expect(clusters[0].a[0]).toBe(0);
+    expect(clusters[0].b[0]).toBeCloseTo(19 * 3.9 + 0.5, 10);
+  });
+
+  it("never merges hotspots from different sides", () => {
+    const clusters = clusterBoxes([hot(0, 0, 0.1, "top"), hot(0, 0, 0.1, "bottom")], 4);
+    expect(clusters).toHaveLength(2);
+    expect(new Set(clusters.map((c) => c.side))).toEqual(new Set(["top", "bottom"]));
+  });
+
+  it("takes the worst (thinnest) stroke as the cluster value", () => {
+    const clusters = clusterBoxes([hot(0, 0, 0.12), hot(1, 0, 0.05), hot(2, 0, 0.09)], 4);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].v).toBe(0.05);
+  });
+
+  it("matches the all-pairs reference on a sparse grid layout", () => {
+    const hs = Array.from({ length: 200 }, (_, i) => hot((i % 20) * 6, Math.floor(i / 20) * 6));
+    expect(canon(clusterBoxes(hs, 4))).toEqual(canon(naiveClusterBoxes(hs, 4)));
+  });
+
+  it("matches the all-pairs reference on a dense single-cell blob", () => {
+    const rnd = mulberry32(1);
+    const hs = Array.from({ length: 300 }, () => hot(rnd() * 3, rnd() * 3, 0.05 + rnd() * 0.1));
+    expect(canon(clusterBoxes(hs, 4))).toEqual(canon(naiveClusterBoxes(hs, 4)));
+  });
+
+  it("matches the all-pairs reference on random mixed-side scatters", () => {
+    for (const seed of [2, 3, 4, 5]) {
+      const rnd = mulberry32(seed);
+      const hs = Array.from({ length: 500 }, () =>
+        hot(rnd() * 80 - 40, rnd() * 60 - 30, 0.05 + rnd() * 0.1, rnd() < 0.5 ? "top" : "bottom"),
+      );
+      expect(canon(clusterBoxes(hs, 4))).toEqual(canon(naiveClusterBoxes(hs, 4)));
+    }
   });
 });
