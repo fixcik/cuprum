@@ -1022,8 +1022,12 @@ export const useShell = create<ShellStore>((set, get) => ({
       }
       try {
         if (added.length > 0) {
-          const manifest: Manifest = { ...prev, designs: [...prev.designs, ...added] };
-          get()._recordUndo(prev);
+          // Re-read the live manifest after ALL async imports so concurrent
+          // mutations (e.g. a panel edit committing mid-import) are not lost,
+          // and undo restores the state just before this commit.
+          const base = get().currentManifest ?? prev;
+          const manifest: Manifest = { ...base, designs: [...base.designs, ...added] };
+          get()._recordUndo(base);
           set((s) => ({
             currentManifest: manifest,
             error: null,

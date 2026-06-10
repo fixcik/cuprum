@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useShell } from "@/shellStore";
-import type { Manifest } from "@/lib/api";
+import { api, type AddedDesign, type Manifest, type ProjectDesign } from "@/lib/api";
 
 // Reset the singleton store before each test for isolation.
 const initial = useShell.getState();
@@ -69,5 +69,51 @@ describe("undo/redo bookkeeping", () => {
     expect(stack).toHaveLength(100);
     expect((stack[stack.length - 1] as { schema_version: number }).schema_version).toBe(999);
     expect((stack[0] as { schema_version: number }).schema_version).toBe(1);
+  });
+});
+
+describe("addDesignsFromPaths concurrency", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("keeps a concurrent manifest mutation and records the live manifest to undo", async () => {
+    const base: Manifest = {
+      schema_version: 1,
+      name: "p",
+      description: "",
+      designs: [],
+      exposure: null,
+      layer_colors: {},
+      stackup: null,
+      panel: null,
+    };
+    useShell.setState({
+      currentPath: "/tmp/p.cuprum",
+      workingDir: "/tmp/wd",
+      currentManifest: base,
+      undoStack: [],
+      redoStack: [],
+    });
+    const design = { id: "d1", source_name: "a.zip", gerbers: [] } as unknown as ProjectDesign;
+    let resolveAdd!: (v: AddedDesign) => void;
+    vi.spyOn(api, "addDesignFromZip").mockImplementation(
+      () => new Promise<AddedDesign>((res) => { resolveAdd = res; }),
+    );
+    vi.spyOn(api, "writeWorkingManifest").mockResolvedValue(undefined as never);
+    vi.spyOn(api, "saveProject").mockResolvedValue(undefined as never);
+
+    const importing = useShell.getState().addDesignsFromPaths(["a.zip"]);
+    // A concurrent mutation lands while the zip import is still in flight.
+    const mutated: Manifest = { ...base, description: "concurrent edit" };
+    useShell.setState({ currentManifest: mutated });
+    resolveAdd({ design, traceSession: null } as unknown as AddedDesign);
+    await importing;
+
+    const result = useShell.getState().currentManifest;
+    expect(result?.designs.map((d) => d.id)).toEqual(["d1"]);
+    // The concurrent mutation must survive the import commit…
+    expect(result?.description).toBe("concurrent edit");
+    // …and undo must restore the state just before the import (with the mutation).
+    const undoTop = useShell.getState().undoStack.at(-1);
+    expect(undoTop).toBe(mutated);
   });
 });
