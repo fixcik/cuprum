@@ -39,9 +39,9 @@ pub struct PanelInstanceArt {
     pub mask_path: PathBuf,
     /// Board outline origin (bbox min corner) in the mask's Gerber coords (mm).
     pub origin_mm: (f32, f32),
-    /// Instance top-left position in panel space (mm).
+    /// Instance top-left X position in panel space (mm).
     pub x_mm: f32,
-    /// Instance top-left position in panel space (mm).
+    /// Instance top-left Y position in panel space (mm).
     pub y_mm: f32,
     /// Rotation in degrees (0, 90, 180, 270). Only 0 and 180 are fully supported;
     /// 90/270 will be composited without rotation (warn is emitted).
@@ -63,12 +63,26 @@ pub struct PanelInstanceArt {
 /// `TODO(nesting)` in `compose_layout`). Instances with such rotations are passed
 /// through with `rotation_deg` intact, but a [`tracing::warn!`] is emitted per
 /// instance and the mask will be composited without rotation.
+///
+/// # Errors
+/// Returns an error if the panel is larger than the exposure screen in either
+/// dimension — it physically can't be exposed in a single pass.
 pub fn panel_placements(
     panel_w_mm: f32,
     panel_h_mm: f32,
     instances: &[PanelInstanceArt],
 ) -> Result<Vec<Placement>> {
     use crate::goo::{SCREEN_PX_PER_MM_X, SCREEN_PX_PER_MM_Y, SCREEN_X_MM, SCREEN_Y_MM};
+
+    if panel_w_mm > SCREEN_X_MM || panel_h_mm > SCREEN_Y_MM {
+        anyhow::bail!(
+            "panel ({:.2} × {:.2} mm) exceeds exposure screen ({:.2} × {:.2} mm)",
+            panel_w_mm,
+            panel_h_mm,
+            SCREEN_X_MM,
+            SCREEN_Y_MM
+        );
+    }
 
     let panel_off_x = (SCREEN_X_MM - panel_w_mm) / 2.0;
     let panel_off_y = (SCREEN_Y_MM - panel_h_mm) / 2.0;
@@ -200,6 +214,21 @@ mod tests {
         assert_eq!(result[0].off_y, expected_y);
         assert_eq!(result[0].path, PathBuf::from("dummy.gbr"));
         assert_eq!(result[0].rotation_deg, 0);
+
+        // Hand-computed concrete anchors so a consistently-wrong formula can't pass
+        // (the assertions above re-derive with the same formula). For a 100×50 mm
+        // panel with the instance at (10, 5) mm and origin (0, 0):
+        //   off_x = (55.84 + 10.0) * (15120 / 211.68) ≈ 4702.857 → 4703
+        //   off_y = (34.185 + 5.0) * (6230 / 118.37)  ≈ 2062.37  → 2062
+        assert_eq!(result[0].off_x, 4703);
+        assert_eq!(result[0].off_y, 2062);
+    }
+
+    #[test]
+    fn panel_placement_rejects_oversized_panel() {
+        // A 300×200 mm panel exceeds the ~211.68×118.37 mm exposure screen.
+        let inst = dummy_instance(0.0, 0.0, (0.0, 0.0));
+        assert!(panel_placements(300.0, 200.0, &[inst]).is_err());
     }
 
     #[test]
