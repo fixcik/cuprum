@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { evaluatePanel, MIN_PANEL_GAP_MM } from "@/lib/panelFeasibility";
 import { overallVerdict } from "@/lib/feasibility";
+import { boxesOverlap, instanceBounds, type Box } from "@/lib/panelPlacement";
 import type { PanelDoc, KeepOutZone, ToolingHole } from "@/lib/api";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
 
@@ -209,5 +210,115 @@ describe("evaluatePanel", () => {
       designVerdicts: {},
     });
     expect(f.some((x) => x.category === "clamp")).toBe(false);
+  });
+});
+
+describe("evaluatePanel — sweep matches the all-pairs reference", () => {
+  // Layouts keep boards well inside the panel so neither off-panel nor the
+  // edge-margin rule fires: the overlap/spacing findings then come ONLY from
+  // pairwise interactions, which is exactly what the sweep replaced.
+  const PANEL_W = 500;
+  const PANEL_H = 500;
+  const MIN_GAP = 2;
+
+  /** All-pairs reference classification (the pre-sweep original). */
+  const naiveSets = (
+    instances: ReturnType<typeof inst>[],
+    sizes: Record<string, { w: number; h: number }>,
+    minGap: number,
+  ) => {
+    const boxes = instances.map((i) => {
+      const sz = sizes[i.design_id];
+      return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg });
+    });
+    const gap = (a: Box, b: Box) =>
+      Math.max(a.minX - b.maxX, b.minX - a.maxX, a.minY - b.maxY, b.minY - a.maxY);
+    const overlap = new Set<string>();
+    const spacing = new Set<string>();
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        if (boxesOverlap(boxes[i], boxes[j])) {
+          overlap.add(instances[i].id);
+          overlap.add(instances[j].id);
+        } else if (gap(boxes[i], boxes[j]) < minGap - 1e-3) {
+          spacing.add(instances[i].id);
+          spacing.add(instances[j].id);
+        }
+      }
+    }
+    return { overlap, spacing };
+  };
+
+  const idsOf = (f: ReturnType<typeof evaluatePanel>, cat: string) =>
+    [...(f.find((x) => x.category === cat)?.instanceIds ?? [])].sort();
+
+  const expectMatch = (
+    instances: ReturnType<typeof inst>[],
+    sizes: Record<string, { w: number; h: number }>,
+  ) => {
+    const f = evaluatePanel({
+      panel: panel(PANEL_W, PANEL_H, instances),
+      sizes,
+      profile: prof,
+      designVerdicts: {},
+      minGapMm: MIN_GAP,
+    });
+    const ref = naiveSets(instances, sizes, MIN_GAP);
+    expect(idsOf(f, "overlap")).toEqual([...ref.overlap].sort());
+    expect(idsOf(f, "spacing")).toEqual([...ref.spacing].sort());
+  };
+
+  /** Deterministic PRNG (mulberry32) for randomized layouts. */
+  const mulberry32 = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  it("matches on a single column sharing one x (sweep worst case)", () => {
+    // Same minX for every box → nothing is ever evicted from the active window;
+    // mixed y-gaps produce overlaps, spacing violations and clean pairs.
+    const instances = [
+      inst("c0", "d1", 100, 10),
+      inst("c1", "d1", 100, 25), // gap 5 → clean
+      inst("c2", "d1", 100, 36), // gap 1 → spacing
+      inst("c3", "d1", 100, 44), // overlaps c2
+      inst("c4", "d1", 100, 70), // far → clean
+    ];
+    expectMatch(instances, { d1: { w: 10, h: 10 } });
+  });
+
+  it("matches on a tight uniform grid with mixed-size designs", () => {
+    const sizes = { small: { w: 6, h: 6 }, wide: { w: 18, h: 4 } };
+    const instances = Array.from({ length: 144 }, (_, i) =>
+      inst(`g${i}`, i % 3 === 0 ? "wide" : "small", 20 + (i % 12) * 8, 20 + Math.floor(i / 12) * 8),
+    );
+    expectMatch(instances, sizes);
+  });
+
+  it("matches on random scatters with rotation", () => {
+    const sizes = { d1: { w: 8, h: 8 }, d2: { w: 14, h: 5 } };
+    for (const seed of [1, 2, 3, 4]) {
+      const rnd = mulberry32(seed);
+      const instances = Array.from({ length: 120 }, (_, i) =>
+        inst(
+          `r${i}`,
+          rnd() < 0.5 ? "d1" : "d2",
+          30 + rnd() * (PANEL_W - 80),
+          30 + rnd() * (PANEL_H - 80),
+          rnd() < 0.3 ? 90 : 0,
+        ),
+      );
+      expectMatch(instances, sizes);
+    }
+  });
+
+  it("matches when everything overlaps in one heap", () => {
+    const rnd = mulberry32(9);
+    const instances = Array.from({ length: 40 }, (_, i) =>
+      inst(`h${i}`, "d1", 200 + rnd() * 6, 200 + rnd() * 6),
+    );
+    expectMatch(instances, { d1: { w: 12, h: 12 } });
   });
 });
