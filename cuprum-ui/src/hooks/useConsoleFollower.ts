@@ -1,18 +1,6 @@
 import { useEffect } from "react";
-import { api, type MachineStatus } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useMachine } from "@/machineStore";
-
-const PINS_CLEAR = { x: false, y: false, z: false, probe: false } as const;
-
-const IDLE_STATUS: MachineStatus = {
-  state: "unknown",
-  mpos: [0, 0, 0],
-  wpos: [0, 0, 0],
-  feed: 0,
-  spindle: 0,
-  overrides: [100, 100, 100],
-  pins: { ...PINS_CLEAR },
-};
 
 /** Console-window machine follower. The console window does NOT own the serial
  *  connection (the main window holds the telemetry Channel), so it can't use
@@ -106,7 +94,9 @@ export function useConsoleFollower(onSeeded: () => void): void {
 
       const discUn = await api.machine.onDisconnected(() => {
         if (!active) return;
-        useMachine.setState({ connected: false, status: IDLE_STATUS, homed: false });
+        // Local reset only (the console window doesn't own the port) — reset() is
+        // the single source of truth for clearing connection state, NOT disconnect().
+        useMachine.getState().reset();
       });
       if (!active) {
         discUn();

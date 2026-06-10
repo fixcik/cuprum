@@ -92,6 +92,7 @@
     "jogTitle": "Jog XY",
     "gotoZero": "Go to work zero XY",
     "openSettings": "Set up",
+    "connectFirst": "Connect the machine first",
     "statusNotSet": "not set",
     "statusSet": "set · {{corner}} corner",
     "statusOverrun": "off — runs past machine travel",

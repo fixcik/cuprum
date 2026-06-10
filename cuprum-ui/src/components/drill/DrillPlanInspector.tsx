@@ -311,6 +311,7 @@ export function DrillPlanInspector({
                 isSet={workZeroSet}
                 datum={datum}
                 xyGate={xyGate}
+                disabled={!connected}
                 onOpen={() => {
                   onClearHole();
                   setPanelMode("zero");

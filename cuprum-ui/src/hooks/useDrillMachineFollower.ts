@@ -1,18 +1,6 @@
-import { api, type MachineStatus } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useMachine } from "@/machineStore";
 import { useBridgeListeners } from "@/hooks/useTauriListeners";
-
-const PINS_CLEAR = { x: false, y: false, z: false, probe: false } as const;
-
-const IDLE_STATUS: MachineStatus = {
-  state: "unknown",
-  mpos: [0, 0, 0],
-  wpos: [0, 0, 0],
-  feed: 0,
-  spindle: 0,
-  overrides: [100, 100, 100],
-  pins: { ...PINS_CLEAR },
-};
 
 /** Drill-window machine follower. The drill window does NOT own the serial
  *  connection (the main window holds the telemetry Channel), so it can't use
@@ -21,9 +9,12 @@ const IDLE_STATUS: MachineStatus = {
  *  purpose: `machine://status` (full status), `machine://connected/disconnected`,
  *  and the main window's `machine://derived` relay for the JS-derived `homed` flag.
  *
- *  Writes go through setState/setStatus directly — never disconnect(), which would
- *  tear down the real connection the main window owns. Commands (jog, run, zero) are
- *  sent straight to the backend via invoke; those are process-global. */
+ *  Writes go through setState/setStatus/reset directly — never disconnect(), which
+ *  would tear down the real connection the main window owns. On a drop we call the
+ *  store's reset() (the single source of truth for clearing local connection state:
+ *  connected/status/homed/derived), NOT disconnect() (which also tells the backend
+ *  to close the port). Commands (jog, run, zero) go straight to the backend via
+ *  invoke; those are process-global. */
 export function useDrillMachineFollower(): void {
   useBridgeListeners(() => [
     api.machine.onStatus((s) => {
@@ -40,9 +31,7 @@ export function useDrillMachineFollower(): void {
       });
     }),
     api.machine.onConnected(() => useMachine.setState({ connected: true })),
-    api.machine.onDisconnected(() =>
-      useMachine.setState({ connected: false, status: IDLE_STATUS, homed: false }),
-    ),
+    api.machine.onDisconnected(() => useMachine.getState().reset()),
     api.onMachineDerived((d) =>
       // Patch only the fields present in this relay (soft-limit settings may be null
       // until the main window has read `$$`); `homed` is always sent.
