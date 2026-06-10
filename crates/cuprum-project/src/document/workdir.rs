@@ -179,9 +179,12 @@ fn valid_artifact_keys(
             ));
         }
         if !preview_layers.is_empty() {
+            // Card previews are rendered at CARD_PREVIEW_MAX_PX; the size is part
+            // of the key, so the valid set must use the same value.
             keys.insert(cuprum_core::preview::preview_key(
                 &preview_layers,
                 &manifest_colors,
+                cuprum_core::preview::CARD_PREVIEW_MAX_PX,
             ));
         }
     }
@@ -646,7 +649,11 @@ mod tests {
             bytes: gbr.to_vec(),
         }];
         let colors = std::collections::HashMap::new();
-        let pkey = cuprum_core::preview::preview_key(&layers, &colors);
+        let pkey = cuprum_core::preview::preview_key(
+            &layers,
+            &colors,
+            cuprum_core::preview::CARD_PREVIEW_MAX_PX,
+        );
         std::fs::write(wd.join(format!("artifacts/preview/{pkey}.bin")), b"png").unwrap();
         std::fs::write(wd.join("artifacts/preview/orphan.bin"), b"stale").unwrap();
 

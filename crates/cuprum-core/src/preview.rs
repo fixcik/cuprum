@@ -260,12 +260,24 @@ pub struct PreviewLayer {
     pub bytes: Vec<u8>,
 }
 
-/// Content-hash key for a design's preview: version + each layer's
-/// (type, color, gerber-content), sorted by `(layer_type, bytes)` so input
-/// order never changes the key. Shared with `artifact::gc`'s valid set.
-pub fn preview_key(layers: &[PreviewLayer], overrides: &HashMap<String, String>) -> String {
+/// Raster size (longest side, px) of the design-card preview. Shared between
+/// the renderer's callers and the pack-gc valid-set reconstruction in
+/// `cuprum-project` so both derive the same cache key.
+pub const CARD_PREVIEW_MAX_PX: u32 = 512;
+
+/// Content-hash key for a design's preview: version + raster size + each
+/// layer's (type, color, gerber-content), sorted by `(layer_type, bytes)` so
+/// input order never changes the key. Shared with `artifact::gc`'s valid set.
+/// `max_px` is part of the key because the cached PNG is rasterized to that
+/// size — the same layers at a different size are a different artifact.
+pub fn preview_key(
+    layers: &[PreviewLayer],
+    overrides: &HashMap<String, String>,
+    max_px: u32,
+) -> String {
     let mut h = crate::diskcache::Hasher::new();
     h.add(crate::artifact::PREVIEW_VERSION);
+    h.add(&max_px.to_le_bytes());
     let mut sorted: Vec<&PreviewLayer> = layers.iter().collect();
     sorted.sort_by(|a, b| {
         a.layer_type
@@ -290,7 +302,7 @@ pub fn render_design_preview(
     overrides: &HashMap<String, String>,
     max_px: u32,
 ) -> anyhow::Result<Vec<u8>> {
-    let key = preview_key(layers, overrides);
+    let key = preview_key(layers, overrides, max_px);
     let dir = artifacts_dir.join("preview");
     if !crate::diskcache::cache_disabled() {
         if let Some(png) = crate::diskcache::get_persistent(&dir, &key) {
@@ -613,9 +625,23 @@ mod tests {
         b.reverse();
         let o = std::collections::HashMap::new();
         assert_eq!(
-            preview_key(&a, &o),
-            preview_key(&b, &o),
+            preview_key(&a, &o, 128),
+            preview_key(&b, &o, 128),
             "key independent of input order"
+        );
+    }
+
+    #[test]
+    fn preview_key_depends_on_max_px() {
+        let layers = vec![PreviewLayer {
+            layer_type: "topCopper".into(),
+            bytes: b"AAAA".to_vec(),
+        }];
+        let o = std::collections::HashMap::new();
+        assert_ne!(
+            preview_key(&layers, &o, 128),
+            preview_key(&layers, &o, 512),
+            "same layers at a different raster size must key differently"
         );
     }
 
