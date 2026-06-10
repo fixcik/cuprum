@@ -206,11 +206,14 @@ pub(crate) fn save_project(
 /// so the loose copy stays the live document; basis for crash recovery).
 #[tauri::command]
 pub(crate) fn write_working_manifest(
+    app: AppHandle,
     working_dir: String,
     manifest: cuprum_project::Manifest,
 ) -> Result<(), String> {
-    cuprum_project::workdir::write_manifest(Path::new(&working_dir), &manifest)
-        .map_err(|e| e.to_string())
+    // Confine to the managed working base like the sibling commands, so a
+    // spoofed `working_dir` can't make us write elsewhere.
+    let wd = confined_workdir(&app, &working_dir)?;
+    cuprum_project::workdir::write_manifest(&wd, &manifest).map_err(|e| e.to_string())
 }
 
 /// Copy one source ZIP into the open project's working dir as a new Design
@@ -268,36 +271,36 @@ pub(crate) fn cleanup_workdir(app: AppHandle, working_dir: String) -> Result<(),
 /// Create a restore point from the working dir's current manifest.
 #[tauri::command]
 pub(crate) fn make_restore_point(
+    app: AppHandle,
     working_dir: String,
     label: Option<String>,
     auto: bool,
 ) -> Result<cuprum_project::RestorePointMeta, String> {
+    let wd = confined_workdir(&app, &working_dir)?;
     let id = new_restore_point_id();
-    cuprum_project::history::write(
-        Path::new(&working_dir),
-        &id,
-        label.as_deref(),
-        now_epoch(),
-        auto,
-    )
-    .map_err(|e| e.to_string())
+    cuprum_project::history::write(&wd, &id, label.as_deref(), now_epoch(), auto)
+        .map_err(|e| e.to_string())
 }
 
 /// List restore points (newest first), without their manifest bodies.
 #[tauri::command]
 pub(crate) fn list_restore_points(
+    app: AppHandle,
     working_dir: String,
 ) -> Result<Vec<cuprum_project::RestorePointMeta>, String> {
-    cuprum_project::history::list(Path::new(&working_dir)).map_err(|e| e.to_string())
+    let wd = confined_workdir(&app, &working_dir)?;
+    cuprum_project::history::list(&wd).map_err(|e| e.to_string())
 }
 
 /// The manifest captured by a restore point.
 #[tauri::command]
 pub(crate) fn read_restore_point(
+    app: AppHandle,
     working_dir: String,
     id: String,
 ) -> Result<cuprum_project::Manifest, String> {
-    cuprum_project::history::read(Path::new(&working_dir), &id).map_err(|e| e.to_string())
+    let wd = confined_workdir(&app, &working_dir)?;
+    cuprum_project::history::read(&wd, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
