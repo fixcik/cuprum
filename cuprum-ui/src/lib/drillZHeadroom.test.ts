@@ -100,6 +100,17 @@ describe("checkZHeadroom", () => {
     });
   });
 
+  it("both bounds violated (tiny envelope) → floor takes precedence ('below')", () => {
+    // $132 = 4 mm; plunge 1.9 needs 2.4 down, tool-change 20 wants to rise far above
+    // the ceiling — no zero can satisfy both. WCO = −2: down room = 2 (<2.4 → floor
+    // fails), and −2 + 20 + 0.5 = 18.5 > 0 (ceiling fails). Floor wins.
+    const r = checkZHeadroom({ ...BASE, maxTravelZMm: 4, mposZ: -2 });
+    expect(r.ok).toBe(false);
+    expect(r.block).toBe("below");
+    expect(r.availableMm).toBeLessThan(r.neededMm);
+    expect(r.ceilingOverMm).toBeGreaterThan(0);
+  });
+
   it("uses WCO (mpos − wpos), not raw mpos — robust after a probe retract", () => {
     // Same bound zero (machine −56.18) but reported after a +5 mm retract:
     // mpos −51.18, wpos +5 → WCO −56.18, identical room.

@@ -57,8 +57,9 @@ export interface ZHeadroomResult {
    *  0 when skipped (unknown). */
   availableMm: number;
   /** How far the highest rapid (max of safe/tool-change Z) overshoots the ceiling,
-   *  margin included: `WCO_z + max(safeZ, toolChangeZ) + margin`. >0 ⇒ "above" block.
-   *  0 when skipped (unknown). */
+   *  margin included: `WCO_z + max(safeZ, toolChangeZ) + margin`. >0 ⇒ "above" block;
+   *  ≤0 when the rapid fits (==0 exactly at the margin boundary). Also 0 when skipped —
+   *  gate on `skipped` first to tell the two apart. */
   ceilingOverMm: number;
 }
 
