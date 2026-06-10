@@ -22,10 +22,10 @@ pub(crate) fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
-/// Read a project file from the working dir by its archive-relative path. `rel`
-/// comes from the manifest (via IPC), so reject anything that could escape the
-/// working dir — absolute paths, drive prefixes, or `..` components.
-pub(crate) fn read_workdir_file(working_dir: &str, rel: &str) -> CmdResult<Vec<u8>> {
+/// Resolve a working-dir-relative path to an absolute one, rejecting anything that
+/// could escape the working dir — absolute paths, drive prefixes, or `..`
+/// components. `rel` comes from the manifest (via IPC), so it is untrusted.
+pub(crate) fn safe_workdir_path(working_dir: &str, rel: &str) -> CmdResult<PathBuf> {
     let p = Path::new(rel);
     let unsafe_path = p.is_absolute()
         || p.components().any(|c| {
@@ -39,7 +39,15 @@ pub(crate) fn read_workdir_file(working_dir: &str, rel: &str) -> CmdResult<Vec<u
     if unsafe_path {
         return Err(format!("unsafe relative path: {rel}").into());
     }
-    std::fs::read(Path::new(working_dir).join(rel)).map_err(CmdError::from)
+    Ok(Path::new(working_dir).join(rel))
+}
+
+/// Read a project file from the working dir by its archive-relative path. `rel`
+/// comes from the manifest (via IPC), so reject anything that could escape the
+/// working dir — absolute paths, drive prefixes, or `..` components.
+pub(crate) fn read_workdir_file(working_dir: &str, rel: &str) -> CmdResult<Vec<u8>> {
+    let abs = safe_workdir_path(working_dir, rel)?;
+    std::fs::read(abs).map_err(CmdError::from)
 }
 
 /// Resolve a working-dir path from IPC and verify it sits inside the managed

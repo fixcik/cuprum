@@ -172,17 +172,19 @@ fn board_outline(
     working_dir: &str,
     gerbers: &[GerberFileDto],
 ) -> anyhow::Result<(f32, f32, f32, f32)> {
+    use crate::commands::project::read_workdir_file;
     use cuprum_core::dfm::MetricLayerInput;
     use cuprum_core::mesh::Role;
     use cuprum_project::layer::role_side;
 
-    // Load all gerber bytes directly (working_dir + rel is already resolved by the
-    // caller from the trusted Tauri IPC payload).
+    // Load all gerber bytes. `g.path` is IPC-supplied, so go through
+    // `read_workdir_file` for the same path validation render.rs/board.rs use
+    // (rejects `..`, absolute paths, drive prefixes).
     let mut loaded: Vec<(String, LayerType, Vec<u8>)> = Vec::new();
     for g in gerbers {
-        let abs = Path::new(working_dir).join(&g.path);
-        let bytes = std::fs::read(&abs)
-            .with_context(|| format!("reading gerber: {}", abs.display()))?;
+        let bytes = read_workdir_file(working_dir, &g.path)
+            .map_err(|e| anyhow::anyhow!("{}", e.message()))
+            .with_context(|| format!("reading gerber: {}", g.path))?;
         loaded.push((g.path.clone(), g.layer_type, bytes));
     }
 
@@ -272,8 +274,13 @@ fn resolve_placements(req: &ExposeRunRequest) -> anyhow::Result<Vec<compose::Pla
             }
         };
 
-        // Absolute path to the copper mask.
-        let abs_path = Path::new(&req.working_dir).join(&copper_gerber.path);
+        // Absolute path to the copper mask (`copper_gerber.path` is IPC-supplied,
+        // so validate it the same way the other gerber-reading commands do).
+        let abs_path = crate::commands::project::safe_workdir_path(
+            &req.working_dir,
+            &copper_gerber.path,
+        )
+        .map_err(|e| anyhow::anyhow!("{}", e.message()))?;
 
         // Get mask bbox from the in-process cache.
         let mask = cuprum_core::cache::native_mask(&abs_path)?;
@@ -446,6 +453,11 @@ fn run_expose(app: AppHandle, req: ExposeRunRequest, ctrl: Arc<ExposeControl>) {
         + Duration::from_secs(60);
 
     let mut first_poll = true;
+    // True once we have actually observed the printer printing. The printer can
+    // briefly re-report "idle" right after start_print (before it flips to
+    // printing), so we must NOT treat idle as "done" until printing was seen —
+    // otherwise the run declares done while the UV never turned on.
+    let mut exposure_started = false;
 
     loop {
         if ctrl.stopping.load(Relaxed) {
@@ -478,7 +490,13 @@ fn run_expose(app: AppHandle, req: ExposeRunRequest, ctrl: Arc<ExposeControl>) {
         // poll_status: a single error or all-None result must NOT abort the run.
         match session.poll_status() {
             Ok(p) => {
-                let done = is_exposure_done(&p, req.exposure_s);
+                // Latch "exposure started" once we see the printer printing (state
+                // == printing, or any progress: a layer / non-zero percent).
+                if !exposure_started && exposure_in_progress(&p) {
+                    exposure_started = true;
+                }
+
+                let done = is_exposure_done(&p, exposure_started);
 
                 let _ = app.emit("expose://progress", ExposeProgressPayload::from(p));
 
@@ -502,28 +520,35 @@ fn run_expose(app: AppHandle, req: ExposeRunRequest, ctrl: Arc<ExposeControl>) {
     ctrl.finished.store(true, Relaxed);
 }
 
-/// Heuristic: consider the exposure done once the printer reports Idle or
-/// `CurrentTicks` has reached (or passed) `TotalTicks`, or percent ≥ 100.
-/// Also done if the printer_state transitions back to Idle after having started.
-fn is_exposure_done(p: &sdcp::client::ExposeProgress, exposure_s: f32) -> bool {
-    // remaining_s == 0 with a known total is a strong completion signal.
-    if let (Some(0), Some(total)) = (p.remaining_s, p.total_layers) {
-        if total > 0 {
-            return true;
-        }
+/// True when this status shows the printer actively exposing: state == "printing",
+/// or any forward progress (a current layer, non-zero percent).
+fn exposure_in_progress(p: &sdcp::client::ExposeProgress) -> bool {
+    if p.printer_state.as_deref() == Some("printing") {
+        return true;
+    }
+    if p.current_layer.unwrap_or(0) > 0 {
+        return true;
+    }
+    p.percent.unwrap_or(0.0) > 0.0
+}
+
+/// Heuristic: consider the exposure done once it has demonstrably finished.
+/// `exposure_started` must be true (the printer was seen printing at least once)
+/// before any completion signal is trusted — otherwise a transient "idle" right
+/// after start_print would falsely declare done before the UV ever turned on.
+fn is_exposure_done(p: &sdcp::client::ExposeProgress, exposure_started: bool) -> bool {
+    // Until we have observed printing, never declare done (the deadline still bounds
+    // the wait if the printer never reports printing).
+    if !exposure_started {
+        return false;
     }
     // percent >= 100 means done.
     if p.percent.unwrap_or(0.0) >= 100.0 {
         return true;
     }
-    // Printer went idle (it was exposing, now it's idle again).
-    if let Some(state) = &p.printer_state {
-        if state.to_lowercase().contains("idle") || state.to_lowercase().contains("finish") {
-            // Guard: only treat idle as done after some exposure time has elapsed.
-            // This prevents a premature exit on the first poll right after start.
-            let _ = exposure_s; // used conceptually; the caller's deadline handles timeout
-            return true;
-        }
+    // Printer returned to idle after having printed → exposure finished.
+    if p.printer_state.as_deref() == Some("idle") {
+        return true;
     }
     false
 }
@@ -566,29 +591,32 @@ pub fn expose_run_start(
 /// `stop_print` command to the printer via the cached DeviceInfo. Falls back to
 /// re-discover if no device was cached yet (e.g. stopping was requested during
 /// the discovery phase itself).
+///
+/// This does NOT emit the terminal `expose://state {stopped}` itself — the worker
+/// loop owns the terminal state: it observes the `stopping` flag and emits
+/// `stopped` exactly once, so the UI sees a single authoritative transition.
 #[tauri::command]
-pub fn expose_run_stop(app: AppHandle, job: State<'_, ExposeJob>) -> CmdResult<()> {
-    // Extract ctrl + cached device under the lock, then release it before the
-    // potentially-slow network call (stop_print may take seconds).
-    let stop_info: Option<(Arc<ExposeControl>, Option<sdcp::DeviceInfo>)> = {
+pub fn expose_run_stop(job: State<'_, ExposeJob>) -> CmdResult<()> {
+    // Set the stopping flag + extract the cached device under the lock, then
+    // release it before the potentially-slow network call (stop_print may take
+    // seconds).
+    let cached_device: Option<Option<sdcp::DeviceInfo>> = {
         let slot = job.0.lock().unwrap();
         match slot.as_ref() {
             Some(h) if !h.ctrl.finished.load(Relaxed) => {
                 h.ctrl.stopping.store(true, Relaxed);
-                let cached_device = h.ctrl.device.lock().unwrap().clone();
-                Some((h.ctrl.clone(), cached_device))
+                Some(h.ctrl.device.lock().unwrap().clone())
             }
             _ => None,
         }
         // MutexGuard dropped here
     };
 
-    if let Some((_ctrl, cached_device)) = stop_info {
+    if let Some(cached_device) = cached_device {
         // Best-effort stop_print (non-fatal — the stopping flag is already set so
-        // the worker loop will exit at the next iteration).
+        // the worker loop will exit at the next iteration and emit `stopped`).
         let result = if let Some(device) = cached_device {
-            sdcp::Session::connect(&device)
-                .and_then(|mut s| s.stop_print().map(|_| ()))
+            sdcp::Session::connect(&device).and_then(|mut s| s.stop_print().map(|_| ()))
         } else {
             // Device not discovered yet; quick re-discover.
             sdcp::discover_one(Duration::from_secs(2))
@@ -599,14 +627,6 @@ pub fn expose_run_stop(app: AppHandle, job: State<'_, ExposeJob>) -> CmdResult<(
         if let Err(e) = result {
             eprintln!("expose_run_stop: stop_print failed (continuing): {e}");
         }
-
-        let _ = app.emit(
-            "expose://state",
-            ExposeStatePayload {
-                stage: "stopped".into(),
-                message: "exposure stopped by user".into(),
-            },
-        );
     }
     Ok(())
 }
