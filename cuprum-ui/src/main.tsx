@@ -10,12 +10,30 @@ import "./styles.css";
 import i18n from "./i18n";
 import { resolveLanguage } from "./i18n/resolveLanguage";
 import { useSettings } from "./settingsStore";
+import { api } from "./lib/api";
 
 // Keep i18next's active language in sync with the persisted setting (and the
-// system locale when set to "auto"). Switches without a reload.
+// system locale when set to "auto"). Switches without a reload. Each OS window
+// is a separate webview with its own store + i18next, so a local change must be
+// broadcast — sibling windows don't observe this window's store.
 useSettings.subscribe((state) => {
   const lng = resolveLanguage(state.language);
+  if (i18n.language !== lng) {
+    i18n.changeLanguage(lng);
+    void api.emitLanguage(state.language);
+  }
+});
+
+// Apply a language change broadcast by another window. changeLanguage first so
+// the subscribe above sees i18next already in sync and does not re-broadcast
+// (no echo loop); then mirror the setting into this window's store so it stays
+// consistent.
+void api.onLanguage((language) => {
+  const lng = resolveLanguage(language);
   if (i18n.language !== lng) i18n.changeLanguage(lng);
+  if (useSettings.getState().language !== language) {
+    useSettings.getState().setLanguage(language);
+  }
 });
 
 // Brighten the slim scrollbars while actively scrolling (capture phase —
