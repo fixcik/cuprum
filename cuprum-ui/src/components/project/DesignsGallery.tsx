@@ -62,7 +62,8 @@ export function DesignsGallery() {
       active = false;
       unlisten?.();
     };
-  }, [addDesignsFromPaths]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once; addDesignsFromPaths is a stable Zustand action
+  }, []);
 
   if (!manifest) return null;
 

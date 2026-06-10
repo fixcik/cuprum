@@ -36,8 +36,14 @@ function NumberField({
   // only finite parses are committed (clearing the field must not push NaN
   // into the store — that made the board vanish). Mirrors settings/fields.tsx.
   const [text, setText] = useState(String(value));
-  // Resync when the model value changes elsewhere (canvas drag, Center button).
-  useEffect(() => setText(String(value)), [value]);
+  // Resync when the model value changes elsewhere (canvas drag, Center button),
+  // but only when it actually differs from what's typed, so an unrelated store
+  // update can't stomp an in-progress edit. `text` is deliberately not a dep —
+  // resync only on model change (same approach as settings/fields.tsx).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (parseFloat(text) !== value) setText(String(value));
+  }, [value]);
   return (
     <label className="flex items-center justify-between gap-2 text-[12px]">
       <span className="text-muted-foreground">{label}</span>
