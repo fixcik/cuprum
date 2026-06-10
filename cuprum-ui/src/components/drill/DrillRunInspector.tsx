@@ -7,6 +7,7 @@ import { DrillFinishCard } from "@/components/drill/DrillFinishCard";
 import { DrillFeedSlider } from "@/components/drill/DrillFeedSlider";
 import { activeGroupForHole } from "@/lib/drillRoute";
 import { machineElapsedMs } from "@/lib/drillRunState";
+import { drillControlsEnabled } from "@/lib/drillControls";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DrillRoute } from "@/lib/drillRoute";
@@ -55,6 +56,11 @@ export function DrillRunInspector({
   const { t } = useTranslation("drill");
   const { state } = run;
   const { phase } = state;
+
+  // Which run-control buttons are actionable for this phase. Pause only while the bit
+  // is moving (running/paused-resume); Stop while a run is active (incl. the operator
+  // wait of a tool change). The emergency stop is NOT gated — always active (safety).
+  const controls = drillControlsEnabled(phase);
 
   // Final/elapsed reflects MACHINE time only (movement + drilling); operator-wait
   // intervals (tool changes / pauses) are excluded via the machine clock.
@@ -170,13 +176,13 @@ export function DrillRunInspector({
                 {/* Pause / Resume — disabled while a tool change or a pause is settling */}
                 <button
                   type="button"
-                  disabled={phase === "awaitingToolChange" || phase === "pausing"}
-                  onClick={phase === "paused" ? run.resume : run.pause}
+                  disabled={!controls.pause}
+                  onClick={controls.pause ? (phase === "paused" ? run.resume : run.pause) : undefined}
                   className={cn(
                     "flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card py-2.5 text-[12px] font-medium transition-colors",
-                    phase === "awaitingToolChange" || phase === "pausing"
-                      ? "pointer-events-none text-muted-foreground/40"
-                      : "text-foreground hover:bg-foreground/5",
+                    controls.pause
+                      ? "text-foreground hover:bg-foreground/5"
+                      : "pointer-events-none text-muted-foreground/40",
                   )}
                 >
                   {phase === "paused" ? (
@@ -200,9 +206,10 @@ export function DrillRunInspector({
                 {/* Stop — outline red, two-line (graceful: finishes the current hole) */}
                 <button
                   type="button"
+                  disabled={!controls.stop}
                   onClick={run.stop}
                   title={t("run.stopTitle")}
-                  className="flex flex-col items-center justify-center gap-0.5 rounded-lg border border-[hsl(0_60%_45%)]/40 bg-[hsl(0_60%_45%)]/10 py-2 text-[hsl(0_70%_65%)] transition-colors hover:bg-[hsl(0_60%_45%)]/20"
+                  className="flex flex-col items-center justify-center gap-0.5 rounded-lg border border-[hsl(0_60%_45%)]/40 bg-[hsl(0_60%_45%)]/10 py-2 text-[hsl(0_70%_65%)] transition-colors hover:bg-[hsl(0_60%_45%)]/20 disabled:pointer-events-none disabled:opacity-40"
                 >
                   <span className="flex items-center gap-1.5 text-[12px] font-medium">
                     <Square className="size-3.5" />
