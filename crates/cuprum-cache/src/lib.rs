@@ -24,6 +24,28 @@ fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Disk-blob format marker: blobs are `MAGIC ++ bincode(value)`. Binary encode/
+/// decode is 2-10x cheaper than the JSON this engine used before (metrics carry
+/// thousands of hotspots; SVG bodies paid per-character escaping). A blob
+/// without the magic (e.g. a pre-binary JSON blob, including persistent
+/// artifacts inside existing .cuprum files) or one that fails to decode is a
+/// cache MISS: the value is recomputed and rewritten in the new format, so the
+/// encoding migrates itself in both directions and the artifact version tags
+/// stay untouched (the cached CONTENT is unchanged).
+const BLOB_MAGIC: &[u8; 4] = b"CBC1";
+
+fn encode_blob<T: Serialize>(v: &T) -> Option<Vec<u8>> {
+    let mut blob = Vec::with_capacity(128);
+    blob.extend_from_slice(BLOB_MAGIC);
+    bincode::serialize_into(&mut blob, v).ok()?;
+    Some(blob)
+}
+
+fn decode_blob<T: DeserializeOwned>(blob: &[u8]) -> Option<T> {
+    let body = blob.strip_prefix(BLOB_MAGIC)?;
+    bincode::deserialize(body).ok()
+}
+
 /// In-memory (LRU) + disk cache with single-flight de-dup of concurrent misses.
 /// Order: in-memory → disk → (NO_CACHE bypass) → per-key flight → render once.
 /// `mem` is the typed LRU store; `inflight` the per-key lock registry; `render`
@@ -99,7 +121,7 @@ where
     }
     if !diskcache::cache_disabled() {
         if let Some(blob) = disk_get(key) {
-            if let Ok(v) = serde_json::from_slice::<T>(&blob) {
+            if let Some(v) = decode_blob::<T>(&blob) {
                 lock_recover(mem).put(key.to_owned(), v.clone());
                 return Ok(v);
             }
@@ -133,7 +155,7 @@ where
             return Err(e);
         }
     };
-    if let Ok(blob) = serde_json::to_vec(&v) {
+    if let Some(blob) = encode_blob(&v) {
         disk_put(key, &blob);
     }
     lock_recover(mem).put(key.to_owned(), v.clone());
@@ -189,6 +211,106 @@ mod tests {
             calls.load(Ordering::SeqCst),
             2,
             "distinct key triggers a separate render"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    use serde::{Deserialize, Serialize};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct Payload {
+        name: String,
+        points: Vec<[f64; 2]>,
+    }
+
+    fn sample() -> Payload {
+        Payload {
+            name: "metrics".into(),
+            points: vec![[0.0, 1.5], [2.25, -3.75]],
+        }
+    }
+
+    const TTL: Duration = Duration::from_secs(60);
+    const MAX: u64 = 1024 * 1024;
+
+    fn fresh_mem() -> Mutex<LruCache<String, Payload>> {
+        Mutex::new(LruCache::new(NonZeroUsize::new(8).unwrap()))
+    }
+
+    fn run_engine(
+        mem: &Mutex<LruCache<String, Payload>>,
+        dir: &Path,
+        key: &str,
+        calls: &AtomicUsize,
+        val: Payload,
+    ) -> Payload {
+        let inflight: Mutex<HashMap<String, Arc<Mutex<()>>>> = Mutex::new(HashMap::new());
+        cached_single_flight(mem, &inflight, dir, key, MAX, TTL, || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(val)
+        })
+        .expect("ok")
+    }
+
+    #[test]
+    fn disk_blob_roundtrips_in_binary_format() {
+        let dir = std::env::temp_dir().join(format!("cuprum-bblob-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let calls = AtomicUsize::new(0);
+        let v = run_engine(&fresh_mem(), &dir, "k", &calls, sample());
+        assert_eq!(v, sample());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // On-disk blob carries the magic prefix (binary format, not JSON).
+        let raw = diskcache::get(&dir, "k", TTL).expect("blob written");
+        assert!(raw.starts_with(BLOB_MAGIC), "blob is magic-prefixed binary");
+        // A fresh in-memory cache forces the DISK path: value served, no render.
+        let v2 = run_engine(&fresh_mem(), &dir, "k", &calls, sample());
+        assert_eq!(v2, sample());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "disk hit — render not re-run"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_json_blob_is_a_miss_and_gets_rewritten() {
+        let dir = std::env::temp_dir().join(format!("cuprum-bjson-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A pre-binary build left a JSON blob under this key.
+        let legacy = serde_json::to_vec(&sample()).unwrap();
+        diskcache::put(&dir, "k", &legacy, MAX, TTL);
+        let calls = AtomicUsize::new(0);
+        let rendered = Payload {
+            name: "fresh".into(),
+            points: vec![[9.0, 9.0]],
+        };
+        let v = run_engine(&fresh_mem(), &dir, "k", &calls, rendered.clone());
+        assert_eq!(v, rendered, "JSON blob rejected → value re-rendered");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // The blob is rewritten in the new format and decodes to the new value.
+        let raw = diskcache::get(&dir, "k", TTL).expect("blob present");
+        assert!(raw.starts_with(BLOB_MAGIC), "blob migrated to binary");
+        assert_eq!(decode_blob::<Payload>(&raw), Some(rendered));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupted_blob_is_a_miss() {
+        let dir = std::env::temp_dir().join(format!("cuprum-bcorr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut garbage = BLOB_MAGIC.to_vec();
+        garbage.extend_from_slice(b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff");
+        diskcache::put(&dir, "k", &garbage, MAX, TTL);
+        let calls = AtomicUsize::new(0);
+        let v = run_engine(&fresh_mem(), &dir, "k", &calls, sample());
+        assert_eq!(v, sample());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "garbage decode → render ran"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
