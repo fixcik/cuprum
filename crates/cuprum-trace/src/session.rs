@@ -303,20 +303,41 @@ pub fn run_with_config<T>(
     };
     sinks().lock().unwrap().insert(op_id, sink);
 
-    let result = {
-        // The root span carries the op-id; RoutingLayer associates it and all its
-        // children (incl. worker spans entered via `dh.run`) with this op's sink.
-        let _root = tracing::info_span!("operation", op = name, cuprum_op_id = op_id).entered();
-        f()
-    };
-    // Root span has exited here (guard dropped), so its E event is written.
-    if let Some(sink) = sinks().lock().unwrap().remove(&op_id) {
-        sink.lock().unwrap().finish();
+    // RAII guard so the routing entry is removed and the file is closed (valid
+    // JSON) on BOTH normal return and unwind — a panic in `f` previously left
+    // the trace file unterminated and leaked the sink entry forever. Declared
+    // BEFORE the root span guard: locals drop in reverse order, so the span's
+    // E event is written before the file is finished.
+    struct FinishGuard {
+        op_id: u64,
+        file_path: PathBuf,
     }
+    impl Drop for FinishGuard {
+        fn drop(&mut self) {
+            // `unwrap_or_else(into_inner)` instead of `unwrap`: this Drop can run
+            // during a panic-unwind, and panicking again on a poisoned lock would
+            // abort the process.
+            let sink = sinks()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.op_id);
+            if let Some(sink) = sink {
+                sink.lock().unwrap_or_else(|e| e.into_inner()).finish();
+            }
+            let shown = self
+                .file_path
+                .canonicalize()
+                .unwrap_or_else(|_| self.file_path.clone());
+            eprintln!("cuprum: trace → {}", shown.display());
+        }
+    }
+    let _guard = FinishGuard { op_id, file_path };
 
-    let shown = file_path.canonicalize().unwrap_or(file_path);
-    eprintln!("cuprum: trace → {}", shown.display());
-    result
+    // The root span carries the op-id; RoutingLayer associates it and all its
+    // children (incl. worker spans entered via `dh.run`) with this op's sink.
+    // Its guard drops (E event written) before `_guard` closes the file.
+    let _root = tracing::info_span!("operation", op = name, cuprum_op_id = op_id).entered();
+    f()
 }
 
 #[cfg(test)]
@@ -785,6 +806,44 @@ mod tests {
         let body = std::fs::read_to_string(&files[0]).unwrap();
         serde_json::from_str::<serde_json::Value>(&body).expect("valid JSON after panic + reap");
         assert!(body.trim().ends_with(']'), "file closed after reap");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn panic_in_standalone_op_closes_file_and_cleans_routing() {
+        let _serial = serial();
+        // A panic inside a standalone `run_with_config` op must still close the
+        // trace file (valid JSON) and remove the op from the routing table —
+        // otherwise the file stays unterminated and the sink entry leaks forever.
+        let tmp = std::env::temp_dir().join(format!(
+            "cuprum-trace-standalone-panic-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cfg = TraceConfig::Dir(tmp.clone());
+
+        let sinks_before = sinks().lock().unwrap().len();
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_with_config(&cfg, "boom_standalone", &tmp, || {
+                let _s = tracing::info_span!("boom_inner").entered();
+                panic!("intentional");
+            });
+        }));
+        assert!(caught.is_err(), "panic must propagate out of the op");
+
+        assert_eq!(
+            sinks().lock().unwrap().len(),
+            sinks_before,
+            "panicked op must not leak a routing-table entry"
+        );
+
+        let files = json_files(&tmp);
+        assert_eq!(files.len(), 1, "one trace file written");
+        let body = std::fs::read_to_string(&files[0]).unwrap();
+        serde_json::from_str::<serde_json::Value>(&body)
+            .expect("trace file must be valid (closed) JSON after a panic");
+        assert!(body.contains("boom_standalone"), "root op name present");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
