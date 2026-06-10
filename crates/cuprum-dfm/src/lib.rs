@@ -4,6 +4,7 @@
 
 mod conductor;
 pub mod gate;
+mod isolation;
 mod metrics;
 mod sweep;
 
@@ -15,6 +16,7 @@ mod sweep;
 pub(crate) const HOT_N: usize = 500;
 
 pub use gate::{gate, GateFailure, GateProfile, GateReport, GateSeverity};
+pub use isolation::isolation_gap_violations;
 pub use metrics::{board_metrics, BoardMetrics, Hotspot, MetricLayerInput};
 pub use sweep::{
     clearance_hotspots, clearance_width_hotspots, min_clearance_and_width, min_island_clearance,
