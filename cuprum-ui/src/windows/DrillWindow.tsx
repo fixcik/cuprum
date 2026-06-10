@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
@@ -50,27 +51,39 @@ export function DrillWindow() {
         runActiveRef.current = st.active && !INACTIVE_PHASES.has(st.phase);
       })
       .catch(() => {});
-    const subState = api.drillRun.onState((phase) => {
-      runActiveRef.current = !INACTIVE_PHASES.has(phase);
-    });
-    const subDone = api.drillRun.onDone(() => {
+    // StrictMode-safe listener lifecycle (same as useBridgeListeners, but local
+    // because this effect re-runs on `t`): unlisten synchronously when already
+    // resolved, or immediately upon a late resolve after cleanup.
+    let active = true;
+    const unlistens: UnlistenFn[] = [];
+    const track = (p: Promise<UnlistenFn>) =>
+      void p.then((un) => {
+        if (active) unlistens.push(un);
+        else un();
+      });
+    track(
+      api.drillRun.onState((phase) => {
+        runActiveRef.current = !INACTIVE_PHASES.has(phase);
+      }),
+    );
+    track(api.drillRun.onDone(() => {
       runActiveRef.current = false;
-    });
-    const subError = api.drillRun.onError(() => {
+    }));
+    track(api.drillRun.onError(() => {
       runActiveRef.current = false;
-    });
+    }));
     const win = getCurrentWindow();
-    const closeReq = win.onCloseRequested(async (event) => {
-      if (!runActiveRef.current) return; // no live run — let it close
-      event.preventDefault();
-      const ok = await confirm(t("window.closeDuringRun"), { kind: "warning" });
-      if (ok) await win.destroy();
-    });
+    track(
+      win.onCloseRequested(async (event) => {
+        if (!runActiveRef.current) return; // no live run — let it close
+        event.preventDefault();
+        const ok = await confirm(t("window.closeDuringRun"), { kind: "warning" });
+        if (ok) await win.destroy();
+      }),
+    );
     return () => {
-      void subState.then((un) => un());
-      void subDone.then((un) => un());
-      void subError.then((un) => un());
-      void closeReq.then((un) => un());
+      active = false;
+      for (const un of unlistens) un();
     };
   }, [t]);
 

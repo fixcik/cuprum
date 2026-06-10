@@ -117,6 +117,15 @@ export function PreviewCanvas() {
   const moveMany = useStore((s) => s.moveMany);
   const tool = useStore((s) => s.tool);
   const previewLoading = useStore((s) => s.previewLoading);
+  const reloadPreviews = useStore((s) => s.reloadPreviews);
+
+  // Persist strips the heavy preview PNG from placements, so after an app
+  // restart they come back with an empty pngUrl — re-render them once on
+  // mount. Idempotent: the action no-ops when nothing is missing or a reload
+  // is already in flight (StrictMode double-mount included).
+  useEffect(() => {
+    void reloadPreviews();
+  }, [reloadPreviews]);
   const [guides, setGuides] = useState<number[][]>([]);
   const dragRef = useRef<{ sx: number; sy: number; items: { id: string; x0: number; y0: number }[] } | null>(null);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);

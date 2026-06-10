@@ -12,6 +12,7 @@ import { useAddDesignBridge } from "@/hooks/useAddDesignBridge";
 import { useInspectorBridge } from "@/hooks/useInspectorBridge";
 import { useDrillBridge } from "@/hooks/useDrillBridge";
 import { useMachineBridge } from "@/hooks/useMachineBridge";
+import { useBridgeListeners } from "@/hooks/useTauriListeners";
 import { useConsoleBridge } from "@/hooks/useConsoleBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -43,12 +44,10 @@ export default function App() {
   }, []);
 
   // Native menu "Check for Updates…" → loud check (shows "up to date"/error toast).
-  useEffect(() => {
-    const un = api.onMenuCheckUpdates(() => void useUpdater.getState().checkForUpdates(true));
-    return () => {
-      void un.then((unlisten) => unlisten());
-    };
-  }, []);
+  // StrictMode-safe listener lifecycle — see useBridgeListeners.
+  useBridgeListeners(() => [
+    api.onMenuCheckUpdates(() => void useUpdater.getState().checkForUpdates(true)),
+  ]);
 
   // Keep the native menu labels in sync with the active UI language. Runs on
   // mount (initial push) and whenever i18n.changeLanguage fires.
@@ -113,11 +112,13 @@ export default function App() {
         }
       })();
     }
-    const pending = api.onOpenFile((path) => void useShell.getState().openProjectByPath(path));
-    return () => {
-      void pending.then((unlisten) => unlisten());
-    };
   }, []);
+
+  // Stay subscribed for relaunch / macOS Opened events for the window lifetime.
+  // StrictMode-safe listener lifecycle — see useBridgeListeners.
+  useBridgeListeners(() => [
+    api.onOpenFile((path) => void useShell.getState().openProjectByPath(path)),
+  ]);
 
   // Reflect the open project in the OS window title; reset to the app name
   // elsewhere. Wrapped so a non-Tauri (web) context is a no-op.

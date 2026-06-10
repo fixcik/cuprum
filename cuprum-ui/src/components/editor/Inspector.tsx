@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FlipHorizontal2, Contrast, Crosshair, Zap, LayoutGrid, Grid3x3, CircleStop } from "lucide-react";
 import { useStore } from "@/store";
 import { api, SCREEN_W_MM, SCREEN_H_MM } from "@/lib/api";
@@ -32,15 +32,31 @@ function NumberField({
   step?: number;
   suffix?: string;
 }) {
+  // Local text state so a cleared field doesn't snap back on every keystroke;
+  // only finite parses are committed (clearing the field must not push NaN
+  // into the store — that made the board vanish). Mirrors settings/fields.tsx.
+  const [text, setText] = useState(String(value));
+  // Resync when the model value changes elsewhere (canvas drag, Center button),
+  // but only when it actually differs from what's typed, so an unrelated store
+  // update can't stomp an in-progress edit. `text` is deliberately not a dep —
+  // resync only on model change (same approach as settings/fields.tsx).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (parseFloat(text) !== value) setText(String(value));
+  }, [value]);
   return (
     <label className="flex items-center justify-between gap-2 text-[12px]">
       <span className="text-muted-foreground">{label}</span>
       <span className="flex items-center gap-1">
         <input
           type="number"
-          value={value}
+          value={text}
           step={step}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
+          onChange={(e) => {
+            setText(e.target.value);
+            const v = parseFloat(e.target.value);
+            if (Number.isFinite(v)) onChange(v);
+          }}
           className="h-7 w-20 rounded-md border border-input bg-background px-2 text-right tabular-nums outline-none focus:ring-1 focus:ring-ring"
         />
         {suffix && <span className="w-5 text-muted-foreground">{suffix}</span>}

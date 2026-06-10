@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import {
@@ -122,21 +123,29 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   // through the same prefill path (reset the once-per-project guard so the seed effect
   // re-applies it, filtered to the current plan).
   useEffect(() => {
+    // StrictMode-safe listener lifecycle (same as useBridgeListeners): unlisten
+    // synchronously when already resolved, or immediately upon a late resolve.
     let active = true;
-    const sub = api.onDrillPrefill((json) => {
-      if (!active) return;
-      try {
-        const parsed = JSON.parse(json);
-        repeatPrefillRef.current = true;
-        setLastDrillParams(parsed);
-        prefillAppliedRef.current = false;
-      } catch {
-        /* malformed — ignore */
-      }
-    });
+    let unlisten: UnlistenFn | null = null;
+    void api
+      .onDrillPrefill((json) => {
+        if (!active) return;
+        try {
+          const parsed = JSON.parse(json);
+          repeatPrefillRef.current = true;
+          setLastDrillParams(parsed);
+          prefillAppliedRef.current = false;
+        } catch {
+          /* malformed — ignore */
+        }
+      })
+      .then((un) => {
+        if (active) unlisten = un;
+        else un();
+      });
     return () => {
       active = false;
-      void sub.then((un) => un());
+      unlisten?.();
     };
   }, []);
 
