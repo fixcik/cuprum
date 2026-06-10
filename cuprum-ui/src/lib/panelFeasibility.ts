@@ -109,27 +109,50 @@ export function evaluatePanel(opts: {
     });
   }
 
-  // 2) Overlap (block) + 4) Spacing (warn): pairwise on AABBs.
-  const overlapIds = new Set<string>();
-  const spacingIds = new Set<string>();
-  for (let i = 0; i < sized.length; i++) {
-    for (let j = i + 1; j < sized.length; j++) {
-      const a = sized[i].box;
-      const b = sized[j].box;
+  // 2) Overlap (block) + 4) Spacing (warn). Candidate pairs come from a sweep
+  // over x: a pair can only overlap or violate spacing when its x-extents are
+  // within `minGap` of each other (gapBetween is the max of the per-axis gaps),
+  // so scanning an x-window keeps real layouts near-linear instead of all-pairs
+  // O(n²) — 700 placed boards cost 5-7 ms per drag tick pairwise. The exact
+  // boxesOverlap/gapBetween checks are unchanged, so the flagged sets match the
+  // pairwise version; ids are then emitted in instance order (deterministic).
+  const overlapFlag = new Array<boolean>(sized.length).fill(false);
+  const spacingFlag = new Array<boolean>(sized.length).fill(false);
+  const order = sized.map((_, i) => i).sort((x, y) => sized[x].box.minX - sized[y].box.minX);
+  const active: number[] = [];
+  for (const cur of order) {
+    const b = sized[cur].box;
+    // Evict boxes that ended more than minGap left of the current minX — they
+    // cannot interact with this or any later box (minX only grows).
+    let w = 0;
+    for (const idx of active) {
+      if (sized[idx].box.maxX >= b.minX - minGap) active[w++] = idx;
+    }
+    active.length = w;
+    for (const idx of active) {
+      const a = sized[idx].box;
       if (boxesOverlap(a, b)) {
-        overlapIds.add(sized[i].inst.id);
-        overlapIds.add(sized[j].inst.id);
+        overlapFlag[idx] = true;
+        overlapFlag[cur] = true;
       } else if (gapBetween(a, b) < minGap - SPACING_TOL_MM) {
-        spacingIds.add(sized[i].inst.id);
-        spacingIds.add(sized[j].inst.id);
+        spacingFlag[idx] = true;
+        spacingFlag[cur] = true;
       }
     }
+    active.push(cur);
   }
+  const overlapIds = new Set<string>();
+  const spacingIds = new Set<string>();
+  sized.forEach(({ inst }, i) => {
+    if (overlapFlag[i]) overlapIds.add(inst.id);
+    if (spacingFlag[i]) spacingIds.add(inst.id);
+  });
   // Edge margin (warn): board inside panel but within minGap of any panel edge.
   // Skip off-panel (already block) and overlapping boards (already block) so a
   // single instance is never flagged both block and warn.
+  const offIdSet = new Set(offIds);
   for (const { inst, box } of sized) {
-    if (offIds.includes(inst.id) || overlapIds.has(inst.id)) continue;
+    if (offIdSet.has(inst.id) || overlapIds.has(inst.id)) continue;
     const margin = Math.min(
       box.minX,
       box.minY,
