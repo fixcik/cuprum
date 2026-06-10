@@ -13,7 +13,12 @@
     "baud": "Baud",
     "connect": "Connect",
     "disconnect": "Disconnect",
-    "disconnected": "Disconnected"
+    "disconnected": "Disconnected",
+    "error": {
+      "notGrbl": "This doesn't look like a GRBL machine — you may have picked the wrong port. Connection cancelled.",
+      "failed": "Couldn't connect. Check the port and try again.",
+      "dismiss": "Dismiss"
+    }
   },
   "state": {
     "idle": "Idle",

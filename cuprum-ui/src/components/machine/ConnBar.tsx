@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Plug, RefreshCw, Unplug } from "lucide-react";
+import { ChevronDown, Plug, RefreshCw, TriangleAlert, Unplug, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { api, type SerialPortInfo } from "@/lib/api";
@@ -52,6 +52,8 @@ export function ConnBar({
   const connected = useMachine((s) => s.connected);
   const connectedPort = useMachine((s) => s.port);
   const reattach = useMachine((s) => s.reattach);
+  const connectError = useMachine((s) => s.connectError);
+  const clearConnectError = useMachine((s) => s.clearConnectError);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -154,7 +156,10 @@ export function ConnBar({
   }
 
   return (
-    <div className={cn(compact ? "flex flex-col gap-2" : "flex items-center gap-2", className)}>
+    // Outer column so a connect-error notice can drop in below the bar without
+    // disturbing the bar's own row/column layout (the inner div keeps it).
+    <div className={cn("flex flex-col gap-2", className)}>
+      <div className={compact ? "flex flex-col gap-2" : "flex items-center gap-2"}>
       {/* Optional CNC machine picker (registry) — bound to the active CNC machine. */}
       {machinePicker && cncMachines.length > 0 && (
         <div className={compact ? "relative w-full" : "relative"}>
@@ -218,6 +223,26 @@ export function ConnBar({
         {connected ? <Unplug className="size-4" /> : <Plug className="size-4" />}
         {connected ? t("connection.disconnect") : t("connection.connect")}
       </Button>
+      </div>
+      {/* Connect-error notice (e.g. the port isn't a GRBL device). Cleared on the
+          next connect attempt or by the dismiss button. */}
+      {connectError && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-[12px] text-destructive"
+        >
+          <TriangleAlert className="mt-px size-4 shrink-0" />
+          <span className="min-w-0 flex-1">{t(connectError)}</span>
+          <button
+            type="button"
+            onClick={clearConnectError}
+            aria-label={t("connection.error.dismiss")}
+            className="shrink-0 rounded p-0.5 text-destructive/80 transition-colors hover:bg-destructive/20 hover:text-destructive"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
