@@ -1,3 +1,4 @@
+use crate::commands::error::CmdResult;
 use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
@@ -154,10 +155,10 @@ pub(crate) async fn project_board_mesh(
     // back to the default when the panel is not configured). Bakes the board Z,
     // so it's part of the cache key.
     thickness_mm: f32,
-) -> Result<tauri::ipc::Response, String> {
+) -> CmdResult<tauri::ipc::Response> {
     // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
     // main thread so concurrent calls (one per design card) don't serialize.
-    let blob = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
+    let blob = tauri::async_runtime::spawn_blocking(move || -> CmdResult<Vec<u8>> {
         let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
         for g in &gerbers {
             let bytes = read_workdir_file(&working_dir, &g.rel)?;
@@ -196,8 +197,7 @@ pub(crate) async fn project_board_mesh(
         });
         Ok(blob)
     })
-    .await
-    .map_err(|e| e.to_string())??;
+    .await??;
     // Response is not Send; build it after the blocking task completes.
     Ok(tauri::ipc::Response::new(blob))
 }
@@ -222,10 +222,10 @@ pub(crate) async fn project_board_metrics(
     working_dir: String,
     gerbers: Vec<GerberRef>,
     trace_session: Option<u64>,
-) -> Result<BoardMetricsDto, String> {
+) -> CmdResult<BoardMetricsDto> {
     // Async + spawn_blocking: disk read + geometry is CPU-bound; keep it off the
     // main thread so concurrent calls (one per design card) don't serialize.
-    tauri::async_runtime::spawn_blocking(move || -> Result<BoardMetricsDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> CmdResult<BoardMetricsDto> {
         let mut loaded: Vec<(String, cuprum_project::LayerType, Vec<u8>)> = Vec::new();
         for g in &gerbers {
             let bytes = read_workdir_file(&working_dir, &g.rel)?;
@@ -278,6 +278,5 @@ pub(crate) async fn project_board_metrics(
         });
         Ok(BoardMetricsDto { metrics, fresh })
     })
-    .await
-    .map_err(|e| e.to_string())?
+    .await?
 }

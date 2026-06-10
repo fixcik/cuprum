@@ -3,6 +3,7 @@
 
 mod commands;
 
+use commands::error::CmdResult;
 use std::path::PathBuf;
 
 use tauri::menu::{AboutMetadata, Menu, MenuBuilder, SubmenuBuilder};
@@ -96,9 +97,9 @@ fn build_app_menu<R: Runtime>(
 /// Replace the application menu with newly localised labels sent from the frontend.
 /// Called on mount and whenever the UI language changes.
 #[tauri::command]
-fn set_app_menu(app: AppHandle, labels: MenuLabels) -> Result<(), String> {
-    let menu = build_app_menu(&app, &labels).map_err(|e| e.to_string())?;
-    app.set_menu(menu).map_err(|e| e.to_string())?;
+fn set_app_menu(app: AppHandle, labels: MenuLabels) -> CmdResult<()> {
+    let menu = build_app_menu(&app, &labels)?;
+    app.set_menu(menu)?;
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+use crate::commands::error::{CmdError, CmdResult};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,10 +11,8 @@ use crate::traces_dir;
 // ---- Project / recents (thin proxies over cuprum-project) ----
 
 /// Path to the recents catalog DB inside the app data dir (created if missing).
-pub(crate) fn catalog_db_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("catalog.sqlite"))
+pub(crate) fn catalog_db_path(app: &AppHandle) -> CmdResult<PathBuf> {
+    Ok(super::app_data_dir(app)?.join("catalog.sqlite"))
 }
 
 pub(crate) fn now_epoch() -> i64 {
@@ -26,7 +25,7 @@ pub(crate) fn now_epoch() -> i64 {
 /// Read a project file from the working dir by its archive-relative path. `rel`
 /// comes from the manifest (via IPC), so reject anything that could escape the
 /// working dir — absolute paths, drive prefixes, or `..` components.
-pub(crate) fn read_workdir_file(working_dir: &str, rel: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn read_workdir_file(working_dir: &str, rel: &str) -> CmdResult<Vec<u8>> {
     let p = Path::new(rel);
     let unsafe_path = p.is_absolute()
         || p.components().any(|c| {
@@ -38,35 +37,27 @@ pub(crate) fn read_workdir_file(working_dir: &str, rel: &str) -> Result<Vec<u8>,
             )
         });
     if unsafe_path {
-        return Err(format!("unsafe relative path: {rel}"));
+        return Err(format!("unsafe relative path: {rel}").into());
     }
-    std::fs::read(Path::new(working_dir).join(rel)).map_err(|e| e.to_string())
+    std::fs::read(Path::new(working_dir).join(rel)).map_err(CmdError::from)
 }
 
 /// Resolve a working-dir path from IPC and verify it sits inside the managed
 /// working base, so a spoofed `working_dir` can't make us write/read elsewhere.
 /// Returns the canonical path.
-pub(crate) fn confined_workdir(app: &AppHandle, working_dir: &str) -> Result<PathBuf, String> {
-    let base = working_base(app)?
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    let wd = Path::new(working_dir)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
+pub(crate) fn confined_workdir(app: &AppHandle, working_dir: &str) -> CmdResult<PathBuf> {
+    let base = working_base(app)?.canonicalize()?;
+    let wd = Path::new(working_dir).canonicalize()?;
     if !wd.starts_with(&base) {
-        return Err("refusing to operate outside the working base".to_string());
+        return Err("refusing to operate outside the working base".into());
     }
     Ok(wd)
 }
 
 /// Base dir holding all per-open working directories (under the OS cache dir).
-pub(crate) fn working_base(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|e| e.to_string())?
-        .join("working");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+pub(crate) fn working_base(app: &AppHandle) -> CmdResult<PathBuf> {
+    let dir = app.path().app_cache_dir()?.join("working");
+    std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
@@ -81,7 +72,7 @@ pub(crate) fn new_restore_point_id() -> String {
 /// A freshly chosen, not-yet-existing working-dir path for one open project.
 /// Unique by pid + epoch + a process-local monotonic counter, so repeated
 /// opens of the same project within one wall-clock second never collide.
-pub(crate) fn new_workdir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn new_workdir(app: &AppHandle) -> CmdResult<PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let base = working_base(app)?;
@@ -126,9 +117,9 @@ pub(crate) struct AddedDesignDto {
 }
 
 #[tauri::command]
-pub(crate) fn list_recent_projects(app: AppHandle) -> Result<Vec<RecentProjectDto>, String> {
+pub(crate) fn list_recent_projects(app: AppHandle) -> CmdResult<Vec<RecentProjectDto>> {
     let db = catalog_db_path(&app)?;
-    let recents = cuprum_project::list_recent(&db).map_err(|e| e.to_string())?;
+    let recents = cuprum_project::list_recent(&db)?;
     Ok(recents
         .into_iter()
         .map(|r| RecentProjectDto {
@@ -151,27 +142,25 @@ pub(crate) fn create_project(
     save_path: String,
     name: String,
     zip_paths: Vec<String>,
-) -> Result<cuprum_project::Manifest, String> {
+) -> CmdResult<cuprum_project::Manifest> {
     let db = catalog_db_path(&app)?;
     let zips: Vec<PathBuf> = zip_paths.into_iter().map(PathBuf::from).collect();
     cuprum_project::create_project(&db, Path::new(&save_path), &name, &zips, now_epoch())
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub(crate) fn open_project(app: AppHandle, path: String) -> Result<OpenedProjectDto, String> {
+pub(crate) fn open_project(app: AppHandle, path: String) -> CmdResult<OpenedProjectDto> {
     let db = catalog_db_path(&app)?;
     // Reads the manifest, validates existence, and records the recent entry.
-    let manifest = cuprum_project::open_project(&db, Path::new(&path), now_epoch())
-        .map_err(|e| e.to_string())?;
+    let manifest = cuprum_project::open_project(&db, Path::new(&path), now_epoch())?;
     let workdir = new_workdir(&app)?;
     let marker = cuprum_project::SessionMarker {
         source_path: path.clone(),
         pid: std::process::id(),
         opened_at: now_epoch(),
     };
-    cuprum_project::workdir::extract(Path::new(&path), &workdir, &marker)
-        .map_err(|e| e.to_string())?;
+    cuprum_project::workdir::extract(Path::new(&path), &workdir, &marker)?;
     // Best-effort: surface this project in the macOS dock "Open Recent" menu.
     record_recent_document(&app, path.clone());
     Ok(OpenedProjectDto {
@@ -186,14 +175,13 @@ pub(crate) fn save_project(
     app: tauri::AppHandle,
     working_dir: String,
     target_path: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     // Confine the working dir to the managed base, like the other IPC commands,
     // so a spoofed call can't pack an arbitrary directory.
     let wd = confined_workdir(&app, &working_dir)?;
     cuprum_core::trace::operation("flush", &traces_dir(&app), || {
         cuprum_project::workdir::pack(&wd, Path::new(&target_path))
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
     // Keep the Home-card stats (design count + panel size) fresh after edits.
     // Best-effort: never fail a save because the catalog refresh hiccupped.
     if let Ok(db) = catalog_db_path(&app) {
@@ -209,11 +197,11 @@ pub(crate) fn write_working_manifest(
     app: AppHandle,
     working_dir: String,
     manifest: cuprum_project::Manifest,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     // Confine to the managed working base like the sibling commands, so a
     // spoofed `working_dir` can't make us write elsewhere.
     let wd = confined_workdir(&app, &working_dir)?;
-    cuprum_project::workdir::write_manifest(&wd, &manifest).map_err(|e| e.to_string())
+    cuprum_project::workdir::write_manifest(&wd, &manifest).map_err(CmdError::from)
 }
 
 /// Copy one source ZIP into the open project's working dir as a new Design
@@ -225,14 +213,13 @@ pub(crate) fn add_design_from_zip(
     app: AppHandle,
     working_dir: String,
     zip_path: String,
-) -> Result<AddedDesignDto, String> {
+) -> CmdResult<AddedDesignDto> {
     let wd = confined_workdir(&app, &working_dir)?;
     let traces = traces_dir(&app);
     let sid = cuprum_core::trace::begin_session("load", &traces);
     let design = cuprum_core::trace::operation_in_session(sid, "import", &traces, || {
         cuprum_project::add_design_to_workdir(&wd, Path::new(&zip_path))
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
     Ok(AddedDesignDto {
         design,
         trace_session: sid,
@@ -241,10 +228,9 @@ pub(crate) fn add_design_from_zip(
 
 /// List recoverable (dirty) orphan working dirs left by a previous run.
 #[tauri::command]
-pub(crate) fn scan_recoverable(app: AppHandle) -> Result<Vec<cuprum_project::Orphan>, String> {
+pub(crate) fn scan_recoverable(app: AppHandle) -> CmdResult<Vec<cuprum_project::Orphan>> {
     let base = working_base(&app)?;
-    let orphans = cuprum_project::workdir::scan_orphans(&base, std::process::id())
-        .map_err(|e| e.to_string())?;
+    let orphans = cuprum_project::workdir::scan_orphans(&base, std::process::id())?;
     Ok(orphans.into_iter().filter(|o| o.dirty).collect())
 }
 
@@ -252,7 +238,7 @@ pub(crate) fn scan_recoverable(app: AppHandle) -> Result<Vec<cuprum_project::Orp
 /// Confines deletion to the working base so an IPC caller cannot remove arbitrary
 /// paths on the filesystem.
 #[tauri::command]
-pub(crate) fn cleanup_workdir(app: AppHandle, working_dir: String) -> Result<(), String> {
+pub(crate) fn cleanup_workdir(app: AppHandle, working_dir: String) -> CmdResult<()> {
     let base = working_base(&app)?;
     let path = Path::new(&working_dir);
     // Resolve `..`/symlinks before the containment check. A path that no longer
@@ -260,9 +246,9 @@ pub(crate) fn cleanup_workdir(app: AppHandle, working_dir: String) -> Result<(),
     match (path.canonicalize(), base.canonicalize()) {
         (Ok(canonical), Ok(base_canonical)) => {
             if !canonical.starts_with(&base_canonical) {
-                return Err("refusing to remove path outside the working base".to_string());
+                return Err("refusing to remove path outside the working base".into());
             }
-            std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())
+            std::fs::remove_dir_all(&canonical).map_err(CmdError::from)
         }
         _ => Ok(()),
     }
@@ -275,11 +261,11 @@ pub(crate) fn make_restore_point(
     working_dir: String,
     label: Option<String>,
     auto: bool,
-) -> Result<cuprum_project::RestorePointMeta, String> {
+) -> CmdResult<cuprum_project::RestorePointMeta> {
     let wd = confined_workdir(&app, &working_dir)?;
     let id = new_restore_point_id();
     cuprum_project::history::write(&wd, &id, label.as_deref(), now_epoch(), auto)
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 /// List restore points (newest first), without their manifest bodies.
@@ -287,9 +273,9 @@ pub(crate) fn make_restore_point(
 pub(crate) fn list_restore_points(
     app: AppHandle,
     working_dir: String,
-) -> Result<Vec<cuprum_project::RestorePointMeta>, String> {
+) -> CmdResult<Vec<cuprum_project::RestorePointMeta>> {
     let wd = confined_workdir(&app, &working_dir)?;
-    cuprum_project::history::list(&wd).map_err(|e| e.to_string())
+    cuprum_project::history::list(&wd).map_err(CmdError::from)
 }
 
 /// The manifest captured by a restore point.
@@ -298,15 +284,15 @@ pub(crate) fn read_restore_point(
     app: AppHandle,
     working_dir: String,
     id: String,
-) -> Result<cuprum_project::Manifest, String> {
+) -> CmdResult<cuprum_project::Manifest> {
     let wd = confined_workdir(&app, &working_dir)?;
-    cuprum_project::history::read(&wd, &id).map_err(|e| e.to_string())
+    cuprum_project::history::read(&wd, &id).map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub(crate) fn remove_recent(app: AppHandle, path: String) -> Result<(), String> {
+pub(crate) fn remove_recent(app: AppHandle, path: String) -> CmdResult<()> {
     let db = catalog_db_path(&app)?;
-    cuprum_project::remove_recent(&db, &path).map_err(|e| e.to_string())
+    cuprum_project::remove_recent(&db, &path).map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -315,17 +301,17 @@ pub(crate) fn update_project_metadata(
     path: String,
     name: String,
     description: String,
-) -> Result<cuprum_project::Manifest, String> {
+) -> CmdResult<cuprum_project::Manifest> {
     let db = catalog_db_path(&app)?;
     cuprum_project::update_project_metadata(&db, Path::new(&path), &name, &description, now_epoch())
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 /// Read a project's manifest straight from its `.cuprum` file (no working dir) so
 /// the recents "edit name/description" dialog can prefill without opening it.
 #[tauri::command]
-pub(crate) fn read_project_manifest(path: String) -> Result<cuprum_project::Manifest, String> {
-    cuprum_project::read_project_manifest(Path::new(&path)).map_err(|e| e.to_string())
+pub(crate) fn read_project_manifest(path: String) -> CmdResult<cuprum_project::Manifest> {
+    cuprum_project::read_project_manifest(Path::new(&path)).map_err(CmdError::from)
 }
 
 /// Persist the panel verdict and profile hash into the recents catalog for
@@ -339,8 +325,7 @@ pub(crate) fn set_recent_verdict(
     path: String,
     verdict: String,
     profile_hash: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let db = catalog_db_path(&app)?;
-    cuprum_project::set_recent_verdict(&db, &path, &verdict, &profile_hash)
-        .map_err(|e| e.to_string())
+    cuprum_project::set_recent_verdict(&db, &path, &verdict, &profile_hash).map_err(CmdError::from)
 }

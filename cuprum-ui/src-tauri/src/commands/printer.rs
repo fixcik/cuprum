@@ -1,3 +1,4 @@
+use crate::commands::error::{CmdError, CmdResult};
 use std::time::Duration;
 
 use base64::Engine;
@@ -69,11 +70,9 @@ pub(crate) fn emit_status(app: &AppHandle, stage: &str, message: impl Into<Strin
 /// Discover the first printer on the LAN. Async + spawn_blocking so the 4s UDP
 /// wait runs off the core's main thread (otherwise it freezes the event loop).
 #[tauri::command]
-pub(crate) async fn discover() -> Result<PrinterInfo, String> {
-    let d = tauri::async_runtime::spawn_blocking(|| sdcp::discover_one(DISCOVERY_TIMEOUT))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+pub(crate) async fn discover() -> CmdResult<PrinterInfo> {
+    let d =
+        tauri::async_runtime::spawn_blocking(|| sdcp::discover_one(DISCOVERY_TIMEOUT)).await??;
     Ok(PrinterInfo {
         name: d.data.name,
         ip: d.data.mainboard_ip,
@@ -88,16 +87,14 @@ pub(crate) async fn render_preview(
     app: AppHandle,
     path: String,
     max_px: u32,
-) -> Result<PreviewResult, String> {
+) -> CmdResult<PreviewResult> {
     let dir = traces_dir(&app);
     let (png, info, timings) = tauri::async_runtime::spawn_blocking(move || {
         cuprum_core::trace::operation("render", &dir, || {
             cuprum_core::cache::preview_png(std::path::Path::new(&path), max_px)
         })
     })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    .await??;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
     Ok(PreviewResult {
         png_data_url: format!("data:image/png;base64,{b64}"),
@@ -110,7 +107,7 @@ pub(crate) async fn render_preview(
 /// Compose the layout at full resolution, upload, and fire the exposure. Runs on
 /// a background thread and streams progress via the `print-status` event.
 #[tauri::command]
-pub(crate) fn compose_and_print(app: AppHandle, req: PrintRequest) -> Result<(), String> {
+pub(crate) fn compose_and_print(app: AppHandle, req: PrintRequest) -> CmdResult<()> {
     std::thread::spawn(move || {
         if let Err(e) = run_print(&app, req) {
             emit_status(&app, "error", e.to_string());
@@ -186,14 +183,13 @@ pub(crate) fn run_print(app: &AppHandle, req: PrintRequest) -> anyhow::Result<()
 
 /// Abort any running print. Async + spawn_blocking (discover + WS are blocking).
 #[tauri::command]
-pub(crate) async fn stop_print() -> Result<(), String> {
+pub(crate) async fn stop_print() -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(|| -> anyhow::Result<()> {
         let device = sdcp::discover_one(DISCOVERY_TIMEOUT)?;
         let mut session = sdcp::Session::connect(&device)?;
         session.stop_print()?;
         Ok(())
     })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())
+    .await?
+    .map_err(CmdError::from)
 }
