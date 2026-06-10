@@ -8,7 +8,7 @@ import { DrcMarkers, type DrcMarkerInput, type ProjectedMarker } from "@/compone
 import { Skeleton } from "@/components/ui/Skeleton";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
 import { gridSteps, ticksFor } from "@/lib/canvasTicks";
-import { useShell } from "@/shellStore";
+import { useNavigation } from "@/navigationStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 /** Programmatic view focus: centre board point `p`, zoomed so ~`spanMm` fits the
@@ -139,7 +139,7 @@ export function LayerStack({
 
   // True CSS px/mm for the host display — fetched once at launch in App.tsx.
   // Falls back to the 96dpi CSS reference if the native query fails.
-  const pxPerMm = useShell((s) => s.pxPerMm);
+  const pxPerMm = useNavigation((s) => s.pxPerMm);
   const maxScale = pxPerMm * MAX_ZOOM; // upper zoom clamp, in px/mm (= 8000%)
 
   const svgRef = useRef<SVGSVGElement>(null);

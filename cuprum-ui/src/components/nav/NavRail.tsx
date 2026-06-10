@@ -1,6 +1,7 @@
 import { Boxes, Home, LayoutGrid, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useShell, type View } from "@/shellStore";
+import { useShell } from "@/shellStore";
+import { useNavigation, type View } from "@/navigationStore";
 
 interface RailItem {
   view: View;
@@ -18,8 +19,8 @@ const ITEMS: RailItem[] = [
 
 export function NavRail() {
   const { t } = useTranslation("nav");
-  const view = useShell((s) => s.view);
-  const setView = useShell((s) => s.setView);
+  const view = useNavigation((s) => s.view);
+  const setView = useNavigation((s) => s.setView);
   const hasProject = useShell((s) => s.currentPath !== null);
 
   const btnClass = (active: boolean, disabled: boolean) =>

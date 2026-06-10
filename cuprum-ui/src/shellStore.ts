@@ -13,11 +13,14 @@ import { useSettings } from "@/settingsStore";
 import { metricsCache } from "@/lib/metricsCache";
 import { serializePack } from "@/lib/projectPack";
 import { useArtifacts } from "@/artifactsStore";
+import { useNavigation } from "@/navigationStore";
 
-export type View = "home" | "project" | "equipment" | "settings";
+// The navigation domain (view + display scale + Home error/notice) lives in
+// `useNavigation`. Re-exported here so existing `import { View } from "@/shellStore"`
+// consumers keep resolving.
+export type { View } from "@/navigationStore";
 
 interface ShellStore {
-  view: View;
   recents: RecentProject[];
   recentsLoading: boolean;
   currentPath: string | null;
@@ -25,8 +28,6 @@ interface ShellStore {
    *  loose files here. Null when no project is open. */
   workingDir: string | null;
   currentManifest: Manifest | null;
-  error: string | null;
-  homeNotice: string | null;
   /** True while any repack (`serializePack`: autosave flush, mutations, restore
    *  points) is in flight — drives the toolbar save spinner. */
   saving: boolean;
@@ -58,14 +59,6 @@ interface ShellStore {
    *  stack duplicate auto points. */
   _maybeAutoOpenPoint: () => Promise<void>;
 
-  /** CSS px per mm for the host display; defaults to the 96dpi CSS reference. */
-  pxPerMm: number;
-  /** Private guard — true once the native value has been fetched. */
-  _scaleLoaded: boolean;
-  loadDisplayScale: () => Promise<void>;
-
-  setView: (v: View) => void;
-  goHome: () => void;
   loadRecents: () => Promise<void>;
   newProject: () => Promise<void>;
   openProjectFromPicker: () => Promise<void>;
@@ -172,40 +165,20 @@ function nextToolingId(holes: ToolingHole[]): string {
 }
 
 export const useShell = create<ShellStore>((set, get) => ({
-  view: "home",
   recents: [],
   recentsLoading: false,
   currentPath: null,
   workingDir: null,
   currentManifest: null,
-  error: null,
-  homeNotice: null,
   saving: false,
   undoStack: [],
   redoStack: [],
   restorePoints: [],
   docNonce: 0,
   historyBusy: false,
-  pxPerMm: 96 / 25.4,
-  _scaleLoaded: false,
   pendingAddDesignId: null,
   pendingDrillPrefill: null,
   setPendingDrillPrefill: (paramsJson) => set({ pendingDrillPrefill: paramsJson }),
-
-  loadDisplayScale: async () => {
-    // Cache once per launch; the native value never changes mid-session.
-    if (get()._scaleLoaded) return;
-    try {
-      const v = await api.displayPxPerMm();
-      if (v && isFinite(v) && v > 0) set({ pxPerMm: v, _scaleLoaded: true });
-      else set({ _scaleLoaded: true });
-    } catch {
-      set({ _scaleLoaded: true });
-    }
-  },
-
-  setView: (v) => set({ view: v }),
-  goHome: () => set({ view: "home" }),
 
   loadRecents: async () => {
     set({ recentsLoading: true });
@@ -213,14 +186,15 @@ export const useShell = create<ShellStore>((set, get) => ({
       const recents = await api.listRecentProjects();
       set({ recents });
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     } finally {
       set({ recentsLoading: false });
     }
   },
 
   newProject: async () => {
-    set({ homeNotice: null, error: null });
+    useNavigation.getState().setHomeNotice(null);
+    useNavigation.getState().setError(null);
     try {
       const savePath = await api.pickSavePath("untitled.cu");
       if (!savePath) return;
@@ -243,30 +217,31 @@ export const useShell = create<ShellStore>((set, get) => ({
       // progress, import counters): design ids are reused across projects, so a
       // stale token would mis-group a fresh import's traces.
       useArtifacts.getState().reset();
+      useNavigation.getState().setView("project");
       set({
         currentPath: savePath,
         workingDir: opened.workingDir,
         currentManifest: opened.manifest,
-        view: "project",
-        error: null,
       });
+      useNavigation.getState().setError(null);
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
       await get().refreshRestorePoints();
       await get()._maybeAutoOpenPoint();
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
   openProjectFromPicker: async () => {
-    set({ homeNotice: null, error: null });
+    useNavigation.getState().setHomeNotice(null);
+    useNavigation.getState().setError(null);
     try {
       const path = await api.pickProjectFile();
       if (!path) return;
       await get().openProjectByPath(path);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
@@ -275,10 +250,13 @@ export const useShell = create<ShellStore>((set, get) => ({
     // parked a pending path AND emitted open-file for the same file) → just show
     // it, don't re-extract a fresh working dir.
     if (get().currentPath === path) {
-      set({ view: "project", homeNotice: null, error: null });
+      useNavigation.getState().setView("project");
+      useNavigation.getState().setHomeNotice(null);
+      useNavigation.getState().setError(null);
       return;
     }
-    set({ homeNotice: null, error: null });
+    useNavigation.getState().setHomeNotice(null);
+    useNavigation.getState().setError(null);
     // Clean up any previously-open project's working dir before switching, so
     // switching projects never leaks a temp working dir.
     const prevWorkingDir = get().workingDir;
@@ -295,13 +273,13 @@ export const useShell = create<ShellStore>((set, get) => ({
       // progress, import counters): design ids are reused across projects, so a
       // stale token would mis-group a fresh import's traces.
       useArtifacts.getState().reset();
+      useNavigation.getState().setView("project");
       set({
         currentPath: path,
         workingDir: opened.workingDir,
         currentManifest: opened.manifest,
-        view: "project",
-        error: null,
       });
+      useNavigation.getState().setError(null);
       await get().loadRecents();
       set({ undoStack: [], redoStack: [] });
       await get().refreshRestorePoints();
@@ -315,13 +293,11 @@ export const useShell = create<ShellStore>((set, get) => ({
           /* catalog cleanup is best-effort */
         }
         await get().loadRecents();
-        set({
-          homeNotice: i18n.t("home:notFoundRemoved", { name }),
-          error: null,
-        });
+        useNavigation.getState().setHomeNotice(i18n.t("home:notFoundRemoved", { name }));
+        useNavigation.getState().setError(null);
         return;
       }
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
@@ -330,7 +306,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       await api.removeRecent(path);
       await get().loadRecents();
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
@@ -341,7 +317,8 @@ export const useShell = create<ShellStore>((set, get) => ({
     try {
       const manifest = await api.updateProjectMetadata(path, name, description);
       if (prev) get()._recordUndo(prev);
-      set({ currentManifest: manifest, error: null });
+      set({ currentManifest: manifest });
+      useNavigation.getState().setError(null);
       await get()._mirrorManifest(manifest);
       await get().loadRecents();
     } catch (e) {
@@ -362,17 +339,17 @@ export const useShell = create<ShellStore>((set, get) => ({
           }
         }
         await get().loadRecents();
+        useNavigation.getState().setView("home");
         set({
-          view: "home",
           currentPath: null,
           workingDir: null,
           currentManifest: null,
-          homeNotice: i18n.t("home:notFoundRemoved", { name: displayName }),
-          error: null,
         });
+        useNavigation.getState().setHomeNotice(i18n.t("home:notFoundRemoved", { name: displayName }));
+        useNavigation.getState().setError(null);
         return;
       }
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
@@ -384,7 +361,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       // If the edited recent is also the currently-open project, keep its in-memory
       // manifest in sync so the open view reflects the new name/description.
       if (get().currentPath === path) set({ currentManifest: manifest });
-      set({ error: null });
+      useNavigation.getState().setError(null);
       await get().loadRecents();
     } catch (e) {
       if (isProjectNotFound(e)) {
@@ -395,10 +372,11 @@ export const useShell = create<ShellStore>((set, get) => ({
           /* catalog cleanup is best-effort */
         }
         await get().loadRecents();
-        set({ homeNotice: i18n.t("home:notFoundRemoved", { name: displayName }), error: null });
+        useNavigation.getState().setHomeNotice(i18n.t("home:notFoundRemoved", { name: displayName }));
+        useNavigation.getState().setError(null);
         return;
       }
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
@@ -415,10 +393,11 @@ export const useShell = create<ShellStore>((set, get) => ({
     const manifest: Manifest = { ...prev, panel, stackup };
     try {
       get()._recordUndo(prev);
-      set({ currentManifest: manifest, error: null });
+      set({ currentManifest: manifest });
+      useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
       throw e;
     }
   },
@@ -831,7 +810,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       // when the .cuprum repack fails; no rollback needed.
       await get()._persistManifest(prev);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     } finally {
       set({ historyBusy: false });
     }
@@ -855,7 +834,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       // when the .cuprum repack fails; no rollback needed.
       await get()._persistManifest(next);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     } finally {
       set({ historyBusy: false });
     }
@@ -882,7 +861,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       await serializePack(() => api.saveProject(workingDir, currentPath)); // flush so the .cuprum carries it
       await get().refreshRestorePoints();
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     } finally {
       set({ historyBusy: false });
     }
@@ -902,7 +881,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       // when the .cuprum repack fails; no rollback needed.
       await get()._persistManifest(manifest);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     } finally {
       set({ historyBusy: false });
     }
@@ -948,7 +927,8 @@ export const useShell = create<ShellStore>((set, get) => ({
           const base = get().currentManifest ?? prev;
           const manifest: Manifest = { ...base, designs: [...base.designs, ...added] };
           get()._recordUndo(base);
-          set({ currentManifest: manifest, error: null });
+          set({ currentManifest: manifest });
+      useNavigation.getState().setError(null);
           // Stash trace tokens for the freshly-imported designs (artifact store).
           if (Object.keys(newTraceSessions).length > 0) {
             useArtifacts.setState((s) => ({
@@ -962,7 +942,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       } catch (e) {
         failure = failure ?? e;
       }
-      if (failure) set({ error: String(failure) });
+      if (failure) useNavigation.getState().setError(String(failure));
     } finally {
       useArtifacts.setState((s) => ({ importingCount: Math.max(0, s.importingCount - paths.length) }));
     }
@@ -984,10 +964,11 @@ export const useShell = create<ShellStore>((set, get) => ({
     const manifest: Manifest = { ...prev, designs };
     try {
       get()._recordUndo(prev);
-      set({ currentManifest: manifest, error: null });
+      set({ currentManifest: manifest });
+      useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
@@ -1005,10 +986,11 @@ export const useShell = create<ShellStore>((set, get) => ({
     const manifest: Manifest = { ...prev, designs };
     try {
       get()._recordUndo(prev);
-      set({ currentManifest: manifest, error: null });
+      set({ currentManifest: manifest });
+      useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 
@@ -1027,10 +1009,11 @@ export const useShell = create<ShellStore>((set, get) => ({
     const manifest: Manifest = { ...prev, designs, panel };
     try {
       get()._recordUndo(prev);
-      set({ currentManifest: manifest, error: null });
+      set({ currentManifest: manifest });
+      useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);
     } catch (e) {
-      set({ error: String(e) });
+      useNavigation.getState().setError(String(e));
     }
   },
 }));
@@ -1052,6 +1035,7 @@ export const useShell = create<ShellStore>((set, get) => ({
 // only after restore, so writes thereafter reflect real user navigation.
 let _persistArmed = false;
 let _lastPersistKey = "";
+let _persistScheduled = false;
 
 /** Enable last-session persistence. Called once by the main window after its
  *  cold-start restore completes; never by secondary windows. */
@@ -1059,10 +1043,28 @@ export function armSessionPersist(): void {
   _persistArmed = true;
 }
 
-useShell.subscribe((s) => {
+// `currentPath` lives in `useShell`, `view` in `useNavigation` — persist on a
+// change to EITHER. The write is coalesced to a microtask so an action that
+// mutates both stores (e.g. openProjectByPath sets currentPath then view) lands
+// a single write reflecting the FINAL pair, never a transient intermediate —
+// matching the old single-atomic-`set` behaviour. The key gate then dedups so
+// the effective (path, view) pair only writes once per real change.
+function flushPersist(): void {
+  _persistScheduled = false;
   if (!_persistArmed) return;
-  const key = `${s.currentPath ?? ""} ${s.view}`;
+  const path = useShell.getState().currentPath;
+  const view = useNavigation.getState().view;
+  const key = `${path ?? ""} ${view}`;
   if (key === _lastPersistKey) return;
   _lastPersistKey = key;
-  saveLastSession({ path: s.currentPath, view: s.view });
-});
+  saveLastSession({ path, view });
+}
+
+function persistLastSession(): void {
+  if (_persistScheduled) return;
+  _persistScheduled = true;
+  queueMicrotask(flushPersist);
+}
+
+useShell.subscribe(persistLastSession);
+useNavigation.subscribe(persistLastSession);

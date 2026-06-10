@@ -8,6 +8,7 @@ import { TextInput } from "@/components/ui/TextInput";
 import { Select } from "@/components/ui/Select";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { useShell } from "@/shellStore";
+import { useNavigation } from "@/navigationStore";
 
 type SortKey = "date" | "name";
 type Layout = "grid" | "list";
@@ -19,8 +20,8 @@ export function HomePage() {
   const loadRecents = useShell((s) => s.loadRecents);
   const newProject = useShell((s) => s.newProject);
   const openFromPicker = useShell((s) => s.openProjectFromPicker);
-  const error = useShell((s) => s.error);
-  const homeNotice = useShell((s) => s.homeNotice);
+  const error = useNavigation((s) => s.error);
+  const homeNotice = useNavigation((s) => s.homeNotice);
 
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("date");

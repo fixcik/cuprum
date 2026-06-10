@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useShell } from "@/shellStore";
+import { useNavigation } from "@/navigationStore";
 import { useArtifacts } from "@/artifactsStore";
 import { api, type AddedDesign, type Manifest, type ProjectDesign } from "@/lib/api";
 
 // Reset the singleton stores before each test for isolation.
 const initial = useShell.getState();
+const initialNavigation = useNavigation.getState();
 const initialArtifacts = useArtifacts.getState();
 beforeEach(() => {
   useShell.setState(initial, true);
+  useNavigation.setState(initialNavigation, true);
   useArtifacts.setState(initialArtifacts, true);
 });
 
@@ -15,12 +18,12 @@ const manifest = (n: number) => ({ schema_version: n }) as unknown as Manifest;
 
 describe("view", () => {
   it("setView switches the view and goHome returns home", () => {
-    useShell.getState().setView("project");
-    expect(useShell.getState().view).toBe("project");
-    useShell.getState().setView("settings");
-    expect(useShell.getState().view).toBe("settings");
-    useShell.getState().goHome();
-    expect(useShell.getState().view).toBe("home");
+    useNavigation.getState().setView("project");
+    expect(useNavigation.getState().view).toBe("project");
+    useNavigation.getState().setView("settings");
+    expect(useNavigation.getState().view).toBe("settings");
+    useNavigation.getState().goHome();
+    expect(useNavigation.getState().view).toBe("home");
   });
 });
 
