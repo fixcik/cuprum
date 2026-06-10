@@ -343,6 +343,9 @@ export const useStore = create<Store>()(
   // — re-rendering per placement made reload very slow) and reuse the result for
   // every placement of that path; drop any whose file is gone.
   reloadPreviews: async () => {
+    // Single-flight: a second mount (React StrictMode) or a re-render must not
+    // kick off duplicate renderPreview calls while one reload is in progress.
+    if (get().previewLoading) return;
     const missing = get().placements.filter((p) => !p.pngUrl);
     if (missing.length === 0) return;
     set({ previewLoading: true });
