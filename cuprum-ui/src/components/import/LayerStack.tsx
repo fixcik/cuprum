@@ -5,6 +5,7 @@ import type { BBox, Hole, LayerType } from "@/lib/api";
 import { LAYER_Z } from "@/lib/layerColors";
 import { outlineLoops, outlinePathD } from "@/lib/boardOutline";
 import { DrcMarkers, type DrcMarkerInput, type ProjectedMarker } from "@/components/preview/DrcMarkers";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
 import { gridSteps, ticksFor } from "@/lib/canvasTicks";
 import { useShell } from "@/shellStore";
@@ -129,7 +130,8 @@ export function LayerStack({
   /** Interactive chrome (rulers, zoom toolbar, board-size badge, pan/zoom). When
    *  false the viewer is a static, fit-to-board thumbnail with none of that. */
   chrome?: boolean;
-  /** Show a centered spinner instead of the empty-state text while layers load. */
+  /** Show a canvas-sized skeleton + spinner instead of the empty-state text while
+   *  layers load. */
   loading?: boolean;
 }) {
   const { t } = useTranslation("import");
@@ -361,10 +363,15 @@ export function LayerStack({
     return (
       <div
         ref={setContainer}
-        className="flex h-full w-full items-center justify-center text-[12px] text-muted-foreground"
+        className="relative flex h-full w-full items-center justify-center text-[12px] text-muted-foreground"
       >
         {loading ? (
-          <Loader2 className="size-6 animate-spin text-primary" />
+          // Layers are still streaming in from the backend: fill the canvas area
+          // with a pulse block so the (already visible) window doesn't look blank.
+          <>
+            <Skeleton className="absolute inset-3" />
+            <Loader2 className="relative size-6 animate-spin text-primary" />
+          </>
         ) : (
           t("viewer.noLayers")
         )}

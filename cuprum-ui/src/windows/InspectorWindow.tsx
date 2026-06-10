@@ -15,12 +15,12 @@ export function InspectorWindow({ designId }: { designId: string }) {
   // Subscribe first, then announce readiness so the main window's reply can't beat
   // the listener (same ordering as the add-design window).
   const snap = useSnapshotSubscription<InspectorSnapshot>(api.onInspectorSnapshot, api.emitInspectorReady);
-  // Window is created hidden; reveal it once the preview has real content (not just
-  // the manifest snapshot — the design preview streams in after), so it never
-  // flashes the blank webview + boot spinner or an empty/loading preview.
+  // Window is created hidden; reveal it once the inspector shell has mounted (first
+  // snapshot applied + layout rendered), so it never flashes the blank webview +
+  // boot spinner. SVG layers stream in afterwards behind the preview skeleton.
   const [contentReady, setContentReady] = useState(false);
   useShowWindowWhenReady(contentReady);
-  // Stable identity so DesignInspector's ready-effect doesn't re-fire on every
+  // Stable identity so DesignInspector's mount-effect doesn't re-fire on every
   // re-render (snapshots arrive repeatedly); setContentReady(true) is idempotent.
   const onReady = useCallback(() => setContentReady(true), []);
 
