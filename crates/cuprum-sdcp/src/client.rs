@@ -169,6 +169,42 @@ impl Session {
         }
         anyhow::bail!("no start-print response after {tries} tries")
     }
+
+    /// Request a CMD_STATUS reply and return it as a typed [`ExposeProgress`].
+    ///
+    /// Mirrors [`Session::wait_until_idle`]: sends the status command, spins on
+    /// [`Session::try_recv`], and re-issues the request roughly once a second so
+    /// a single dropped poll (the socket read-timeout is short) doesn't blank
+    /// the reading. Returns the first reply carrying a `Status` object.
+    ///
+    /// If the 2 s window elapses with no usable reply, returns an all-`None`
+    /// snapshot (logged at debug) instead of erroring, so a caller's progress
+    /// loop degrades gracefully rather than aborting.
+    pub fn poll_status(&mut self) -> Result<ExposeProgress> {
+        self.request_status()?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut last_ask = std::time::Instant::now();
+        while std::time::Instant::now() < deadline {
+            if let Some(msg) = self.try_recv()? {
+                // Accept any message that carries a Status object.
+                if msg.get("Status").is_some() {
+                    return Ok(parse_expose_progress(&msg));
+                }
+            }
+            if last_ask.elapsed() > Duration::from_secs(1) {
+                self.request_status()?;
+                last_ask = std::time::Instant::now();
+            }
+        }
+        tracing::debug!("poll_status: no Status reply within window; returning empty progress");
+        Ok(ExposeProgress {
+            current_layer: None,
+            total_layers: None,
+            percent: None,
+            remaining_s: None,
+            printer_state: None,
+        })
+    }
 }
 
 /// Current-status array from a status push (`Status.CurrentStatus`); `[0]` = idle.
@@ -212,6 +248,7 @@ pub fn cmd_ack(msg: &Value, cmd: u32) -> Option<i64> {
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ExposeProgress {
     /// Current layer being exposed (1-based, matches the printer's own counter).
     pub current_layer: Option<u32>,
@@ -285,38 +322,6 @@ pub fn parse_expose_progress(v: &Value) -> ExposeProgress {
         percent,
         remaining_s,
         printer_state,
-    }
-}
-
-impl Session {
-    /// Send a CMD_STATUS request and block until a reply arrives, then return it
-    /// as a typed [`ExposeProgress`].
-    ///
-    /// Uses the same blocking machinery as [`Session::wait_until_idle`]: sends
-    /// the status command, then spins on [`Session::try_recv`] until a message
-    /// arrives (or the read-timeout fires repeatedly without a reply, in which
-    /// case an all-`None` progress is returned rather than an error so callers
-    /// can keep polling).
-    pub fn poll_status(&mut self) -> Result<ExposeProgress> {
-        self.request_status()?;
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while std::time::Instant::now() < deadline {
-            if let Some(msg) = self.try_recv()? {
-                // Accept any message that carries a Status object.
-                if msg.get("Status").is_some() {
-                    return Ok(parse_expose_progress(&msg));
-                }
-            }
-        }
-        // No status reply within 2 s — return an all-None snapshot so the
-        // caller's progress loop degrades gracefully instead of erroring out.
-        Ok(ExposeProgress {
-            current_layer: None,
-            total_layers: None,
-            percent: None,
-            remaining_s: None,
-            printer_state: None,
-        })
     }
 }
 
@@ -432,5 +437,22 @@ mod tests {
         assert_eq!(inverted.percent, Some(100.0));
         // remaining_s: TotalTicks (5000) < CurrentTicks (9999) → None
         assert_eq!(inverted.remaining_s, None);
+    }
+
+    #[test]
+    fn serializes_to_camel_case() {
+        let progress = parse_expose_progress(&printing_status_json());
+        let v = serde_json::to_value(&progress).expect("serialize ExposeProgress");
+        let obj = v.as_object().expect("ExposeProgress serializes to an object");
+
+        // camelCase keys must be present (frontend contract); snake_case absent.
+        assert!(obj.contains_key("currentLayer"), "expected camelCase key");
+        assert!(obj.contains_key("totalLayers"), "expected camelCase key");
+        assert!(obj.contains_key("remainingS"), "expected camelCase key");
+        assert!(obj.contains_key("printerState"), "expected camelCase key");
+        assert!(
+            !obj.contains_key("current_layer"),
+            "snake_case key must not leak to the frontend"
+        );
     }
 }

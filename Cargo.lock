@@ -646,6 +646,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tracing",
  "tungstenite",
  "uuid",
 ]
