@@ -84,8 +84,18 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-* {
-  border-color: hsl(var(--border));
+/* Default border colour for borders that don't pick a colour utility (shadcn
+   convention). MUST live in `@layer base`: un-layered declarations beat ALL
+   layered ones in the cascade, so outside a layer this universal selector
+   silently overrides every `border-{color}` / `border-{color}/{opacity}`
+   utility in `@layer utilities` (issue #541 — "faint" warning borders were
+   this grey winning over `border-warning/*`). Inside `base` it still
+   overrides Tailwind's preflight (same layer, later order) but loses to
+   utilities, as intended. */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
 }
 
 /* All interactive buttons get the pointer cursor (Tailwind preflight sets
