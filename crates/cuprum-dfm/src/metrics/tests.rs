@@ -481,6 +481,57 @@ fn annular_hotspot_side_attribution() {
 }
 
 #[test]
+fn annular_ring_takes_worst_pad_across_layers() {
+    // One PTH hole (0.3 mm → radius 0.15) covered by pads on BOTH copper
+    // layers: top pad 1.0 mm (annular ≈ 0.35) and bottom pad 0.6 mm
+    // (annular ≈ 0.15). The verdict must report the WORST (smallest) annular
+    // ring across layers — the bottom pad — not hide it behind the larger one.
+    const CU_PAD_TOP: &[u8] =
+        b"%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,1.0*%\nD10*\nX1000000Y1000000D03*\nM02*\n";
+    const CU_PAD_BOTTOM: &[u8] =
+        b"%FSLAX46Y46*%\n%MOMM*%\n%ADD10C,0.6*%\nD10*\nX1000000Y1000000D03*\nM02*\n";
+    const PTH: &[u8] = b"M48\nMETRIC,TZ\nT1C0.300\n%\nT1\nX1.0Y1.0\nM30\n";
+    let layers = vec![
+        MetricLayerInput {
+            role: Role::Copper,
+            side: Side::Top,
+            inner: false,
+            plated: false,
+            bytes: CU_PAD_TOP,
+        },
+        MetricLayerInput {
+            role: Role::Copper,
+            side: Side::Bottom,
+            inner: false,
+            plated: false,
+            bytes: CU_PAD_BOTTOM,
+        },
+        MetricLayerInput {
+            role: Role::Drill,
+            side: Side::Both,
+            inner: false,
+            plated: true,
+            bytes: PTH,
+        },
+    ];
+    let m = board_metrics(&layers);
+    assert_eq!(m.geo.annular_hotspots.len(), 1, "one plated hole");
+    let hot = &m.geo.annular_hotspots[0];
+    assert_eq!(
+        hot.side, "bottom",
+        "worst (smallest) pad must win: got side {:?} v {}",
+        hot.side, hot.v
+    );
+    // Bottom pad radius 0.3 (tessellated slightly smaller) minus hole radius 0.15.
+    let min_annular = m.geo.min_annular_mm.expect("annular measured");
+    assert!(
+        (min_annular - 0.15).abs() < 0.01,
+        "min annular must come from the smaller pad, got {}",
+        min_annular
+    );
+}
+
+#[test]
 fn geo_detects_a_routed_slot() {
     const SLOT: &[u8] = b"M48\nMETRIC,TZ\nT1C1.000\n%\nT1\nX2.0Y2.0G85X6.0Y2.0\nM30\n";
     let m = board_metrics(&[MetricLayerInput {

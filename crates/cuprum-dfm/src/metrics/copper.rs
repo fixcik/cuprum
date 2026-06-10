@@ -164,8 +164,9 @@ pub(super) fn copper_clearance_width_hotspots(
 /// Per-plated-hole annular hotspots: hole centre → nearest pad edge, value =
 /// annular ring (pad radius − hole radius). A hole with no pad yields a zero
 /// hotspot at the hole. Worst-first, capped. Each hotspot carries the copper
-/// side of the pad that was chosen (largest-radius pad across all copper layers);
-/// bare holes with no covering pad anywhere are tagged "both".
+/// side of the pad that was chosen (SMALLEST-radius covering pad across all
+/// copper layers — the worst pad is the one the verdict must judge); bare
+/// holes with no covering pad anywhere are tagged "both".
 #[tracing::instrument(skip_all)]
 pub(super) fn annular_hotspots<'a>(
     copper_layers: &'a [(&'a str, Vec<Poly>)],
@@ -175,12 +176,12 @@ pub(super) fn annular_hotspots<'a>(
     for h in plated_holes {
         let p = [h[0], h[1]];
         let hole_r = h[2] / 2.0;
-        // The covering pad with the largest radius, and the copper side it sits on.
+        // The covering pad with the smallest radius, and the copper side it sits on.
         let mut best: Option<([f64; 2], f64, &'a str)> = None;
         for (side, polys) in copper_layers {
             if let Some(poly) = geometry::poly_containing(polys, p) {
                 let (q, d) = geometry::point_ring_closest(p, &poly.outer);
-                if best.is_none_or(|(_, r, _)| d > r) {
+                if best.is_none_or(|(_, r, _)| d < r) {
                     best = Some((q, d, *side));
                 }
             }

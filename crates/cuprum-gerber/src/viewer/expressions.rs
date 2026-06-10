@@ -129,6 +129,10 @@ impl<'a> Parser<'a> {
         self.lookahead
     }
 
+    fn peek_next(&self) -> Option<char> {
+        self.chars.clone().next()
+    }
+
     fn bump(&mut self) -> Option<char> {
         let curr = self.lookahead;
         self.lookahead = self.chars.next();
@@ -197,6 +201,12 @@ impl<'a> Parser<'a> {
                 Ok(value)
             }
             Some('$') => self.parse_variable(),
+            // Unary minus on a variable, e.g. "-$2"; a bare '-' is otherwise
+            // the start of a number literal.
+            Some('-') if self.peek_next() == Some('$') => {
+                self.bump(); // consume '-'
+                Ok(-self.parse_variable()?)
+            }
             Some(c) if c.is_ascii_digit() || c == '.' || c == '-' => self.parse_number(),
             Some(c) => Err(ExpressionEvaluationError::UnexpectedChar(c)),
             None => Err(ExpressionEvaluationError::UnexpectedEnd),
@@ -339,5 +349,45 @@ mod tests {
         let expr = "($1-$2)/$2".to_string(); // (5 - 2) / 2 = 1.5
         let result = evaluate_expression(&expr, &ctx).unwrap();
         assert_eq!(result, 1.5);
+    }
+
+    #[test]
+    fn test_unary_minus_on_variable() {
+        let mut ctx = MacroContext::default();
+        ctx.put(2, 3.0).unwrap();
+
+        let expr = "-$2".to_string();
+        let result = evaluate_expression(&expr, &ctx).unwrap();
+        assert_eq!(result, -3.0);
+    }
+
+    #[test]
+    fn test_multiplication_by_negated_variable() {
+        let mut ctx = MacroContext::default();
+        ctx.put(1, 2.0).unwrap();
+        ctx.put(2, 3.0).unwrap();
+
+        let expr = "$1x-$2".to_string(); // 2 * (-3) = -6
+        let result = evaluate_expression(&expr, &ctx).unwrap();
+        assert_eq!(result, -6.0);
+    }
+
+    #[test]
+    fn test_binary_minus_with_variable_still_works() {
+        let mut ctx = MacroContext::default();
+        ctx.put(2, 3.0).unwrap();
+
+        let expr = "0-$2".to_string();
+        let result = evaluate_expression(&expr, &ctx).unwrap();
+        assert_eq!(result, -3.0);
+    }
+
+    #[test]
+    fn test_negative_literal_still_works() {
+        let ctx = MacroContext::default();
+
+        let expr = "-3".to_string();
+        let result = evaluate_expression(&expr, &ctx).unwrap();
+        assert_eq!(result, -3.0);
     }
 }
