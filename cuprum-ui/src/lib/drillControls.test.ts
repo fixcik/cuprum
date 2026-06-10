@@ -11,8 +11,18 @@ describe("drillControlsEnabled", () => {
     expect(drillControlsEnabled("paused")).toEqual({ pause: true, stop: true });
   });
 
-  it("awaitingToolChange → stop only (machine idle, but the run can still be aborted)", () => {
+  it("awaitingToolChange (later change) → stop only (machine idle, run can be aborted)", () => {
     expect(drillControlsEnabled("awaitingToolChange")).toEqual({ pause: false, stop: true });
+    expect(drillControlsEnabled("awaitingToolChange", false)).toEqual({ pause: false, stop: true });
+  });
+
+  it("awaitingToolChange FIRST (pre-start Z bind) → neither (run hasn't moved yet)", () => {
+    expect(drillControlsEnabled("awaitingToolChange", true)).toEqual({ pause: false, stop: false });
+  });
+
+  it("firstToolChange flag only affects the tool-change phase, not running/paused", () => {
+    expect(drillControlsEnabled("running", true)).toEqual({ pause: true, stop: true });
+    expect(drillControlsEnabled("paused", true)).toEqual({ pause: true, stop: true });
   });
 
   it("idle → neither (nothing to pause or stop before the run starts)", () => {
