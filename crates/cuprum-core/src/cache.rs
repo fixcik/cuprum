@@ -26,10 +26,26 @@ pub use crate::dfm::{board_metrics_artifact, board_metrics_cached, metrics_artif
 pub use crate::svg::{layer_svg_artifact, layer_svg_cached, svg_artifact_key};
 
 /// A rasterized full-resolution (native-pitch) mask, ready to blit.
+///
+/// The `px` buffer is row-major grayscale (one byte per pixel, 255 = UV on).
+/// The `mm` fields mirror [`RenderInfo`]'s four bbox corners — see its
+/// documentation for the exact world-coordinate / Y-flip convention.
 pub struct Mask {
     pub px: Vec<u8>,
     pub w: u32,
     pub h: u32,
+    /// World-space left edge (X minimum, margin-adjusted).
+    /// Corresponds to the left column of `px`.
+    pub min_x_mm: f32,
+    /// World-space bottom edge (Y minimum in Gerber Y-up coords,
+    /// margin-adjusted).  Corresponds to the bottom row of `px`.
+    pub min_y_mm: f32,
+    /// World-space right edge (X maximum, margin-adjusted).
+    /// Corresponds to the right column of `px`.
+    pub max_x_mm: f32,
+    /// World-space top edge (Y maximum in Gerber Y-up coords,
+    /// margin-adjusted).  Corresponds to row 0 of `px` (the top row).
+    pub max_y_mm: f32,
 }
 
 struct PreviewEntry {
@@ -107,6 +123,10 @@ pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
         px: gerber::to_grayscale(&pm),
         w: info.px_w,
         h: info.px_h,
+        min_x_mm: info.min_x_mm,
+        min_y_mm: info.min_y_mm,
+        max_x_mm: info.max_x_mm,
+        max_y_mm: info.max_y_mm,
     });
     if !crate::diskcache::cache_disabled() {
         mask_cache().lock().unwrap().insert(
