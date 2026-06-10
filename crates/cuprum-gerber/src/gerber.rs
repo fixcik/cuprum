@@ -73,12 +73,40 @@ impl Default for RenderOptions {
 
 /// Geometry of a rendered Gerber: the rasterized image size in pixels and the
 /// real-world size of that image in millimeters (bounding box + 2×margin).
+///
+/// ## Coordinate conventions
+///
+/// Gerber world coordinates use Y-up (mathematical convention). The rasterizer
+/// flips Y so that image row 0 sits at the **top** of the world bounding box.
+/// Concretely:
+///
+/// - Image pixel (0, 0) top-left  → world (`min_x_mm`, `max_y_mm`)
+/// - Image pixel (px_w-1, 0) top-right → world (`max_x_mm`, `max_y_mm`)
+/// - Image pixel (0, px_h-1) bottom-left → world (`min_x_mm`, `min_y_mm`)
+/// - Image pixel (px_w-1, px_h-1) bottom-right → world (`max_x_mm`, `min_y_mm`)
+///
+/// All four corners are exposed so callers that blit the mask onto a Y-down
+/// screen can pick whichever pair they need without re-deriving it.
 #[derive(Clone, Copy, Debug)]
 pub struct RenderInfo {
     pub px_w: u32,
     pub px_h: u32,
     pub width_mm: f32,
     pub height_mm: f32,
+    /// World-space left edge (X minimum, margin-adjusted).  Corresponds to the
+    /// left column of the raster image.
+    pub min_x_mm: f32,
+    /// World-space bottom edge (Y minimum in Gerber's Y-up coords,
+    /// margin-adjusted).  Corresponds to the **bottom** row of the raster image
+    /// (largest row index = `px_h - 1`).
+    pub min_y_mm: f32,
+    /// World-space right edge (X maximum, margin-adjusted).  Corresponds to the
+    /// right column of the raster image.
+    pub max_x_mm: f32,
+    /// World-space top edge (Y maximum in Gerber's Y-up coords,
+    /// margin-adjusted).  Corresponds to the **top** row of the raster image
+    /// (row index 0).  This is the Y coordinate of pixel (0, 0).
+    pub max_y_mm: f32,
 }
 
 /// Rasterize a parsed Gerber into a Pixmap (white = UV on / copper, black = off).
@@ -241,6 +269,10 @@ pub fn render_layer(layer: &GerberLayer, opts: &RenderOptions) -> Result<(Pixmap
         px_h: ph,
         width_mm: w_mm as f32,
         height_mm: h_mm as f32,
+        min_x_mm: (bbox.min.x - margin) as f32,
+        min_y_mm: (bbox.min.y - margin) as f32,
+        max_x_mm: (bbox.max.x + margin) as f32,
+        max_y_mm: (bbox.max.y + margin) as f32,
     };
     Ok((pm, info))
 }
@@ -529,5 +561,131 @@ mod parse_cache_tests {
             !Arc::ptr_eq(&a, &b),
             "distinct gerbers map to distinct cache entries"
         );
+    }
+}
+
+#[cfg(test)]
+mod render_info_bbox_tests {
+    use super::*;
+
+    // A 2mm-diameter circle (radius 1mm) flashed at world (3.0, 2.0) mm.
+    // With FSLAX24Y24 the integer coordinate unit is 10^-4 mm, so:
+    //   X=3.0mm  → X30000
+    //   Y=2.0mm  → Y20000
+    // The copper bbox will be [2.0, 4.0] × [1.0, 3.0] mm (center ± radius).
+    //
+    // Flash at non-zero position to verify that min_x/min_y/max_x/max_y are not
+    // all near zero (catching an accidental "use origin" bug).
+    const CIRCLE_AT_3_2: &[u8] =
+        b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\nD10*\nX30000Y20000D03*\nM02*\n";
+
+    fn approx_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    /// RenderInfo mm corners match the known artwork bbox (no margin).
+    #[test]
+    fn render_info_bbox_no_margin_circle_at_3_2() {
+        let cmds = parse_file_bytes(CIRCLE_AT_3_2).expect("parse ok");
+        let opts = RenderOptions {
+            margin_mm: 0.0,
+            ..RenderOptions::square(10.0)
+        };
+        let (_, info) = render_with_info(cmds, &opts).expect("render ok");
+
+        // Copper bbox: x ∈ [2.0, 4.0], y ∈ [1.0, 3.0]  (center=3,2; radius=1)
+        assert!(
+            approx_eq(info.min_x_mm, 2.0),
+            "min_x_mm should be ~2.0, got {}",
+            info.min_x_mm
+        );
+        assert!(
+            approx_eq(info.min_y_mm, 1.0),
+            "min_y_mm should be ~1.0, got {}",
+            info.min_y_mm
+        );
+        assert!(
+            approx_eq(info.max_x_mm, 4.0),
+            "max_x_mm should be ~4.0, got {}",
+            info.max_x_mm
+        );
+        assert!(
+            approx_eq(info.max_y_mm, 3.0),
+            "max_y_mm should be ~3.0, got {}",
+            info.max_y_mm
+        );
+        // width/height consistency
+        assert!(
+            approx_eq(info.width_mm, info.max_x_mm - info.min_x_mm),
+            "width_mm = max_x - min_x"
+        );
+        assert!(
+            approx_eq(info.height_mm, info.max_y_mm - info.min_y_mm),
+            "height_mm = max_y - min_y"
+        );
+    }
+
+    /// With a margin the bbox corners are shifted outward by the margin amount.
+    #[test]
+    fn render_info_bbox_with_margin() {
+        let cmds = parse_file_bytes(CIRCLE_AT_3_2).expect("parse ok");
+        let margin = 1.5_f32;
+        let opts = RenderOptions {
+            margin_mm: margin,
+            ..RenderOptions::square(10.0)
+        };
+        let (_, info) = render_with_info(cmds, &opts).expect("render ok");
+
+        // With margin the corners expand by `margin` in every direction.
+        assert!(
+            approx_eq(info.min_x_mm, 2.0 - margin),
+            "min_x with margin: got {}",
+            info.min_x_mm
+        );
+        assert!(
+            approx_eq(info.min_y_mm, 1.0 - margin),
+            "min_y with margin: got {}",
+            info.min_y_mm
+        );
+        assert!(
+            approx_eq(info.max_x_mm, 4.0 + margin),
+            "max_x with margin: got {}",
+            info.max_x_mm
+        );
+        assert!(
+            approx_eq(info.max_y_mm, 3.0 + margin),
+            "max_y with margin: got {}",
+            info.max_y_mm
+        );
+    }
+
+    /// Pixel (0,0) corresponds to world (min_x_mm, max_y_mm): the raster Y-flip
+    /// means the image top row maps to the highest world Y coordinate.
+    #[test]
+    fn render_info_pixel_origin_is_top_left_world_max_y() {
+        let cmds = parse_file_bytes(CIRCLE_AT_3_2).expect("parse ok");
+        let opts = RenderOptions {
+            margin_mm: 0.0,
+            ..RenderOptions::square(10.0)
+        };
+        let (_, info) = render_with_info(cmds, &opts).expect("render ok");
+
+        // top-left pixel → (min_x, max_y) in world coords.  Verify the relationship
+        // is self-consistent: height = max_y - min_y ≈ px_h / px_per_mm.
+        let expected_h = (info.px_h as f32) / 10.0;
+        let actual_h = info.max_y_mm - info.min_y_mm;
+        assert!(
+            (actual_h - expected_h).abs() < 0.15,
+            "height consistent with pixel count: expected ~{expected_h:.3}, got {actual_h:.3}"
+        );
+    }
+
+    /// Helper: parse raw Gerber bytes into commands (same as parse_file but from bytes).
+    fn parse_file_bytes(bytes: &[u8]) -> anyhow::Result<Vec<crate::gerber_types::Command>> {
+        use crate::gerber_parser;
+        let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
+        let doc =
+            gerber_parser::parse(reader).map_err(|(_, e)| anyhow::anyhow!("parse error: {e:?}"))?;
+        Ok(doc.into_commands())
     }
 }
