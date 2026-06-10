@@ -37,6 +37,12 @@ const HOMING_TIMEOUT: Duration = Duration::from_secs(120);
 const IDLE_WATCHDOG_MISSED_POLLS: u32 = 15;
 /// Ceiling for collecting a full `$$` settings dump.
 const SETTINGS_TIMEOUT: Duration = Duration::from_secs(5);
+/// Max wait for proof-of-GRBL after opening a port: the first valid `<…>` status
+/// report. The `?` poll runs every `STATUS_POLL` (200 ms) and a live GRBL answers
+/// within a tick even in ALARM, so a handful of polls is ample. A non-GRBL device
+/// (wrong port) never produces a parseable status, so this elapses and the caller
+/// rejects the connection with [`GrblError::NotGrbl`].
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(2500);
 
 /// Channel depths. Line/realtime queues are short (commands are interactive);
 /// the event broadcast is sized to absorb a status burst without lagging a slow
@@ -95,6 +101,11 @@ pub enum GrblError {
     Timeout(&'static str),
     #[error("connection lost")]
     Disconnected,
+    /// The device on the port never answered with a valid GRBL status report —
+    /// it's not a GRBL controller (wrong serial port). The Display string is a
+    /// stable token the UI matches to show a localized "not a GRBL device" notice.
+    #[error("not-grbl")]
+    NotGrbl,
     #[error("io: {0}")]
     Io(String),
 }
@@ -158,6 +169,33 @@ impl GrblHandle {
     /// Subscribe to the live telemetry stream (status + raw lines).
     pub fn subscribe(&self) -> broadcast::Receiver<GrblEvent> {
         self.events.subscribe()
+    }
+
+    /// Confirm the device on the port actually speaks GRBL before treating the
+    /// connection as live. Waits for the first valid `<…>` status report — emitted
+    /// in response to the actor's 5 Hz `?` poll, which a real GRBL answers within a
+    /// tick even from ALARM. Returns [`GrblError::NotGrbl`] on timeout or teardown:
+    /// a non-GRBL device (wrong serial port) keeps the port open and may even chatter
+    /// raw bytes, but never produces a parseable status. The caller should then
+    /// `shutdown()` the handle and surface a "not a GRBL device" notice rather than
+    /// declaring the machine connected.
+    pub async fn wait_until_ready(&self) -> Result<(), GrblError> {
+        let mut rx = self.subscribe();
+        let deadline = tokio::time::sleep(HANDSHAKE_TIMEOUT);
+        tokio::pin!(deadline);
+        loop {
+            tokio::select! {
+                _ = &mut deadline => return Err(GrblError::NotGrbl),
+                ev = rx.recv() => match ev {
+                    Ok(GrblEvent::Status { .. }) => return Ok(()),
+                    // Teardown before any status (unplug/watchdog) → not a usable GRBL link.
+                    Ok(GrblEvent::Disconnected)
+                    | Err(broadcast::error::RecvError::Closed) => return Err(GrblError::NotGrbl),
+                    // Raw lines / a lagged burst: keep waiting for a status within the deadline.
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                }
+            }
+        }
     }
 
     async fn await_line(
@@ -997,5 +1035,43 @@ mod tests {
             matches!(got, Ok(true)),
             "idle watchdog did not emit Disconnected: {got:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn wait_until_ready_accepts_grbl_status() {
+        // A real GRBL answers the `?` poll with a `<…>` status; the first one proves
+        // the link. The single-threaded test runtime is cooperative, so the actor task
+        // hasn't run yet when wait_until_ready subscribes — the status it emits here is
+        // observed deterministically. (In production the actor may emit before we
+        // subscribe, but the 200 ms poll keeps answering well within HANDSHAKE_TIMEOUT.)
+        let (h, mut fake) = setup();
+        let (_, res) = tokio::join!(
+            async {
+                fake.send("<Idle|MPos:0.000,0.000,0.000|FS:0,0>").await;
+            },
+            h.wait_until_ready(),
+        );
+        res.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_until_ready_rejects_non_grbl_chatter() {
+        // A non-GRBL device on the port chatters raw lines that never parse as a
+        // `<…>` status. Keep the chatter up past the handshake deadline so the idle
+        // watchdog (which resets on any rx) can't be what ends it — the handshake
+        // timeout must reject with NotGrbl. Clock paused → HANDSHAKE_TIMEOUT
+        // auto-advances; `fake` lives in the chatter task so the actor's writes don't
+        // EOF while we wait.
+        let (h, fake) = setup();
+        let chatter = tokio::spawn(async move {
+            let mut fake = fake;
+            for _ in 0..40 {
+                fake.send("random device banner, not grbl").await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+        let res = h.wait_until_ready().await;
+        assert!(matches!(res, Err(GrblError::NotGrbl)), "got {res:?}");
+        chatter.abort();
     }
 }

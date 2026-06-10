@@ -57,7 +57,14 @@ interface MachineStore {
    *  control-panel "homing…" overlay. GRBL is silent during the cycle, so this is
    *  bracketed by the homeAwait command, not the status stream. */
   homing: boolean;
+  /** Localization key for the last connection failure (e.g. the port isn't a GRBL
+   *  device), or null when there's nothing to show. Set when connect() is rejected,
+   *  cleared on the next connect attempt or by clearConnectError(). Rendered by the
+   *  connection bar. */
+  connectError: string | null;
   connect: (port: string, baud: number) => Promise<void>;
+  /** Clear a pending connect error (e.g. the user dismissed the notice). */
+  clearConnectError: () => void;
   /** Re-bind to a connection the backend kept alive across a webview reload: if
    *  the Rust side still holds the serial port, subscribe a fresh telemetry
    *  Channel and restore connection state. No-op if already connected or nothing
@@ -176,10 +183,26 @@ export const useMachine = create<MachineStore>((set, get) => {
     maxSpindleRpm: null,
     homed: false,
     homing: false,
+    connectError: null,
     connect: async (port, baud) => {
-      await api.machine.connect(port, baud, buildChannel());
+      set({ connectError: null });
+      try {
+        await api.machine.connect(port, baud, buildChannel());
+      } catch (e) {
+        // The backend rejects a non-GRBL port with the stable token "not-grbl"
+        // (GrblError::NotGrbl). Map known failures to a localization key; anything
+        // else falls back to a generic connect-failed notice.
+        const msg = e instanceof Error ? e.message : String(e);
+        set({
+          connectError: msg.includes("not-grbl")
+            ? "connection.error.notGrbl"
+            : "connection.error.failed",
+        });
+        return;
+      }
       await finishConnect(port);
     },
+    clearConnectError: () => set({ connectError: null }),
     reattach: async () => {
       // Already wired up in this JS context, or a reattach is mid-flight — nothing
       // to do. `reattaching` is set synchronously so overlapping calls bail before
@@ -249,6 +272,10 @@ export const useMachine = create<MachineStore>((set, get) => {
       set({
         connected: false,
         port: null,
+        // A teardown to the disconnected baseline also drops a stale connect-error
+        // notice — the reject flow keeps it (it never calls reset), but any later
+        // disconnect shouldn't leave the banner hanging over a fresh baseline.
+        connectError: null,
         status: IDLE_STATUS,
         homingAvailable: false,
         softLimitsEnabled: null,

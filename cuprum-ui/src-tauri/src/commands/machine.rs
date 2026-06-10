@@ -511,6 +511,16 @@ pub async fn machine_connect(
             return Err(e.into());
         }
     };
+    // Confirm the device actually speaks GRBL before declaring it connected. Opening
+    // the OS serial port succeeds for ANY device on that path (a modem, a logger, the
+    // wrong board); only a valid `<…>` status report proves it's a GRBL controller.
+    // On failure tear the port back down and surface the error — no `machine://connected`
+    // is emitted, so the UI never enters a phantom "connected to a busy machine" state.
+    if let Err(e) = handle.wait_until_ready().await {
+        handle.shutdown().await;
+        state.connecting.store(false, Ordering::SeqCst);
+        return Err(e.into());
+    }
     let telemetry = Arc::new(Mutex::new(telemetry));
     let echo_status = Arc::new(EchoStatus::default());
     let disconnected_once = Arc::new(AtomicBool::new(false));
