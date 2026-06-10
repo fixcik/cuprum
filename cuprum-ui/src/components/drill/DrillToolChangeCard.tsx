@@ -218,13 +218,8 @@ export function DrillToolChangeCard({
   );
 
   const probeBlock = !probeChecked ? (
-    // Step 1 · circuit test. Warning border/bg via inline style — same oxide-bypass
-    // as the card frame (the `border-warning/N` opacity utility miscompiles on some
-    // machines). `text-warning` (no opacity modifier) is unaffected, so it stays a class.
-    <div
-      className="rounded-lg border px-2.5 py-2"
-      style={{ borderColor: "hsl(var(--warning) / 0.3)", backgroundColor: "hsl(var(--warning) / 0.05)" }}
-    >
+    // Step 1 · circuit test
+    <div className="rounded-lg border border-warning/30 bg-warning/[0.05] px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
         <PlugZap className="size-3.5" />
         {t("toolChange.probeStep1Title")}
@@ -235,8 +230,7 @@ export function DrillToolChangeCard({
       <button
         type="button"
         onClick={checkCircuit}
-        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-[12px] font-semibold text-warning transition-opacity hover:opacity-90"
-        style={{ borderColor: "hsl(var(--warning) / 0.5)", backgroundColor: "hsl(var(--warning) / 0.1)" }}
+        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-warning/50 bg-warning/10 py-2 text-[12px] font-semibold text-warning transition-colors hover:bg-warning/15"
       >
         <Hand className="size-4" />
         {t("toolChange.probeStep1Btn")}
@@ -274,27 +268,9 @@ export function DrillToolChangeCard({
     zBound ? <span className="text-primary">✓</span> : <span className="text-foreground/60">{n}.</span>;
 
   return (
-    // Border/bg/header colours are set via inline `style` (not Tailwind `*-warning/N`
-    // utilities) on purpose: the @tailwindcss/oxide engine can miscompile the
-    // opacity-modifier border utility on some machines (candidate collision →
-    // `border-warning/50` resolved to `border-primary/40`). Inline styles bypass the
-    // generator entirely, so the amber framing renders correctly everywhere.
-    <div
-      className="mx-3 mb-3 overflow-hidden rounded-xl border"
-      style={{
-        borderColor: "hsl(var(--warning) / 0.55)",
-        backgroundColor: "hsl(var(--warning) / 0.1)",
-      }}
-    >
+    <div className="mx-3 mb-3 overflow-hidden rounded-xl border border-warning/55 bg-warning/10">
       {/* Card header */}
-      <div
-        className="flex items-center gap-2 border-b px-3 py-2 text-[12px] font-semibold"
-        style={{
-          borderColor: "hsl(var(--warning) / 0.3)",
-          backgroundColor: "hsl(var(--warning) / 0.16)",
-          color: "hsl(var(--warning))",
-        }}
-      >
+      <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/[0.16] px-3 py-2 text-[12px] font-semibold text-warning">
         <Pause className="size-4" />
         {firstToolChange ? t("toolChange.titleFirstZ") : t("toolChange.titleChange")}
       </div>
