@@ -69,6 +69,10 @@ export function usePanelFindings(): PanelFindingsResult {
           d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
         )
         .then((m) => {
+          // Freshly computed (not from a cache tier) → persist the artifact into
+          // the .cuprum, same as the design card / inspector paths. Matters when
+          // the user lands on the Panel view before ever opening the design.
+          if (m.fresh) useShell.getState().scheduleArtifactFlush(true);
           // If this id is no longer needed (unmounted or design removed), skip.
           if (cancelRef.current.has(id)) return;
           setMetricsMap((prev) => ({ ...prev, [id]: m.metrics }));
