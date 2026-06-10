@@ -107,7 +107,11 @@ export const useStore = create<Store>()(
   error: null,
 
   setBoard: (w, h) => set({ boardWmm: clamp(w, 1, SCREEN_W_MM), boardHmm: clamp(h, 1, SCREEN_H_MM) }),
-  setBoardPos: (x, y) => set({ boardXmm: x, boardYmm: y }),
+  setBoardPos: (x, y) => {
+    // Defensive: a NaN position makes the board vanish from the canvas.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    set({ boardXmm: x, boardYmm: y });
+  },
   centerBoard: () =>
     set((st) => ({
       boardXmm: (SCREEN_W_MM - st.boardWmm) / 2,

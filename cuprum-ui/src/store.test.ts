@@ -26,6 +26,16 @@ describe("board + exposure clamps", () => {
     expect(s().boardHmm).toBe(SCREEN_H_MM);
   });
 
+  it("ignores non-finite board positions (cleared X/Y input → NaN)", () => {
+    s().setBoardPos(5, 7);
+    expect(s().boardXmm).toBe(5);
+    expect(s().boardYmm).toBe(7);
+    s().setBoardPos(NaN, 0);
+    s().setBoardPos(0, Infinity);
+    expect(s().boardXmm).toBe(5);
+    expect(s().boardYmm).toBe(7);
+  });
+
   it("rounds and clamps exposure and pwm", () => {
     s().setExposure(0.4);
     expect(s().exposureS).toBe(1);
