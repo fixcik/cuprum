@@ -199,9 +199,7 @@ fn board_outline(
     let artifact_dir = Path::new(working_dir).join("artifacts").join("metrics");
 
     let metrics = cuprum_core::cache::board_metrics_artifact(&artifact_dir, &key, move || {
-        fn build_inputs(
-            loaded: &[(String, LayerType, Vec<u8>)],
-        ) -> Vec<MetricLayerInput<'_>> {
+        fn build_inputs(loaded: &[(String, LayerType, Vec<u8>)]) -> Vec<MetricLayerInput<'_>> {
             loaded
                 .iter()
                 .map(|(rel, t, bytes)| {
@@ -259,11 +257,7 @@ fn resolve_placements(req: &ExposeRunRequest) -> anyhow::Result<Vec<compose::Pla
         };
 
         // Find the copper gerber for the requested side.
-        let copper_gerber = match design
-            .gerbers
-            .iter()
-            .find(|g| g.layer_type == copper_type)
-        {
+        let copper_gerber = match design.gerbers.iter().find(|g| g.layer_type == copper_type) {
             Some(g) => g,
             None => {
                 eprintln!(
@@ -276,11 +270,9 @@ fn resolve_placements(req: &ExposeRunRequest) -> anyhow::Result<Vec<compose::Pla
 
         // Absolute path to the copper mask (`copper_gerber.path` is IPC-supplied,
         // so validate it the same way the other gerber-reading commands do).
-        let abs_path = crate::commands::project::safe_workdir_path(
-            &req.working_dir,
-            &copper_gerber.path,
-        )
-        .map_err(|e| anyhow::anyhow!("{}", e.message()))?;
+        let abs_path =
+            crate::commands::project::safe_workdir_path(&req.working_dir, &copper_gerber.path)
+                .map_err(|e| anyhow::anyhow!("{}", e.message()))?;
 
         // Get mask bbox from the in-process cache.
         let mask = cuprum_core::cache::native_mask(&abs_path)?;
