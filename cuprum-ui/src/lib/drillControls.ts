@@ -9,9 +9,11 @@ export interface DrillControlsEnabled {
    *  there too — both halves of the toggle act on a live run. */
   pause: boolean;
   /** Stop (graceful) interrupts the WHOLE run, so it's enabled while a run is active —
-   *  including `awaitingToolChange`, where the machine is physically idle but the run
-   *  isn't done. `stopping` swaps the button for a banner + "Отменить стоп", so it's
-   *  not gated here; `idle`/`pausing`/`done`/`error` have nothing to stop. */
+   *  including a tool-change pause, where the machine is physically idle but the run
+   *  isn't done. EXCEPT the very first tool change (`toolChangeSeq === 1`): that is the
+   *  pre-start "set Z for the first bit" step — the run hasn't moved yet, so there is
+   *  nothing to stop. `stopping` swaps the button for a banner + "Отменить стоп", so
+   *  it's not gated here; `idle`/`pausing`/`done`/`error` have nothing to stop. */
   stop: boolean;
 }
 
@@ -22,6 +24,13 @@ const STOP_PHASES: ReadonlySet<DrillRunPhase> = new Set<DrillRunPhase>([
   "awaitingToolChange",
 ]);
 
-export function drillControlsEnabled(phase: DrillRunPhase): DrillControlsEnabled {
-  return { pause: PAUSE_PHASES.has(phase), stop: STOP_PHASES.has(phase) };
+/** @param firstToolChange the current tool-change pause is the FIRST one
+ *  (`toolChangeSeq === 1`) — the pre-start Z bind, before the run has moved. Stop is
+ *  withheld in that case. Defaults to false (later changes / non-tool-change phases). */
+export function drillControlsEnabled(
+  phase: DrillRunPhase,
+  firstToolChange = false,
+): DrillControlsEnabled {
+  const preStart = phase === "awaitingToolChange" && firstToolChange;
+  return { pause: PAUSE_PHASES.has(phase), stop: STOP_PHASES.has(phase) && !preStart };
 }

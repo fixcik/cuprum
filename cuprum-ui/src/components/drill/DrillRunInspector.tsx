@@ -59,8 +59,9 @@ export function DrillRunInspector({
 
   // Which run-control buttons are actionable for this phase. Pause only while the bit
   // is moving (running/paused-resume); Stop while a run is active (incl. the operator
-  // wait of a tool change). The emergency stop is NOT gated — always active (safety).
-  const controls = drillControlsEnabled(phase);
+  // wait of a tool change) — but NOT the first tool change, which is the pre-start Z
+  // bind before the run has moved. The emergency stop is NOT gated — always active.
+  const controls = drillControlsEnabled(phase, state.toolChangeSeq === 1);
 
   // Final/elapsed reflects MACHINE time only (movement + drilling); operator-wait
   // intervals (tool changes / pauses) are excluded via the machine clock.
