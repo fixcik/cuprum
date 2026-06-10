@@ -2,19 +2,20 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useShell } from "@/shellStore";
 import { useNavigation } from "@/navigationStore";
 import { useArtifacts } from "@/artifactsStore";
+import { useHistory } from "@/historyStore";
 import { api, type AddedDesign, type Manifest, type ProjectDesign } from "@/lib/api";
 
 // Reset the singleton stores before each test for isolation.
 const initial = useShell.getState();
 const initialNavigation = useNavigation.getState();
 const initialArtifacts = useArtifacts.getState();
+const initialHistory = useHistory.getState();
 beforeEach(() => {
   useShell.setState(initial, true);
   useNavigation.setState(initialNavigation, true);
   useArtifacts.setState(initialArtifacts, true);
+  useHistory.setState(initialHistory, true);
 });
-
-const manifest = (n: number) => ({ schema_version: n }) as unknown as Manifest;
 
 describe("view", () => {
   it("setView switches the view and goHome returns home", () => {
@@ -63,35 +64,6 @@ describe("artifact progress map", () => {
   });
 });
 
-describe("undo/redo bookkeeping", () => {
-  it("canUndo and canRedo reflect their stacks", () => {
-    expect(useShell.getState().canUndo()).toBe(false);
-    expect(useShell.getState().canRedo()).toBe(false);
-    useShell.setState({ undoStack: [manifest(0)], redoStack: [manifest(0)] });
-    expect(useShell.getState().canUndo()).toBe(true);
-    expect(useShell.getState().canRedo()).toBe(true);
-  });
-
-  it("_recordUndo pushes the snapshot and clears the redo stack", () => {
-    useShell.setState({ undoStack: [], redoStack: [manifest(0)] });
-    const snap = manifest(5);
-    useShell.getState()._recordUndo(snap);
-    expect(useShell.getState().undoStack).toHaveLength(1);
-    expect(useShell.getState().undoStack[0]).toBe(snap);
-    expect(useShell.getState().redoStack).toEqual([]);
-  });
-
-  it("caps the undo stack at 100 snapshots, dropping the oldest", () => {
-    const many = Array.from({ length: 100 }, (_, i) => manifest(i));
-    useShell.setState({ undoStack: many, redoStack: [] });
-    useShell.getState()._recordUndo(manifest(999));
-    const stack = useShell.getState().undoStack;
-    expect(stack).toHaveLength(100);
-    expect((stack[stack.length - 1] as { schema_version: number }).schema_version).toBe(999);
-    expect((stack[0] as { schema_version: number }).schema_version).toBe(1);
-  });
-});
-
 describe("addDesignsFromPaths concurrency", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -110,9 +82,8 @@ describe("addDesignsFromPaths concurrency", () => {
       currentPath: "/tmp/p.cuprum",
       workingDir: "/tmp/wd",
       currentManifest: base,
-      undoStack: [],
-      redoStack: [],
     });
+    useHistory.setState({ undoStack: [], redoStack: [] });
     const design = { id: "d1", source_name: "a.zip", gerbers: [] } as unknown as ProjectDesign;
     let resolveAdd!: (v: AddedDesign) => void;
     vi.spyOn(api, "addDesignFromZip").mockImplementation(
@@ -133,7 +104,7 @@ describe("addDesignsFromPaths concurrency", () => {
     // The concurrent mutation must survive the import commit…
     expect(result?.description).toBe("concurrent edit");
     // …and undo must restore the state just before the import (with the mutation).
-    const undoTop = useShell.getState().undoStack.at(-1);
+    const undoTop = useHistory.getState().undoStack.at(-1);
     expect(undoTop).toBe(mutated);
   });
 });

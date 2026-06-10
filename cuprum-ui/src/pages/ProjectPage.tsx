@@ -8,6 +8,7 @@ import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal"
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useArtifacts } from "@/artifactsStore";
+import { useHistory } from "@/historyStore";
 import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
@@ -22,14 +23,14 @@ export function ProjectPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const workingDir = useShell((s) => s.workingDir);
-  const undo = useShell((s) => s.undo);
-  const redo = useShell((s) => s.redo);
-  const canUndo = useShell((s) => s.undoStack.length > 0);
-  const canRedo = useShell((s) => s.redoStack.length > 0);
-  const makeRestorePoint = useShell((s) => s.makeRestorePoint);
-  const restorePoints = useShell((s) => s.restorePoints);
-  const restoreTo = useShell((s) => s.restoreTo);
-  const historyBusy = useShell((s) => s.historyBusy);
+  const undo = useHistory((s) => s.undo);
+  const redo = useHistory((s) => s.redo);
+  const canUndo = useHistory((s) => s.undoStack.length > 0);
+  const canRedo = useHistory((s) => s.redoStack.length > 0);
+  const makeRestorePoint = useHistory((s) => s.makeRestorePoint);
+  const restorePoints = useHistory((s) => s.restorePoints);
+  const restoreTo = useHistory((s) => s.restoreTo);
+  const historyBusy = useHistory((s) => s.historyBusy);
   const saving = useShell((s) => s.saving);
   const [pointsOpen, setPointsOpen] = useState(false);
   // Which operation card is open inline (null = list view).
