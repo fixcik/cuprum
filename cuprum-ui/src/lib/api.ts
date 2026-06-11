@@ -129,25 +129,6 @@ export interface PreviewResult {
   timings: string;
 }
 
-export interface PrintStatus {
-  stage: string;
-  message: string;
-}
-
-export interface PlacementDto {
-  path: string;
-  x_mm: number;
-  y_mm: number;
-  rotation_deg: number;
-}
-
-export interface PrintRequest {
-  placements: PlacementDto[];
-  mirror: boolean;
-  invert: boolean;
-  exposure_s: number;
-  pwm: number;
-}
 
 export interface RecentProject {
   path: string;
@@ -690,10 +671,6 @@ export const api = {
     console.log(`[render_preview] ${r.timings} | round-trip ${(performance.now() - t0).toFixed(0)}ms`);
     return r;
   },
-  composeAndPrint: (req: PrintRequest) => invoke<void>("compose_and_print", { req }),
-  stopPrint: () => invoke<void>("stop_print"),
-  onPrintStatus: (cb: (s: PrintStatus) => void): Promise<UnlistenFn> =>
-    listen<PrintStatus>("print-status", (e) => cb(e.payload)),
   pickGerber: () =>
     open({
       multiple: false,

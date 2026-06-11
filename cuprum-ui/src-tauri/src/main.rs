@@ -176,8 +176,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::printer::discover,
             commands::printer::render_preview,
-            commands::printer::compose_and_print,
-            commands::printer::stop_print,
             commands::project::list_recent_projects,
             commands::project::create_project,
             commands::project::open_project,
