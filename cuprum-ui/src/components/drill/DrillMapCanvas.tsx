@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import Konva from "konva";
 import { ZoomToolbar, ZOOM_STEP } from "@/components/ui/ZoomToolbar";
@@ -18,6 +18,7 @@ import { useKonvaViewport } from "@/hooks/useKonvaViewport";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { nearestPlanHole } from "@/lib/drillHitTest";
 import { enumerateHoles } from "@/lib/drillSelection";
+import { useDrillHoleHover } from "@/hooks/useDrillHoleHover";
 import { DrillCanvasToolPalette } from "./DrillCanvasToolPalette";
 
 // Re-export Viewport so callers (Task 2 rulers) can import it from here directly.
@@ -320,43 +321,15 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
   const panMode = tool === "pan" || spaceDown;
   const { fmtLen } = useUnitFormat();
 
-  // Hover state: screen-px position (rulers crosshair/readout) + hovered hole key
-  // (highlight ring). Both are driven by a SINGLE rAF coalescer below.
-  const [hoveredHoleKey, setHoveredHoleKey] = useState<string | null>(null);
-  const [hoverPx, setHoverPx] = useState<{ x: number; y: number } | null>(null);
-  const hoverRaf = useRef<number | null>(null);
-
-  // Coalesce ALL hover work into one frame: regardless of how fast the mouse
-  // moves, we read the latest pointer once per frame and do at most one hit-test
-  // and one paired state update. This keeps the cursor smooth on dense plans.
-  const scheduleHover = useCallback(() => {
-    if (hoverRaf.current != null) return;
-    hoverRaf.current = requestAnimationFrame(() => {
-      hoverRaf.current = null;
-      const stage = stageRef.current;
-      const pos = stage?.getPointerPosition() ?? null;
-      setHoverPx(pos ? { x: pos.x, y: pos.y } : null);
-      const fitGroup = fitGroupRef.current;
-      const pxPerMm = viewportRef.current.pxPerMm;
-      if (pos && fitGroup && pxPerMm > 0) {
-        const rel = fitGroup.getRelativePointerPosition();
-        const hit = rel ? nearestPlanHole({ x: rel.x, y: rel.y }, plan, pxPerMm) : null;
-        setHoveredHoleKey(hit ? hit.id : null);
-      } else {
-        setHoveredHoleKey(null);
-      }
-    });
-  }, [plan]);
-
-  const clearHover = useCallback(() => {
-    if (hoverRaf.current != null) {
-      cancelAnimationFrame(hoverRaf.current);
-      hoverRaf.current = null;
-    }
-    setHoverPx(null);
-    setHoveredHoleKey(null);
-  }, []);
-  useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
+  // Hover state machine (rAF-coalesced pointer px + hovered hole id). The Stage
+  // onClick below stays here (part of the single Stage integrator); the hook only
+  // owns the hover lifecycle.
+  const { hoveredHoleKey, hoverPx, scheduleHover, clearHover } = useDrillHoleHover({
+    stageRef,
+    fitGroupRef,
+    viewportRef,
+    plan,
+  });
 
   // Per-hole geometry by stable id — lets the single-node overlay rings (hover /
   // inspected / current-phase) look up coordinates without re-rendering the bulk
