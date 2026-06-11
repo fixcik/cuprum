@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, type ExposeProgress, type ExposeSnapshot } from "@/lib/api";
 import { buildExposeRequest } from "@/lib/exposeSnapshot";
+import { footprintBoxMm } from "@/lib/exposeFootprint";
 
 // ── Stages that mean a run is active (not yet terminal). ────────────────────
 const ACTIVE_STAGES = new Set(["composing", "discovering", "uploading", "starting", "exposing"]);
@@ -66,8 +67,7 @@ function PanelReadOnlyPreview({ snap }: { snap: ExposeSnapshot }) {
   // Real per-design board extents (mm) carried in the snapshot (same source the
   // drill snapshot uses). Falls back to a small placeholder for a design whose
   // metrics haven't resolved yet (the actual outline is resolved in Rust at run).
-  const FALLBACK_W = 20;
-  const FALLBACK_H = 20;
+  const FALLBACK_MM = 20;
 
   return (
     <div className="flex items-center justify-center py-2">
@@ -92,25 +92,21 @@ function PanelReadOnlyPreview({ snap }: { snap: ExposeSnapshot }) {
         {/* Placed design footprints (real board size from snapshot.placedSizes) */}
         {panel.instances.map((inst) => {
           const ci = (designIndex.get(inst.design_id) ?? 0) % PALETTE.length;
-          const size = snap.placedSizes[inst.design_id];
-          const boardW = size?.w ?? FALLBACK_W;
-          const boardH = size?.h ?? FALLBACK_H;
-          // Footprint swaps W/H when the instance is rotated 90°/270°.
-          const rotated = inst.rotation_deg === 90 || inst.rotation_deg === 270;
-          const fw = (rotated ? boardH : boardW) * scale;
-          const fh = (rotated ? boardW : boardH) * scale;
-          const x = inst.x_mm * scale;
-          const y = inst.y_mm * scale;
-          // Clamp to panel bounds so the rect doesn't overflow the SVG.
-          const clampedW = Math.min(fw, svgW - x);
-          const clampedH = Math.min(fh, svgH - y);
+          // Centre-pivot footprint (matches the panel editor's InstanceLayer):
+          // a rotated board keeps its centre, so the bbox top-left shifts — a
+          // naive top-left + swapped size would overlap neighbours.
+          const box = footprintBoxMm(inst, snap.placedSizes[inst.design_id], FALLBACK_MM);
+          const x = Math.max(0, box.xMm * scale);
+          const y = Math.max(0, box.yMm * scale);
+          const w = Math.min(box.wMm * scale, svgW - x);
+          const h = Math.min(box.hMm * scale, svgH - y);
           return (
             <rect
               key={inst.id}
               x={x}
               y={y}
-              width={Math.max(clampedW, 2)}
-              height={Math.max(clampedH, 2)}
+              width={Math.max(w, 2)}
+              height={Math.max(h, 2)}
               fill={PALETTE[ci]}
               stroke={STROKE_PALETTE[ci]}
               strokeWidth={1}
