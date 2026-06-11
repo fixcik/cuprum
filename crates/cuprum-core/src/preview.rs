@@ -265,19 +265,64 @@ pub struct PreviewLayer {
 /// `cuprum-project` so both derive the same cache key.
 pub const CARD_PREVIEW_MAX_PX: u32 = 512;
 
-/// Content-hash key for a design's preview: version + raster size + each
-/// layer's (type, color, gerber-content), sorted by `(layer_type, bytes)` so
-/// input order never changes the key. Shared with `artifact::gc`'s valid set.
-/// `max_px` is part of the key because the cached PNG is rasterized to that
-/// size — the same layers at a different size are a different artifact.
+/// Detailed (panel-editor) preview density: pixels per board millimetre.
+pub const DETAILED_PREVIEW_PX_PER_MM: f32 = 12.0;
+/// Hard cap on the longest side of the detailed preview, px. Guards a huge board
+/// against a multi-hundred-megapixel raster.
+pub const DETAILED_PREVIEW_MAX_PX: u32 = 4096;
+
+/// How a preview is sized from the board's millimetre extents.
+#[derive(Clone, Copy)]
+pub enum PreviewSizing {
+    /// Longest side fixed to N px (card thumbnail).
+    MaxPx(u32),
+    /// N px per board-mm, longest side clamped to `cap_px` (detailed editor view).
+    Density { px_per_mm: f32, cap_px: u32 },
+}
+
+/// Compute the raster (width_px, height_px, scale) for a board of the given mm
+/// extents under `sizing`. `scale` is px-per-mm actually applied.
+fn scaled_dims(width_mm: f32, height_mm: f32, sizing: PreviewSizing) -> (u32, u32, f32) {
+    let longest = width_mm.max(height_mm).max(1.0);
+    let scale = match sizing {
+        PreviewSizing::MaxPx(n) => (n as f32) / longest,
+        PreviewSizing::Density { px_per_mm, cap_px } => {
+            let s = px_per_mm;
+            if longest * s > cap_px as f32 {
+                (cap_px as f32) / longest
+            } else {
+                s
+            }
+        }
+    };
+    let w = (width_mm * scale).ceil().max(1.0) as u32;
+    let h = (height_mm * scale).ceil().max(1.0) as u32;
+    (w, h, scale)
+}
+
+/// Content-hash key for a design's preview: version + sizing + each layer's
+/// (type, color, gerber-content), sorted by `(layer_type, bytes)` so input
+/// order never changes the key. Shared with `artifact::gc`'s valid set.
+/// `sizing` is part of the key because the cached PNG is rasterized to those
+/// dimensions — the same layers at a different size are a different artifact.
 pub fn preview_key(
     layers: &[PreviewLayer],
     overrides: &HashMap<String, String>,
-    max_px: u32,
+    sizing: PreviewSizing,
 ) -> String {
     let mut h = crate::diskcache::Hasher::new();
     h.add(crate::artifact::PREVIEW_VERSION);
-    h.add(&max_px.to_le_bytes());
+    match sizing {
+        PreviewSizing::MaxPx(n) => {
+            h.add(&[0u8]);
+            h.add(&n.to_le_bytes());
+        }
+        PreviewSizing::Density { px_per_mm, cap_px } => {
+            h.add(&[1u8]);
+            h.add(&px_per_mm.to_le_bytes());
+            h.add(&cap_px.to_le_bytes());
+        }
+    }
     let mut sorted: Vec<&PreviewLayer> = layers.iter().collect();
     sorted.sort_by(|a, b| {
         a.layer_type
@@ -292,31 +337,15 @@ pub fn preview_key(
     h.finish()
 }
 
-/// Render a design's composite preview to a PNG (longest side == `max_px`),
-/// caching it persistently under `<artifacts_dir>/preview/<key>.bin`. On a cache
-/// hit returns the stored bytes. Drill layers should be excluded by the caller
-/// (the card preview has no holes); composes top side only. Honors `cache_disabled()`.
-pub fn render_design_preview(
+/// Compose + rasterize a design preview to an indexed PNG at `sizing`. No result
+/// caching (the per-layer SVG artifact cache under `<artifacts_dir>/svg` is still
+/// reused). Drill layers must be excluded by the caller. Top side only.
+pub fn render_preview_png(
     artifacts_dir: &Path,
     layers: &[PreviewLayer],
     overrides: &HashMap<String, String>,
-    max_px: u32,
+    sizing: PreviewSizing,
 ) -> anyhow::Result<Vec<u8>> {
-    let key = preview_key(layers, overrides, max_px);
-    let dir = artifacts_dir.join("preview");
-    if !crate::diskcache::cache_disabled() {
-        if let Some(png) = crate::diskcache::get_persistent(&dir, &key) {
-            return Ok(png);
-        }
-    }
-    // Reuse the shared per-layer SVG artifact cache (same content key as the
-    // inspector's `cache::layer_svg_artifact`) instead of re-rendering each layer
-    // here. On a cold card show the preview and inspector then render a given layer
-    // exactly once between them — single-flight de-dups even when they run
-    // concurrently. The internal SVG element id differs from a direct render but is
-    // invisible in the raster, so the composed PNG is byte-identical (no version bump).
-    // Skip layers whose gerber fails to parse (blank silk/paste is common) so
-    // one bad layer doesn't abort the whole preview.
     let svg_dir = artifacts_dir.join("svg");
     let mut composed: Vec<(String, LayerGeometry)> = Vec::with_capacity(layers.len());
     for l in layers {
@@ -325,8 +354,6 @@ pub fn render_design_preview(
             Err(_) => continue,
         }
     }
-    // Reconstruct the board outline from Edge_Cuts so the composite clips to the
-    // real (rounded) shape instead of the rectangular bbox — matches the inspector.
     let board_outline = layers
         .iter()
         .find(|l| l.layer_type == "edgeCuts")
@@ -336,36 +363,234 @@ pub fn render_design_preview(
         overrides,
         board_outline.as_ref().map(|(d, bb)| (d.as_str(), *bb)),
     );
-    let png = rasterize(&doc, max_px)?;
+    rasterize(&doc, sizing)
+}
+
+/// Render a design's composite preview to an indexed PNG, caching it persistently
+/// under `<artifacts_dir>/preview/<key>.bin` (ships in the `.cuprum`). On a cache
+/// hit returns the stored bytes. Used for the card thumbnail. Honors `cache_disabled()`.
+pub fn render_design_preview(
+    artifacts_dir: &Path,
+    layers: &[PreviewLayer],
+    overrides: &HashMap<String, String>,
+    sizing: PreviewSizing,
+) -> anyhow::Result<Vec<u8>> {
+    let key = preview_key(layers, overrides, sizing);
+    let dir = artifacts_dir.join("preview");
+    if !crate::diskcache::cache_disabled() {
+        if let Some(png) = crate::diskcache::get_persistent(&dir, &key) {
+            return Ok(png);
+        }
+    }
+    let png = render_preview_png(artifacts_dir, layers, overrides, sizing)?;
     if !crate::diskcache::cache_disabled() {
         crate::diskcache::put_persistent(&dir, &key, &png);
     }
     Ok(png)
 }
 
-/// Rasterize a standalone SVG document to PNG with resvg, scaled so the longest
-/// side equals `max_px`.
-fn rasterize(svg: &str, max_px: u32) -> anyhow::Result<Vec<u8>> {
+/// Quantize an RGBA pixmap to a <=256-colour palette and encode an indexed
+/// (PNG-8) image. A tRNS chunk carries per-entry alpha so transparency outside
+/// the board outline survives. The layer palette is narrow, so quantization is
+/// visually lossless at preview densities.
+fn encode_indexed_png(pixmap: &resvg::tiny_skia::Pixmap) -> anyhow::Result<Vec<u8>> {
+    let (w, h) = (pixmap.width(), pixmap.height());
+    // tiny-skia stores premultiplied alpha; imagequant wants straight RGBA.
+    let rgba: Vec<imagequant::RGBA> = pixmap
+        .pixels()
+        .iter()
+        .map(|p| {
+            let c = p.demultiply();
+            imagequant::RGBA::new(c.red(), c.green(), c.blue(), c.alpha())
+        })
+        .collect();
+
+    let mut liq = imagequant::new();
+    // Minimum quality 0 on purpose: previews must never hard-fail. A non-zero
+    // floor would make `quantize` return QualityTooLow on some inputs, turning a
+    // slightly-worse image into a render error. The narrow layer palette quantizes
+    // well within 256 colours regardless, so best-effort here costs nothing.
+    liq.set_quality(0, 100)
+        .map_err(|e| anyhow::anyhow!("liq quality: {e:?}"))?;
+    let mut img = liq
+        .new_image(rgba.as_slice(), w as usize, h as usize, 0.0)
+        .map_err(|e| anyhow::anyhow!("liq image: {e:?}"))?;
+    let mut res = liq
+        .quantize(&mut img)
+        .map_err(|e| anyhow::anyhow!("liq quantize: {e:?}"))?;
+    res.set_dithering_level(1.0)
+        .map_err(|e| anyhow::anyhow!("liq dither: {e:?}"))?;
+    let (palette, indices) = res
+        .remapped(&mut img)
+        .map_err(|e| anyhow::anyhow!("liq remap: {e:?}"))?;
+
+    // Split palette into PLTE (rgb triples) + tRNS (alpha bytes). Trailing fully
+    // opaque entries can be dropped from tRNS, but emitting all is simplest/correct.
+    let mut plte = Vec::with_capacity(palette.len() * 3);
+    let mut trns = Vec::with_capacity(palette.len());
+    for c in &palette {
+        plte.push(c.r);
+        plte.push(c.g);
+        plte.push(c.b);
+        trns.push(c.a);
+    }
+
+    let mut out = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut out, w, h);
+        enc.set_color(png::ColorType::Indexed);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.set_palette(plte);
+        enc.set_trns(trns);
+        let mut writer = enc
+            .write_header()
+            .map_err(|e| anyhow::anyhow!("png header: {e}"))?;
+        writer
+            .write_image_data(&indices)
+            .map_err(|e| anyhow::anyhow!("png data: {e}"))?;
+    }
+    Ok(out)
+}
+
+/// Rasterize a standalone SVG document to an indexed PNG, sized per `sizing`.
+fn rasterize(svg: &str, sizing: PreviewSizing) -> anyhow::Result<Vec<u8>> {
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| anyhow::anyhow!("usvg parse: {e}"))?;
     let size = tree.size();
-    let longest = size.width().max(size.height()).max(1.0);
-    let scale = (max_px as f32) / longest;
-    let pw = (size.width() * scale).ceil().max(1.0) as u32;
-    let ph = (size.height() * scale).ceil().max(1.0) as u32;
+    let (pw, ph, scale) = scaled_dims(size.width(), size.height(), sizing);
+    if scale <= 0.0 {
+        anyhow::bail!("invalid preview sizing: non-positive scale {scale}");
+    }
     let mut pixmap = resvg::tiny_skia::Pixmap::new(pw, ph)
         .ok_or_else(|| anyhow::anyhow!("pixmap alloc {pw}x{ph}"))?;
     let transform = resvg::tiny_skia::Transform::from_scale(scale, scale);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
-    let png = pixmap
-        .encode_png()
-        .map_err(|e| anyhow::anyhow!("encode_png: {e}"))?;
-    Ok(png)
+    encode_indexed_png(&pixmap)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indexed_png_roundtrips_with_alpha() {
+        // 2x2: opaque red, opaque green, fully transparent, opaque red again.
+        let mut pm = resvg::tiny_skia::Pixmap::new(2, 2).unwrap();
+        let px = pm.pixels_mut();
+        px[0] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 0, 255).unwrap();
+        px[1] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(0, 180, 0, 255).unwrap();
+        px[2] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap();
+        px[3] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 0, 255).unwrap();
+
+        let bytes = encode_indexed_png(&pm).expect("encode");
+
+        let dec = png::Decoder::new(std::io::Cursor::new(&bytes));
+        let mut reader = dec.read_info().expect("read_info");
+        let info = reader.info();
+        assert_eq!(
+            info.color_type,
+            png::ColorType::Indexed,
+            "must be indexed PNG-8"
+        );
+        assert_eq!(info.bit_depth, png::BitDepth::Eight);
+        assert!(
+            !info.palette.as_ref().unwrap().is_empty(),
+            "palette present"
+        );
+        assert!(
+            info.palette.as_ref().unwrap().len() / 3 <= 256,
+            "<=256 colours"
+        );
+        // A tRNS chunk must exist because one pixel is fully transparent.
+        assert!(info.trns.is_some(), "tRNS present for transparency");
+        assert!(
+            info.trns.as_ref().unwrap().contains(&0),
+            "some palette entry is fully transparent"
+        );
+
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        reader.next_frame(&mut buf).expect("decode frame");
+    }
+
+    #[test]
+    fn preview_key_distinguishes_sizing() {
+        let layers = vec![PreviewLayer {
+            layer_type: "topCopper".to_string(),
+            bytes: b"G04*".to_vec(),
+        }];
+        let o = std::collections::HashMap::new();
+        let card = preview_key(&layers, &o, PreviewSizing::MaxPx(512));
+        let detailed = preview_key(
+            &layers,
+            &o,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        );
+        assert_ne!(card, detailed, "card and detailed keys must differ");
+        // Stable for identical inputs.
+        assert_eq!(card, preview_key(&layers, &o, PreviewSizing::MaxPx(512)));
+    }
+
+    #[test]
+    fn rasterize_density_produces_indexed_png() {
+        // 20x10 mm board outline as a standalone SVG (user units == mm).
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10" width="20" height="10"><rect x="0" y="0" width="20" height="10" fill="#caa84a"/></svg>"##;
+        let png = rasterize(
+            svg,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        )
+        .expect("raster");
+        let dec = png::Decoder::new(std::io::Cursor::new(&png));
+        let reader = dec.read_info().expect("read_info");
+        let info = reader.info();
+        assert_eq!(info.color_type, png::ColorType::Indexed);
+        assert_eq!(info.width, 240); // 20mm * 12
+        assert_eq!(info.height, 120); // 10mm * 12
+    }
+
+    #[test]
+    fn scaled_dims_max_px_fits_longest_side() {
+        // 100x80 mm, MaxPx(512): longest side -> 512.
+        let (w, h, _s) = scaled_dims(100.0, 80.0, PreviewSizing::MaxPx(512));
+        assert_eq!(w, 512);
+        assert_eq!(h, 410); // ceil(80 * 512/100) = ceil(409.6)
+    }
+
+    #[test]
+    fn scaled_dims_density_multiplies_mm() {
+        // 100x50 mm at 12 px/mm, far below cap.
+        let (w, h, s) = scaled_dims(
+            100.0,
+            50.0,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        );
+        assert_eq!(w, 1200);
+        assert_eq!(h, 600);
+        assert!((s - 12.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn scaled_dims_density_clamps_at_cap() {
+        // 500 mm at 12 px/mm would be 6000 px; cap 4096 forces longest side to 4096.
+        let (w, _h, s) = scaled_dims(
+            500.0,
+            100.0,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        );
+        assert_eq!(w, 4096);
+        assert!(s < 12.0, "scale reduced below density when capped");
+    }
 
     #[test]
     fn palette_and_order_match_frontend() {
@@ -593,7 +818,8 @@ mod tests {
         }];
         let overrides = std::collections::HashMap::new();
 
-        let png = render_design_preview(&dir, &layers, &overrides, 128).expect("preview ok");
+        let png = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128))
+            .expect("preview ok");
         assert_eq!(
             &png[..8],
             &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
@@ -604,7 +830,8 @@ mod tests {
         let sub = dir.join("preview");
         let n = std::fs::read_dir(&sub).map(|rd| rd.count()).unwrap_or(0);
         assert_eq!(n, 1, "exactly one persistent preview blob written");
-        let png2 = render_design_preview(&dir, &layers, &overrides, 128).expect("cache hit ok");
+        let png2 = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128))
+            .expect("cache hit ok");
         assert_eq!(png, png2, "second call returns the cached bytes");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -625,8 +852,8 @@ mod tests {
         b.reverse();
         let o = std::collections::HashMap::new();
         assert_eq!(
-            preview_key(&a, &o, 128),
-            preview_key(&b, &o, 128),
+            preview_key(&a, &o, PreviewSizing::MaxPx(128)),
+            preview_key(&b, &o, PreviewSizing::MaxPx(128)),
             "key independent of input order"
         );
     }
@@ -639,8 +866,8 @@ mod tests {
         }];
         let o = std::collections::HashMap::new();
         assert_ne!(
-            preview_key(&layers, &o, 128),
-            preview_key(&layers, &o, 512),
+            preview_key(&layers, &o, PreviewSizing::MaxPx(128)),
+            preview_key(&layers, &o, PreviewSizing::MaxPx(512)),
             "same layers at a different raster size must key differently"
         );
     }
@@ -657,8 +884,8 @@ mod tests {
         a.insert("topCopper".to_string(), "#ff0000".to_string());
         let mut b = std::collections::HashMap::new();
         b.insert("topCopper".to_string(), "#00ff00".to_string());
-        let _ = render_design_preview(&dir, &layers, &a, 128).unwrap();
-        let _ = render_design_preview(&dir, &layers, &b, 128).unwrap();
+        let _ = render_design_preview(&dir, &layers, &a, PreviewSizing::MaxPx(128)).unwrap();
+        let _ = render_design_preview(&dir, &layers, &b, PreviewSizing::MaxPx(128)).unwrap();
         let n = std::fs::read_dir(dir.join("preview"))
             .map(|rd| rd.count())
             .unwrap_or(0);
@@ -679,7 +906,8 @@ mod tests {
             bytes: UNIQ.to_vec(),
         }];
         let overrides = std::collections::HashMap::new();
-        let _ = render_design_preview(&dir, &layers, &overrides, 128).expect("preview ok");
+        let _ = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128))
+            .expect("preview ok");
         // The preview routed the layer through the shared artifact cache, so its SVG
         // blob lands under <dir>/svg/<svg_artifact_key>.bin — the SAME key/path the
         // inspector would use, proving the layer renders once across both.

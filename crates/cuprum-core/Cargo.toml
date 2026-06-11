@@ -21,6 +21,8 @@ cuprum-grbl.workspace = true
 cuprum-drill.workspace = true
 cuprum-mill.workspace = true
 tracing.workspace = true
+png.workspace = true
+imagequant.workspace = true
 
 [dev-dependencies]
 criterion = "0.5"

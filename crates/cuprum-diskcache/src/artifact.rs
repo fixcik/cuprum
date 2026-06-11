@@ -34,7 +34,8 @@ pub const METRICS_VERSION: &[u8] = b"metrics-v19";
 /// v3: substrate/mask/layers clipped to the rounded Edge_Cuts outline.
 /// v4: composite framed to the board-outline bbox (was union-of-layers bbox).
 /// v5: G74 single-quadrant arc center selection + polygon winding fixed.
-pub const PREVIEW_VERSION: &[u8] = b"preview-v5";
+/// v6: indexed PNG-8 output (was truecolor PNG); key now carries PreviewSizing.
+pub const PREVIEW_VERSION: &[u8] = b"preview-v6";
 
 /// Bump when `mesh::board_geometry` output changes (triangulation, layer/barrel
 /// emission, substrate Z). Unlike the others this keys the OS app-cache mesh blob,
