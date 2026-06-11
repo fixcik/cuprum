@@ -23,6 +23,7 @@ cuprum-sdcp = { path = "crates/cuprum-sdcp" }
 cuprum-grbl = { path = "crates/cuprum-grbl" }
 cuprum-nest = { path = "crates/cuprum-nest" }
 cuprum-drill = { path = "crates/cuprum-drill" }
+cuprum-mill = { path = "crates/cuprum-mill" }
 serialport = "4"
 goo = "0.1"
 anyhow = "1"

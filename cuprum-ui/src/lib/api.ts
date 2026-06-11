@@ -609,6 +609,74 @@ export interface DrillPlanResult {
   estimate: DrillEstimate;
 }
 
+// ── Isolation-milling planning DTOs (mirror cuprum-mill serde camelCase) ──────
+
+/** A located DFM finding from milling: the two closest mm points + measured gap
+ *  (mm) and a `side` tag (isolation uses `"iso-gap"`). Mirrors Rust `Hotspot`. */
+export interface MillHotspot {
+  a: [number, number];
+  b: [number, number];
+  v: number;
+  side: string;
+}
+
+/** One streamed step of the mill program. `kind` is serde camelCase
+ *  (`"spindleUp"`). Mirrors Rust `MillStep`/`MillStepKind`. */
+export interface MillStep {
+  lines: string[];
+  kind: "preamble" | "spindleUp" | "path" | "postamble";
+  pathIndex?: number;
+}
+
+/** The full isolation-milling G-code program. Mirrors Rust `MillProgram`. */
+export interface MillProgram {
+  gcode: string;
+  steps: MillStep[];
+}
+
+/** Motion-time estimate for a mill run. Mirrors Rust `MillEstimate`. */
+export interface MillEstimate {
+  motionSec: number;
+  cutLenMm: number;
+  travelLenMm: number;
+  pathCount: number;
+}
+
+/** Everything `mill_plan` needs: the source gerber + drill holes (subtracted from
+ *  the copper) plus the isolation/cut parameters. The backend computes the copper
+ *  boolean, derives the isolation toolpaths and plans the G-code. `kinematics` is
+ *  taken from the backend cache (not sent here). Mirrors Rust `MillPlanCmdInput`. */
+export interface MillPlanInput {
+  workingDir: string;
+  gerberRel: string;
+  holes: Hole[];
+  /** Effective cut width of the bit (cylindrical: diameter; V-bit: vbitCutWidth). */
+  cutWidthMm: number;
+  passes: number;
+  overlap: number;
+  climb: boolean;
+  datum: DatumCornerDto;
+  panelWidthMm: number;
+  panelHeightMm: number;
+  cnc: CncParamsDto;
+  cutDepthMm: number;
+  depthPerPassMm?: number;
+  feedXyMmMin: number;
+  plungeMmMin: number;
+  keepOutZones: DrillRect[];
+  startMachineXY?: { x: number; y: number };
+}
+
+/** Result of `mill_plan`: isolation toolpaths (for preview), G-code program,
+ *  motion-time estimate, and the copper gaps too narrow for the bit to isolate.
+ *  Mirrors Rust `MillPlanCmdResult`. */
+export interface MillPlanResult {
+  paths: Poly[];
+  program: MillProgram;
+  estimate: MillEstimate;
+  violations: MillHotspot[];
+}
+
 export const api = {
   discover: () => invoke<PrinterInfo>("discover"),
   renderPreview: async (path: string, maxPx = 2600) => {
@@ -1003,6 +1071,13 @@ export const api = {
    *  placeholder (`ZERO_KINEMATICS`). */
   drill: {
     plan: (input: DrillPlanInput) => invoke<DrillPlanResult>("drill_plan", { input }),
+  },
+
+  /** Isolation-milling planning in the Rust core: copper boolean → isolation
+   *  toolpaths → G-code program + motion-time estimate, plus the copper gaps too
+   *  narrow for the bit to isolate. Kinematics come from the backend cache. */
+  mill: {
+    plan: (input: MillPlanInput) => invoke<MillPlanResult>("mill_plan", { input }),
   },
 };
 

@@ -48,3 +48,8 @@ pub use cuprum_grbl as grbl;
 // under `cuprum_core::drilling` (the bare `drill` name is taken by the Excellon
 // parser re-export above) so the UI reaches it through the core facade.
 pub use cuprum_drill as drilling;
+
+// Isolation-milling path planning / G-code / time estimate live in their own leaf
+// crate. Re-export under `cuprum_core::milling` so the UI reaches it through the
+// core facade, like `drilling`.
+pub use cuprum_mill as milling;
