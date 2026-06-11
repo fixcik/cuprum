@@ -26,12 +26,13 @@ const AXIS_PX = 30;
 const AXIS_COLOR = "#94a3b8";
 
 export interface MillMapCanvasProps {
-  /** Design extent width in mm (the gerber's own coordinate frame). */
+  /** Panel width in mm (the world size — paths/violations are panel-space). */
   widthMm: number;
-  /** Design extent height in mm. */
+  /** Panel height in mm. */
   heightMm: number;
   /** Isolation toolpaths (panel-space mm, Y down, origin 0,0 top-left — the
-   *  backend already normalised them, so they draw straight over the outline). */
+   *  backend already projects every instance into panel space, so they draw
+   *  straight over the panel outline). */
   paths: Poly[];
   /** Copper gaps too narrow for the bit to isolate (two closest mm points each). */
   violations: MillHotspot[];
@@ -41,13 +42,13 @@ export interface MillMapCanvasProps {
   machineWork?: { x: number; y: number; z?: number } | null;
 }
 
-/** Read-only 2D isolation-milling preview canvas: design outline, isolation
+/** Read-only 2D isolation-milling preview canvas: panel outline, isolation
  *  toolpaths (cyan polylines), DFM violation markers (red), a machine-origin
  *  indicator and the live machine marker. Mirrors DrillMapCanvas (shared viewport,
  *  rulers, grid, datum, marker); the geometry differs — closed cut contours instead
  *  of holes. Coordinates are panel space (mm, Y down, origin 0,0 top-left) — the
- *  backend normalises the absolute-coords gerber, so paths draw straight over the
- *  `[0,0,W,H]` outline with no extra flip. */
+ *  backend projects every placed instance into panel space, so paths draw straight
+ *  over the `[0,0,W,H]` panel outline with no extra flip. */
 export function MillMapCanvas({
   widthMm,
   heightMm,
@@ -100,7 +101,7 @@ export function MillMapCanvas({
           <Group ref={fitGroupRef} x={0} y={0} scaleX={fit} scaleY={fit}>
             <AdaptiveGrid widthMm={W} heightMm={H} />
 
-            {/* Design outline */}
+            {/* Panel outline */}
             <Rect
               x={0}
               y={0}

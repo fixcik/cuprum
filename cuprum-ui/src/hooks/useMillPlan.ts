@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type MillSnapshot, type MillPlanInput, type MillPlanResult, type Hole } from "@/lib/api";
+import {
+  api,
+  type MillSnapshot,
+  type MillPlanInput,
+  type MillPlanResult,
+  type MillDesignInput,
+  type MillInstanceInput,
+  type Hole,
+} from "@/lib/api";
 import { metricsCache } from "@/lib/metricsCache";
 
 /** Cut parameters the editor controls feed into the plan. Kept separate from the
@@ -15,76 +23,85 @@ export interface MillCutParams {
   plungeMmMin: number;
 }
 
-/** Extent (mm) of the design being milled — drives the preview canvas + datum flip.
- *  Carries the gerber bbox origin too: the copper arrives in absolute gerber coords,
- *  so the backend needs the origin to normalise paths/G-code into panel space. */
+/** Extent (mm) of the PANEL being milled — drives the preview canvas (world size)
+ *  and the datum flip. Panel-wide: this is the whole panel, not a single design. */
 export interface MillExtent {
   widthMm: number;
   heightMm: number;
-  originXMm: number;
-  originYMm: number;
 }
 
 export interface MillPlanState {
   result: MillPlanResult | null;
   extent: MillExtent | null;
-  /** Whether a millable source (a placed design with a top-copper gerber) was found. */
+  /** Whether a millable source (≥1 placed design with a top-copper gerber) was found. */
   hasSource: boolean;
   loading: boolean;
 }
 
 const EMPTY: MillPlanState = { result: null, extent: null, hasSource: false, loading: false };
 
-/** Pick the source design + its top-copper gerber for the isolation run. MVP: the
- *  first PLACED design that has a `topCopper` gerber. (Multi-instance panel-wide
- *  isolation is a later phase; the backend mills one gerber in its own coordinate
- *  frame.) Returns null when nothing millable is present. */
-function pickSource(snapshot: MillSnapshot): { designId: string; gerberRel: string } | null {
-  const manifest = snapshot.manifest;
-  const panel = manifest?.panel;
-  if (!manifest || !panel) return null;
-  const placedIds = new Set(panel.instances.map((i) => i.design_id));
-  for (const design of manifest.designs) {
-    if (!placedIds.has(design.id)) continue;
-    const copper = design.gerbers.find((g) => g.layer_type === "topCopper");
-    if (copper) return { designId: design.id, gerberRel: copper.path };
-  }
-  return null;
+/** Per-design source resolved once and reused across instances. */
+interface DesignSource {
+  gerberRel: string;
+  holes: Hole[];
+  originXMm: number;
+  originYMm: number;
+  boardWMm: number;
+  boardHMm: number;
 }
 
-/** Build the isolation-milling plan from a MillSnapshot + the editor's cut params.
- *  Resolves the source gerber + drill holes, derives the design extent (for the
- *  datum flip + canvas), then calls the Rust `mill_plan` command. All heavy work
- *  (copper boolean, offset solver, G-code) is in Rust — this only marshals input
- *  and guards against stale async results. Debounced via the stringified input so a
- *  control tweak refetches at most once per change. */
+/** Does the panel reference at least one placed design that has a top-copper gerber? */
+function hasMillableSource(snapshot: MillSnapshot): boolean {
+  const panel = snapshot.manifest?.panel;
+  if (!panel || !snapshot.manifest) return false;
+  const placedIds = new Set(panel.instances.map((i) => i.design_id));
+  return snapshot.manifest.designs.some(
+    (d) => placedIds.has(d.id) && d.gerbers.some((g) => g.layer_type === "topCopper"),
+  );
+}
+
+/** Build the PANEL-WIDE isolation-milling plan from a MillSnapshot + the editor's
+ *  cut params. Mirrors useDrillPlan: walk every placed instance, resolve each
+ *  referenced design's top-copper gerber + drill holes + extent (cached per design),
+ *  then call the Rust `mill_plan` command which isolates each design once and
+ *  projects its toolpaths into panel space per instance. All heavy geometry is in
+ *  Rust — this only marshals designs[]/instances[] and guards against stale async
+ *  results. Debounced via the stringified input so a control tweak refetches at most
+ *  once per change. */
 export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams): MillPlanState {
   const [state, setState] = useState<MillPlanState>(EMPTY);
 
-  // Per-design holes cache, keyed by design_id (cleared when the working dir changes
+  // Per-design source cache, keyed by design_id (cleared when the working dir changes
   // since design ids are sequential per project).
-  const holesCache = useRef<Map<string, Hole[]>>(new Map());
-  const extentCache = useRef<Map<string, MillExtent>>(new Map());
+  const sourceCache = useRef<Map<string, DesignSource | null>>(new Map());
   const lastWorkingDir = useRef<string | null>(null);
 
-  // Stringify the planning inputs so the effect only re-fires on a real change.
-  const source = snapshot ? pickSource(snapshot) : null;
+  // Debounce key: only re-fire on a real change (workingDir + panel layout + params
+  // + datum + cnc). The panel layout is captured by instances + width/height.
+  const panel = snapshot?.manifest?.panel ?? null;
   const inputKey =
-    snapshot?.workingDir && source
-      ? JSON.stringify([snapshot.workingDir, source.gerberRel, params, snapshot.millDatumCorner, snapshot.cncProfile])
+    snapshot?.workingDir && panel && snapshot.cncProfile && hasMillableSource(snapshot)
+      ? JSON.stringify([
+          snapshot.workingDir,
+          panel.instances,
+          panel.width_mm,
+          panel.height_mm,
+          panel.keep_out_zones,
+          params,
+          snapshot.millDatumCorner,
+          snapshot.cncProfile,
+        ])
       : null;
 
   useEffect(() => {
-    if (!snapshot?.workingDir || !source || !snapshot.cncProfile) {
+    if (!snapshot?.workingDir || !panel || !snapshot.cncProfile || !hasMillableSource(snapshot)) {
       setState(EMPTY);
       return;
     }
-    const { workingDir, manifest, cncProfile, millDatumCorner } = snapshot;
-    const { designId, gerberRel } = source;
+    const { workingDir, manifest, cncProfile, millDatumCorner, placedSizes } = snapshot;
 
     if (workingDir !== lastWorkingDir.current) {
-      holesCache.current.clear();
-      extentCache.current.clear();
+      sourceCache.current.clear();
       lastWorkingDir.current = workingDir;
     }
 
@@ -93,65 +110,113 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
 
     (async () => {
       try {
-        const design = manifest?.designs.find((d) => d.id === designId);
+        // Resolve each unique placed design's source (gerber + holes + origin + extent),
+        // caching per design_id so repeated instances don't refetch.
+        const uniqueDesignIds = Array.from(new Set(panel.instances.map((i) => i.design_id)));
+        await Promise.all(
+          uniqueDesignIds.map(async (designId) => {
+            if (sourceCache.current.has(designId)) return;
 
-        // Resolve the design extent (board metrics) — drives the datum flip + canvas.
-        let extent = extentCache.current.get(designId) ?? null;
-        if (!extent && design) {
-          try {
-            const m = await metricsCache.get(
-              workingDir,
-              design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
-            );
-            extent = {
-              widthMm: m.metrics.board.widthMm,
-              heightMm: m.metrics.board.heightMm,
-              originXMm: m.metrics.board.originXMm,
-              originYMm: m.metrics.board.originYMm,
-            };
-          } catch {
-            extent = null;
-          }
-          if (extent) extentCache.current.set(designId, extent);
-        }
+            const design = manifest?.designs.find((d) => d.id === designId);
+            const copper = design?.gerbers.find((g) => g.layer_type === "topCopper");
+            if (!design || !copper) {
+              sourceCache.current.set(designId, null);
+              return;
+            }
+
+            // Extent: prefer the panel's placed size; fall back to board metrics.
+            // Origin: from board metrics (the copper gerber is in absolute coords, so
+            // the backend needs the bbox min corner to shift to board-local). Falls
+            // back to 0,0 when there's no edge layer.
+            let originXMm = 0;
+            let originYMm = 0;
+            let boardWMm = placedSizes[designId]?.w ?? 0;
+            let boardHMm = placedSizes[designId]?.h ?? 0;
+            try {
+              const m = await metricsCache.get(
+                workingDir,
+                design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
+              );
+              if (m.metrics.board.hasEdgeLayer) {
+                originXMm = m.metrics.board.originXMm;
+                originYMm = m.metrics.board.originYMm;
+              }
+              if (!boardWMm) boardWMm = m.metrics.board.widthMm;
+              if (!boardHMm) boardHMm = m.metrics.board.heightMm;
+            } catch {
+              // No edge layer / metrics unavailable — origin stays 0,0, sizes from placedSizes.
+            }
+            if (cancelled) return;
+
+            // Drill holes for this design (raw gerber coords — same frame as the copper
+            // gerber), subtracted from the copper so rings don't cross holes.
+            const drillLayers = design.gerbers.filter((g) => g.layer_type === "drill");
+            const holes = (
+              await Promise.all(
+                drillLayers.map(async (g) => {
+                  try {
+                    return await api.readDrill(workingDir, g.path);
+                  } catch {
+                    return [];
+                  }
+                }),
+              )
+            ).flat();
+            if (cancelled) return;
+
+            sourceCache.current.set(designId, {
+              gerberRel: copper.path,
+              holes,
+              originXMm,
+              originYMm,
+              boardWMm,
+              boardHMm,
+            });
+          }),
+        );
         if (cancelled) return;
 
-        // Drill holes for this design (raw gerber coords — same frame the copper
-        // gerber lives in), subtracted from the copper so rings don't cross holes.
-        let holes = holesCache.current.get(designId) ?? null;
-        if (!holes && design) {
-          const drillLayers = design.gerbers.filter((g) => g.layer_type === "drill");
-          holes = (
-            await Promise.all(
-              drillLayers.map(async (g) => {
-                try {
-                  return await api.readDrill(workingDir, g.path);
-                } catch {
-                  return [];
-                }
-              }),
-            )
-          ).flat();
-          holesCache.current.set(designId, holes);
+        // Build the deduped designs[] (index map) and the instances[] referencing it.
+        const designs: MillDesignInput[] = [];
+        const designIndex = new Map<string, number>();
+        for (const id of uniqueDesignIds) {
+          const src = sourceCache.current.get(id);
+          if (!src) continue; // design has no top-copper gerber → not millable
+          designIndex.set(id, designs.length);
+          designs.push({
+            gerberRel: src.gerberRel,
+            holes: src.holes,
+            originXMm: src.originXMm,
+            originYMm: src.originYMm,
+            boardWMm: src.boardWMm,
+            boardHMm: src.boardHMm,
+          });
         }
-        if (cancelled) return;
 
-        const ext = extent ?? { widthMm: 0, heightMm: 0, originXMm: 0, originYMm: 0 };
+        const instances: MillInstanceInput[] = [];
+        for (const inst of panel.instances) {
+          const idx = designIndex.get(inst.design_id);
+          if (idx === undefined) continue; // instance of a non-millable design — skip
+          instances.push({
+            designIndex: idx,
+            xMm: inst.x_mm,
+            yMm: inst.y_mm,
+            rotationDeg: inst.rotation_deg,
+          });
+        }
+
+        const extent: MillExtent = { widthMm: panel.width_mm, heightMm: panel.height_mm };
         const input: MillPlanInput = {
           workingDir,
-          gerberRel,
-          holes: holes ?? [],
+          designs,
+          instances,
+          panelWidthMm: panel.width_mm,
+          panelHeightMm: panel.height_mm,
           cutWidthMm: params.cutWidthMm,
           passes: params.passes,
           overlap: params.overlap,
           climb: params.climb,
           datum: millDatumCorner,
-          panelWidthMm: ext.widthMm,
-          panelHeightMm: ext.heightMm,
-          // The copper gerber is in absolute coords; the backend subtracts this
-          // origin and flips Y to land paths/G-code/preview in panel space.
-          originXMm: ext.originXMm,
-          originYMm: ext.originYMm,
           cnc: {
             safeZMm: cncProfile.safeZMm,
             toolChangeZMm: cncProfile.toolChangeZMm,
@@ -164,12 +229,13 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
           depthPerPassMm: params.depthPerPassMm ?? undefined,
           feedXyMmMin: params.feedXyMmMin,
           plungeMmMin: params.plungeMmMin,
-          // No keep-out zones: this MVP mills a SINGLE design in its own coordinate
-          // frame, not the assembled panel. Keep-out zones are defined in panel
-          // space and don't map into a lone design's frame, so applying them here
-          // would be meaningless. Panel-wide isolation (multi-instance) is a later
-          // phase; that's where keep-out zones become applicable.
-          keepOutZones: [],
+          // Keep-out zones are defined in panel space — now applicable (panel-wide plan).
+          keepOutZones: (panel.keep_out_zones ?? []).map((z) => ({
+            x: z.x_mm,
+            y: z.y_mm,
+            w: z.width_mm,
+            h: z.height_mm,
+          })),
         };
 
         const result = await api.mill.plan(input);
@@ -182,7 +248,7 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
     return () => {
       cancelled = true;
     };
-    // inputKey captures the meaningful change (workingDir + gerber + params + datum + cnc).
+    // inputKey captures the meaningful change (workingDir + panel layout + params + datum + cnc).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputKey]);
 
