@@ -1,9 +1,6 @@
 {
   "window": {
-    "title": "UV Exposure",
-    "noProject": "No project open",
-    "panelSize": "Panel {{w}} × {{h}} mm",
-    "phase4Placeholder": "Panel preview and run controls — coming in Phase 4"
+    "title": "UV Exposure"
   },
   "editor": {
     "noProject": "No project open",
