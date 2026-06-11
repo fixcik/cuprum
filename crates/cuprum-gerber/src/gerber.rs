@@ -891,8 +891,14 @@ M02*\n";
         assert_eq!(info90.px_h, 51);
 
         // mm extents also swap
-        assert!((info0.width_mm - info90.height_mm).abs() < 0.01, "width/height swap in mm");
-        assert!((info0.height_mm - info90.width_mm).abs() < 0.01, "height/width swap in mm");
+        assert!(
+            (info0.width_mm - info90.height_mm).abs() < 0.01,
+            "width/height swap in mm"
+        );
+        assert!(
+            (info0.height_mm - info90.width_mm).abs() < 0.01,
+            "height/width swap in mm"
+        );
     }
 
     // ── test 2: 0° and 180° have identical pixmap size ────────────────────────
@@ -913,7 +919,10 @@ M02*\n";
             .chunks_exact(4)
             .zip(data180.chunks_exact(4))
             .any(|(a, b)| a[0] != b[0]);
-        assert!(any_diff, "0° and 180° must produce different rasters (180° ≠ transpose)");
+        assert!(
+            any_diff,
+            "0° and 180° must produce different rasters (180° ≠ transpose)"
+        );
     }
 
     // ── test 3: clockwise rotation direction matches Konva / panel editor ──────
@@ -946,12 +955,14 @@ M02*\n";
             let in_bottom = cy > mid_y;
 
             assert_eq!(
-                in_right, expect_right_half,
+                in_right,
+                expect_right_half,
                 "{label}: centroid col {cx:.1} vs mid {mid_x:.1} — expected {} half",
                 if expect_right_half { "right" } else { "left" }
             );
             assert_eq!(
-                in_bottom, expect_bottom_half,
+                in_bottom,
+                expect_bottom_half,
                 "{label}: centroid row {cy:.1} vs mid {mid_y:.1} — expected {} half",
                 if expect_bottom_half { "bottom" } else { "top" }
             );

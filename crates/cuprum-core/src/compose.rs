@@ -186,12 +186,7 @@ pub fn rotate_bbox_about_point(
     let (ox, oy) = origin;
     let (w, h) = size;
     let (px, py) = pivot;
-    let corners = [
-        (ox, oy),
-        (ox + w, oy),
-        (ox, oy + h),
-        (ox + w, oy + h),
-    ];
+    let corners = [(ox, oy), (ox + w, oy), (ox, oy + h), (ox + w, oy + h)];
     // CCW rotation by `deg` about (px, py) in Y-up; exact for the four right angles.
     let rot = |(x, y): (f32, f32)| -> (f32, f32) {
         let (dx, dy) = (x - px, y - py);
@@ -359,9 +354,7 @@ pub fn compose_layout(
         let _span = tracing::info_span!("rasterize").entered();
         unique
             .into_par_iter()
-            .map(|(path, rot)| {
-                cache::native_mask(&path, rot).map(|m| ((path, rot), m))
-            })
+            .map(|(path, rot)| cache::native_mask(&path, rot).map(|m| ((path, rot), m)))
             .collect::<Result<_>>()?
     };
 
@@ -702,11 +695,19 @@ mod tests {
 
         let (o90, s90) = rotate_bbox_about_centre(origin, size, 90);
         assert_eq!(s90, (20.0, 30.0), "90°: size should swap");
-        assert_eq!(o90, (5.0, -5.0), "90°: origin should shift to keep centre at (15,10)");
+        assert_eq!(
+            o90,
+            (5.0, -5.0),
+            "90°: origin should shift to keep centre at (15,10)"
+        );
 
         let (o270, s270) = rotate_bbox_about_centre(origin, size, 270);
         assert_eq!(s270, (20.0, 30.0), "270°: size should swap");
-        assert_eq!(o270, (5.0, -5.0), "270°: origin should shift to keep centre at (15,10)");
+        assert_eq!(
+            o270,
+            (5.0, -5.0),
+            "270°: origin should shift to keep centre at (15,10)"
+        );
     }
 
     /// A non-zero-origin board confirms that the centre pivot uses the actual
@@ -736,7 +737,10 @@ mod tests {
         for deg in [0u16, 90, 180, 270] {
             let a = rotate_bbox_about_centre(origin, size, deg);
             let b = rotate_bbox_about_point(origin, size, pivot, deg);
-            assert_eq!(a, b, "deg {deg}: self-pivot should equal rotate_bbox_about_centre");
+            assert_eq!(
+                a, b,
+                "deg {deg}: self-pivot should equal rotate_bbox_about_centre"
+            );
         }
     }
 
@@ -761,7 +765,11 @@ mod tests {
         let outline_centre = (5.0f32, 4.0f32);
 
         let (o90, s90) = rotate_bbox_about_point(copper_origin, copper_size, outline_centre, 90);
-        assert_eq!(o90, (4.0, 0.0), "90°: origin (rotated about outline centre)");
+        assert_eq!(
+            o90,
+            (4.0, 0.0),
+            "90°: origin (rotated about outline centre)"
+        );
         assert_eq!(s90, (4.0, 8.0), "90°: size (extents swap, pivot-invariant)");
 
         // 270° CCW about (5,4):
@@ -769,12 +777,19 @@ mod tests {
         //   (9,5) → (5+(5−4), 4−(9−5)) = (6, 0)
         //   AABB → origin (2,0), size (4,8).
         let (o270, s270) = rotate_bbox_about_point(copper_origin, copper_size, outline_centre, 270);
-        assert_eq!(o270, (2.0, 0.0), "270°: origin (rotated about outline centre)");
+        assert_eq!(
+            o270,
+            (2.0, 0.0),
+            "270°: origin (rotated about outline centre)"
+        );
         assert_eq!(s270, (4.0, 8.0), "270°: size");
 
         // 90° and 270° land the copper on OPPOSITE sides of the outline centre —
         // the asymmetry the buggy copper-centred rotation could not distinguish.
-        assert_ne!(o90, o270, "90° and 270° copper positions must differ for asymmetric copper");
+        assert_ne!(
+            o90, o270,
+            "90° and 270° copper positions must differ for asymmetric copper"
+        );
     }
 
     // ── resolve_panel_placements rotation tests ──────────────────────────────
@@ -798,7 +813,10 @@ mod tests {
         let item = rotated_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.5, 9.0, 6.5), 90);
         let result = resolve_panel_placements(50.0, 30.0, &[item]).unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].rotation_deg, 90, "rotation_deg must be carried through");
+        assert_eq!(
+            result[0].rotation_deg, 90,
+            "rotation_deg must be carried through"
+        );
         assert_eq!(result[0].off_x, 6239, "X offset wrong for 90° rotation");
         assert_eq!(result[0].off_y, 2536, "Y offset wrong for 90° rotation");
     }
@@ -811,7 +829,10 @@ mod tests {
         let item = rotated_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.5, 9.0, 6.5), 270);
         let result = resolve_panel_placements(50.0, 30.0, &[item]).unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].rotation_deg, 270, "rotation_deg must be carried through");
+        assert_eq!(
+            result[0].rotation_deg, 270,
+            "rotation_deg must be carried through"
+        );
         assert_eq!(result[0].off_x, 6239, "X offset wrong for 270° rotation");
         assert_eq!(result[0].off_y, 2536, "Y offset wrong for 270° rotation");
     }
@@ -838,14 +859,26 @@ mod tests {
         let r90 = resolve_panel_placements(50.0, 30.0, &[item90]).unwrap();
         assert_eq!(r90[0].rotation_deg, 90);
         // CORRECT values (copper about outline centre). Old buggy code → (6274, 2589).
-        assert_eq!(r90[0].off_x, 6346, "90° X — copper must rotate about OUTLINE centre");
-        assert_eq!(r90[0].off_y, 2536, "90° Y — copper must rotate about OUTLINE centre");
+        assert_eq!(
+            r90[0].off_x, 6346,
+            "90° X — copper must rotate about OUTLINE centre"
+        );
+        assert_eq!(
+            r90[0].off_y, 2536,
+            "90° Y — copper must rotate about OUTLINE centre"
+        );
 
         let item270 = rotated_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.0, 9.0, 5.0), 270);
         let r270 = resolve_panel_placements(50.0, 30.0, &[item270]).unwrap();
         assert_eq!(r270[0].rotation_deg, 270);
-        assert_eq!(r270[0].off_x, 6203, "270° X — copper must rotate about OUTLINE centre");
-        assert_eq!(r270[0].off_y, 2536, "270° Y — copper must rotate about OUTLINE centre");
+        assert_eq!(
+            r270[0].off_x, 6203,
+            "270° X — copper must rotate about OUTLINE centre"
+        );
+        assert_eq!(
+            r270[0].off_y, 2536,
+            "270° Y — copper must rotate about OUTLINE centre"
+        );
 
         // The decisive guard: asymmetric copper lands on opposite sides at 90 vs
         // 270.  The buggy copper-centred rotation produced identical offsets here.
@@ -855,8 +888,14 @@ mod tests {
         );
 
         // And both differ from the buggy value (6274) — a hard regression pin.
-        assert_ne!(r90[0].off_x, 6274, "90° must NOT match the buggy copper-centred result");
-        assert_ne!(r270[0].off_x, 6274, "270° must NOT match the buggy copper-centred result");
+        assert_ne!(
+            r90[0].off_x, 6274,
+            "90° must NOT match the buggy copper-centred result"
+        );
+        assert_ne!(
+            r270[0].off_x, 6274,
+            "270° must NOT match the buggy copper-centred result"
+        );
     }
 
     /// Test 6 — 0° resolve test still passes with new code path (regression guard).
