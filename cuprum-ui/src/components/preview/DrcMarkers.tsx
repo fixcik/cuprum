@@ -3,6 +3,7 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { useTranslation } from "react-i18next";
 import type { Severity } from "@/lib/feasibility";
 import { SEVERITY } from "@/lib/severity";
+import { boxPlacement, circlePlacement, dimTicks, hitboxPlacement, markerPaintOrder } from "@/lib/drcMarkers";
 
 /** A DRC hotspot projected to screen px: a dimension line a→b with the value at
  *  its midpoint, plus the description for the hover card. */
@@ -86,38 +87,28 @@ export const DrcMarkers = memo(function DrcMarkers({
       style={pad > 0 ? { clipPath: `inset(${pad}px 0 0 ${pad}px)` } : undefined}
     >
       <svg width={width} height={height} className="absolute inset-0">
-        {[...markers]
-          .sort((a, b) => (a.shape === "line" ? 0 : 1) - (b.shape === "line" ? 0 : 1))
-          .map((m) => {
+        {markerPaintOrder(markers).map((m) => {
           const c = SEVERITY[m.severity].hsl;
           if (m.shape === "hover") {
             if (!m.focused) return null;
             // Focused cluster: a box (+ width label) so ‹› shows where it landed.
-            const hpad = 6;
-            const hx0 = Math.min(m.ax, m.bx) - hpad;
-            const hy0 = Math.min(m.ay, m.by) - hpad;
-            const hx1 = Math.max(m.ax, m.bx) + hpad;
-            const hy1 = Math.max(m.ay, m.by) + hpad;
-            const hbw = Math.max(hx1 - hx0, 16);
-            const hbh = Math.max(hy1 - hy0, 16);
-            const hcx = (hx0 + hx1) / 2;
-            const hcy = (hy0 + hy1) / 2;
+            const hb = boxPlacement(m, 6, 16);
             const hcol = SEVERITY[m.severity].hsl;
             return (
               <g key={m.key}>
                 <rect
-                  x={hcx - hbw / 2}
-                  y={hcy - hbh / 2}
-                  width={hbw}
-                  height={hbh}
+                  x={hb.x}
+                  y={hb.y}
+                  width={hb.w}
+                  height={hb.h}
                   rx={3}
                   fill="none"
                   stroke={hcol}
                   strokeWidth={2}
                 />
                 <text
-                  x={hcx + hbw / 2 + 5}
-                  y={hcy - hbh / 2}
+                  x={hb.labelX}
+                  y={hb.labelY}
                   style={{
                     fill: hcol,
                     fontSize: "11px",
@@ -151,26 +142,20 @@ export const DrcMarkers = memo(function DrcMarkers({
               />
             );
           }
-          const len = Math.hypot(m.bx - m.ax, m.by - m.ay) || 1;
-          // Perpendicular unit, for the end ticks.
-          const px = -(m.by - m.ay) / len;
-          const py = (m.bx - m.ax) / len;
           const tick = m.focused ? 7 : 4;
           const sw = m.focused ? 2 : 1.25;
           if (m.shape === "circle") {
             // Ring around a hole (a..b = its bbox). Drawn thick so it's visible,
             // solid on an error (or when focused), dashed otherwise.
-            const cx = (m.ax + m.bx) / 2;
-            const cy = (m.ay + m.by) / 2;
-            const r = Math.max(Math.max(Math.abs(m.bx - m.ax), Math.abs(m.by - m.ay)) / 2, 8);
+            const cp = circlePlacement(m, 8);
             const solid = m.focused || m.severity === "block";
             const cw = m.focused ? 2.75 : 2;
             return (
               <g key={m.key} opacity={m.focused ? 1 : 0.85}>
                 <circle
-                  cx={cx}
-                  cy={cy}
-                  r={r}
+                  cx={cp.cx}
+                  cy={cp.cy}
+                  r={cp.r}
                   fill="none"
                   stroke={c}
                   strokeWidth={cw}
@@ -178,8 +163,8 @@ export const DrcMarkers = memo(function DrcMarkers({
                 />
                 {m.focused && (
                   <text
-                    x={cx + r + 5}
-                    y={cy - r}
+                    x={cp.labelX}
+                    y={cp.labelY}
                     style={{
                       fill: c,
                       fontSize: "11px",
@@ -199,22 +184,14 @@ export const DrcMarkers = memo(function DrcMarkers({
           }
           if (m.shape === "box") {
             // Box around the thin feature, with a minimum on-screen size + padding.
-            const pad = 6;
-            const x0 = Math.min(m.ax, m.bx) - pad;
-            const y0 = Math.min(m.ay, m.by) - pad;
-            const x1 = Math.max(m.ax, m.bx) + pad;
-            const y1 = Math.max(m.ay, m.by) + pad;
-            const cx = (x0 + x1) / 2;
-            const cy = (y0 + y1) / 2;
-            const bw = Math.max(x1 - x0, 16);
-            const bh = Math.max(y1 - y0, 16);
+            const bp = boxPlacement(m, 6, 16);
             return (
               <g key={m.key} opacity={m.focused ? 1 : 0.7}>
                 <rect
-                  x={cx - bw / 2}
-                  y={cy - bh / 2}
-                  width={bw}
-                  height={bh}
+                  x={bp.x}
+                  y={bp.y}
+                  width={bp.w}
+                  height={bp.h}
                   rx={3}
                   fill="none"
                   stroke={c}
@@ -223,8 +200,8 @@ export const DrcMarkers = memo(function DrcMarkers({
                 />
                 {m.focused && (
                   <text
-                    x={cx + bw / 2 + 5}
-                    y={cy - bh / 2}
+                    x={bp.labelX}
+                    y={bp.labelY}
                     style={{
                       fill: c,
                       fontSize: "11px",
@@ -242,11 +219,12 @@ export const DrcMarkers = memo(function DrcMarkers({
               </g>
             );
           }
+          const { tx, ty } = dimTicks(m, tick);
           return (
             <g key={m.key} opacity={m.focused ? 1 : 0.7}>
               <line x1={m.ax} y1={m.ay} x2={m.bx} y2={m.by} stroke={c} strokeWidth={sw} />
-              <line x1={m.ax + px * tick} y1={m.ay + py * tick} x2={m.ax - px * tick} y2={m.ay - py * tick} stroke={c} strokeWidth={sw} />
-              <line x1={m.bx + px * tick} y1={m.by + py * tick} x2={m.bx - px * tick} y2={m.by - py * tick} stroke={c} strokeWidth={sw} />
+              <line x1={m.ax + tx} y1={m.ay + ty} x2={m.ax - tx} y2={m.ay - ty} stroke={c} strokeWidth={sw} />
+              <line x1={m.bx + tx} y1={m.by + ty} x2={m.bx - tx} y2={m.by - ty} stroke={c} strokeWidth={sw} />
               {m.focused && (
                 <text
                   x={m.mx + 9}
@@ -275,15 +253,7 @@ export const DrcMarkers = memo(function DrcMarkers({
           when its centre is off-screen. */}
       <TooltipPrimitive.Provider delayDuration={120}>
         {markers.filter((m) => m.shape !== "line").map((m) => {
-          const hitPad = 8;
-          const x0 = Math.min(m.ax, m.bx);
-          const y0 = Math.min(m.ay, m.by);
-          const x1 = Math.max(m.ax, m.bx);
-          const y1 = Math.max(m.ay, m.by);
-          const cx = (x0 + x1) / 2;
-          const cy = (y0 + y1) / 2;
-          const w = Math.max(x1 - x0 + hitPad * 2, 16);
-          const h = Math.max(y1 - y0 + hitPad * 2, 16);
+          const { cx, cy, w, h } = hitboxPlacement(m, 8, 16);
           return (
           <TooltipPrimitive.Root key={m.key}>
             <TooltipPrimitive.Trigger asChild>
