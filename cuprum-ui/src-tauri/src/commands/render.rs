@@ -283,9 +283,9 @@ fn design_preview_cached(
 
 /// Render a design's composite preview PNG into the project artifact cache
 /// (`<workdir>/artifacts/preview`) and return it as a data URL for a card `<img>`.
-/// Non-drill layers only (no holes), top side — matches the card's old LayerStack
-/// thumbnail. Persistent + content-keyed, so it ships in the `.cuprum` and only
-/// recomputes when gerbers or colors change.
+/// Drill holes are punched transparent through the composite. Top side only.
+/// Persistent + content-keyed, so it ships in the `.cuprum` and only recomputes
+/// when gerbers or colors change.
 ///
 /// Pass `variant: "detailed"` to get a density-sized (12 px/mm) image cached
 /// transiently in the OS app-cache, suitable for the panel editor canvas.
@@ -311,9 +311,6 @@ pub(crate) async fn render_design_preview(
                 .ok()
                 .and_then(|v| v.as_str().map(str::to_owned))
                 .unwrap_or_else(|| "other".to_string());
-            if lt == "drill" {
-                continue;
-            }
             let bytes = read_workdir_file(&working_dir, &g.rel)?;
             layers.push(cuprum_core::preview::PreviewLayer {
                 layer_type: lt,

@@ -78,10 +78,11 @@ export function DesignCard({
   useEffect(() => {
     let cancelled = false;
     if (!workingDir) return;
-    const gerbers = design.gerbers
-      .filter((g) => g.layer_type !== "drill")
-      .map((g) => ({ rel: g.path, layerType: g.layer_type }));
-    if (gerbers.length === 0) {
+    // Include drill: the backend punches it as transparent holes (not a drawn
+    // layer) and hashes it into the preview key, which must match the pack-gc
+    // valid set in workdir.rs. Skip only when there's no drawable layer.
+    const gerbers = design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type }));
+    if (gerbers.every((g) => g.layerType === "drill")) {
       setPreviewUrl(null);
       return;
     }
