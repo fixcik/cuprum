@@ -5,6 +5,7 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { useJog } from "@/hooks/useJog";
 import { classifyBindZ, type ZBindBand } from "@/lib/drillZHeadroom";
+import { parseZTarget } from "@/lib/zbar";
 import { cn } from "@/lib/utils";
 
 const clamp01 = (f: number) => (f <= 0 ? 0 : f >= 1 ? 1 : f);
@@ -76,6 +77,43 @@ export function DrillManualZBar({
   // Hover target (fraction along the track) for the tooltip + ghost line.
   const [hoverFrac, setHoverFrac] = useState<number | null>(null);
 
+  // Inline-editable readout: click the live Z value to type an exact machine-Z target,
+  // then jog there (absolute) on commit — the same cancel-then-retarget as a track click.
+  // Editable only while motion is allowed. Out-of-travel / non-numeric input is rejected
+  // (invalid → revert, no jog). `doneRef` makes the first commit/cancel win, so the
+  // synthetic blur fired when the input unmounts on Enter/Escape doesn't double-jog.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const doneRef = useRef(false);
+  const draftValid = parseZTarget(draft, maxZMm) != null;
+
+  useEffect(() => {
+    if (editing) {
+      doneRef.current = false;
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const startEdit = () => {
+    if (!enabled) return;
+    setDraft(mz.toFixed(1));
+    setEditing(true);
+  };
+  const commitEdit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setEditing(false);
+    const target = parseZTarget(draft, maxZMm);
+    if (target != null) void jogTo({ z: target - wcoZ });
+  };
+  const cancelEdit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setEditing(false);
+  };
+
   // Machine Z under the cursor on the track (left edge = -maxZMm, right edge = 0).
   const machineZAtFrac = (f: number) => -maxZMm + f * maxZMm;
   const fracAt = (clientX: number): number => {
@@ -116,9 +154,36 @@ export function DrillManualZBar({
           Z
         </span>
         <span className="text-[12px] font-medium text-foreground">{t("toolChange.zTouchLabel")}</span>
-        <span className="ml-auto tabular-nums text-[20px] font-bold leading-none text-foreground">
-          {mz.toFixed(1)}
-        </span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            inputMode="decimal"
+            aria-label={t("toolChange.zEditLabel")}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitEdit();
+              else if (e.key === "Escape") cancelEdit();
+            }}
+            className={cn(
+              "ml-auto w-20 rounded border bg-background px-1 text-right text-[20px] font-bold leading-none tabular-nums text-foreground outline-none focus-visible:ring-1",
+              draftValid
+                ? "border-input focus-visible:ring-ring"
+                : "border-red-500 focus-visible:ring-red-500",
+            )}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={startEdit}
+            disabled={!enabled}
+            title={t("toolChange.zEditHint")}
+            className="ml-auto rounded px-1 text-[20px] font-bold leading-none tabular-nums text-foreground hover:bg-foreground/5 disabled:hover:bg-transparent enabled:cursor-text"
+          >
+            {mz.toFixed(1)}
+          </button>
+        )}
         <span className="text-[11px] text-muted-foreground">{t("common:unit.mm")}</span>
       </div>
 

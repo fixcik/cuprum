@@ -172,6 +172,8 @@
     "probeShorted": "Probe is shorted — detach before probing",
     "probeFail": "No contact — check the probe",
     "zTouchLabel": "Z touch-off",
+    "zEditHint": "Click to type an exact Z height — the machine jogs there",
+    "zEditLabel": "Exact Z height, mm",
     "stepMm": "Step, mm",
     "manualBarHint": "Lower Z to the copper (buttons or step). Taken per bit — at start and on each tool change.",
     "manualBarMark": "Yellow tick",
