@@ -343,6 +343,65 @@ pub fn render_design_preview(
     Ok(png)
 }
 
+/// Quantize an RGBA pixmap to a <=256-colour palette and encode an indexed
+/// (PNG-8) image. A tRNS chunk carries per-entry alpha so transparency outside
+/// the board outline survives. The layer palette is narrow, so quantization is
+/// visually lossless at preview densities.
+fn encode_indexed_png(pixmap: &resvg::tiny_skia::Pixmap) -> anyhow::Result<Vec<u8>> {
+    let (w, h) = (pixmap.width(), pixmap.height());
+    // tiny-skia stores premultiplied alpha; imagequant wants straight RGBA.
+    let rgba: Vec<imagequant::RGBA> = pixmap
+        .pixels()
+        .iter()
+        .map(|p| {
+            let c = p.demultiply();
+            imagequant::RGBA::new(c.red(), c.green(), c.blue(), c.alpha())
+        })
+        .collect();
+
+    let mut liq = imagequant::new();
+    liq.set_quality(0, 100)
+        .map_err(|e| anyhow::anyhow!("liq quality: {e:?}"))?;
+    let mut img = liq
+        .new_image(rgba.as_slice(), w as usize, h as usize, 0.0)
+        .map_err(|e| anyhow::anyhow!("liq image: {e:?}"))?;
+    let mut res = liq
+        .quantize(&mut img)
+        .map_err(|e| anyhow::anyhow!("liq quantize: {e:?}"))?;
+    res.set_dithering_level(1.0)
+        .map_err(|e| anyhow::anyhow!("liq dither: {e:?}"))?;
+    let (palette, indices) = res
+        .remapped(&mut img)
+        .map_err(|e| anyhow::anyhow!("liq remap: {e:?}"))?;
+
+    // Split palette into PLTE (rgb triples) + tRNS (alpha bytes). Trailing fully
+    // opaque entries can be dropped from tRNS, but emitting all is simplest/correct.
+    let mut plte = Vec::with_capacity(palette.len() * 3);
+    let mut trns = Vec::with_capacity(palette.len());
+    for c in &palette {
+        plte.push(c.r);
+        plte.push(c.g);
+        plte.push(c.b);
+        trns.push(c.a);
+    }
+
+    let mut out = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut out, w, h);
+        enc.set_color(png::ColorType::Indexed);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.set_palette(plte);
+        enc.set_trns(trns);
+        let mut writer = enc
+            .write_header()
+            .map_err(|e| anyhow::anyhow!("png header: {e}"))?;
+        writer
+            .write_image_data(&indices)
+            .map_err(|e| anyhow::anyhow!("png data: {e}"))?;
+    }
+    Ok(out)
+}
+
 /// Rasterize a standalone SVG document to PNG with resvg, scaled so the longest
 /// side equals `max_px`.
 fn rasterize(svg: &str, max_px: u32) -> anyhow::Result<Vec<u8>> {
@@ -366,6 +425,36 @@ fn rasterize(svg: &str, max_px: u32) -> anyhow::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indexed_png_roundtrips_with_alpha() {
+        // 2x2: opaque red, opaque green, fully transparent, opaque red again.
+        let mut pm = resvg::tiny_skia::Pixmap::new(2, 2).unwrap();
+        let px = pm.pixels_mut();
+        px[0] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 0, 255).unwrap();
+        px[1] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(0, 180, 0, 255).unwrap();
+        px[2] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap();
+        px[3] = resvg::tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 0, 255).unwrap();
+
+        let bytes = encode_indexed_png(&pm).expect("encode");
+
+        let dec = png::Decoder::new(std::io::Cursor::new(&bytes));
+        let mut reader = dec.read_info().expect("read_info");
+        let info = reader.info();
+        assert_eq!(info.color_type, png::ColorType::Indexed, "must be indexed PNG-8");
+        assert_eq!(info.bit_depth, png::BitDepth::Eight);
+        assert!(!info.palette.as_ref().unwrap().is_empty(), "palette present");
+        assert!(info.palette.as_ref().unwrap().len() / 3 <= 256, "<=256 colours");
+        // A tRNS chunk must exist because one pixel is fully transparent.
+        assert!(info.trns.is_some(), "tRNS present for transparency");
+        assert!(
+            info.trns.as_ref().unwrap().iter().any(|&a| a == 0),
+            "some palette entry is fully transparent"
+        );
+
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        reader.next_frame(&mut buf).expect("decode frame");
+    }
 
     #[test]
     fn palette_and_order_match_frontend() {
