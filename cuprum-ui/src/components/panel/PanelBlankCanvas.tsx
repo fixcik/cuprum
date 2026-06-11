@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Group, Text, Image as KonvaImage } from "react-konva";
+import { Stage, Layer, Rect, Group, Text } from "react-konva";
 import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { LocateFixed } from "lucide-react";
@@ -14,11 +14,6 @@ import {
   BLANK_STROKE,
   BLANK_FILL,
   BLANK_LABEL,
-  INSTANCE_FILL,
-  INSTANCE_STROKE,
-  INSTANCE_OFF_STROKE,
-  INSTANCE_OFF_FILL,
-  INSTANCE_WARN_STROKE,
   RULER_TOP,
   RULER_LEFT,
 } from "@/components/editor/canvasStyle";
@@ -27,7 +22,7 @@ import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { useNavigation } from "@/navigationStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, buildSnapCandidates, computeSelectionBBox, type GuideLine } from "@/lib/panelPlacement";
+import { instanceBounds, clampDeltaToPanel, marqueeHits, snapAngle, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, buildSnapCandidates, computeSelectionBBox, type GuideLine } from "@/lib/panelPlacement";
 import type { Severity } from "@/lib/feasibility";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { SnapGuides } from "@/components/panel/SnapGuides";
@@ -48,12 +43,12 @@ import { useKeepOutSelection } from "@/keepOutSelectionStore";
 import { usePanelContextActions } from "@/hooks/usePanelContextActions";
 import { usePanelKeyHandlers } from "@/hooks/usePanelKeyHandlers";
 import { ToolingGhostCrosshair, MarqueeRect, KeepOutDrawRect } from "@/components/panel/DraftShapes";
+import { InstanceLayer } from "@/components/panel/InstanceLayer";
+import { PanelContextMenuContent } from "@/components/panel/PanelContextMenuContent";
+import { useCrosshairState } from "@/hooks/useCrosshairState";
 import {
   ContextMenu,
   ContextMenuTrigger,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
 } from "@/components/ui/ContextMenu";
 
 const SNAP_PX = 6;   // magnetic snap threshold in screen pixels
@@ -125,34 +120,8 @@ export function PanelBlankCanvas({
     rulerTop: RULER_TOP,
     scaleToPct: (s, f) => Math.round((f * s / pxPerMm) * 100),
   });
-  // `snapped` marks the crosshair locked onto a blank/instance corner/edge/centre
-  // (→ a lock ring); false for a free point (Alt held) or a plain grid node.
-  const [hoverPx, setHoverPx] = useState<{ x: number; y: number; snapped: boolean } | null>(null);
-  // The hover crosshair + readout is opt-in (off by default — it's busy and most
-  // placement is done by eye/snap).
-  const [showCrosshair, setShowCrosshair] = useState(false);
-  // Coalesce hover updates to one per animation frame: a bare mousemove handler
-  // would re-render the whole instance tree on every pixel of movement. The latest
-  // pointer lives in a ref; the frame flushes whatever is freshest.
-  const hoverRaf = useRef<number | null>(null);
-  const pendingHover = useRef<{ x: number; y: number; snapped: boolean } | null>(null);
-  const queueHover = useCallback((p: { x: number; y: number; snapped: boolean } | null) => {
-    pendingHover.current = p;
-    if (p === null) {
-      if (hoverRaf.current != null) {
-        cancelAnimationFrame(hoverRaf.current);
-        hoverRaf.current = null;
-      }
-      setHoverPx(null);
-      return;
-    }
-    if (hoverRaf.current != null) return;
-    hoverRaf.current = requestAnimationFrame(() => {
-      hoverRaf.current = null;
-      setHoverPx(pendingHover.current);
-    });
-  }, []);
-  useEffect(() => () => { if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current); }, []);
+  // Hover crosshair + readout overlay (opt-in, RAF-coalesced, Esc to dismiss).
+  const { hoverPx, showCrosshair, setShowCrosshair, queueHover } = useCrosshairState();
   const [tool, setTool] = useState<PanelTool>("select");
   const panMode = tool === "pan" || spaceDown;
   // Resolved board extents (mm) keyed by design id — shared hook, fetched once per design.
@@ -216,13 +185,6 @@ export function PanelBlankCanvas({
     [instances, sizes],
   );
 
-
-  // Esc turns the hover crosshair off (mirrors the design preview's Esc behaviour).
-  useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setShowCrosshair(false); };
-    window.addEventListener("keydown", onEsc);
-    return () => window.removeEventListener("keydown", onEsc);
-  }, []);
 
   const realSize = useCallback(() => centerAt(pxPerMm / fit, true), [centerAt, pxPerMm, fit]);
   const setCursor = (c: string) => {
@@ -755,91 +717,24 @@ export function PanelBlankCanvas({
             />
             {/* Derived clamp keep-out zones (dashed ochre squares around tooling holes). */}
             <ClampZoneLayer holes={holes} clampRadiusMm={clampRadiusMm} />
-            {visibleInstances.map((inst) => {
-              const sz = sizes[inst.design_id];
-              if (!sz) return null;
-              const isSelected = selected.has(inst.id);
-              // Centre-pivot: place the Group at the board centre, offset by half the
-              // board so local (0,0) is the unrotated top-left, then rotate about that
-              // centre. Matches instanceBounds / packLayout.
-              // While a drag is live, shift every selected instance by dragDelta for
-              // a lock-step preview; the single commit happens on drag end.
-              const shift = isSelected && dragDelta ? dragDelta : { dx: 0, dy: 0 };
-              const cx = inst.x_mm + sz.w / 2 + shift.dx;
-              const cy = inst.y_mm + sz.h / 2 + shift.dy;
-              // Live rotation preview: spin selected instances by the snapped delta
-              // (each about its own centre) until the knob is released and committed.
-              const rotation = inst.rotation_deg + (isSelected && rotPreview != null ? rotPreview : 0);
-              // Live off-panel check on the rendered pose (incl. drag/rotate preview)
-              // so the red highlight tracks the board while it moves. This is the
-              // "live" path; the committed severity from usePanelFindings is used
-              // when the board is idle.
-              const liveOff = isOffPanel({
-                xMm: inst.x_mm + shift.dx,
-                yMm: inst.y_mm + shift.dy,
-                boardW: sz.w,
-                boardH: sz.h,
-                rotationDeg: rotation,
-                panelW: W,
-                panelH: H,
-              });
-              // Committed severity from the single findings source (covers off-panel,
-              // overlap, spacing). During a live drag/rotate the committed
-              // value may lag the render; fall back to liveOff for block.
-              const committedSev = byInstance.get(inst.id);
-              const liveZoneHit = keepOutPreviewBox
-                ? boxesOverlap(
-                    instanceBounds({
-                      xMm: inst.x_mm + shift.dx,
-                      yMm: inst.y_mm + shift.dy,
-                      boardW: sz.w,
-                      boardH: sz.h,
-                      rotationDeg: rotation,
-                    }),
-                    keepOutPreviewBox,
-                  )
-                : false;
-              const isBlock = liveOff || liveZoneHit || committedSev === "block";
-              const isWarn = !isBlock && committedSev === "warn";
-              return (
-                <Group
-                  key={inst.id}
-                  id={inst.id}
-                  x={cx}
-                  y={cy}
-                  offsetX={sz.w / 2}
-                  offsetY={sz.h / 2}
-                  rotation={rotation}
-                  listening={tool === "select"}
-                  draggable={tool === "select"}
-                  onClick={onInstanceClick(inst.id)}
-                  onTap={onInstanceClick(inst.id)}
-                  onContextMenu={onInstanceContextMenu(inst.id)}
-                  onDragStart={onInstanceDragStart(inst.id)}
-                  onDragMove={onInstanceDragMove}
-                  onDragEnd={onInstanceDragEnd}
-                >
-                  <Rect
-                    width={sz.w}
-                    height={sz.h}
-                    fill={isBlock ? INSTANCE_OFF_FILL : INSTANCE_FILL}
-                    stroke={isBlock ? INSTANCE_OFF_STROKE : isWarn ? INSTANCE_WARN_STROKE : INSTANCE_STROKE}
-                    strokeWidth={isBlock || isWarn ? 1.5 : 1}
-                    strokeScaleEnabled={false}
-                    cornerRadius={0.3}
-                  />
-                  {previewImages[inst.design_id] && (
-                    <KonvaImage
-                      image={previewImages[inst.design_id]}
-                      width={sz.w}
-                      height={sz.h}
-                      listening={false}
-                      perfectDrawEnabled={false}
-                    />
-                  )}
-                </Group>
-              );
-            })}
+            <InstanceLayer
+              instances={visibleInstances}
+              sizes={sizes}
+              selected={selected}
+              dragDelta={dragDelta}
+              rotPreview={rotPreview}
+              previewImages={previewImages}
+              byInstance={byInstance}
+              keepOutPreviewBox={keepOutPreviewBox}
+              tool={tool}
+              panelW={W}
+              panelH={H}
+              onInstanceClick={onInstanceClick}
+              onInstanceContextMenu={onInstanceContextMenu}
+              onInstanceDragStart={onInstanceDragStart}
+              onInstanceDragMove={onInstanceDragMove}
+              onInstanceDragEnd={onInstanceDragEnd}
+            />
             <SelectionOverlay
               instances={visibleInstances}
               sizes={sizes}
@@ -964,43 +859,19 @@ export function PanelBlankCanvas({
       </ZoomToolbar>
     </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
-        {keepOutSelected.size > 0 ? (
-          // Keep-out zone context menu.
-          <>
-            <ContextMenuItem onSelect={() => { void removeKeepOutZones([...keepOutSelected]); clearKeepOutSelection(); }}>
-              {t("panel.keepout.delete")}
-            </ContextMenuItem>
-          </>
-        ) : (
-          // Board instance context menu.
-          <>
-            <ContextMenuItem disabled={selected.size !== 1} onSelect={() => openSelectedDesign()}>
-              {t("panel.menu.openDesign")}
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem disabled={!hasSelection} onSelect={() => duplicateSelected()}>
-              {t("panel.menu.duplicate")}
-            </ContextMenuItem>
-            <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(90)}>
-              {t("panel.menu.rotateCw")}
-            </ContextMenuItem>
-            <ContextMenuItem disabled={!hasSelection} onSelect={() => rotateSelectionBy(-90)}>
-              {t("panel.menu.rotateCcw")}
-            </ContextMenuItem>
-            <ContextMenuItem disabled={!hasSelection} onSelect={() => resetSelectionRotation()}>
-              {t("panel.menu.resetRotation")}
-            </ContextMenuItem>
-            <ContextMenuItem disabled={!hasSelection} onSelect={() => setRenestOpen(true)}>
-              {t("panel.menu.renest")}
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem disabled={!hasSelection} onSelect={() => deleteSelected()}>
-              {t("panel.menu.delete")}
-            </ContextMenuItem>
-          </>
-        )}
-      </ContextMenuContent>
+      <PanelContextMenuContent
+        hasSelection={hasSelection}
+        selectedCount={selected.size}
+        keepOutSelectedCount={keepOutSelected.size}
+        onDeleteKeepOut={() => { void removeKeepOutZones([...keepOutSelected]); clearKeepOutSelection(); }}
+        onOpenDesign={() => openSelectedDesign()}
+        onDuplicate={() => duplicateSelected()}
+        onRotateCw={() => rotateSelectionBy(90)}
+        onRotateCcw={() => rotateSelectionBy(-90)}
+        onResetRotation={() => resetSelectionRotation()}
+        onRenest={() => setRenestOpen(true)}
+        onDelete={() => deleteSelected()}
+      />
     </ContextMenu>
     <RenestDialog
       open={renestOpen}
