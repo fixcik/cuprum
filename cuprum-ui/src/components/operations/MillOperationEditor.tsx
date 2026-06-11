@@ -25,6 +25,8 @@ export function MillOperationEditor({ snapshot }: { snapshot: MillSnapshot }) {
   const setMillDefaults = useSettings((s) => s.setMillDefaults);
   const millDatumCorner = useSettings((s) => s.millDatumCorner);
   const setMillDatumCorner = useSettings((s) => s.setMillDatumCorner);
+  const side = useSettings((s) => s.millSide);
+  const setSide = useSettings((s) => s.setMillSide);
 
   const params: MillCutParams = useMemo(
     () => ({
@@ -45,7 +47,7 @@ export function MillOperationEditor({ snapshot }: { snapshot: MillSnapshot }) {
     [setMillDefaults],
   );
 
-  const { result, extent, hasSource, loading } = useMillPlan(snapshot, params);
+  const { result, extent, hasSource, loading } = useMillPlan(snapshot, params, side);
 
   const machineWork = useMachinePosition();
 
@@ -77,6 +79,11 @@ export function MillOperationEditor({ snapshot }: { snapshot: MillSnapshot }) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-3 py-1.5">
           <span className="text-[11px] text-slate-500">{t("toolbar.previewHint")}</span>
+          {side === "bottom" && (
+            <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+              {t("side.bottomBadge")}
+            </span>
+          )}
         </div>
         <div className="relative flex-1 overflow-hidden">
           {result && extent && (
@@ -95,6 +102,31 @@ export function MillOperationEditor({ snapshot }: { snapshot: MillSnapshot }) {
       {/* Inspector sidebar */}
       <div className="flex w-[340px] shrink-0 flex-col overflow-y-auto border-l border-border bg-[#0b0e13]">
         <div className="flex flex-col gap-3 p-3">
+          {/* Side selector (top / bottom). Bottom mirrors the toolpaths about the
+              panel's vertical centre — each side is its own pass / G-code. */}
+          <div className="flex flex-col gap-2 rounded-lg border border-border bg-card/40 p-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("side.label")}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(["top", "bottom"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSide(s)}
+                  className={
+                    "h-8 rounded-md border px-2 text-[12px] transition-colors " +
+                    (side === s
+                      ? "border-primary/50 bg-primary/10 text-slate-100"
+                      : "border-border text-muted-foreground hover:border-primary/40")
+                  }
+                >
+                  {t(`side.${s}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Datum corner selector */}
           <div className="flex flex-col gap-2 rounded-lg border border-border bg-card/40 p-3">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">

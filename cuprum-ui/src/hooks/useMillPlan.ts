@@ -8,7 +8,13 @@ import {
   type MillInstanceInput,
   type Hole,
 } from "@/lib/api";
+import type { MillSide } from "@/lib/millDefaults";
 import { metricsCache } from "@/lib/metricsCache";
+
+/** The gerber `layer_type` (camelCase) for a given board side. */
+function copperLayerForSide(side: MillSide): "topCopper" | "bottomCopper" {
+  return side === "top" ? "topCopper" : "bottomCopper";
+}
 
 /** Cut parameters the editor controls feed into the plan. Kept separate from the
  *  snapshot so a control tweak re-plans without a new snapshot. */
@@ -33,7 +39,8 @@ export interface MillExtent {
 export interface MillPlanState {
   result: MillPlanResult | null;
   extent: MillExtent | null;
-  /** Whether a millable source (≥1 placed design with a top-copper gerber) was found. */
+  /** Whether a millable source (≥1 placed design with the selected side's copper
+   *  gerber) was found. */
   hasSource: boolean;
   loading: boolean;
 }
@@ -50,13 +57,15 @@ interface DesignSource {
   boardHMm: number;
 }
 
-/** Does the panel reference at least one placed design that has a top-copper gerber? */
-function hasMillableSource(snapshot: MillSnapshot): boolean {
+/** Does the panel reference at least one placed design that has the selected side's
+ *  copper gerber? */
+function hasMillableSource(snapshot: MillSnapshot, side: MillSide): boolean {
   const panel = snapshot.manifest?.panel;
   if (!panel || !snapshot.manifest) return false;
+  const layer = copperLayerForSide(side);
   const placedIds = new Set(panel.instances.map((i) => i.design_id));
   return snapshot.manifest.designs.some(
-    (d) => placedIds.has(d.id) && d.gerbers.some((g) => g.layer_type === "topCopper"),
+    (d) => placedIds.has(d.id) && d.gerbers.some((g) => g.layer_type === layer),
   );
 }
 
@@ -68,19 +77,25 @@ function hasMillableSource(snapshot: MillSnapshot): boolean {
  *  Rust — this only marshals designs[]/instances[] and guards against stale async
  *  results. Debounced via the stringified input so a control tweak refetches at most
  *  once per change. */
-export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams): MillPlanState {
+export function useMillPlan(
+  snapshot: MillSnapshot | null,
+  params: MillCutParams,
+  side: MillSide,
+): MillPlanState {
   const [state, setState] = useState<MillPlanState>(EMPTY);
 
-  // Per-design source cache, keyed by design_id (cleared when the working dir changes
-  // since design ids are sequential per project).
+  // Per-design source cache, keyed by `${side}:${design_id}` — the resolved gerber
+  // differs per side, so the side is part of the key (cleared when the working dir
+  // changes since design ids are sequential per project).
   const sourceCache = useRef<Map<string, DesignSource | null>>(new Map());
   const lastWorkingDir = useRef<string | null>(null);
+  const cacheKey = (designId: string) => `${side}:${designId}`;
 
   // Debounce key: only re-fire on a real change (workingDir + panel layout + params
   // + datum + cnc). The panel layout is captured by instances + width/height.
   const panel = snapshot?.manifest?.panel ?? null;
   const inputKey =
-    snapshot?.workingDir && panel && snapshot.cncProfile && hasMillableSource(snapshot)
+    snapshot?.workingDir && panel && snapshot.cncProfile && hasMillableSource(snapshot, side)
       ? JSON.stringify([
           snapshot.workingDir,
           panel.instances,
@@ -90,11 +105,17 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
           params,
           snapshot.millDatumCorner,
           snapshot.cncProfile,
+          side,
         ])
       : null;
 
   useEffect(() => {
-    if (!snapshot?.workingDir || !panel || !snapshot.cncProfile || !hasMillableSource(snapshot)) {
+    if (
+      !snapshot?.workingDir ||
+      !panel ||
+      !snapshot.cncProfile ||
+      !hasMillableSource(snapshot, side)
+    ) {
       setState(EMPTY);
       return;
     }
@@ -111,16 +132,18 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
     (async () => {
       try {
         // Resolve each unique placed design's source (gerber + holes + origin + extent),
-        // caching per design_id so repeated instances don't refetch.
+        // caching per `${side}:${design_id}` so repeated instances don't refetch.
         const uniqueDesignIds = Array.from(new Set(panel.instances.map((i) => i.design_id)));
         await Promise.all(
           uniqueDesignIds.map(async (designId) => {
-            if (sourceCache.current.has(designId)) return;
+            if (sourceCache.current.has(cacheKey(designId))) return;
 
             const design = manifest?.designs.find((d) => d.id === designId);
-            const copper = design?.gerbers.find((g) => g.layer_type === "topCopper");
+            const copper = design?.gerbers.find(
+              (g) => g.layer_type === copperLayerForSide(side),
+            );
             if (!design || !copper) {
-              sourceCache.current.set(designId, null);
+              sourceCache.current.set(cacheKey(designId), null);
               return;
             }
 
@@ -164,7 +187,7 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
             ).flat();
             if (cancelled) return;
 
-            sourceCache.current.set(designId, {
+            sourceCache.current.set(cacheKey(designId), {
               gerberRel: copper.path,
               holes,
               originXMm,
@@ -180,8 +203,8 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
         const designs: MillDesignInput[] = [];
         const designIndex = new Map<string, number>();
         for (const id of uniqueDesignIds) {
-          const src = sourceCache.current.get(id);
-          if (!src) continue; // design has no top-copper gerber → not millable
+          const src = sourceCache.current.get(cacheKey(id));
+          if (!src) continue; // design has no copper gerber for this side → not millable
           designIndex.set(id, designs.length);
           designs.push({
             gerberRel: src.gerberRel,
@@ -236,6 +259,9 @@ export function useMillPlan(snapshot: MillSnapshot | null, params: MillCutParams
             w: z.width_mm,
             h: z.height_mm,
           })),
+          // Bottom side: the board is flipped left↔right, so the backend mirrors the
+          // panel-space toolpaths about the vertical centre (x → panel_width - x).
+          mirrorX: side === "bottom",
         };
 
         const result = await api.mill.plan(input);

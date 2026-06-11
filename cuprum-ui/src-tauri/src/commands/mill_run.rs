@@ -73,6 +73,12 @@ pub struct MillPlanCmdInput {
     pub plunge_mm_min: f64,
     /// Keep-out zones in PANEL coordinates (now applicable — the plan is panel-wide).
     pub keep_out_zones: Vec<Rect>,
+    /// Mirror the panel-space toolpaths about the vertical centre line (X) before
+    /// planning. Set when milling the BOTTOM side: the operator flips the board
+    /// left↔right, so its features land at `panel_width - x` physically. Defaults
+    /// to false (top side, no mirror).
+    #[serde(default)]
+    pub mirror_x: bool,
     // `xy` lowercases to `Xy` under camelCase; the TS field is `startMachineXY`,
     // so rename explicitly. MachineXY (object), not a tuple (array).
     #[serde(rename = "startMachineXY")]
@@ -201,6 +207,25 @@ fn plan(
         }
     }
 
+    // 2b. Bottom side: mirror the panel-space toolpaths/violations about the panel's
+    //     vertical centre line (`x → panel_width - x`, y unchanged). Flipping the board
+    //     left↔right puts each feature at its mirrored X physically; the datum flip in
+    //     `mill_plan::machine_point` then runs on these already-mirrored coordinates, so
+    //     the operator simply sets the work-zero on the flipped board at the datum corner
+    //     chosen in the UI. NOTE: `keep_out_zones` are intentionally NOT mirrored — they
+    //     are authored in machine/panel coordinates; for a flipped bottom side they may
+    //     need manual adjustment (MVP scope).
+    if input.mirror_x {
+        let w = input.panel_width_mm;
+        for p in &mut panel_paths {
+            mirror_poly_x(p, w);
+        }
+        for h in &mut panel_violations {
+            h.a[0] = (w - h.a[0] as f64) as f32;
+            h.b[0] = (w - h.b[0] as f64) as f32;
+        }
+    }
+
     // 3. Each isolation ring is a closed cut contour (panel space, f64).
     let mill_paths: Vec<MillPath> = panel_paths
         .iter()
@@ -298,6 +323,21 @@ fn project_poly(p: &Poly, proj: &impl Fn(f64, f64) -> (f64, f64)) -> Poly {
     }
 }
 
+/// Mirror every vertex of a panel-space poly about the vertical centre line:
+/// `x → panel_width - x`, y unchanged. Used for the bottom side (board flipped
+/// left↔right).
+fn mirror_poly_x(p: &mut Poly, panel_width_mm: f64) {
+    let w = panel_width_mm as f32;
+    for v in &mut p.outer {
+        v[0] = w - v[0];
+    }
+    for hole in &mut p.holes {
+        for v in hole {
+            v[0] = w - v[0];
+        }
+    }
+}
+
 /// One ring (`[f32; 2]` panel-space vertices) → a closed `MillPath` (`[f64; 2]`).
 fn ring_to_path(ring: &[[f32; 2]]) -> MillPath {
     MillPath {
@@ -307,8 +347,28 @@ fn ring_to_path(ring: &[[f32; 2]]) -> MillPath {
 
 #[cfg(test)]
 mod tests {
-    use super::{project, translate_polys};
+    use super::{mirror_poly_x, project, translate_polys};
     use cuprum_core::geometry::Poly;
+
+    /// mirror_poly_x reflects every vertex about the panel's vertical centre line:
+    /// `(x, y) → (panel_width - x, y)`. The centre stays put; y is untouched.
+    #[test]
+    fn mirror_x_reflects_about_centre() {
+        let w = 100.0;
+        let mut poly = Poly {
+            outer: vec![[10.0, 20.0], [90.0, 30.0], [50.0, 40.0]],
+            holes: vec![vec![[25.0, 25.0]]],
+        };
+        mirror_poly_x(&mut poly, w);
+        let eq =
+            |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4;
+        // (x, y) → (w - x, y)
+        assert!(eq(poly.outer[0], [90.0, 20.0]), "{:?}", poly.outer[0]);
+        assert!(eq(poly.outer[1], [10.0, 30.0]), "{:?}", poly.outer[1]);
+        // centre (x = w/2) maps to itself
+        assert!(eq(poly.outer[2], [50.0, 40.0]), "{:?}", poly.outer[2]);
+        assert!(eq(poly.holes[0][0], [75.0, 25.0]), "{:?}", poly.holes[0][0]);
+    }
 
     /// translate_polys subtracts the bbox origin but keeps Y up (no flip here).
     #[test]

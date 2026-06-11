@@ -17,6 +17,7 @@ export function UnitField({
   className = "w-28",
   invalid = false,
   dim,
+  decimals,
 }: {
   value: number;
   onChange: (n: number) => void;
@@ -31,11 +32,17 @@ export function UnitField({
   /** Dimension class for unit conversion: "coarse" (mm/inch) or "fine" (mm/mil).
    *  Omit to keep raw mm with the literal `unit` suffix. */
   dim?: Dim;
+  /** Override the displayed decimal places. When set, it replaces the default
+   *  per-dim rounding (coarse 3 / fine 1) — e.g. `2` so a sub-mm depth like
+   *  0.04 mm shows as "0.04" instead of rounding to "0". */
+  decimals?: number;
 }) {
   const { units, toDisplay, fromDisplay, unitLabel } = useUnitFormat();
   // Value as shown in the active unit; round so float conversion (200 / 25.4)
-  // doesn't surface a long tail. Coarse (inch) keeps 3 decimals, fine (mil) 1.
-  const shown = dim ? +toDisplay(value, dim).toFixed(dim === "coarse" ? 3 : 1) : value;
+  // doesn't surface a long tail. Coarse (inch) keeps 3 decimals, fine (mil) 1,
+  // unless the caller overrides with `decimals`.
+  const places = decimals ?? (dim === "coarse" ? 3 : 1);
+  const shown = dim ? +toDisplay(value, dim).toFixed(places) : value;
   // mm-tuned steps are wrong in imperial; pick a sensible per-unit step there.
   const effStep = !dim || units !== "imperial" ? step : dim === "coarse" ? "0.001" : "0.1";
   const suffix = dim ? unitLabel(dim) : unit;
