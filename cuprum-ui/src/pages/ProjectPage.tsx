@@ -253,22 +253,30 @@ export function ProjectPage() {
                   <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
                 </button>
 
-                {/* Milling card — placeholder */}
-                <div className="flex items-start gap-4 rounded-xl border border-dashed border-border/70 bg-card/25 p-4 opacity-70">
-                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+                {/* Milling card — active (Phase 4a: preview) */}
+                <button
+                  type="button"
+                  onClick={() => void api.openMillWindow()}
+                  className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
+                >
+                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
                     <Scissors className="size-6" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-[16px] font-semibold text-foreground">
-                        {t("operations.future.title")}
+                        {t("operations.mill.title")}
                       </span>
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {t("operations.future.badge")}
+                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+                        {t("operations.mill.status")}
                       </span>
                     </div>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                      {t("operations.mill.desc")}
+                    </p>
                   </div>
-                </div>
+                  <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                </button>
               </div>
 
               {/* Run history (right) */}

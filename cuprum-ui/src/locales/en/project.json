@@ -235,9 +235,10 @@
       "desc": "Compose the copper layout for the UV printer and expose the panel.",
       "status": "ready to run"
     },
-    "future": {
-      "title": "Mill contour",
-      "badge": "coming later"
+    "mill": {
+      "title": "Isolation milling",
+      "desc": "Preview isolation cut paths, bit parameters, and gap checks before a run.",
+      "status": "preview"
     }
   },
   "setup": {
