@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use cuprum_core::preview::{render_design_preview, PreviewLayer};
+use cuprum_core::preview::{render_design_preview, PreviewLayer, PreviewSizing};
 use cuprum_project::layer::LayerType;
 use cuprum_project::resolve::{resolve_design, ResolveOpts};
 
@@ -25,7 +25,7 @@ pub fn run(input: &Path, out: Option<PathBuf>, max_px: u32) -> Result<()> {
     // No project artifacts dir for raw gerbers → cache into a throwaway temp dir.
     let tmp = std::env::temp_dir().join("cuprum-cli-render");
     std::fs::create_dir_all(&tmp).ok();
-    let png = render_design_preview(&tmp, &layers, &HashMap::new(), max_px)?;
+    let png = render_design_preview(&tmp, &layers, &HashMap::new(), PreviewSizing::MaxPx(max_px))?;
     let out = out.unwrap_or_else(|| default_out(input, "png"));
     std::fs::write(&out, &png)?;
     println!(

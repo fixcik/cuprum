@@ -480,14 +480,24 @@ mod tests {
         let dec = png::Decoder::new(std::io::Cursor::new(&bytes));
         let mut reader = dec.read_info().expect("read_info");
         let info = reader.info();
-        assert_eq!(info.color_type, png::ColorType::Indexed, "must be indexed PNG-8");
+        assert_eq!(
+            info.color_type,
+            png::ColorType::Indexed,
+            "must be indexed PNG-8"
+        );
         assert_eq!(info.bit_depth, png::BitDepth::Eight);
-        assert!(!info.palette.as_ref().unwrap().is_empty(), "palette present");
-        assert!(info.palette.as_ref().unwrap().len() / 3 <= 256, "<=256 colours");
+        assert!(
+            !info.palette.as_ref().unwrap().is_empty(),
+            "palette present"
+        );
+        assert!(
+            info.palette.as_ref().unwrap().len() / 3 <= 256,
+            "<=256 colours"
+        );
         // A tRNS chunk must exist because one pixel is fully transparent.
         assert!(info.trns.is_some(), "tRNS present for transparency");
         assert!(
-            info.trns.as_ref().unwrap().iter().any(|&a| a == 0),
+            info.trns.as_ref().unwrap().contains(&0),
             "some palette entry is fully transparent"
         );
 
@@ -503,7 +513,14 @@ mod tests {
         }];
         let o = std::collections::HashMap::new();
         let card = preview_key(&layers, &o, PreviewSizing::MaxPx(512));
-        let detailed = preview_key(&layers, &o, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 });
+        let detailed = preview_key(
+            &layers,
+            &o,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        );
         assert_ne!(card, detailed, "card and detailed keys must differ");
         // Stable for identical inputs.
         assert_eq!(card, preview_key(&layers, &o, PreviewSizing::MaxPx(512)));
@@ -513,7 +530,14 @@ mod tests {
     fn rasterize_density_produces_indexed_png() {
         // 20x10 mm board outline as a standalone SVG (user units == mm).
         let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10" width="20" height="10"><rect x="0" y="0" width="20" height="10" fill="#caa84a"/></svg>"##;
-        let png = rasterize(svg, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 }).expect("raster");
+        let png = rasterize(
+            svg,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        )
+        .expect("raster");
         let dec = png::Decoder::new(std::io::Cursor::new(&png));
         let reader = dec.read_info().expect("read_info");
         let info = reader.info();
@@ -533,7 +557,14 @@ mod tests {
     #[test]
     fn scaled_dims_density_multiplies_mm() {
         // 100x50 mm at 12 px/mm, far below cap.
-        let (w, h, s) = scaled_dims(100.0, 50.0, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 });
+        let (w, h, s) = scaled_dims(
+            100.0,
+            50.0,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        );
         assert_eq!(w, 1200);
         assert_eq!(h, 600);
         assert!((s - 12.0).abs() < 1e-6);
@@ -542,7 +573,14 @@ mod tests {
     #[test]
     fn scaled_dims_density_clamps_at_cap() {
         // 500 mm at 12 px/mm would be 6000 px; cap 4096 forces longest side to 4096.
-        let (w, _h, s) = scaled_dims(500.0, 100.0, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 });
+        let (w, _h, s) = scaled_dims(
+            500.0,
+            100.0,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        );
         assert_eq!(w, 4096);
         assert!(s < 12.0, "scale reduced below density when capped");
     }
@@ -773,7 +811,8 @@ mod tests {
         }];
         let overrides = std::collections::HashMap::new();
 
-        let png = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128)).expect("preview ok");
+        let png = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128))
+            .expect("preview ok");
         assert_eq!(
             &png[..8],
             &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
@@ -784,7 +823,8 @@ mod tests {
         let sub = dir.join("preview");
         let n = std::fs::read_dir(&sub).map(|rd| rd.count()).unwrap_or(0);
         assert_eq!(n, 1, "exactly one persistent preview blob written");
-        let png2 = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128)).expect("cache hit ok");
+        let png2 = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128))
+            .expect("cache hit ok");
         assert_eq!(png, png2, "second call returns the cached bytes");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -859,7 +899,8 @@ mod tests {
             bytes: UNIQ.to_vec(),
         }];
         let overrides = std::collections::HashMap::new();
-        let _ = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128)).expect("preview ok");
+        let _ = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128))
+            .expect("preview ok");
         // The preview routed the layer through the shared artifact cache, so its SVG
         // blob lands under <dir>/svg/<svg_artifact_key>.bin — the SAME key/path the
         // inspector would use, proving the layer renders once across both.

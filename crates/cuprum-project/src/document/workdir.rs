@@ -654,9 +654,7 @@ mod tests {
         let pkey = cuprum_core::preview::preview_key(
             &layers,
             &colors,
-            cuprum_core::preview::PreviewSizing::MaxPx(
-                cuprum_core::preview::CARD_PREVIEW_MAX_PX,
-            ),
+            cuprum_core::preview::PreviewSizing::MaxPx(cuprum_core::preview::CARD_PREVIEW_MAX_PX),
         );
         std::fs::write(wd.join(format!("artifacts/preview/{pkey}.bin")), b"png").unwrap();
         std::fs::write(wd.join("artifacts/preview/orphan.bin"), b"stale").unwrap();
