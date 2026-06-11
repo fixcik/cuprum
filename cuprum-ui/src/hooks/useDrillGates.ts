@@ -4,7 +4,7 @@ import type { PanelDrillPlan } from "@/lib/panelDrill";
 import { DEFAULT_BREAKTHROUGH_MM } from "@/lib/drillBreakthrough";
 import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
 import { type ZGateResult, checkZGate } from "@/lib/zGate";
-import { canMove } from "@/lib/machineControls";
+import { canSetZero } from "@/lib/machineControls";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 
@@ -80,7 +80,8 @@ export function useDrillGates(args: {
   // Returns true when the zero was bound (so the caller can leave the zero mode).
   const handleBindZero = useCallback(async (): Promise<boolean> => {
     const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected) || bindingRef.current) return false;
+    // Idle only — binding the XY zero mid-jog would capture a stale MPos.
+    if (!canSetZero(status.state, connected) || bindingRef.current) return false;
     bindingRef.current = true;
     try {
       await api.machine.setZero(true, true, false);

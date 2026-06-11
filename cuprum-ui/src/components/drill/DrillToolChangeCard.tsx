@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useMachine } from "@/machineStore";
-import { useJog } from "@/hooks/useJog";
+import { canSetZero } from "@/lib/machineControls";
 import { checkZHeadroom } from "@/lib/drillZHeadroom";
 import { ProbeToolChange } from "@/components/drill/ProbeToolChange";
 import { ManualToolChange } from "@/components/drill/ManualToolChange";
@@ -139,9 +139,12 @@ export function DrillToolChangeCard({
     if (probeActive && !probeChecked) onProbeChecked();
   }, [probeActive, probeChecked, onProbeChecked]);
 
-  // Whether motion is allowed (connected + idle) — gates the action buttons. The
-  // manual Z jog itself lives in the DrillManualZBar.
-  const { enabled } = useJog();
+  // Binding Z (probe / manual touch-off) must run on a STATIONARY machine — idle only,
+  // not while jogging (a zero set mid-jog would latch a stale position). The manual Z
+  // jog itself lives in the DrillManualZBar with its own jog gating.
+  const machineState = useMachine((s) => s.status.state);
+  const connected = useMachine((s) => s.connected);
+  const enabled = canSetZero(machineState, connected);
 
   // Step 1 (probe): confirm the circuit is closed. The pin is active only WHILE the
   // operator touches the bit, so check the live pin on click; the effect above also
