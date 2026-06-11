@@ -7,7 +7,7 @@ import type { XYGateResult } from "@/lib/xyGate";
 import { api } from "@/lib/api";
 import { useMachine } from "@/machineStore";
 import { useUnlockSuppressed } from "@/hooks/useUnlockSuppressed";
-import { canMove } from "@/lib/machineControls";
+import { canSetZero } from "@/lib/machineControls";
 import { Button } from "@/components/ui/Button";
 import { AlarmActions } from "@/components/machine/AlarmActions";
 import { WorkZeroCard } from "@/components/drill/WorkZeroCard";
@@ -59,10 +59,11 @@ export function DrillZeroInspector({
 }: DrillZeroInspectorProps) {
   const { t } = useTranslation("drill");
   const { t: tm } = useTranslation("machine");
-  // Whether the machine can move (connected + idle/jog-safe) — gates the bind action.
+  // The bind must run on a STATIONARY machine — idle only (jogging is motion too, a
+  // zero set mid-jog would latch a stale position). Stricter than `canMove`.
   const machineState = useMachine((s) => s.status.state);
   const connected = useMachine((s) => s.connected);
-  const canBind = canMove(machineState, connected);
+  const canBind = canSetZero(machineState, connected);
   // Hide the alarm reason at once when unlock is pressed in any window.
   const unlockSuppressed = useUnlockSuppressed();
   // Local in-flight guard so the bind button shows a disabled state during the
