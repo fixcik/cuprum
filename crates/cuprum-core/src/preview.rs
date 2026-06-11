@@ -371,7 +371,7 @@ pub fn render_design_preview(
         overrides,
         board_outline.as_ref().map(|(d, bb)| (d.as_str(), *bb)),
     );
-    let png = rasterize(&doc, max_px)?;
+    let png = rasterize(&doc, PreviewSizing::MaxPx(max_px))?;
     if !crate::diskcache::cache_disabled() {
         crate::diskcache::put_persistent(&dir, &key, &png);
     }
@@ -437,24 +437,17 @@ fn encode_indexed_png(pixmap: &resvg::tiny_skia::Pixmap) -> anyhow::Result<Vec<u
     Ok(out)
 }
 
-/// Rasterize a standalone SVG document to PNG with resvg, scaled so the longest
-/// side equals `max_px`.
-fn rasterize(svg: &str, max_px: u32) -> anyhow::Result<Vec<u8>> {
+/// Rasterize a standalone SVG document to an indexed PNG, sized per `sizing`.
+fn rasterize(svg: &str, sizing: PreviewSizing) -> anyhow::Result<Vec<u8>> {
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| anyhow::anyhow!("usvg parse: {e}"))?;
     let size = tree.size();
-    let longest = size.width().max(size.height()).max(1.0);
-    let scale = (max_px as f32) / longest;
-    let pw = (size.width() * scale).ceil().max(1.0) as u32;
-    let ph = (size.height() * scale).ceil().max(1.0) as u32;
+    let (pw, ph, scale) = scaled_dims(size.width(), size.height(), sizing);
     let mut pixmap = resvg::tiny_skia::Pixmap::new(pw, ph)
         .ok_or_else(|| anyhow::anyhow!("pixmap alloc {pw}x{ph}"))?;
     let transform = resvg::tiny_skia::Transform::from_scale(scale, scale);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
-    let png = pixmap
-        .encode_png()
-        .map_err(|e| anyhow::anyhow!("encode_png: {e}"))?;
-    Ok(png)
+    encode_indexed_png(&pixmap)
 }
 
 #[cfg(test)]
@@ -489,6 +482,19 @@ mod tests {
 
         let mut buf = vec![0u8; reader.output_buffer_size()];
         reader.next_frame(&mut buf).expect("decode frame");
+    }
+
+    #[test]
+    fn rasterize_density_produces_indexed_png() {
+        // 20x10 mm board outline as a standalone SVG (user units == mm).
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10" width="20" height="10"><rect x="0" y="0" width="20" height="10" fill="#caa84a"/></svg>"##;
+        let png = rasterize(svg, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 }).expect("raster");
+        let dec = png::Decoder::new(std::io::Cursor::new(&png));
+        let reader = dec.read_info().expect("read_info");
+        let info = reader.info();
+        assert_eq!(info.color_type, png::ColorType::Indexed);
+        assert_eq!(info.width, 240); // 20mm * 12
+        assert_eq!(info.height, 120); // 10mm * 12
     }
 
     #[test]
