@@ -36,7 +36,7 @@ pub fn run(input: &Path, out: Option<PathBuf>) -> Result<()> {
         input.display()
     );
     // v1: no rounded board clip (rectangular bbox). Rounded clip = follow-up.
-    let doc = compose_svg(&composed, &HashMap::new(), None);
+    let doc = compose_svg(&composed, &HashMap::new(), None, &[]);
     let out = out.unwrap_or_else(|| default_out(input, "svg"));
     std::fs::write(&out, doc.as_bytes())?;
     println!("wrote {}", out.display());

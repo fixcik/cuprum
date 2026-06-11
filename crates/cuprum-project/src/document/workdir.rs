@@ -160,16 +160,14 @@ fn valid_artifact_keys(
             // (rel, format!("{t:?}"), bytes) — rel is g.path (the same string
             // the frontend sends as GerberRef.rel after mapping g.path → rel).
             metrics_layers.push((g.path.clone(), format!("{:?}", g.layer_type), bytes));
-            // Preview key: non-drill layers (the card preview has no holes),
-            // colored from the manifest overrides. Must match
-            // `preview::render_design_preview`.
-            if !matches!(g.layer_type, crate::layer::LayerType::Drill) {
-                let ipc = layer_type_ipc(&g.layer_type);
-                preview_layers.push(cuprum_core::preview::PreviewLayer {
-                    layer_type: ipc,
-                    bytes: bytes.clone(),
-                });
-            }
+            // Preview key: all layers including drill (drill punches holes via the
+            // clip path; excluding it would cause a key mismatch with the render
+            // command). Must match `preview::render_design_preview`.
+            let ipc = layer_type_ipc(&g.layer_type);
+            preview_layers.push(cuprum_core::preview::PreviewLayer {
+                layer_type: ipc,
+                bytes: bytes.clone(),
+            });
         }
         if !metrics_layers.is_empty() {
             keys.insert(cuprum_core::cache::metrics_artifact_key(

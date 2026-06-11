@@ -853,39 +853,80 @@ mod tests {
     #[test]
     fn compose_punches_holes_into_clip() {
         // Rect board outline 0..10 x 0..8, one hole at (5,4) r=1.
-        let layers = vec![("topCopper".to_string(), geom("<circle/>", 0.0, 0.0, 10.0, 8.0))];
+        let layers = vec![(
+            "topCopper".to_string(),
+            geom("<circle/>", 0.0, 0.0, 10.0, 8.0),
+        )];
         let overrides = std::collections::HashMap::new();
         let outline = "M0 0 L10 0 L10 8 L0 8 Z";
-        let bb = crate::svg::BBox { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 8.0 };
+        let bb = crate::svg::BBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 10.0,
+            max_y: 8.0,
+        };
         let doc = compose_svg(&layers, &overrides, Some((outline, bb)), &[(5.0, 4.0, 1.0)]);
         // The clip path must keep evenodd and now contain an arc subpath for the hole.
         let clip_start = doc.find("board-clip").expect("clip present");
         let clip = &doc[clip_start..doc[clip_start..].find("</clipPath>").unwrap() + clip_start];
-        assert!(clip.contains("fill-rule=\"evenodd\""), "evenodd kept: {clip}");
+        assert!(
+            clip.contains("fill-rule=\"evenodd\""),
+            "evenodd kept: {clip}"
+        );
         assert!(clip.contains('A'), "hole rendered as arc subpath: {clip}");
         // Hole centre x±r appears (4 and 6 with r=1 at cx=5).
-        assert!(clip.contains('6') && clip.contains('4'), "hole geometry present: {clip}");
+        assert!(
+            clip.contains('6') && clip.contains('4'),
+            "hole geometry present: {clip}"
+        );
     }
 
     #[test]
     fn compose_no_outline_with_holes_builds_clip() {
         // No board outline, but holes present → synthesize a bbox clip so holes punch.
-        let layers = vec![("topCopper".to_string(), geom("<circle/>", 0.0, 0.0, 10.0, 8.0))];
+        let layers = vec![(
+            "topCopper".to_string(),
+            geom("<circle/>", 0.0, 0.0, 10.0, 8.0),
+        )];
         let overrides = std::collections::HashMap::new();
         let doc = compose_svg(&layers, &overrides, None, &[(5.0, 4.0, 1.0)]);
-        assert!(doc.contains("board-clip"), "clip synthesized when holes exist: {doc}");
+        assert!(
+            doc.contains("board-clip"),
+            "clip synthesized when holes exist: {doc}"
+        );
         assert!(doc.contains('A'), "hole arc present: {doc}");
     }
 
     #[test]
     fn rasterized_hole_center_is_transparent() {
         // Board copper covering 0..10x0..8, outline rect, hole at centre r=2.
-        let layers = vec![("topCopper".to_string(), geom("<rect x=\"0\" y=\"0\" width=\"10\" height=\"8\"/>", 0.0, 0.0, 10.0, 8.0))];
+        let layers = vec![(
+            "topCopper".to_string(),
+            geom(
+                "<rect x=\"0\" y=\"0\" width=\"10\" height=\"8\"/>",
+                0.0,
+                0.0,
+                10.0,
+                8.0,
+            ),
+        )];
         let o = std::collections::HashMap::new();
         let outline = "M0 0 L10 0 L10 8 L0 8 Z";
-        let bb = crate::svg::BBox { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 8.0 };
+        let bb = crate::svg::BBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 10.0,
+            max_y: 8.0,
+        };
         let doc = compose_svg(&layers, &o, Some((outline, bb)), &[(5.0, 4.0, 2.0)]);
-        let png = rasterize(&doc, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 }).unwrap();
+        let png = rasterize(
+            &doc,
+            PreviewSizing::Density {
+                px_per_mm: 12.0,
+                cap_px: 4096,
+            },
+        )
+        .unwrap();
         let dec = png::Decoder::new(std::io::Cursor::new(&png));
         let mut reader = dec.read_info().unwrap();
         let info = reader.info().clone();
@@ -897,7 +938,10 @@ mod tests {
         let (cx, cy) = (w / 2, h / 2);
         let pal_idx = buf[cy * w + cx] as usize;
         let alpha = trns.get(pal_idx).copied().unwrap_or(255);
-        assert_eq!(alpha, 0, "hole centre pixel is transparent (punched through)");
+        assert_eq!(
+            alpha, 0,
+            "hole centre pixel is transparent (punched through)"
+        );
     }
 
     #[test]
