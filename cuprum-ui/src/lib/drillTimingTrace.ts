@@ -28,6 +28,9 @@ export interface DrillTimingReport {
   feedOverridePct: number;
   holesMeasured: number;
   totalActualSec: number;
+  /** Sum of estimates for the MEASURED groups only. On a partial run (stopped early)
+   *  this covers just the drilled groups, so `totalRatio` reflects those, not the whole
+   *  plan — don't read it as a full-run accuracy figure. */
   totalEstimatedSec: number;
   totalRatio: number | null;
   perGroup: DrillGroupTiming[];

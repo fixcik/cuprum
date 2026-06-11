@@ -43,7 +43,14 @@ export function useDrillTimingTrace(args: DrillTimingTraceArgs) {
       samplesRef.current = [];
     }),
     // A stopped/errored run never reaches `done`; drop its partial samples so the next
-    // run starts clean.
+    // run starts clean. A graceful stop emits `state: idle` (no `done`/`error`), so reset
+    // on the idle/error terminal states too — otherwise leftover samples would corrupt
+    // the next run's report.
+    api.drillRun.onState((phase) => {
+      if (phase === "idle" || phase === "error") {
+        samplesRef.current = [];
+      }
+    }),
     api.drillRun.onError(() => {
       samplesRef.current = [];
     }),
