@@ -522,6 +522,9 @@ export interface DrillRunProgress {
   holesTotal: number;
   holeIndex: number;
   stepIndex: number;
+  /** Wall-clock ms the just-finished hole's machine work took (stream + settle, no
+   *  operator-wait). Present only on the post-hole emit; feeds the timing trace. */
+  holeActualMs?: number;
 }
 
 export interface DrillRunToolChange {
