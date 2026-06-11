@@ -795,6 +795,9 @@ export interface MillPlanInput {
   /** Keep-out zones in PANEL coordinates (now applicable — plan is panel-wide). */
   keepOutZones: DrillRect[];
   startMachineXY?: { x: number; y: number };
+  /** Mirror the panel-space toolpaths about the vertical centre (X) before planning.
+   *  Set for the BOTTOM side (board flipped left↔right). Defaults to false. */
+  mirrorX?: boolean;
 }
 
 /** Result of `mill_plan`: isolation toolpaths (for preview), G-code program,

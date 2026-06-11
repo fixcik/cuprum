@@ -35,7 +35,8 @@ export function MillParamsCard({ params, onChange }: MillParamsCardProps) {
           value={params.cutWidthMm}
           onChange={(n) => onChange({ cutWidthMm: n })}
           dim="fine"
-          step="0.05"
+          step="0.01"
+          decimals={2}
           className="w-28"
         />
       </Row>
@@ -96,6 +97,7 @@ export function MillParamsCard({ params, onChange }: MillParamsCardProps) {
           onChange={(n) => onChange({ cutDepthMm: n })}
           dim="fine"
           step="0.01"
+          decimals={2}
           className="w-28"
         />
       </Row>
@@ -107,6 +109,7 @@ export function MillParamsCard({ params, onChange }: MillParamsCardProps) {
           onChange={(n) => onChange({ depthPerPassMm: n > 0 ? n : null })}
           dim="fine"
           step="0.01"
+          decimals={2}
           className="w-28"
         />
       </Row>

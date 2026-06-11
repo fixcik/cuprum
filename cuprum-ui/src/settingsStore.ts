@@ -6,7 +6,7 @@ import { type NestSettings, DEFAULT_NEST } from "@/lib/nest";
 import { type CncProfile } from "@/lib/cncProfile";
 import { type Tool, DEFAULT_TOOLS, newDrillTool } from "@/lib/toolLibrary";
 import { type DatumCorner } from "@/lib/datum";
-import { type MillDefaults, DEFAULT_MILL_DEFAULTS } from "@/lib/millDefaults";
+import { type MillDefaults, type MillSide, DEFAULT_MILL_DEFAULTS } from "@/lib/millDefaults";
 import {
   type Machine,
   type CncMachine,
@@ -242,6 +242,10 @@ interface SettingsStore {
   /** The panel corner used as the machine work-zero (0,0) in the mill window. */
   millDatumCorner: DatumCorner;
   setMillDatumCorner: (d: DatumCorner) => void;
+  /** Which board side the mill editor plans for. "bottom" mirrors the toolpaths
+   *  about the panel's vertical centre (board flipped left↔right). */
+  millSide: MillSide;
+  setMillSide: (s: MillSide) => void;
   /** Persisted isolation-milling cut defaults the mill editor seeds its controls from. */
   millDefaults: MillDefaults;
   setMillDefaults: (patch: Partial<MillDefaults>) => void;
@@ -389,6 +393,8 @@ export const useSettings = create<SettingsStore>()(
       setDrillDatumCorner: (d) => set({ drillDatumCorner: d }),
       millDatumCorner: "bottom-left" as DatumCorner,
       setMillDatumCorner: (d) => set({ millDatumCorner: d }),
+      millSide: "top" as MillSide,
+      setMillSide: (s) => set({ millSide: s }),
       millDefaults: DEFAULT_MILL_DEFAULTS,
       setMillDefaults: (patch) =>
         set((s) => ({ millDefaults: { ...s.millDefaults, ...patch } })),
@@ -430,6 +436,7 @@ export const useSettings = create<SettingsStore>()(
           tools,
           drillDatumCorner: p?.drillDatumCorner ?? "bottom-left",
           millDatumCorner: p?.millDatumCorner ?? "bottom-left",
+          millSide: p?.millSide ?? "top",
           millDefaults: { ...DEFAULT_MILL_DEFAULTS, ...(p?.millDefaults ?? {}) },
         };
       },

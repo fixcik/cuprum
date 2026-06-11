@@ -4,7 +4,13 @@
   },
   "empty": {
     "noProject": "No project open",
-    "noCopper": "No top-copper layer on the placed boards"
+    "noCopper": "No copper layer for the selected side on the placed boards"
+  },
+  "side": {
+    "label": "Side",
+    "top": "Top",
+    "bottom": "Bottom",
+    "bottomBadge": "bottom (mirrored, as milled from the back)"
   },
   "toolbar": {
     "previewHint": "Preview of isolation cut paths and contested gaps"

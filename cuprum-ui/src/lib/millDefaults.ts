@@ -15,5 +15,10 @@ export const DEFAULT_MILL_DEFAULTS: MillDefaults = {
   plungeMmMin: 60,
 };
 
+/** Which board side an isolation-milling run targets. "bottom" mirrors the
+ *  toolpaths about the panel's vertical centre (the operator flips the board
+ *  left↔right), so each side gets its own pass / G-code. */
+export type MillSide = "top" | "bottom";
+
 /** Re-export the persisted shape so consumers can import it from one place. */
 export type { MillDefaults };
