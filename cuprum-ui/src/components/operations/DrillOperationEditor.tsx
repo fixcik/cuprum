@@ -29,9 +29,7 @@ import { shouldShowMarker, drillMarkerStatus } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
-import { canMove } from "@/lib/machineControls";
-import { type XYGateResult, checkXYGate, planWorkExtent } from "@/lib/xyGate";
-import { type ZGateResult, checkZGate } from "@/lib/zGate";
+import { useDrillGates } from "@/hooks/useDrillGates";
 
 /** Phases in which a run is live; a transition out of this set into done/error/idle
  *  is the run's terminal event (used to journal the outcome). */
@@ -185,51 +183,11 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   // Inspected hole: the last-clicked hole's stable id (for the detail card).
   const [inspectedHoleId, setInspectedHoleId] = useState<string | null>(null);
 
-  // MPos X/Y captured at bind — the work-coordinate offset, used by the
-  // XY gate to check the hole bbox against the machine envelope (null = not bound).
-  const [workZeroMachineXY, setWorkZeroMachineXY] = useState<{ x: number; y: number } | null>(null);
-
-  const [zeroError, setZeroError] = useState<string | null>(null);
-  const bindingRef = useRef(false);
-
   // Feed override % sent via UI (100 = nominal).
   const [feedOverridePct, setFeedOverridePct] = useState(100);
   const feedSeqRef = useRef(0);
 
   const machineConnected = useMachine((s) => s.connected);
-  const machineState = useMachine((s) => s.status.state);
-  const machineHomed = useMachine((s) => s.homed);
-
-  // Homing/disconnect voids the work zero — force re-bind.
-  useEffect(() => {
-    if (!machineHomed || machineState === "home") {
-      setWorkZeroMachineXY(null);
-    }
-  }, [machineHomed, machineState]);
-
-  // Returns true when the zero was bound (so the caller can leave the zero mode).
-  const handleBindZero = useCallback(async (): Promise<boolean> => {
-    const { status, connected } = useMachine.getState();
-    if (!canMove(status.state, connected) || bindingRef.current) return false;
-    bindingRef.current = true;
-    try {
-      await api.machine.setZero(true, true, false);
-      setZeroError(null);
-      const mpos = useMachine.getState().status.mpos;
-      setWorkZeroMachineXY({ x: mpos[0], y: mpos[1] });
-      return true;
-    } catch (e) {
-      setWorkZeroMachineXY(null);
-      setZeroError(String(e));
-      return false;
-    } finally {
-      bindingRef.current = false;
-    }
-  }, []);
-
-  const handleClearZero = useCallback(() => {
-    setWorkZeroMachineXY(null);
-  }, []);
 
   // Counts per class over the full (unfiltered) plan; null until plan is ready.
   const counts = useMemo(() => (plan ? classCounts(plan) : null), [plan]);
@@ -337,33 +295,25 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     setInspectedHoleId(null);
   }, [route]);
 
-  // Machine-frame bbox of the holes that will actually run (selected sub-plan),
-  // for the XY gate. Recomputes on selection/datum/panel change.
-  const workExtent = useMemo(() => {
-    if (!subPlanWithOverrides || !panel) return null;
-    return planWorkExtent(subPlanWithOverrides, drillDatumCorner, panel.width_mm, panel.height_mm);
-  }, [subPlanWithOverrides, panel, drillDatumCorner]);
-
-  // XY gate: at the bound work zero, does the whole hole bbox fit inside the
-  // machine travel? Blocks the run (and shows a banner) when it would overrun.
-  // Without a CNC profile the travel is unknown — skip the gate (defaults valid)
-  // rather than gating against a degenerate 0-travel envelope. The inspector that
-  // surfaces the gate only renders once a profile is present anyway.
-  const xyGate: XYGateResult = cncProfile
-    ? checkXYGate(workZeroMachineXY, workExtent, cncProfile.workEnvelopeMm.x, cncProfile.workEnvelopeMm.y)
-    : { valid: true };
-
-  // Z feasibility: depth / tool-change retract / their span must fit the Z travel.
-  // (Z work-zero is bound per tool during the run, so this gates on travel size,
-  // not on a known zero.)
-  const zGate: ZGateResult = cncProfile
-    ? checkZGate({
-        safeZMm: cncProfile.safeZMm,
-        toolChangeZMm: cncProfile.toolChangeZMm,
-        depthMm: substrateThicknessMm + DEFAULT_BREAKTHROUGH_MM,
-        envZMm: cncProfile.workEnvelopeMm.z,
-      })
-    : { valid: true };
+  // Work-zero binding + XY/Z preflight gates (bind/clear actions, homing
+  // invalidation, and the derived gate verdicts) live in a dedicated hook.
+  const {
+    workZeroMachineXY,
+    workZeroSet,
+    zeroError,
+    handleBindZero,
+    handleClearZero,
+    xyGate,
+    zGate,
+  } = useDrillGates({
+    subPlan: subPlanWithOverrides,
+    panel: panel ? { width_mm: panel.width_mm, height_mm: panel.height_mm } : null,
+    envelopeMm: cncProfile?.workEnvelopeMm ?? null,
+    safeZMm: cncProfile?.safeZMm ?? 0,
+    toolChangeZMm: cncProfile?.toolChangeZMm ?? 0,
+    substrateThicknessMm,
+    datum: drillDatumCorner,
+  });
 
   const run = useDrillRun();
   const machineWork = useMachinePosition();
@@ -610,7 +560,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             tools={tools}
             cncProfile={cncProfile}
             estimate={estimate}
-            workZeroSet={workZeroMachineXY !== null}
+            workZeroSet={workZeroSet}
             onBind={handleBindZero}
             onClear={handleClearZero}
             maxXMm={cncProfile.workEnvelopeMm.x}
