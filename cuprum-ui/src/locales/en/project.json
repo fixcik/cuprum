@@ -230,6 +230,11 @@
       "desc": "Preview hole positions by tool, traverse path, and tool-change markers.",
       "status": "ready to run"
     },
+    "expose": {
+      "title": "UV exposure",
+      "desc": "Compose the copper layout for the UV printer and expose the panel.",
+      "status": "ready to run"
+    },
     "future": {
       "title": "Mill contour",
       "badge": "coming later"

@@ -228,6 +228,49 @@ pub(crate) fn open_inspector_window(app: AppHandle, design_id: String) -> CmdRes
     Ok(())
 }
 
+/// Open (or focus) the UV-exposure-operation window. Singleton label `expose`; same
+/// bundle as the main window, the SPA branches on the label. The expose UI drives
+/// the printer directly (events + invoke are process-global) and receives the
+/// project as a pushed snapshot. Title is set (localised) by the JS side.
+///
+/// Returns `true` if the window already existed (was focused) and `false` if it was
+/// freshly created — the caller uses this to route a "repeat run" prefill: an already
+/// open window is listening, so prefill it immediately; a fresh one consumes the
+/// pending prefill on its ready handshake instead.
+#[tauri::command]
+pub(crate) fn open_expose_window(app: AppHandle) -> CmdResult<bool> {
+    use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+    if let Some(w) = app.get_webview_window("expose") {
+        // May still be hidden (first snapshot pending) — show before focusing so a
+        // repeat open reveals it immediately instead of waiting on the JS path.
+        let _ = w.show();
+        w.set_focus()?;
+        return Ok(true);
+    }
+    let win = WebviewWindowBuilder::new(&app, "expose", WebviewUrl::App("index.html".into()))
+        .title("Cuprum")
+        .inner_size(980.0, 760.0)
+        .min_inner_size(760.0, 520.0)
+        .resizable(true)
+        .center()
+        .focused(true)
+        // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
+        // so it never flashes the blank webview + boot spinner.
+        .visible(false)
+        .build()?;
+    // Center over the main window so it opens on the screen the user is on.
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(main_size), Ok(child_size)) =
+            (main.outer_position(), main.outer_size(), win.outer_size())
+        {
+            let x = pos.x + (main_size.width as i32 - child_size.width as i32) / 2;
+            let y = pos.y + (main_size.height as i32 - child_size.height as i32) / 2;
+            let _ = win.set_position(PhysicalPosition::new(x, y));
+        }
+    }
+    Ok(false)
+}
+
 /// Open (or focus) the drilling-operation window. Singleton label `drill`; same
 /// bundle as the main window, the SPA branches on the label. The drill UI drives the
 /// machine directly (events + invoke are process-global) and receives the project as

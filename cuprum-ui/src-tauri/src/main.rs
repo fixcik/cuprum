@@ -126,6 +126,7 @@ fn main() {
                         if label.starts_with("inspector-")
                             || label == "add-design"
                             || label == "drill"
+                            || label == "expose"
                             || label == "console"
                         {
                             let _ = w.close();
@@ -175,8 +176,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::printer::discover,
             commands::printer::render_preview,
-            commands::printer::compose_and_print,
-            commands::printer::stop_print,
             commands::project::list_recent_projects,
             commands::project::create_project,
             commands::project::open_project,
@@ -212,6 +211,7 @@ fn main() {
             commands::windows::open_console_window,
             commands::windows::open_inspector_window,
             commands::windows::open_drill_window,
+            commands::windows::open_expose_window,
             set_app_menu,
             commands::machine::list_serial_ports,
             commands::machine::machine_connect,

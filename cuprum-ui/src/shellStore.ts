@@ -101,6 +101,11 @@ interface ShellStore {
   pendingDrillPrefill: string | null;
   setPendingDrillPrefill: (paramsJson: string | null) => void;
 
+  /** params_json to prefill the expose window with when it next becomes ready
+   *  ("repeat run"). One-shot: the expose bridge emits it on expose:ready and clears. */
+  pendingExposePrefill: string | null;
+  setPendingExposePrefill: (paramsJson: string | null) => void;
+
   /** Add a tooling hole centred at (xMm, yMm) with the default diameter.
    *  Returns the new hole id, or "" when no panel is open. */
   addToolingHole: (xMm: number, yMm: number) => Promise<string>;
@@ -155,6 +160,8 @@ export const useShell = create<ShellStore>((set, get) => ({
   pendingAddDesignId: null,
   pendingDrillPrefill: null,
   setPendingDrillPrefill: (paramsJson) => set({ pendingDrillPrefill: paramsJson }),
+  pendingExposePrefill: null,
+  setPendingExposePrefill: (paramsJson) => set({ pendingExposePrefill: paramsJson }),
 
   loadRecents: async () => {
     set({ recentsLoading: true });

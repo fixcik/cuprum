@@ -129,25 +129,6 @@ export interface PreviewResult {
   timings: string;
 }
 
-export interface PrintStatus {
-  stage: string;
-  message: string;
-}
-
-export interface PlacementDto {
-  path: string;
-  x_mm: number;
-  y_mm: number;
-  rotation_deg: number;
-}
-
-export interface PrintRequest {
-  placements: PlacementDto[];
-  mirror: boolean;
-  invert: boolean;
-  exposure_s: number;
-  pwm: number;
-}
 
 export interface RecentProject {
   path: string;
@@ -293,6 +274,29 @@ export interface AddDesignResult {
   ok: boolean;
   messageKey: string;
   params?: Record<string, unknown>;
+}
+
+/** Snapshot pushed from the main window to the exposure-operation window.
+ *  Contains the project identity + panel layout (so the window can show a
+ *  preview and build the run request) plus the exposure parameters that will
+ *  be editable in Phase 4. */
+export interface ExposeSnapshot {
+  workingDir: string | null;
+  /** Saved `.cuprum` path; null → operation-run journal skipped later. */
+  currentPath: string | null;
+  /** Full manifest (panel + designs); null when no project is open. */
+  manifest: Manifest | null;
+  /** Resolved board extent (mm) per placed design_id, for the read-only preview
+   *  footprints (same source the drill snapshot uses). */
+  placedSizes: Record<string, { w: number; h: number }>;
+  /** Which copper side to expose. */
+  side: "top" | "bottom";
+  mirror: boolean;
+  invert: boolean;
+  /** Exposure time in seconds. */
+  exposureS: number;
+  /** UV backlight PWM (0–255). */
+  pwm: number;
 }
 
 /** Data needed to build the drill plan plus the shop settings (CNC profile,
@@ -461,6 +465,56 @@ export interface GeoHotspot {
 export interface Poly {
   outer: [number, number][];
   holes: [number, number][][];
+}
+
+/** Progress payload from `expose://progress` (camelCase, all fields optional).
+ *  Stage is NOT carried here — it arrives separately via `expose://state`. */
+export interface ExposeProgress {
+  currentLayer: number | null;
+  totalLayers: number | null;
+  percent: number | null;
+  remainingS: number | null;
+  printerState: string | null;
+}
+
+/** One gerber file entry for ExposeRunRequest (camelCase mirror of GerberFileDto). */
+export interface ExposeGerberFile {
+  path: string;
+  layerType: LayerType;
+}
+
+/** One design entry for ExposeRunRequest (camelCase mirror of DesignDto). */
+export interface ExposeDesignDto {
+  id: string;
+  gerbers: ExposeGerberFile[];
+}
+
+/** One panel instance entry for ExposeRunRequest (camelCase mirror of BoardInstanceDto). */
+export interface ExposeBoardInstance {
+  designId: string;
+  xMm: number;
+  yMm: number;
+  rotationDeg: number;
+}
+
+/** Panel entry for ExposeRunRequest (camelCase mirror of PanelDto). */
+export interface ExposePanelDto {
+  widthMm: number;
+  heightMm: number;
+  instances: ExposeBoardInstance[];
+}
+
+/** Full request sent to `expose_run_start` (camelCase mirror of ExposeRunRequest). */
+export interface ExposeRunRequest {
+  workingDir: string;
+  panel: ExposePanelDto;
+  designs: ExposeDesignDto[];
+  side: "top" | "bottom";
+  mirror: boolean;
+  invert: boolean;
+  exposureS: number;
+  pwm: number;
+  runUid: string;
 }
 
 export interface DrillRunProgress {
@@ -688,10 +742,6 @@ export const api = {
     console.log(`[render_preview] ${r.timings} | round-trip ${(performance.now() - t0).toFixed(0)}ms`);
     return r;
   },
-  composeAndPrint: (req: PrintRequest) => invoke<void>("compose_and_print", { req }),
-  stopPrint: () => invoke<void>("stop_print"),
-  onPrintStatus: (cb: (s: PrintStatus) => void): Promise<UnlistenFn> =>
-    listen<PrintStatus>("print-status", (e) => cb(e.payload)),
   pickGerber: () =>
     open({
       multiple: false,
@@ -809,6 +859,10 @@ export const api = {
    *  if the window already existed (was focused), `false` if freshly created — used
    *  to route a "repeat run" prefill (emit now vs. hand off as a pending one-shot). */
   openDrillWindow: () => invoke<boolean>("open_drill_window"),
+  /** Open (or focus) the UV-exposure-operation window (label `expose`). Resolves
+   *  `true` if the window already existed (was focused), `false` if freshly created
+   *  — used to route a "repeat run" prefill (emit now vs. hand off as pending). */
+  openExposeWindow: () => invoke<boolean>("open_expose_window"),
   /** Open (or focus) the machine console OS window. */
   openConsoleWindow: () => invoke<void>("open_console_window"),
 
@@ -904,6 +958,21 @@ export const api = {
       "drill:set-class-override",
       (e) => cb(e.payload),
     ),
+  // Expose window bridge events (main → expose window). The expose window receives
+  // the project as a pushed snapshot and sends run commands directly via invoke.
+  // No machine relay needed (exposure is printer-driven, not CNC).
+  emitExposeReady: () => emit("expose:ready"),
+  onExposeReady: (cb: () => void): Promise<UnlistenFn> =>
+    listen("expose:ready", () => cb()),
+  emitExposeSnapshot: (s: ExposeSnapshot) => emit("expose:snapshot", s),
+  onExposeSnapshot: (cb: (s: ExposeSnapshot) => void): Promise<UnlistenFn> =>
+    listen<ExposeSnapshot>("expose:snapshot", (e) => cb(e.payload)),
+  /** Main → expose window: prefill the editor with a past run's params_json
+   *  ("repeat run"). Overrides the default last-run prefill. */
+  emitExposePrefill: (paramsJson: string) => emit("expose:prefill", { paramsJson }),
+  onExposePrefill: (cb: (paramsJson: string) => void): Promise<UnlistenFn> =>
+    listen<{ paramsJson: string }>("expose:prefill", (e) => cb(e.payload.paramsJson)),
+
   // Console window bridge events (main <-> console).
   emitConsoleReady: () => emit("console:ready"),
   onConsoleReady: (cb: () => void): Promise<UnlistenFn> => listen("console:ready", () => cb()),
@@ -1027,6 +1096,22 @@ export const api = {
     onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>
       listen<{ message: string }>("drill-run://error", (e) => cb(e.payload.message)),
     onDone: (cb: () => void): Promise<UnlistenFn> => listen("drill-run://done", () => cb()),
+  },
+
+  exposeRun: {
+    /** Start a panel UV-exposure run. Returns immediately; listen to
+     *  `expose://state` and `expose://progress` for progress. */
+    start: (req: ExposeRunRequest) => invoke<void>("expose_run_start", { req }),
+    /** Set the stopping flag and best-effort stop_print on the printer. */
+    stop: () => invoke<void>("expose_run_stop"),
+    /** Current run status for a window opening mid-run (re-attach). */
+    status: () => invoke<{ active: boolean; stage: string }>("expose_run_status"),
+    /** Subscribe to `expose://state` events (stage + message). */
+    onState: (cb: (p: { stage: string; message: string }) => void): Promise<UnlistenFn> =>
+      listen<{ stage: string; message: string }>("expose://state", (e) => cb(e.payload)),
+    /** Subscribe to `expose://progress` events. */
+    onProgress: (cb: (p: ExposeProgress) => void): Promise<UnlistenFn> =>
+      listen<ExposeProgress>("expose://progress", (e) => cb(e.payload)),
   },
 
   /** Operation-run journal (catalog DB). Op-agnostic — drill is the first writer.

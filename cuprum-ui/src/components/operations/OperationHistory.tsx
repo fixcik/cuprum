@@ -32,16 +32,24 @@ function parseDrillParams(paramsJson: string): DrillParams {
 }
 
 /** Op types that have a window to (re)open from a history card. */
-const OPENABLE = new Set(["drill"]);
+const OPENABLE = new Set(["drill", "expose"]);
 
 /** Open the op's window and prefill it with this run's config ("repeat run"). An
  *  already-open window is listening, so prefill it now; a fresh one consumes the
  *  pending prefill on its ready handshake. */
 async function repeatRun(run: OperationRun) {
-  if (run.opType !== "drill") return;
-  const wasOpen = await api.openDrillWindow();
-  if (wasOpen) api.emitDrillPrefill(run.paramsJson);
-  else useShell.getState().setPendingDrillPrefill(run.paramsJson);
+  if (run.opType === "drill") {
+    const wasOpen = await api.openDrillWindow();
+    if (wasOpen) api.emitDrillPrefill(run.paramsJson);
+    else useShell.getState().setPendingDrillPrefill(run.paramsJson);
+    return;
+  }
+  if (run.opType === "expose") {
+    const wasOpen = await api.openExposeWindow();
+    if (wasOpen) api.emitExposePrefill(run.paramsJson);
+    else useShell.getState().setPendingExposePrefill(run.paramsJson);
+    return;
+  }
 }
 
 /** Operation history as a card list — every journalled run across all op types,
