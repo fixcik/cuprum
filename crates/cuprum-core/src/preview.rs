@@ -71,6 +71,28 @@ fn union_bbox(layers: &[(String, LayerGeometry)]) -> Option<BBox> {
     })
 }
 
+/// SVG path subpaths (one per hole) approximating circles, in the same gerber-mm
+/// space as the board-outline `d`. Appended to the clip path so evenodd subtracts
+/// them — punching transparent through-holes in the whole composite. Each circle is
+/// two half-arcs: `M cx-r,cy A r,r 0 1,0 cx+r,cy A r,r 0 1,0 cx-r,cy Z`.
+fn holes_path(holes: &[(f32, f32, f32)]) -> String {
+    let mut d = String::new();
+    for &(cx, cy, r) in holes {
+        if r <= 0.0 {
+            continue;
+        }
+        let _ = write!(
+            d,
+            " M{l} {cy} A{r} {r} 0 1 0 {right} {cy} A{r} {r} 0 1 0 {l} {cy} Z",
+            l = trim(cx - r),
+            right = trim(cx + r),
+            cy = trim(cy),
+            r = trim(r),
+        );
+    }
+    d
+}
+
 /// Assemble a self-contained colored SVG document from per-layer fragments,
 /// replicating the frontend `LayerStack` composition for design-card thumbnails:
 ///
@@ -90,10 +112,17 @@ fn union_bbox(layers: &[(String, LayerGeometry)]) -> Option<BBox> {
 /// bbox (edge cuts stay unclipped — they ARE the outline; mirrors the frontend
 /// `LayerStack` clip), and the bbox frames the view so the rasterized extent equals
 /// the board bbox. Absent → union-of-layers bbox framing and no clipping.
+///
+/// `holes` is a list of (cx, cy, radius) in gerber-mm. When provided they are
+/// appended to the clip path as circle subpaths so evenodd subtracts them,
+/// punching transparent through-holes through the entire composite. When there is
+/// no board outline but holes are present, a synthetic bbox rect clip is built so
+/// the holes have something to punch through.
 pub fn compose_svg(
     layers: &[(String, LayerGeometry)],
     overrides: &HashMap<String, String>,
     board_outline: Option<(&str, BBox)>,
+    holes: &[(f32, f32, f32)],
 ) -> String {
     // Frame the view to the board outline when available, so the rasterized PNG's
     // extent equals the board bbox the panel uses for instance placement; otherwise
@@ -104,13 +133,32 @@ pub fn compose_svg(
     let Some(bb) = frame else {
         return r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>"#.to_string();
     };
-    let board_clip = board_outline.map(|(d, _)| d);
     let w = (bb.max_x - bb.min_x).max(f32::MIN_POSITIVE);
     let h = (bb.max_y - bb.min_y).max(f32::MIN_POSITIVE);
     let minx = trim(bb.min_x);
     let miny = trim(bb.min_y);
     let ws = trim(w);
     let hs = trim(h);
+
+    // Build the clip `d`: board outline (if any) plus a synthesized bbox rect when
+    // there is no outline but we still need to punch holes. Hole subpaths are
+    // appended so evenodd subtracts them from the clipped region.
+    let has_holes = holes.iter().any(|&(_, _, r)| r > 0.0);
+    let clip_d: Option<String> = match (board_outline.map(|(d, _)| d), has_holes) {
+        (Some(d), _) => Some(format!("{d}{}", holes_path(holes))),
+        (None, true) => {
+            // Outer rect as a path (gerber-mm, Y-up bbox) + holes, evenodd.
+            let rect = format!(
+                "M{minx} {miny} L{maxx} {miny} L{maxx} {maxy} L{minx} {maxy} Z",
+                minx = trim(bb.min_x),
+                miny = trim(bb.min_y),
+                maxx = trim(bb.max_x),
+                maxy = trim(bb.max_y),
+            );
+            Some(format!("{rect}{}", holes_path(holes)))
+        }
+        (None, false) => None,
+    };
 
     // Draw order: top-side layers only, sorted by z-order (stable for ties).
     let mut idx: Vec<usize> = (0..layers.len())
@@ -134,14 +182,16 @@ pub fn compose_svg(
     // Board-shaped clip (rounded Edge_Cuts outline) so the substrate/mask/layers
     // follow the real edge instead of the rectangular bbox. userSpaceOnUse → its
     // path coords share the (flipped) gerber-mm space of the elements it clips.
-    let clip_attr = if board_clip.is_some() {
+    // Hole subpaths are already folded into clip_d via evenodd.
+    let clip_attr = if clip_d.is_some() {
         r#" clip-path="url(#board-clip)""#
     } else {
         ""
     };
-    if let Some(d) = board_clip {
+    if let Some(d) = &clip_d {
         // evenodd so inner cutout loops punch holes regardless of winding order
         // (stitch() doesn't normalize direction; nonzero would fill them in).
+        // Drill hole subpaths appended to `d` are subtracted by the same rule.
         let _ = write!(
             out,
             r#"<clipPath id="board-clip" clipPathUnits="userSpaceOnUse"><path fill-rule="evenodd" d="{d}"/></clipPath>"#,
@@ -339,7 +389,7 @@ pub fn preview_key(
 
 /// Compose + rasterize a design preview to an indexed PNG at `sizing`. No result
 /// caching (the per-layer SVG artifact cache under `<artifacts_dir>/svg` is still
-/// reused). Drill layers must be excluded by the caller. Top side only.
+/// reused). Drill holes are punched transparent through the composite. Top side only.
 pub fn render_preview_png(
     artifacts_dir: &Path,
     layers: &[PreviewLayer],
@@ -349,6 +399,10 @@ pub fn render_preview_png(
     let svg_dir = artifacts_dir.join("svg");
     let mut composed: Vec<(String, LayerGeometry)> = Vec::with_capacity(layers.len());
     for l in layers {
+        // Drill is not a drawn layer: it punches holes via the clip (below).
+        if l.layer_type == "drill" {
+            continue;
+        }
         match crate::cache::layer_svg_artifact(&svg_dir, &l.bytes) {
             Ok(g) => composed.push((l.layer_type.clone(), g)),
             Err(_) => continue,
@@ -358,10 +412,21 @@ pub fn render_preview_png(
         .iter()
         .find(|l| l.layer_type == "edgeCuts")
         .and_then(|e| board_outline(&e.bytes));
+    // Drilled holes (centre + radius, gerber mm) → punched transparent through the
+    // whole composite. Parse-failure on a bad drill layer just yields no holes.
+    let holes: Vec<(f32, f32, f32)> = layers
+        .iter()
+        .find(|l| l.layer_type == "drill")
+        .map(|d| crate::drill::parse_drill(&d.bytes).unwrap_or_default())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|h| (h.x_mm, h.y_mm, h.d_mm / 2.0))
+        .collect();
     let doc = compose_svg(
         &composed,
         overrides,
         board_outline.as_ref().map(|(d, bb)| (d.as_str(), *bb)),
+        &holes,
     );
     rasterize(&doc, sizing)
 }
@@ -635,7 +700,7 @@ mod tests {
             ("edgeCuts".to_string(), geom("<rect/>", 0.0, 0.0, 10.0, 8.0)),
         ];
         let overrides = std::collections::HashMap::new();
-        let doc = compose_svg(&layers, &overrides, None);
+        let doc = compose_svg(&layers, &overrides, None, &[]);
         assert!(doc.starts_with("<svg"), "standalone svg root");
         assert!(
             doc.contains("viewBox=\"0 0 10 8\""),
@@ -667,7 +732,7 @@ mod tests {
             ),
         ];
         let overrides = std::collections::HashMap::new();
-        let doc = compose_svg(&layers, &overrides, None);
+        let doc = compose_svg(&layers, &overrides, None, &[]);
         // Mask renders as inverted coverage: a <mask> def + a coverage rect at 0.82.
         assert!(
             doc.contains("<mask"),
@@ -728,13 +793,13 @@ mod tests {
         ];
         let o = std::collections::HashMap::new();
         let (d, bb) = board_outline(EDGE_SQUARE).unwrap();
-        let doc = compose_svg(&layers, &o, Some((&d, bb)));
+        let doc = compose_svg(&layers, &o, Some((&d, bb)), &[]);
         assert!(
             doc.contains("viewBox=\"0 0 10 10\""),
             "framed to outline bbox: {doc}"
         );
         // No outline → union bbox (overhang included), preserving old behavior.
-        let plain = compose_svg(&layers, &o, None);
+        let plain = compose_svg(&layers, &o, None, &[]);
         assert!(
             plain.contains("viewBox=\"-2 -1 17 13\""),
             "union bbox fallback: {plain}"
@@ -755,7 +820,7 @@ mod tests {
         ];
         let overrides = std::collections::HashMap::new();
         let (d, bb) = board_outline(EDGE_SQUARE).unwrap();
-        let doc = compose_svg(&layers, &overrides, Some((&d, bb)));
+        let doc = compose_svg(&layers, &overrides, Some((&d, bb)), &[]);
         assert!(doc.contains("id=\"board-clip\""), "clipPath defined: {doc}");
         assert!(
             doc.contains("fill-rule=\"evenodd\""),
@@ -781,8 +846,58 @@ mod tests {
             "edge cuts left unclipped: {doc}"
         );
         // No clip when none supplied.
-        let plain = compose_svg(&layers, &overrides, None);
+        let plain = compose_svg(&layers, &overrides, None, &[]);
         assert!(!plain.contains("clip-path"), "no clip without an outline");
+    }
+
+    #[test]
+    fn compose_punches_holes_into_clip() {
+        // Rect board outline 0..10 x 0..8, one hole at (5,4) r=1.
+        let layers = vec![("topCopper".to_string(), geom("<circle/>", 0.0, 0.0, 10.0, 8.0))];
+        let overrides = std::collections::HashMap::new();
+        let outline = "M0 0 L10 0 L10 8 L0 8 Z";
+        let bb = crate::svg::BBox { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 8.0 };
+        let doc = compose_svg(&layers, &overrides, Some((outline, bb)), &[(5.0, 4.0, 1.0)]);
+        // The clip path must keep evenodd and now contain an arc subpath for the hole.
+        let clip_start = doc.find("board-clip").expect("clip present");
+        let clip = &doc[clip_start..doc[clip_start..].find("</clipPath>").unwrap() + clip_start];
+        assert!(clip.contains("fill-rule=\"evenodd\""), "evenodd kept: {clip}");
+        assert!(clip.contains('A'), "hole rendered as arc subpath: {clip}");
+        // Hole centre x±r appears (4 and 6 with r=1 at cx=5).
+        assert!(clip.contains('6') && clip.contains('4'), "hole geometry present: {clip}");
+    }
+
+    #[test]
+    fn compose_no_outline_with_holes_builds_clip() {
+        // No board outline, but holes present → synthesize a bbox clip so holes punch.
+        let layers = vec![("topCopper".to_string(), geom("<circle/>", 0.0, 0.0, 10.0, 8.0))];
+        let overrides = std::collections::HashMap::new();
+        let doc = compose_svg(&layers, &overrides, None, &[(5.0, 4.0, 1.0)]);
+        assert!(doc.contains("board-clip"), "clip synthesized when holes exist: {doc}");
+        assert!(doc.contains('A'), "hole arc present: {doc}");
+    }
+
+    #[test]
+    fn rasterized_hole_center_is_transparent() {
+        // Board copper covering 0..10x0..8, outline rect, hole at centre r=2.
+        let layers = vec![("topCopper".to_string(), geom("<rect x=\"0\" y=\"0\" width=\"10\" height=\"8\"/>", 0.0, 0.0, 10.0, 8.0))];
+        let o = std::collections::HashMap::new();
+        let outline = "M0 0 L10 0 L10 8 L0 8 Z";
+        let bb = crate::svg::BBox { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 8.0 };
+        let doc = compose_svg(&layers, &o, Some((outline, bb)), &[(5.0, 4.0, 2.0)]);
+        let png = rasterize(&doc, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 }).unwrap();
+        let dec = png::Decoder::new(std::io::Cursor::new(&png));
+        let mut reader = dec.read_info().unwrap();
+        let info = reader.info().clone();
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        reader.next_frame(&mut buf).unwrap();
+        // Indexed PNG: map centre pixel via palette tRNS to check alpha==0.
+        let trns = info.trns.expect("tRNS");
+        let (w, h) = (info.width as usize, info.height as usize);
+        let (cx, cy) = (w / 2, h / 2);
+        let pal_idx = buf[cy * w + cx] as usize;
+        let alpha = trns.get(pal_idx).copied().unwrap_or(255);
+        assert_eq!(alpha, 0, "hole centre pixel is transparent (punched through)");
     }
 
     #[test]
@@ -797,7 +912,7 @@ mod tests {
                 geom("<circle id=\"bot\"/>", 0.0, 0.0, 10.0, 8.0),
             ),
         ];
-        let doc = compose_svg(&layers, &std::collections::HashMap::new(), None);
+        let doc = compose_svg(&layers, &std::collections::HashMap::new(), None, &[]);
         assert!(doc.contains("id=\"top\""), "top layer drawn");
         assert!(
             !doc.contains("id=\"bot\""),
