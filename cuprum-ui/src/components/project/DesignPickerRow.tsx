@@ -53,12 +53,13 @@ export function DesignPickerRow({
   useEffect(() => {
     let cancelled = false;
     setPreviewSettled(false);
-    const gerbers = design.gerbers
-      .filter((g) => g.layer_type !== "drill")
-      .map((g) => ({ rel: g.path, layerType: g.layer_type }));
+    // Include drill: the backend punches it as transparent holes (not a drawn
+    // layer) and hashes it into the preview key, which must match the pack-gc
+    // valid set in workdir.rs.
+    const gerbers = design.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type }));
     // Nothing renderable (drill-only / empty) — settle so we show a neutral
     // placeholder instead of a spinner that would never stop.
-    if (gerbers.length === 0) {
+    if (gerbers.every((g) => g.layerType === "drill")) {
       setPreviewSettled(true);
       return;
     }
