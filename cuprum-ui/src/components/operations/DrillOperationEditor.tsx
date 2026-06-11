@@ -327,6 +327,8 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
 
   const route = planResult?.route ?? null;
   const totalEstimateSec = planResult ? Math.round(planResult.estimate.motionSec) : 0;
+  // Per-group motion buckets for the "until next tool change" readout (empty until planned).
+  const groupMotionSecs = planResult?.estimate.groupMotionSecs ?? [];
   // The tool-change count rides along on `estimate` (shown by the preflight summary).
   const estimate = planResult?.estimate ?? null;
 
@@ -624,6 +626,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             onFeedChange={handleFeedChange}
             onRunDone={handleRunDone}
             totalEstimateSec={totalEstimateSec}
+            groupMotionSecs={groupMotionSecs}
             plungeDepthMm={targetDepthMm}
           />
       )}

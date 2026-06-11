@@ -155,12 +155,17 @@ pub struct DrillProgram {
     pub skipped_diameters_mm: Vec<f64>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DrillEstimate {
     pub travel_mm: f64,
     pub motion_sec: f64,
     pub tool_changes: u32,
+    /// Per-group motion time (s), one entry per `DrillRoute::groups` in the same order.
+    /// Each group's share = traverse INTO the group (the leg ending at its first hole)
+    /// plus all intra-group traverses and per-hole plunge/retract. The sum equals
+    /// `motion_sec`. Drives the "time until next tool change" readout.
+    pub group_motion_secs: Vec<f64>,
 }
 
 /// Default breakthrough (mm) past the bottom of the substrate to ensure clean perforation.

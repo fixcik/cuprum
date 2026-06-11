@@ -136,7 +136,8 @@
     "stopping": "Остановка",
     "done": "Готово",
     "elapsedShort": "{{elapsed}} прошло",
-    "remainingShort": "осталось ~{{remaining}}"
+    "remainingShort": "осталось ~{{remaining}}",
+    "untilToolChange": "до смены ~{{time}} · {{holes}} отв."
   },
   "phase": {
     "traverse": "Перемещение",

@@ -20,6 +20,9 @@ export interface DrillRunInspectorProps {
   panelWidthMm: number;
   panelHeightMm: number;
   totalEstimateSec: number;
+  /** Per-group motion estimate (s) from the Rust plan; feeds the header's "until next
+   *  tool change" readout. */
+  groupMotionSecs: number[];
   /** Deepest plunge depth (mm) = substrate thickness + breakthrough; feeds the
    *  tool-change card's Z-headroom guard. */
   plungeDepthMm: number;
@@ -46,6 +49,7 @@ export function DrillRunInspector({
   panelWidthMm,
   panelHeightMm,
   totalEstimateSec,
+  groupMotionSecs,
   plungeDepthMm,
   feedOverridePct,
   onFeedChange,
@@ -96,6 +100,7 @@ export function DrillRunInspector({
         panelWidthMm={panelWidthMm}
         panelHeightMm={panelHeightMm}
         totalEstimateSec={totalEstimateSec}
+        groupMotionSecs={groupMotionSecs}
       />
 
       {/* Tool-change card */}
