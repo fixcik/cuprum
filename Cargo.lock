@@ -522,6 +522,8 @@ dependencies = [
  "cuprum-mill",
  "cuprum-sdcp",
  "cuprum-trace",
+ "imagequant",
+ "png 0.17.16",
  "rayon",
  "resvg",
  "tracing",
@@ -1386,6 +1388,19 @@ checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
 dependencies = [
  "byteorder-lite",
  "quick-error",
+]
+
+[[package]]
+name = "imagequant"
+version = "4.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caf5d73b959dfbe5d6b5cd3ca8de5265c7bc58297f20560a60a1d2ba6a19991f"
+dependencies = [
+ "arrayvec",
+ "once_cell",
+ "rayon",
+ "rgb",
+ "thread_local",
 ]
 
 [[package]]

@@ -51,6 +51,7 @@ resvg = "0.45"
 usvg = "0.45"
 rayon = "1"
 png = "0.17"
+imagequant = "4"
 rusqlite = { version = "0.31", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 crc32fast = "1"
