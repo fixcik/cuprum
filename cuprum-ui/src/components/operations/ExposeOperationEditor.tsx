@@ -5,7 +5,6 @@ import {
   Sun,
   Loader2,
   Square,
-  TriangleAlert,
   CheckCircle2,
   XCircle,
   RotateCcw,
@@ -243,13 +242,6 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.side, snapshot.mirror, snapshot.invert, snapshot.exposureS, snapshot.pwm]);
 
-  // ── Rotation warning ────────────────────────────────────────────────────
-  // The compositor supports 0° and 180° (180° maps to the printer's native
-  // orientation); only 90°/270° aren't rotated — they'd expose unrotated.
-  const hasUnsupportedRotation = (panel?.instances ?? []).some(
-    (inst) => inst.rotation_deg === 90 || inst.rotation_deg === 270,
-  );
-
   // ── Run state ────────────────────────────────────────────────────────────
   const [run, setRun] = useState<RunState>(IDLE_RUN);
   const runUidRef = useRef<string | null>(null);
@@ -408,14 +400,6 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
             )}
           </div>
         </section>
-
-        {/* ── Rotation warning ────────────────────────────────────────────── */}
-        {hasUnsupportedRotation && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-300">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-            <span>{t("editor.rotationWarning")}</span>
-          </div>
-        )}
 
         {/* ── Exposure parameters ─────────────────────────────────────────── */}
         <section>

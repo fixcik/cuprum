@@ -44,6 +44,14 @@ pub struct RenderOptions {
     pub mirror_x: bool,
     /// Invert black/white (positive vs negative photoresist).
     pub invert: bool,
+    /// Clockwise rotation of the artwork on the exposure screen (0 / 90 / 180 / 270).
+    ///
+    /// This matches the Konva/panel-editor convention where positive angles are
+    /// clockwise in screen Y-down space.  For 90°/270° the pixmap dimensions swap:
+    /// the board's mm-height spans the screen X axis and mm-width spans screen Y.
+    /// The anisotropic X/Y pixel pitch is applied AFTER the geometry rotation so
+    /// the output is always scale-correct regardless of orientation.
+    pub rotation_deg: u16,
 }
 
 impl RenderOptions {
@@ -53,6 +61,14 @@ impl RenderOptions {
             px_per_mm_x: px_per_mm,
             px_per_mm_y: px_per_mm,
             ..Self::default()
+        }
+    }
+
+    /// Square resolution with the given clockwise rotation.
+    pub fn square_rotated(px_per_mm: f32, rotation_deg: u16) -> Self {
+        Self {
+            rotation_deg,
+            ..Self::square(px_per_mm)
         }
     }
 }
@@ -67,6 +83,7 @@ impl Default for RenderOptions {
             margin_mm: 1.0,
             mirror_x: false,
             invert: false,
+            rotation_deg: 0,
         }
     }
 }
@@ -87,6 +104,15 @@ impl Default for RenderOptions {
 ///
 /// All four corners are exposed so callers that blit the mask onto a Y-down
 /// screen can pick whichever pair they need without re-deriving it.
+///
+/// ## Rotation
+///
+/// When [`RenderOptions::rotation_deg`] is non-zero the mm corners describe the
+/// **axis-aligned bounding box of the rotated artwork** (still in gerber Y-up
+/// coords), not the original unrotated bbox.  The pixel-to-world mapping above
+/// holds unchanged: pixel (0,0) is still the world point (`min_x_mm`, `max_y_mm`)
+/// of that rotated bbox.  For 90°/270° the roles of the original width and height
+/// are swapped (`width_mm = original_height_mm`, etc.).
 #[derive(Clone, Copy, Debug)]
 pub struct RenderInfo {
     pub px_w: u32,
@@ -133,29 +159,71 @@ pub fn render_layer(layer: &GerberLayer, opts: &RenderOptions) -> Result<(Pixmap
         .context("gerber has no drawable geometry")?;
 
     let margin = opts.margin_mm as f64;
+    // Unrotated bbox (with margin), in gerber Y-up world coordinates.
     let min_x = bbox.min.x - margin;
+    let min_y = bbox.min.y - margin;
+    let max_x = bbox.max.x + margin;
     let max_y = bbox.max.y + margin;
-    let w_mm = bbox.width() + 2.0 * margin;
-    let h_mm = bbox.height() + 2.0 * margin;
+    let w_mm = max_x - min_x;
+    let h_mm = max_y - min_y;
+    let cx_mm = (min_x + max_x) / 2.0;
+    let cy_mm = (min_y + max_y) / 2.0;
     let sx = opts.px_per_mm_x as f64;
     let sy = opts.px_per_mm_y as f64;
 
-    let pw = ((w_mm * sx).ceil() as u32).max(1);
-    let ph = ((h_mm * sy).ceil() as u32).max(1);
+    // Rotated bbox and pixmap dimensions.
+    //
+    // Rotation is clockwise on the exposure screen (matching the panel editor's
+    // Konva convention where positive rotation_deg = CW in screen Y-down space).
+    // In gerber Y-up math space this corresponds to a CCW rotation by the same
+    // angle: rotating points by +rotation_deg degrees (CCW in Y-up) and then
+    // applying the Y-flip makes the result appear rotated CW on screen.
+    //
+    // After rotating the original w_mm × h_mm rectangle about its centre, the
+    // axis-aligned bounding box of the rotated shape is:
+    //   - 0° / 180°  : same extents as unrotated (w_mm × h_mm)
+    //   - 90° / 270° : extents swap (h_mm × w_mm)
+    //
+    // The rotated bbox is always centred on (cx_mm, cy_mm).
+    let (rot_w_mm, rot_h_mm) = match opts.rotation_deg.wrapping_rem(360) {
+        90 | 270 => (h_mm, w_mm),
+        _ => (w_mm, h_mm),
+    };
+    let rot_min_x = cx_mm - rot_w_mm / 2.0;
+    let rot_max_y = cy_mm + rot_h_mm / 2.0;
+    let rot_min_y = cy_mm - rot_h_mm / 2.0;
+    let rot_max_x = cx_mm + rot_w_mm / 2.0;
+
+    let pw = ((rot_w_mm * sx).ceil() as u32).max(1);
+    let ph = ((rot_h_mm * sy).ceil() as u32).max(1);
     let mut pm = Pixmap::new(pw, ph).context("failed to allocate pixmap (too large?)")?;
     pm.fill(Color::BLACK);
 
-    // Single mm -> pixel transform: anisotropic scale, Y flipped, optional X mirror.
-    // Paths are built in mm; tiny-skia applies this transform (so a round aperture
-    // correctly becomes an ellipse on the non-square pixel grid).
-    let tf = if opts.mirror_x {
+    // Build the mm → pixel transform.
+    //
+    // The final anisotropic scale + Y-flip + translate maps the rotated bbox to
+    // pixel space: pixel (0,0) = world (rot_min_x, rot_max_y).
+    //
+    //   For mirror_x the X scale is negated so the right edge maps to column 0.
+    //
+    // When rotation_deg > 0, we pre-concat a rotate-about-centre in gerber Y-up
+    // space BEFORE the scale/flip.  `pre_concat` applies the additional transform
+    // FIRST on the point, then the scale/flip.  This implements:
+    //
+    //   pixel = scale_flip · rotate_about_centre · world_point
+    //
+    // tiny-skia `from_rotate(angle)` uses standard math convention (CCW positive),
+    // which — combined with the Y-flip in the scale step — produces a CW rotation
+    // on the exposure screen, matching the Konva panel editor.
+    let base_tf = if opts.mirror_x {
+        // Mirrored: X scale negated, origin shifts to right edge of rotated bbox.
         Transform::from_row(
             -sx as f32,
             0.0,
             0.0,
             -sy as f32,
-            (sx * (w_mm + min_x)) as f32,
-            (sy * max_y) as f32,
+            (sx * rot_max_x) as f32,
+            (sy * rot_max_y) as f32,
         )
     } else {
         Transform::from_row(
@@ -163,9 +231,22 @@ pub fn render_layer(layer: &GerberLayer, opts: &RenderOptions) -> Result<(Pixmap
             0.0,
             0.0,
             -sy as f32,
-            (-sx * min_x) as f32,
-            (sy * max_y) as f32,
+            (-sx * rot_min_x) as f32,
+            (sy * rot_max_y) as f32,
         )
+    };
+
+    let tf = if opts.rotation_deg.is_multiple_of(360) {
+        // Fast path: no rotation, identical to the original code path.
+        base_tf
+    } else {
+        // Rotate the geometry about the unrotated bbox centre (gerber Y-up, CCW
+        // positive = CW on screen after Y-flip) then apply the scale/flip above.
+        base_tf.pre_concat(Transform::from_rotate_at(
+            opts.rotation_deg as f32,
+            cx_mm as f32,
+            cy_mm as f32,
+        ))
     };
 
     let mut white = Paint::default();
@@ -267,12 +348,15 @@ pub fn render_layer(layer: &GerberLayer, opts: &RenderOptions) -> Result<(Pixmap
     let info = RenderInfo {
         px_w: pw,
         px_h: ph,
-        width_mm: w_mm as f32,
-        height_mm: h_mm as f32,
-        min_x_mm: (bbox.min.x - margin) as f32,
-        min_y_mm: (bbox.min.y - margin) as f32,
-        max_x_mm: (bbox.max.x + margin) as f32,
-        max_y_mm: (bbox.max.y + margin) as f32,
+        // Report the axis-aligned bbox of what was actually drawn: the rotated
+        // bbox in gerber Y-up coords.  For 0°/180° this equals the unrotated
+        // bbox; for 90°/270° width and height (and min/max) reflect the swap.
+        width_mm: rot_w_mm as f32,
+        height_mm: rot_h_mm as f32,
+        min_x_mm: rot_min_x as f32,
+        min_y_mm: rot_min_y as f32,
+        max_x_mm: rot_max_x as f32,
+        max_y_mm: rot_max_y as f32,
     };
     Ok((pm, info))
 }
@@ -687,5 +771,201 @@ mod render_info_bbox_tests {
         let doc =
             gerber_parser::parse(reader).map_err(|(_, e)| anyhow::anyhow!("parse error: {e:?}"))?;
         Ok(doc.into_commands())
+    }
+}
+
+// ---- Rotation tests ----------------------------------------------------------------
+//
+// Fixture: an asymmetric board with most ink in the lower-left quadrant.
+//
+//   Big pad  : 2mm-diameter circle at world (1.0, 1.0)  — carries almost all lit pixels
+//   Tiny pad : 0.01mm-diameter circle at world (5.0, 3.0) — defines far bbox corner
+//
+// Combined bbox (no margin): x ∈ [0.0, 5.005], y ∈ [0.0, 3.005]
+//   w_mm ≈ 5.005 mm,  h_mm ≈ 3.005 mm
+//   centre cx ≈ 2.5025 mm, cy ≈ 1.5025 mm
+//
+// At px_per_mm = 10 (square, for integer-friendly arithmetic):
+//
+//   0°  : pw = ceil(5.005 * 10) = 51, ph = ceil(3.005 * 10) = 31
+//         big-pad pixel centroid ≈ (10, 20)  — left half, bottom half
+//
+//   90° : pw = ceil(3.005 * 10) = 31, ph = ceil(5.005 * 10) = 51  ← extents SWAPPED
+//         geometry rotated +90° CCW in Y-up (= CW on screen after Y-flip)
+//         big-pad pixel centroid ≈ (20, 40)  — right half, bottom half
+//
+//  180° : pw = 51, ph = 31  (same extents as 0°)
+//         big-pad pixel centroid ≈ (40, 10)  — right half, top half
+//
+//  270° : pw = 31, ph = 51  (same extents as 90°)
+//         geometry rotated +270° CCW in Y-up (= 270° CW on screen)
+//         big-pad pixel centroid ≈ (10, 10)  — left half, top half
+//
+// The centroid progression 0°→90°→180°→270° traces bottom-left → bottom-right →
+// top-right → top-left, which is clockwise on a Y-down screen.  This locks the
+// rotation direction to match the Konva panel editor convention.
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    // FSLAX24Y24: coordinate unit = 10^-4 mm (X10000 = 1.0 mm).
+    // Two pads:
+    //   aperture D10 = 2.0mm circle → big pad at (1.0, 1.0)
+    //   aperture D11 = 0.01mm circle → tiny anchor at (5.0, 3.0)
+    const ASYMMETRIC_BOARD: &[u8] = b"\
+%FSLAX24Y24*%\n\
+%MOMM*%\n\
+%ADD10C,2.0*%\n\
+%ADD11C,0.01*%\n\
+D10*\n\
+X10000Y10000D03*\n\
+D11*\n\
+X50000Y30000D03*\n\
+M02*\n";
+
+    // px/mm used in all rotation tests (square, integer-friendly).
+    const PPM: f32 = 10.0;
+
+    fn parse(bytes: &[u8]) -> Vec<crate::gerber_types::Command> {
+        use crate::gerber_parser;
+        let reader = std::io::BufReader::new(std::io::Cursor::new(bytes));
+        let doc = gerber_parser::parse(reader)
+            .map_err(|(_, e)| format!("parse error: {e:?}"))
+            .expect("parse ok");
+        doc.into_commands()
+    }
+
+    fn opts(rotation_deg: u16) -> RenderOptions {
+        RenderOptions {
+            px_per_mm_x: PPM,
+            px_per_mm_y: PPM,
+            margin_mm: 0.0,
+            mirror_x: false,
+            invert: false,
+            rotation_deg,
+        }
+    }
+
+    /// Pixel centroid of all lit (non-zero) pixels in a rendered Pixmap.
+    /// Returns (col_centroid, row_centroid) as f32 to allow fractional values.
+    fn lit_centroid(pm: &Pixmap) -> (f32, f32) {
+        let mut sum_x = 0u64;
+        let mut sum_y = 0u64;
+        let mut count = 0u64;
+        for row in 0..pm.height() {
+            for col in 0..pm.width() {
+                // RGBA premultiplied; red channel = intensity for a pure white mask.
+                let idx = (row * pm.width() + col) as usize * 4;
+                let val = pm.data()[idx]; // red channel (255 = UV on)
+                if val > 0 {
+                    sum_x += col as u64 * val as u64;
+                    sum_y += row as u64 * val as u64;
+                    count += val as u64;
+                }
+            }
+        }
+        assert!(count > 0, "no lit pixels — geometry did not render");
+        (sum_x as f32 / count as f32, sum_y as f32 / count as f32)
+    }
+
+    // ── test 1: 90°/270° swap pixmap extents ──────────────────────────────────
+
+    /// A 90° rotation must swap the pixmap dimensions (rotated width = original
+    /// height scaled by X pitch; rotated height = original width scaled by Y pitch).
+    /// 0° and 90° use the same square pitch here so the swap is pixel-exact.
+    #[test]
+    fn render_rotated_90_swaps_pixel_extents() {
+        let (pm0, info0) = render_with_info(parse(ASYMMETRIC_BOARD), &opts(0)).unwrap();
+        let (pm90, info90) = render_with_info(parse(ASYMMETRIC_BOARD), &opts(90)).unwrap();
+
+        // 0°: w≈5.005mm, h≈3.005mm → pw=51, ph=31
+        assert_eq!(pm0.width(), 51, "0° pw");
+        assert_eq!(pm0.height(), 31, "0° ph");
+        assert_eq!(info0.px_w, 51);
+        assert_eq!(info0.px_h, 31);
+
+        // 90°: extents swap → pw=31, ph=51
+        assert_eq!(pm90.width(), 31, "90° pw (was ph at 0°)");
+        assert_eq!(pm90.height(), 51, "90° ph (was pw at 0°)");
+        assert_eq!(info90.px_w, 31);
+        assert_eq!(info90.px_h, 51);
+
+        // mm extents also swap
+        assert!(
+            (info0.width_mm - info90.height_mm).abs() < 0.01,
+            "width/height swap in mm"
+        );
+        assert!(
+            (info0.height_mm - info90.width_mm).abs() < 0.01,
+            "height/width swap in mm"
+        );
+    }
+
+    // ── test 2: 0° and 180° have identical pixmap size ────────────────────────
+
+    /// Rotating by 180° does not swap extents: the pixmap size equals the 0° size.
+    #[test]
+    fn render_0_and_180_unchanged_extents() {
+        let (pm0, _) = render_with_info(parse(ASYMMETRIC_BOARD), &opts(0)).unwrap();
+        let (pm180, _) = render_with_info(parse(ASYMMETRIC_BOARD), &opts(180)).unwrap();
+
+        assert_eq!(pm0.width(), pm180.width(), "180° pw must equal 0° pw");
+        assert_eq!(pm0.height(), pm180.height(), "180° ph must equal 0° ph");
+
+        // 180° is not a transpose: the two pixmaps must differ at lit pixels.
+        let data0 = pm0.data();
+        let data180 = pm180.data();
+        let any_diff = data0
+            .chunks_exact(4)
+            .zip(data180.chunks_exact(4))
+            .any(|(a, b)| a[0] != b[0]);
+        assert!(
+            any_diff,
+            "0° and 180° must produce different rasters (180° ≠ transpose)"
+        );
+    }
+
+    // ── test 3: clockwise rotation direction matches Konva / panel editor ──────
+
+    /// An asymmetric feature (big pad in the board's lower-left region) must move
+    /// to predictable quadrants as the rotation increases in 90° CW steps on screen.
+    ///
+    /// Expected centroid quadrant (measured from pixmap centre):
+    ///   0°  → left half,  bottom half   (pad started at lower-left)
+    ///   90° → right half, bottom half   (CW 90° on screen: lower-left → lower-right)
+    ///  180° → right half, top half      (CW 180°: lower-left → upper-right)
+    ///  270° → left half,  top half      (CW 270°: lower-left → upper-left)
+    ///
+    /// This locks the rotation direction to match the Konva panel editor where
+    /// `rotation = N` means N degrees clockwise in screen Y-down space.
+    #[test]
+    fn render_rotation_direction_matches_clockwise() {
+        for (deg, expect_right_half, expect_bottom_half, label) in [
+            (0u16, false, true, "0°"),
+            (90u16, true, true, "90°"),
+            (180u16, true, false, "180°"),
+            (270u16, false, false, "270°"),
+        ] {
+            let (pm, _) = render_with_info(parse(ASYMMETRIC_BOARD), &opts(deg)).unwrap();
+            let (cx, cy) = lit_centroid(&pm);
+            let mid_x = pm.width() as f32 / 2.0;
+            let mid_y = pm.height() as f32 / 2.0;
+
+            let in_right = cx > mid_x;
+            let in_bottom = cy > mid_y;
+
+            assert_eq!(
+                in_right,
+                expect_right_half,
+                "{label}: centroid col {cx:.1} vs mid {mid_x:.1} — expected {} half",
+                if expect_right_half { "right" } else { "left" }
+            );
+            assert_eq!(
+                in_bottom,
+                expect_bottom_half,
+                "{label}: centroid row {cy:.1} vs mid {mid_y:.1} — expected {} half",
+                if expect_bottom_half { "bottom" } else { "top" }
+            );
+        }
     }
 }

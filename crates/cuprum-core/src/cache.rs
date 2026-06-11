@@ -58,6 +58,7 @@ struct PreviewEntry {
 
 struct MaskEntry {
     mtime: SystemTime,
+    rotation_deg: u16,
     mask: Arc<Mask>,
 }
 
@@ -104,11 +105,14 @@ pub fn preview_png(path: &Path, max_px: u32) -> Result<(Vec<u8>, RenderInfo, Str
 }
 
 /// Cached native-pitch mask for compositing the exposure.
-pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
+///
+/// `rotation_deg` is the clockwise rotation to apply (0 / 90 / 180 / 270);
+/// the cache key includes it so distinct rotations are stored independently.
+pub fn native_mask(path: &Path, rotation_deg: u16) -> Result<Arc<Mask>> {
     let m = mtime(path)?;
     if !crate::diskcache::cache_disabled() {
         if let Some(e) = mask_cache().lock().unwrap().get(path) {
-            if e.mtime == m {
+            if e.mtime == m && e.rotation_deg == rotation_deg {
                 return Ok(e.mask.clone());
             }
         }
@@ -116,6 +120,7 @@ pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
     let commands = gerber::parse_file(path)?;
     let opts = RenderOptions {
         margin_mm: 0.0,
+        rotation_deg,
         ..Default::default()
     };
     let (pm, info) = gerber::render_with_info(commands, &opts)?;
@@ -133,6 +138,7 @@ pub fn native_mask(path: &Path) -> Result<Arc<Mask>> {
             path.to_owned(),
             MaskEntry {
                 mtime: m,
+                rotation_deg,
                 mask: mask.clone(),
             },
         );

@@ -274,19 +274,56 @@ fn resolve_placements(req: &ExposeRunRequest) -> anyhow::Result<Vec<compose::Pla
             crate::commands::project::safe_workdir_path(&req.working_dir, &copper_gerber.path)
                 .map_err(|e| anyhow::anyhow!("{}", e.message()))?;
 
-        // Get mask bbox from the in-process cache.
-        let mask = cuprum_core::cache::native_mask(&abs_path)?;
-        let mask_bbox_mm = (mask.min_x_mm, mask.min_y_mm, mask.max_x_mm, mask.max_y_mm);
+        // Get the UNROTATED copper bbox.  We do NOT use the rotated mask's own
+        // bbox here: native_mask rotates the copper about the COPPER centre, but a
+        // rotated instance is a rigid rotation of {copper + outline} about the
+        // OUTLINE centre.  When the two centres differ, using the copper-centred
+        // rotation shifts registration by the inter-centre offset at 90/270.  So
+        // rotate the unrotated copper bbox about the outline centre instead; the
+        // resulting AABB size equals native_mask(path, rotation)'s pixmap size,
+        // and compose_layout blits native_mask(path, rotation) at this position.
+        let unrot_mask = cuprum_core::cache::native_mask(&abs_path, 0)?;
+        let unrot_copper_bbox = (
+            unrot_mask.min_x_mm,
+            unrot_mask.min_y_mm,
+            unrot_mask.max_x_mm,
+            unrot_mask.max_y_mm,
+        );
 
-        // Get board outline from the cached metrics path.
+        // Board outline from cached metrics. The outline rotates about its own
+        // centre (= the shared instance pivot), so rotate_bbox_about_centre is
+        // correct for it.
         let (origin_x, origin_y, board_w, board_h) =
             board_outline(&req.working_dir, &design.gerbers)?;
+        let outline_centre = (origin_x + board_w / 2.0, origin_y + board_h / 2.0);
+        let (board_origin_mm, board_size_mm) = cuprum_core::compose::rotate_bbox_about_centre(
+            (origin_x, origin_y),
+            (board_w, board_h),
+            inst.rotation_deg,
+        );
+
+        // Copper position: rotate the unrotated copper bbox about the OUTLINE centre.
+        let (copper_origin, copper_size) = cuprum_core::compose::rotate_bbox_about_point(
+            (unrot_copper_bbox.0, unrot_copper_bbox.1),
+            (
+                unrot_copper_bbox.2 - unrot_copper_bbox.0,
+                unrot_copper_bbox.3 - unrot_copper_bbox.1,
+            ),
+            outline_centre,
+            inst.rotation_deg,
+        );
+        let mask_bbox_mm = (
+            copper_origin.0,
+            copper_origin.1,
+            copper_origin.0 + copper_size.0,
+            copper_origin.1 + copper_size.1,
+        );
 
         inputs.push(InstancePlacementInput {
             mask_path: abs_path,
             mask_bbox_mm,
-            board_origin_mm: (origin_x, origin_y),
-            board_size_mm: (board_w, board_h),
+            board_origin_mm,
+            board_size_mm,
             inst_x_mm: inst.x_mm,
             inst_y_mm: inst.y_mm,
             rotation_deg: inst.rotation_deg,
