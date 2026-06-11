@@ -305,6 +305,9 @@ export interface ExposeSnapshot {
   currentPath: string | null;
   /** Full manifest (panel + designs); null when no project is open. */
   manifest: Manifest | null;
+  /** Resolved board extent (mm) per placed design_id, for the read-only preview
+   *  footprints (same source the drill snapshot uses). */
+  placedSizes: Record<string, { w: number; h: number }>;
   /** Which copper side to expose. */
   side: "top" | "bottom";
   mirror: boolean;
@@ -483,9 +486,9 @@ export interface Poly {
   holes: [number, number][][];
 }
 
-/** Progress payload from `expose://progress` (camelCase, all fields optional). */
+/** Progress payload from `expose://progress` (camelCase, all fields optional).
+ *  Stage is NOT carried here — it arrives separately via `expose://state`. */
 export interface ExposeProgress {
-  stage?: string;
   currentLayer: number | null;
   totalLayers: number | null;
   percent: number | null;

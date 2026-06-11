@@ -15,6 +15,7 @@ export function buildExposeSnapshot(args: {
   workingDir: string | null;
   currentPath: string | null;
   manifest: Manifest | null;
+  placedSizes?: Record<string, { w: number; h: number }>;
   side?: "top" | "bottom";
   mirror?: boolean;
   invert?: boolean;
@@ -25,6 +26,7 @@ export function buildExposeSnapshot(args: {
     workingDir: args.workingDir,
     currentPath: args.currentPath,
     manifest: args.manifest,
+    placedSizes: args.placedSizes ?? {},
     side: args.side ?? "top",
     mirror: args.mirror ?? false,
     invert: args.invert ?? false,

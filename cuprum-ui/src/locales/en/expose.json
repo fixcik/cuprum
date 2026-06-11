@@ -8,7 +8,7 @@
   "editor": {
     "noProject": "No project open",
     "noInstances": "No boards placed on the panel",
-    "rotationWarning": "One or more boards have a non-zero rotation. The compositor exposes rotated boards without rotation — remove the rotation in the panel editor if needed.",
+    "rotationWarning": "One or more boards are rotated 90° or 270°. The compositor doesn't rotate them — they'll be exposed unrotated. Remove the rotation in the panel editor if needed (0° and 180° are fine).",
     "preview": {
       "title": "Panel layout",
       "size": "{{w}} × {{h}} mm · {{n}} board(s)"
@@ -28,6 +28,7 @@
     "run": {
       "start": "Expose",
       "stop": "Stop",
+      "newRun": "New run",
       "remaining": "{{t}} left"
     }
   },

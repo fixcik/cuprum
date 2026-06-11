@@ -8,6 +8,7 @@ import {
   TriangleAlert,
   CheckCircle2,
   XCircle,
+  RotateCcw,
 } from "lucide-react";
 import { api, type ExposeProgress, type ExposeSnapshot } from "@/lib/api";
 import { buildExposeRequest } from "@/lib/exposeSnapshot";
@@ -62,16 +63,11 @@ function PanelReadOnlyPreview({ snap }: { snap: ExposeSnapshot }) {
     "hsl(40 80% 55%/.70)",
   ];
 
-  // Get board size for each design from the designs array (use the panel size as
-  // a fallback: the expose compositor resolves the exact outline from gerbers, so
-  // here we just need a reasonable footprint rect for the preview).
-  // We use the panel dimensions divided by a rough estimate — design extent isn't
-  // available in the snapshot. Instead, let's just draw the footprint as a small
-  // rect at the instance position. Since we don't have board extent in the snapshot,
-  // we draw a small placeholder rect (the actual composition is done in Rust).
-  // A 30×30 mm default is a reasonable visual placeholder.
-  const FALLBACK_W = 30;
-  const FALLBACK_H = 30;
+  // Real per-design board extents (mm) carried in the snapshot (same source the
+  // drill snapshot uses). Falls back to a small placeholder for a design whose
+  // metrics haven't resolved yet (the actual outline is resolved in Rust at run).
+  const FALLBACK_W = 20;
+  const FALLBACK_H = 20;
 
   return (
     <div className="flex items-center justify-center py-2">
@@ -93,16 +89,21 @@ function PanelReadOnlyPreview({ snap }: { snap: ExposeSnapshot }) {
           strokeWidth={1.5}
           rx={2}
         />
-        {/* Placed design footprints */}
+        {/* Placed design footprints (real board size from snapshot.placedSizes) */}
         {panel.instances.map((inst) => {
           const ci = (designIndex.get(inst.design_id) ?? 0) % PALETTE.length;
+          const size = snap.placedSizes[inst.design_id];
+          const boardW = size?.w ?? FALLBACK_W;
+          const boardH = size?.h ?? FALLBACK_H;
+          // Footprint swaps W/H when the instance is rotated 90°/270°.
+          const rotated = inst.rotation_deg === 90 || inst.rotation_deg === 270;
+          const fw = (rotated ? boardH : boardW) * scale;
+          const fh = (rotated ? boardW : boardH) * scale;
           const x = inst.x_mm * scale;
           const y = inst.y_mm * scale;
-          const w = FALLBACK_W * scale;
-          const h = FALLBACK_H * scale;
-          // Clamp to panel bounds so the rect doesn't overflow.
-          const clampedW = Math.min(w, svgW - x);
-          const clampedH = Math.min(h, svgH - y);
+          // Clamp to panel bounds so the rect doesn't overflow the SVG.
+          const clampedW = Math.min(fw, svgW - x);
+          const clampedH = Math.min(fh, svgH - y);
           return (
             <rect
               key={inst.id}
@@ -247,9 +248,10 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
   }, [snapshot.side, snapshot.mirror, snapshot.invert, snapshot.exposureS, snapshot.pwm]);
 
   // ── Rotation warning ────────────────────────────────────────────────────
-  // Any instance with rotation not in {0} can't be rotated by the compositor.
+  // The compositor supports 0° and 180° (180° maps to the printer's native
+  // orientation); only 90°/270° aren't rotated — they'd expose unrotated.
   const hasUnsupportedRotation = (panel?.instances ?? []).some(
-    (inst) => inst.rotation_deg !== 0,
+    (inst) => inst.rotation_deg === 90 || inst.rotation_deg === 270,
   );
 
   // ── Run state ────────────────────────────────────────────────────────────
@@ -352,6 +354,12 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
     void api.exposeRun.stop().catch(() => {});
   }, []);
 
+  // Clear the terminal run state back to idle so a new run can be launched
+  // without reopening the window (mirrors the drill editor's run.reset()).
+  const handleReset = useCallback(() => {
+    setRun(IDLE_RUN);
+  }, []);
+
   // ── Derived display values ────────────────────────────────────────────────
   const stageLabelKey = `stage.${run.stage}`;
   const stageLabel = t([stageLabelKey, "stage.unknown"]);
@@ -360,6 +368,7 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
   const percent = run.progress?.percent ?? null;
   const printerState = run.progress?.printerState ?? null;
 
+  const isTerminal = !run.active && TERMINAL_STAGES.has(run.stage);
   const isIdle = !run.active && !TERMINAL_STAGES.has(run.stage);
   const canStart = hasProject && hasInstances && isIdle;
 
@@ -567,6 +576,15 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
           >
             <Square className="size-4" />
             {t("editor.run.stop")}
+          </button>
+        ) : isTerminal ? (
+          <button
+            type="button"
+            onClick={handleReset}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card/40 px-4 py-2.5 text-[13px] font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-primary/10"
+          >
+            <RotateCcw className="size-4" />
+            {t("editor.run.newRun")}
           </button>
         ) : (
           <button

@@ -45,6 +45,7 @@ const BASE_SNAP: ExposeSnapshot = {
       drill_class_overrides: {},
     },
   },
+  placedSizes: { "design-a": { w: 40, h: 30 } },
   side: "top",
   mirror: false,
   invert: false,

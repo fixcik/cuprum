@@ -16,6 +16,7 @@ describe("buildExposeSnapshot", () => {
     expect(snap.invert).toBe(false);
     expect(snap.exposureS).toBe(DEFAULT_EXPOSURE_S);
     expect(snap.pwm).toBe(DEFAULT_PWM);
+    expect(snap.placedSizes).toEqual({});
   });
 
   it("uses provided values over defaults", () => {
@@ -23,6 +24,7 @@ describe("buildExposeSnapshot", () => {
       workingDir: null,
       currentPath: null,
       manifest: null,
+      placedSizes: { "design-1": { w: 40, h: 30 } },
       side: "bottom",
       mirror: true,
       invert: true,
@@ -34,6 +36,7 @@ describe("buildExposeSnapshot", () => {
     expect(snap.invert).toBe(true);
     expect(snap.exposureS).toBe(45);
     expect(snap.pwm).toBe(200);
+    expect(snap.placedSizes).toEqual({ "design-1": { w: 40, h: 30 } });
   });
 
   it("passes through null workingDir and currentPath", () => {
@@ -54,7 +57,7 @@ describe("buildExposeSnapshot", () => {
     });
     // All required fields present
     expect(Object.keys(snap).sort()).toEqual(
-      ["currentPath", "exposureS", "invert", "manifest", "mirror", "pwm", "side", "workingDir"].sort(),
+      ["currentPath", "exposureS", "invert", "manifest", "mirror", "placedSizes", "pwm", "side", "workingDir"].sort(),
     );
   });
 });
