@@ -1247,6 +1247,11 @@ export const api = {
     /** Most recent run's params_json for a project + op type (prefill default). */
     lastParams: (projectPath: string, opType: string) =>
       invoke<string | null>("operation_run_last_params", { projectPath, opType }),
+    /** Fires whenever the run journal changes (a run started/finished, or orphans
+     *  were reconciled) — in any window. The History view refetches so it updates
+     *  live without reopening the project. Payload-less; refetch the current project. */
+    onChanged: (cb: () => void): Promise<UnlistenFn> =>
+      listen("operation-runs://changed", () => cb()),
   },
 
   /** Drill planning in the Rust core: route + G-code program + motion-time

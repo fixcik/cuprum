@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
@@ -95,6 +95,49 @@ export function OperationHistory() {
       });
     return () => {
       active = false;
+    };
+  }, [currentPath]);
+
+  // Track the loaded row count so the live-refresh listener can refetch exactly
+  // the loaded window without re-subscribing on every `runs` change.
+  const loadedCountRef = useRef(0);
+  useEffect(() => {
+    loadedCountRef.current = runs?.length ?? 0;
+  }, [runs]);
+
+  // Live refresh: a run launched/finished/reconciled in another window (drill /
+  // expose / mill) broadcasts `operation-runs://changed`. Refetch the loaded
+  // window so a new run appears and "Идёт" flips to its outcome without reopening
+  // the project. StrictMode-safe listener lifecycle (mirrors useBridgeListeners).
+  useEffect(() => {
+    if (!currentPath) return;
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    // Per-fetch generation: a start→finish pair emits two events back-to-back, so
+    // two refetches can be in flight at once. Drop a late-resolving older response
+    // so a stale "Идёт" can't overwrite the fresh outcome.
+    let fetchGen = 0;
+    void api.operationLog
+      .onChanged(() => {
+        if (!active) return;
+        const gen = ++fetchGen;
+        const count = Math.max(PAGE_SIZE, loadedCountRef.current);
+        void api.operationLog
+          .list(currentPath, count, 0)
+          .then((rows) => {
+            if (!active || gen !== fetchGen) return;
+            setRuns(rows);
+            setHasMore(rows.length === count);
+          })
+          .catch(() => {});
+      })
+      .then((un) => {
+        if (active) unlisten = un;
+        else un();
+      });
+    return () => {
+      active = false;
+      unlisten?.();
     };
   }, [currentPath]);
 

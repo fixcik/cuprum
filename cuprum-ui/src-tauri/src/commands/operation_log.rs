@@ -5,9 +5,14 @@
 
 use crate::commands::error::{CmdError, CmdResult};
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::commands::project::{catalog_db_path, now_epoch};
+
+/// Broadcast to all windows whenever the run journal changes (a run started,
+/// finished, or orphans were reconciled). The History view, which lives in a
+/// different window than the run editors, refetches on this so it updates live.
+const OPERATION_RUNS_CHANGED: &str = "operation-runs://changed";
 
 /// One journalled run, sent to the History view.
 #[derive(Serialize)]
@@ -45,7 +50,9 @@ pub(crate) fn operation_run_log_start(
         progress_total,
         &params_json,
     )
-    .map_err(CmdError::from)
+    .map_err(CmdError::from)?;
+    let _ = app.emit(OPERATION_RUNS_CHANGED, ());
+    Ok(())
 }
 
 /// Finalize a run (backend stamps `ended_at`).
@@ -66,7 +73,9 @@ pub(crate) fn operation_run_log_finish(
         progress_done,
         summary_json.as_deref(),
     )
-    .map_err(CmdError::from)
+    .map_err(CmdError::from)?;
+    let _ = app.emit(OPERATION_RUNS_CHANGED, ());
+    Ok(())
 }
 
 /// Finalize any still-open runs for a project as `interrupted`. Called at
@@ -75,8 +84,14 @@ pub(crate) fn operation_run_log_finish(
 #[tauri::command]
 pub(crate) fn operation_runs_reconcile(app: AppHandle, project_path: String) -> CmdResult<usize> {
     let db = catalog_db_path(&app)?;
-    cuprum_project::operation_runs_reconcile(&db, &project_path, now_epoch())
-        .map_err(CmdError::from)
+    let n = cuprum_project::operation_runs_reconcile(&db, &project_path, now_epoch())
+        .map_err(CmdError::from)?;
+    // Only notify when something actually changed — reconcile runs on every
+    // project open and usually closes nothing.
+    if n > 0 {
+        let _ = app.emit(OPERATION_RUNS_CHANGED, ());
+    }
+    Ok(n)
 }
 
 /// List a project's runs (newest first), optionally filtered by `op_type`.
