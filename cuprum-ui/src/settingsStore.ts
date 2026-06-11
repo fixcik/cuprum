@@ -6,6 +6,7 @@ import { type NestSettings, DEFAULT_NEST } from "@/lib/nest";
 import { type CncProfile } from "@/lib/cncProfile";
 import { type Tool, DEFAULT_TOOLS, newDrillTool } from "@/lib/toolLibrary";
 import { type DatumCorner } from "@/lib/datum";
+import { type MillDefaults, DEFAULT_MILL_DEFAULTS } from "@/lib/millDefaults";
 import {
   type Machine,
   type CncMachine,
@@ -238,6 +239,12 @@ interface SettingsStore {
    *  Drill-window-owned: read and written by the drill window's store instance. */
   drillDatumCorner: DatumCorner;
   setDrillDatumCorner: (d: DatumCorner) => void;
+  /** The panel corner used as the machine work-zero (0,0) in the mill window. */
+  millDatumCorner: DatumCorner;
+  setMillDatumCorner: (d: DatumCorner) => void;
+  /** Persisted isolation-milling cut defaults the mill editor seeds its controls from. */
+  millDefaults: MillDefaults;
+  setMillDefaults: (patch: Partial<MillDefaults>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,6 +387,11 @@ export const useSettings = create<SettingsStore>()(
       removeTool: (id) => set((s) => ({ tools: s.tools.filter((t) => t.id !== id) })),
       drillDatumCorner: "bottom-left" as DatumCorner,
       setDrillDatumCorner: (d) => set({ drillDatumCorner: d }),
+      millDatumCorner: "bottom-left" as DatumCorner,
+      setMillDatumCorner: (d) => set({ millDatumCorner: d }),
+      millDefaults: DEFAULT_MILL_DEFAULTS,
+      setMillDefaults: (patch) =>
+        set((s) => ({ millDefaults: { ...s.millDefaults, ...patch } })),
     }),
     {
       name: "cuprum-settings",
@@ -417,6 +429,8 @@ export const useSettings = create<SettingsStore>()(
           cncProfile,
           tools,
           drillDatumCorner: p?.drillDatumCorner ?? "bottom-left",
+          millDatumCorner: p?.millDatumCorner ?? "bottom-left",
+          millDefaults: { ...DEFAULT_MILL_DEFAULTS, ...(p?.millDefaults ?? {}) },
         };
       },
     },

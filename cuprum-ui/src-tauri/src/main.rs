@@ -212,6 +212,7 @@ fn main() {
             commands::windows::open_inspector_window,
             commands::windows::open_drill_window,
             commands::windows::open_expose_window,
+            commands::windows::open_mill_window,
             set_app_menu,
             commands::machine::list_serial_ports,
             commands::machine::machine_connect,

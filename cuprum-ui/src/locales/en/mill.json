@@ -1,0 +1,55 @@
+{
+  "window": {
+    "title": "Isolation milling"
+  },
+  "empty": {
+    "noProject": "No project open",
+    "noCopper": "No top-copper layer on the placed boards"
+  },
+  "toolbar": {
+    "previewHint": "Preview of isolation cut paths and contested gaps"
+  },
+  "datum": {
+    "label": "Zero (0,0)",
+    "bottom-left": "Bottom-left",
+    "bottom-right": "Bottom-right",
+    "top-left": "Top-left",
+    "top-right": "Top-right"
+  },
+  "params": {
+    "title": "Cut parameters",
+    "cutWidth": "Cut width",
+    "passes": "Passes",
+    "overlap": "Overlap",
+    "direction": "Direction",
+    "climb": "Climb",
+    "conventional": "Conventional",
+    "cutDepth": "Cut depth",
+    "depthPerPass": "Depth per pass",
+    "feedXy": "XY feed",
+    "plunge": "Plunge",
+    "mmMin": "mm/min"
+  },
+  "preflight": {
+    "cutLen": "Cut length",
+    "cutLenSub": "total over paths",
+    "time": "Estimate",
+    "timeSub": "~ motion",
+    "paths": "Paths",
+    "pathsSub": "closed contours",
+    "passes": "Passes",
+    "passesSub": "depth repeats",
+    "minAbbr": "min",
+    "secAbbr": "s"
+  },
+  "violations": {
+    "warning_one": "{{count}} gap the bit can't isolate — use a thinner bit or reduce depth.",
+    "warning_few": "{{count}} gaps the bit can't isolate — use a thinner bit or reduce depth.",
+    "warning_many": "{{count}} gaps the bit can't isolate — use a thinner bit or reduce depth.",
+    "warning_other": "{{count}} gaps the bit can't isolate — use a thinner bit or reduce depth."
+  },
+  "run": {
+    "soon": "Execution — soon",
+    "soonHint": "On-machine run lands in the next phase."
+  }
+}

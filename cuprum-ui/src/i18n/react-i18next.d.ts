@@ -11,6 +11,7 @@ import type enLayers from "@/locales/en/layers.json";
 import type enMenu from "@/locales/en/menu.json";
 import type enDrill from "@/locales/en/drill.json";
 import type enGrbl from "@/locales/en/grbl.json";
+import type enMill from "@/locales/en/mill.json";
 
 declare module "react-i18next" {
   interface CustomTypeOptions {
@@ -28,6 +29,7 @@ declare module "react-i18next" {
       menu: typeof enMenu;
       drill: typeof enDrill;
       grbl: typeof enGrbl;
+      mill: typeof enMill;
     };
   }
 }

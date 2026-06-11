@@ -319,6 +319,41 @@ export interface DrillSnapshot {
   drillBitToleranceMm: number;
 }
 
+/** Bundle the project data + shop settings needed to plan an isolation-milling run.
+ *  Built from the main-window stores by useMillScreenData (in the mill bridge) and
+ *  pushed over IPC to the separate mill window, which renders the mill operation
+ *  editor from it. Mirrors DrillSnapshot, but carries the milling defaults instead
+ *  of the drill DFM thresholds. */
+export interface MillSnapshot {
+  workingDir: string | null;
+  /** The saved `.cuprum` path (project identity), or null for an unsaved project. */
+  currentPath: string | null;
+  manifest: Manifest | null;
+  /** Board extent (mm) per placed design_id. */
+  placedSizes: Record<string, { w: number; h: number }>;
+  /** CNC machine profile (safe-Z, spindle, g-code wrappers, …). */
+  cncProfile: CncProfile;
+  /** Shop tool library (the mill picks an end-mill / V-bit cut width from it). */
+  tools: Tool[];
+  /** Persisted cut-parameter defaults the editor seeds its controls from. */
+  millDefaults: MillDefaults;
+  /** Panel corner used as the machine work-zero (0,0). */
+  millDatumCorner: DatumCornerDto;
+}
+
+/** Persisted isolation-milling cut defaults (settingsStore). The editor seeds its
+ *  controls from these; a future phase may persist per-run overrides. */
+export interface MillDefaults {
+  cutWidthMm: number;
+  passes: number;
+  overlap: number;
+  climb: boolean;
+  cutDepthMm: number;
+  depthPerPassMm: number | null;
+  feedXyMmMin: number;
+  plungeMmMin: number;
+}
+
 /** One journalled operation run (catalog `operation_runs`). Op-agnostic — drill is
  *  the first writer; `params_json`/`summary_json` hold op-specific detail. */
 export interface OperationRun {
@@ -718,6 +753,11 @@ export interface MillPlanInput {
   datum: DatumCornerDto;
   panelWidthMm: number;
   panelHeightMm: number;
+  /** X of the copper bbox min corner (mm). The backend subtracts this + flips Y
+   *  to normalise the absolute-coords copper into panel space (Y down). */
+  originXMm: number;
+  /** Y of the copper bbox min corner (mm). */
+  originYMm: number;
   cnc: CncParamsDto;
   cutDepthMm: number;
   depthPerPassMm?: number;
@@ -866,6 +906,8 @@ export const api = {
    *  `true` if the window already existed (was focused), `false` if freshly created
    *  — used to route a "repeat run" prefill (emit now vs. hand off as pending). */
   openExposeWindow: () => invoke<boolean>("open_expose_window"),
+  /** Open (or focus) the isolation-milling operation window (label `mill`). */
+  openMillWindow: () => invoke<void>("open_mill_window"),
   /** Open (or focus) the machine console OS window. */
   openConsoleWindow: () => invoke<void>("open_console_window"),
 
@@ -976,6 +1018,17 @@ export const api = {
   onExposePrefill: (cb: (paramsJson: string) => void): Promise<UnlistenFn> =>
     listen<{ paramsJson: string }>("expose:prefill", (e) => cb(e.payload.paramsJson)),
 
+  // Mill window bridge events (main → mill window). Like the drill window, the mill
+  // window is a remote control: it gets the project as a pushed snapshot and follows
+  // the machine via the global `machine://status` broadcast (it does NOT take the
+  // telemetry Channel), so both windows stay live. Phase 4a is preview-only — no run
+  // intents flow back yet.
+  emitMillReady: () => emit("mill:ready"),
+  onMillReady: (cb: () => void): Promise<UnlistenFn> =>
+    listen("mill:ready", () => cb()),
+  emitMillSnapshot: (s: MillSnapshot) => emit("mill:snapshot", s),
+  onMillSnapshot: (cb: (s: MillSnapshot) => void): Promise<UnlistenFn> =>
+    listen<MillSnapshot>("mill:snapshot", (e) => cb(e.payload)),
   // Console window bridge events (main <-> console).
   emitConsoleReady: () => emit("console:ready"),
   onConsoleReady: (cb: () => void): Promise<UnlistenFn> => listen("console:ready", () => cb()),

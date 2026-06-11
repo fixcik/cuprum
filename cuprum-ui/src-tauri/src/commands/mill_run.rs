@@ -29,6 +29,13 @@ pub struct MillPlanCmdInput {
     pub datum: DatumCorner,
     pub panel_width_mm: f64,
     pub panel_height_mm: f64,
+    /// X of the copper layer's bbox min corner (mm, absolute gerber space). The
+    /// copper/holes arrive in absolute gerber coords (Y up); we subtract this and
+    /// flip Y so paths/G-code/preview all live in panel space (Y down, origin
+    /// top-left) — exactly the frame `machine_point` and the drill toolchain expect.
+    pub origin_x_mm: f64,
+    /// Y of the copper layer's bbox min corner (mm, absolute gerber space).
+    pub origin_y_mm: f64,
     pub cnc: CncParams,
     pub cut_depth_mm: f64,
     #[serde(default)]
@@ -48,7 +55,9 @@ pub struct MillPlanCmdInput {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MillPlanCmdResult {
-    /// Isolation rings as polygons for the preview overlay (panel space, Y up).
+    /// Isolation rings as polygons for the preview overlay (panel space, Y down,
+    /// origin 0,0 top-left). The canvas draws them straight over the `[0,0,W,H]`
+    /// outline with no extra flip.
     pub paths: Vec<PolyDto>,
     pub program: MillProgram,
     pub estimate: MillEstimate,
@@ -93,7 +102,20 @@ fn plan(
         })
         .collect();
 
+    // Copper (and the holes subtracted from it) come back in absolute gerber
+    // coordinates, Y up. Normalise to panel space (origin-relative, Y down) BEFORE
+    // isolating: the holes were already subtracted in the same absolute frame, so
+    // every downstream consumer — isolation_paths, isolation_gap_violations, the
+    // G-code (machine_point) and the preview canvas — sees one consistent panel
+    // space (origin 0,0 top-left, Y down), identical to how the drill toolchain
+    // feeds machine_point (panelDrill.ts projects holes to Y-down panel space too).
     let copper = cuprum_core::geometry::layer_polygons(&bytes, &holes)?;
+    let copper = normalize_polys(
+        copper,
+        input.origin_x_mm,
+        input.origin_y_mm,
+        input.panel_height_mm,
+    );
     let paths_poly = cuprum_core::geometry::isolation_paths(
         &copper,
         input.cut_width_mm,
@@ -139,9 +161,82 @@ fn plan(
     })
 }
 
+/// Normalise copper polygons from absolute gerber coords (Y up) to panel space:
+/// origin-relative (subtract the bbox min corner) and Y flipped to point down
+/// (origin 0,0 top-left). Per vertex `[x, y] → [x - origin_x, panel_height - (y -
+/// origin_y)]`. This is the same projection `panelDrill.ts::projectHoleToPanel`
+/// applies to drill holes (`dy_down = boardHeight - (y - originY)`), so mill paths
+/// and drill holes share one panel-space frame; `machine_point` then applies its
+/// datum-relative flip identically to both.
+fn normalize_polys(
+    polys: Vec<cuprum_core::geometry::Poly>,
+    origin_x: f64,
+    origin_y: f64,
+    panel_height: f64,
+) -> Vec<cuprum_core::geometry::Poly> {
+    let ox = origin_x as f32;
+    let oy = origin_y as f32;
+    let ph = panel_height as f32;
+    let map = |ring: Vec<[f32; 2]>| -> Vec<[f32; 2]> {
+        ring.into_iter()
+            .map(|[x, y]| [x - ox, ph - (y - oy)])
+            .collect()
+    };
+    polys
+        .into_iter()
+        .map(|p| cuprum_core::geometry::Poly {
+            outer: map(p.outer),
+            holes: p.holes.into_iter().map(map).collect(),
+        })
+        .collect()
+}
+
 /// One ring (`[f32; 2]` panel-space vertices) → a closed `MillPath` (`[f64; 2]`).
 fn ring_to_path(ring: &[[f32; 2]]) -> MillPath {
     MillPath {
         points: ring.iter().map(|&[x, y]| [x as f64, y as f64]).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_polys;
+    use cuprum_core::geometry::Poly;
+
+    /// A gerber at a non-zero origin must land in panel space (origin-relative,
+    /// Y down). The absolute top-left corner of the bbox `(origin_x, origin_y + h)`
+    /// must map to panel (0, 0); the absolute bottom-left `(origin_x, origin_y)`
+    /// must map to panel (0, h). This is the drill-frame contract `machine_point`
+    /// consumes — same as `panelDrill.ts::projectHoleToPanel`.
+    #[test]
+    fn normalize_offsets_origin_and_flips_y() {
+        let origin_x = 10.0;
+        let origin_y = 20.0;
+        let h = 4.0; // panel height (board height)
+                     // Absolute-coords rectangle spanning the bbox: x in [10, 13], y in [20, 24].
+        let poly = Poly {
+            outer: vec![
+                [10.0, 20.0], // bottom-left  → panel (0, 4)
+                [13.0, 20.0], // bottom-right → panel (3, 4)
+                [13.0, 24.0], // top-right    → panel (3, 0)
+                [10.0, 24.0], // top-left     → panel (0, 0)
+            ],
+            holes: vec![vec![[11.0, 21.0]]],
+        };
+        let out = normalize_polys(vec![poly], origin_x, origin_y, h);
+        assert_eq!(out.len(), 1);
+        let o = &out[0].outer;
+        let eq =
+            |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4;
+        assert!(eq(o[0], [0.0, 4.0]), "bottom-left → (0,4): {:?}", o[0]);
+        assert!(eq(o[1], [3.0, 4.0]), "bottom-right → (3,4): {:?}", o[1]);
+        assert!(eq(o[2], [3.0, 0.0]), "top-right → (3,0): {:?}", o[2]);
+        assert!(eq(o[3], [0.0, 0.0]), "top-left → (0,0): {:?}", o[3]);
+        // Holes are mapped with the same projection.
+        assert!(
+            eq(out[0].holes[0][0], [1.0, 3.0]),
+            "hole vertex: {:?}",
+            out[0].holes[0][0]
+        );
     }
 }

@@ -313,3 +313,40 @@ pub(crate) fn open_drill_window(app: AppHandle) -> CmdResult<bool> {
     }
     Ok(false)
 }
+
+/// Open (or focus) the isolation-milling operation window. Singleton label `mill`;
+/// same bundle as the main window, the SPA branches on the label. The mill UI
+/// receives the project as a pushed snapshot and previews the isolation toolpaths
+/// (run execution is a later phase). Title is set (localised) by the JS side.
+#[tauri::command]
+pub(crate) fn open_mill_window(app: AppHandle) -> CmdResult<()> {
+    use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+    if let Some(w) = app.get_webview_window("mill") {
+        // May still be hidden (first snapshot pending) — show before focusing so a
+        // repeat open reveals it immediately instead of waiting on the JS path.
+        let _ = w.show();
+        return w.set_focus().map_err(CmdError::from);
+    }
+    let win = WebviewWindowBuilder::new(&app, "mill", WebviewUrl::App("index.html".into()))
+        .title("Cuprum")
+        .inner_size(1100.0, 820.0)
+        .min_inner_size(820.0, 560.0)
+        .resizable(true)
+        .center()
+        .focused(true)
+        // Created hidden; the SPA reveals it once content has rendered (show-on-ready)
+        // so it never flashes the blank webview + boot spinner.
+        .visible(false)
+        .build()?;
+    // Center over the main window so it opens on the screen the user is on.
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(main_size), Ok(child_size)) =
+            (main.outer_position(), main.outer_size(), win.outer_size())
+        {
+            let x = pos.x + (main_size.width as i32 - child_size.width as i32) / 2;
+            let y = pos.y + (main_size.height as i32 - child_size.height as i32) / 2;
+            let _ = win.set_position(PhysicalPosition::new(x, y));
+        }
+    }
+    Ok(())
+}

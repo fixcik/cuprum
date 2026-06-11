@@ -7,6 +7,7 @@ import { ConsoleWindow } from "./windows/ConsoleWindow";
 import { InspectorWindow } from "./windows/InspectorWindow";
 import { DrillWindow } from "./windows/DrillWindow";
 import { ExposeWindow } from "./windows/ExposeWindow";
+import { MillWindow } from "./windows/MillWindow";
 import "./styles.css";
 import i18n from "./i18n";
 import { resolveLanguage } from "./i18n/resolveLanguage";
@@ -70,6 +71,8 @@ if (label === "add-design") {
   windowRoot = <DrillWindow />;
 } else if (label === "expose") {
   windowRoot = <ExposeWindow />;
+} else if (label === "mill") {
+  windowRoot = <MillWindow />;
 } else if (label === "console") {
   windowRoot = <ConsoleWindow />;
 } else if (label.startsWith(INSPECTOR_PREFIX)) {
