@@ -63,7 +63,7 @@ export function DesignPickerRow({
       return;
     }
     api
-      .renderDesignPreview(workingDir, design.id, gerbers, undefined, undefined)
+      .renderDesignPreview(workingDir, design.id, gerbers)
       .then((r) => {
         if (!cancelled) {
           setPreviewUrl(r.pngDataUrl);

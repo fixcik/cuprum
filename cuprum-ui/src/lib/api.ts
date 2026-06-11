@@ -836,6 +836,7 @@ export const api = {
     designId: string,
     gerbers: { rel: string; layerType: LayerType }[],
     layerColors?: Record<string, string>,
+    variant: "card" | "detailed" = "card",
     traceSession?: number,
   ) =>
     invoke<PreviewResultDto>("render_design_preview", {
@@ -843,6 +844,7 @@ export const api = {
       designId,
       gerbers,
       layerColors: layerColors ?? null,
+      variant,
       traceSession,
     }),
   readDrill: (workingDir: string, gerberRel: string) =>

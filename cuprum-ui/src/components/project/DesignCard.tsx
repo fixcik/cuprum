@@ -87,7 +87,7 @@ export function DesignCard({
     }
     setPreviewUrl(null);
     api
-      .renderDesignPreview(workingDir, design.id, gerbers, layerColors ?? undefined, traceSession)
+      .renderDesignPreview(workingDir, design.id, gerbers, layerColors ?? undefined, "card", traceSession)
       .then((r) => {
         if (!cancelled) {
           setPreviewUrl(r.pngDataUrl);

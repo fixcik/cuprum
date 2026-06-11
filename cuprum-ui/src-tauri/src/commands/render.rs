@@ -245,11 +245,50 @@ pub(crate) fn render_svg_dto(
     ))
 }
 
+/// Preview variant: fixed-size thumbnail for the card grid, or density-based
+/// detail image for the panel editor canvas.
+#[derive(serde::Deserialize, Clone, Copy, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum PreviewVariant {
+    /// Fixed 512px thumbnail, persisted in the `.cuprum` (card grid).
+    #[default]
+    Card,
+    /// Density-sized (12 px/mm) detail for the panel editor; transient app-cache.
+    Detailed,
+}
+
+/// Return a cached detailed-preview blob for `key` from the OS app-cache, or build
+/// it via `build`, cache it (TTL/LRU), and return. Best-effort (skipped if the
+/// cache dir is unavailable). Mirrors `board_mesh_cached`.
+fn design_preview_cached(
+    app: &AppHandle,
+    key: &str,
+    build: impl FnOnce() -> anyhow::Result<Vec<u8>>,
+) -> anyhow::Result<(Vec<u8>, bool)> {
+    use crate::commands::board::{
+        artifact_cache_dir, ARTIFACT_CACHE_MAX_BYTES, ARTIFACT_CACHE_TTL,
+    };
+    let dir = artifact_cache_dir(app);
+    if let Some(d) = &dir {
+        if let Some(blob) = cuprum_core::diskcache::get(d, key, ARTIFACT_CACHE_TTL) {
+            return Ok((blob, false));
+        }
+    }
+    let blob = build()?;
+    if let Some(d) = &dir {
+        cuprum_core::diskcache::put(d, key, &blob, ARTIFACT_CACHE_MAX_BYTES, ARTIFACT_CACHE_TTL);
+    }
+    Ok((blob, true))
+}
+
 /// Render a design's composite preview PNG into the project artifact cache
 /// (`<workdir>/artifacts/preview`) and return it as a data URL for a card `<img>`.
 /// Non-drill layers only (no holes), top side — matches the card's old LayerStack
 /// thumbnail. Persistent + content-keyed, so it ships in the `.cuprum` and only
 /// recomputes when gerbers or colors change.
+///
+/// Pass `variant: "detailed"` to get a density-sized (12 px/mm) image cached
+/// transiently in the OS app-cache, suitable for the panel editor canvas.
 #[tauri::command]
 pub(crate) async fn render_design_preview(
     app: AppHandle,
@@ -257,9 +296,11 @@ pub(crate) async fn render_design_preview(
     design_id: String,
     gerbers: Vec<GerberRef>,
     layer_colors: Option<std::collections::HashMap<String, String>>,
+    variant: Option<PreviewVariant>,
     trace_session: Option<u64>,
 ) -> CmdResult<PreviewDto> {
     let _ = &design_id; // label/trace only
+    let variant = variant.unwrap_or_default();
     let overrides = layer_colors.unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || -> CmdResult<PreviewDto> {
         let mut layers: Vec<cuprum_core::preview::PreviewLayer> = Vec::new();
@@ -280,15 +321,41 @@ pub(crate) async fn render_design_preview(
             });
         }
         let dir = std::path::Path::new(&working_dir).join("artifacts");
-        let sizing =
-            cuprum_core::preview::PreviewSizing::MaxPx(cuprum_core::preview::CARD_PREVIEW_MAX_PX);
+        let sizing = match variant {
+            PreviewVariant::Card => cuprum_core::preview::PreviewSizing::MaxPx(
+                cuprum_core::preview::CARD_PREVIEW_MAX_PX,
+            ),
+            PreviewVariant::Detailed => cuprum_core::preview::PreviewSizing::Density {
+                px_per_mm: cuprum_core::preview::DETAILED_PREVIEW_PX_PER_MM,
+                cap_px: cuprum_core::preview::DETAILED_PREVIEW_MAX_PX,
+            },
+        };
         let key = cuprum_core::preview::preview_key(&layers, &overrides, sizing);
-        let fresh = artifact_fresh(&dir.join("preview"), &key);
         let traces = traces_dir(&app);
-        let png =
-            cuprum_core::trace::operation_in_session(trace_session, "preview", &traces, || {
-                cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, sizing)
-            })?;
+        let (png, fresh) = match variant {
+            PreviewVariant::Card => {
+                let fresh = artifact_fresh(&dir.join("preview"), &key);
+                let png = cuprum_core::trace::operation_in_session(
+                    trace_session,
+                    "preview",
+                    &traces,
+                    || {
+                        cuprum_core::preview::render_design_preview(
+                            &dir, &layers, &overrides, sizing,
+                        )
+                    },
+                )?;
+                (png, fresh)
+            }
+            PreviewVariant::Detailed => design_preview_cached(&app, &key, || {
+                cuprum_core::trace::operation_in_session(
+                    trace_session,
+                    "preview_detailed",
+                    &traces,
+                    || cuprum_core::preview::render_preview_png(&dir, &layers, &overrides, sizing),
+                )
+            })?,
+        };
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(PreviewDto {
             png_data_url: format!("data:image/png;base64,{b64}"),

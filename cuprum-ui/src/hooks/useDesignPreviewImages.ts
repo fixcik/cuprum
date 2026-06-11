@@ -38,6 +38,8 @@ export function useDesignPreviewImages(): Record<string, HTMLImageElement> {
           workingDir,
           id,
           d.gerbers.map((g) => ({ rel: g.path, layerType: g.layer_type })),
+          undefined,
+          "detailed",
         )
         .then(({ pngDataUrl }) => {
           const img = new Image();
