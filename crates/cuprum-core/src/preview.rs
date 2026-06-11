@@ -265,6 +265,41 @@ pub struct PreviewLayer {
 /// `cuprum-project` so both derive the same cache key.
 pub const CARD_PREVIEW_MAX_PX: u32 = 512;
 
+/// Detailed (panel-editor) preview density: pixels per board millimetre.
+pub const DETAILED_PREVIEW_PX_PER_MM: f32 = 12.0;
+/// Hard cap on the longest side of the detailed preview, px. Guards a huge board
+/// against a multi-hundred-megapixel raster.
+pub const DETAILED_PREVIEW_MAX_PX: u32 = 4096;
+
+/// How a preview is sized from the board's millimetre extents.
+#[derive(Clone, Copy)]
+pub enum PreviewSizing {
+    /// Longest side fixed to N px (card thumbnail).
+    MaxPx(u32),
+    /// N px per board-mm, longest side clamped to `cap_px` (detailed editor view).
+    Density { px_per_mm: f32, cap_px: u32 },
+}
+
+/// Compute the raster (width_px, height_px, scale) for a board of the given mm
+/// extents under `sizing`. `scale` is px-per-mm actually applied.
+fn scaled_dims(width_mm: f32, height_mm: f32, sizing: PreviewSizing) -> (u32, u32, f32) {
+    let longest = width_mm.max(height_mm).max(1.0);
+    let scale = match sizing {
+        PreviewSizing::MaxPx(n) => (n as f32) / longest,
+        PreviewSizing::Density { px_per_mm, cap_px } => {
+            let s = px_per_mm;
+            if longest * s > cap_px as f32 {
+                (cap_px as f32) / longest
+            } else {
+                s
+            }
+        }
+    };
+    let w = (width_mm * scale).ceil().max(1.0) as u32;
+    let h = (height_mm * scale).ceil().max(1.0) as u32;
+    (w, h, scale)
+}
+
 /// Content-hash key for a design's preview: version + raster size + each
 /// layer's (type, color, gerber-content), sorted by `(layer_type, bytes)` so
 /// input order never changes the key. Shared with `artifact::gc`'s valid set.
@@ -454,6 +489,31 @@ mod tests {
 
         let mut buf = vec![0u8; reader.output_buffer_size()];
         reader.next_frame(&mut buf).expect("decode frame");
+    }
+
+    #[test]
+    fn scaled_dims_max_px_fits_longest_side() {
+        // 100x80 mm, MaxPx(512): longest side -> 512.
+        let (w, h, _s) = scaled_dims(100.0, 80.0, PreviewSizing::MaxPx(512));
+        assert_eq!(w, 512);
+        assert_eq!(h, 410); // ceil(80 * 512/100) = ceil(409.6)
+    }
+
+    #[test]
+    fn scaled_dims_density_multiplies_mm() {
+        // 100x50 mm at 12 px/mm, far below cap.
+        let (w, h, s) = scaled_dims(100.0, 50.0, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 });
+        assert_eq!(w, 1200);
+        assert_eq!(h, 600);
+        assert!((s - 12.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn scaled_dims_density_clamps_at_cap() {
+        // 500 mm at 12 px/mm would be 6000 px; cap 4096 forces longest side to 4096.
+        let (w, _h, s) = scaled_dims(500.0, 100.0, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 });
+        assert_eq!(w, 4096);
+        assert!(s < 12.0, "scale reduced below density when capped");
     }
 
     #[test]
