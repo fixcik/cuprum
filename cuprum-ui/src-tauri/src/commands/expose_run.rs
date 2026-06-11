@@ -274,22 +274,28 @@ fn resolve_placements(req: &ExposeRunRequest) -> anyhow::Result<Vec<compose::Pla
             crate::commands::project::safe_workdir_path(&req.working_dir, &copper_gerber.path)
                 .map_err(|e| anyhow::anyhow!("{}", e.message()))?;
 
-        // Get mask bbox from the in-process cache.
-        // TODO(expose-rotation): pass inst.rotation_deg once Phase 2 wires the
-        // rotated re-render into compose_layout; using 0 here keeps existing
-        // behaviour unchanged in this phase.
-        let mask = cuprum_core::cache::native_mask(&abs_path, 0)?;
+        // Get the rotated mask bbox.  native_mask keyed by (path, rotation_deg)
+        // returns the already-rotated raster; its mm corners describe the
+        // axis-aligned bbox of the rotated copper artwork.
+        let mask = cuprum_core::cache::native_mask(&abs_path, inst.rotation_deg)?;
         let mask_bbox_mm = (mask.min_x_mm, mask.min_y_mm, mask.max_x_mm, mask.max_y_mm);
 
-        // Get board outline from the cached metrics path.
+        // Get the unrotated board outline from cached metrics, then rotate the
+        // bbox about the board centre so it matches the rotated copper mask.
+        // resolve_panel_placements' formula works unchanged with rotated bboxes.
         let (origin_x, origin_y, board_w, board_h) =
             board_outline(&req.working_dir, &design.gerbers)?;
+        let (board_origin_mm, board_size_mm) = cuprum_core::compose::rotate_bbox_about_centre(
+            (origin_x, origin_y),
+            (board_w, board_h),
+            inst.rotation_deg,
+        );
 
         inputs.push(InstancePlacementInput {
             mask_path: abs_path,
             mask_bbox_mm,
-            board_origin_mm: (origin_x, origin_y),
-            board_size_mm: (board_w, board_h),
+            board_origin_mm,
+            board_size_mm,
             inst_x_mm: inst.x_mm,
             inst_y_mm: inst.y_mm,
             rotation_deg: inst.rotation_deg,

@@ -7,6 +7,14 @@
 //!
 //! Designed for the layout editor: today the UI/CLI pass a single placement, but
 //! the list-based API extends to many copies on one board without changing shape.
+//!
+//! # Rotation support (0 / 90 / 180 / 270°)
+//!
+//! Each [`Placement`] carries a `rotation_deg` that is passed to the mask
+//! renderer so the rasterised copper is already rotated before blitting.
+//! The placement offsets are computed by [`resolve_panel_placements`] using
+//! rotated bounding boxes for both the copper mask and the board outline; see
+//! [`rotate_bbox_about_centre`] for the centre-pivot math.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,9 +27,9 @@ use crate::cache::{self, Mask};
 use crate::goo::{self, SCREEN_H, SCREEN_W};
 
 /// One Gerber instance positioned on the screen. `off_x`/`off_y` are the
-/// top-left of the rendered mask in screen pixels. `rotation_deg` is reserved
-/// for the layout editor (0 supported now; 90/270 needs an anisotropy-aware
-/// re-render and lands with the nesting milestone).
+/// top-left of the rendered mask in screen pixels. `rotation_deg` (0/90/180/270)
+/// selects the clockwise rotation that was applied when the mask was rasterised;
+/// it must agree with the rotated bounding boxes used to compute the offsets.
 #[derive(Clone, Debug)]
 pub struct Placement {
     pub path: PathBuf,
@@ -38,13 +46,14 @@ pub struct PanelInstanceArt {
     /// Path to the Gerber copper layer to expose (not read by this function).
     pub mask_path: PathBuf,
     /// Board outline origin (bbox min corner) in the mask's Gerber coords (mm).
+    /// For rotated instances this is the origin of the **rotated** outline bbox
+    /// (see [`rotate_bbox_about_centre`]).
     pub origin_mm: (f32, f32),
     /// Instance top-left X position in panel space (mm).
     pub x_mm: f32,
     /// Instance top-left Y position in panel space (mm).
     pub y_mm: f32,
-    /// Rotation in degrees (0, 90, 180, 270). Only 0 and 180 are fully supported;
-    /// 90/270 will be composited without rotation (warn is emitted).
+    /// Clockwise rotation in degrees (0, 90, 180, 270).
     pub rotation_deg: u16,
 }
 
@@ -59,10 +68,9 @@ pub struct PanelInstanceArt {
 /// each side.
 ///
 /// # Rotation
-/// Rotation 90°/270° is NOT yet supported by the blit loop (see
-/// `TODO(nesting)` in `compose_layout`). Instances with such rotations are passed
-/// through with `rotation_deg` intact, but a [`tracing::warn!`] is emitted per
-/// instance and the mask will be composited without rotation.
+/// All four rotations (0/90/180/270°) are supported.  Callers are responsible for
+/// passing **rotated** `origin_mm` values (see [`rotate_bbox_about_centre`]) so
+/// that the offset formula places the rotated mask at the correct screen position.
 ///
 /// # Errors
 /// Returns an error if the panel is larger than the exposure screen in either
@@ -90,14 +98,6 @@ pub fn panel_placements(
     let placements = instances
         .iter()
         .map(|inst| {
-            if inst.rotation_deg == 90 || inst.rotation_deg == 270 {
-                tracing::warn!(
-                    path = %inst.mask_path.display(),
-                    rotation_deg = inst.rotation_deg,
-                    "rotation 90/270 is not yet supported; instance will be exposed unrotated"
-                );
-            }
-
             let off_x =
                 ((panel_off_x + inst.x_mm - inst.origin_mm.0) * SCREEN_PX_PER_MM_X).round() as i32;
             let off_y =
@@ -115,24 +115,77 @@ pub fn panel_placements(
     Ok(placements)
 }
 
+/// Rotate a bounding box about the centre of a rectangle in Gerber Y-up coords.
+///
+/// Both the copper mask bbox and the board outline bbox must be rotated the same
+/// way before being passed to [`resolve_panel_placements`]: the formula inside
+/// that function works unchanged as long as the `mask_bbox_mm` and the
+/// `board_origin_mm`/`board_size_mm` pair are mutually consistent (i.e. both
+/// describe the same rotation of their respective shapes about the **board
+/// outline's centre**).
+///
+/// # Arguments
+/// * `origin` — bbox minimum corner `(min_x, min_y)` in Gerber Y-up mm coords.
+/// * `size`   — bbox dimensions `(width, height)` in mm.
+/// * `deg`    — clockwise rotation on the exposure screen (0 / 90 / 180 / 270).
+///   Maps to a counter-clockwise rotation of the same angle in Gerber Y-up space
+///   (Y-flip inverts the sense).  0°/180° leave extents unchanged; 90°/270° swap
+///   width and height.
+///
+/// # Returns
+/// `(rotated_origin, rotated_size)` — the minimum corner and size of the
+/// axis-aligned bbox of the rotated rectangle, with the same centre as the input.
+///
+/// # Geometry
+/// Centre is invariant: `cx = origin_x + w/2`, `cy = origin_y + h/2`.
+/// For 90° / 270° extents swap: `rot_size = (h, w)`.
+/// For 180° extents are unchanged but the origin re-derives trivially:
+///   `rot_origin = (cx − w/2, cy − h/2) = origin` (identity for a rectangle).
+/// In all cases: `rot_origin = (cx − rot_w/2, cy − rot_h/2)`.
+pub fn rotate_bbox_about_centre(
+    origin: (f32, f32),
+    size: (f32, f32),
+    deg: u16,
+) -> ((f32, f32), (f32, f32)) {
+    let (ox, oy) = origin;
+    let (w, h) = size;
+    let cx = ox + w / 2.0;
+    let cy = oy + h / 2.0;
+    // For 90°/270° extents swap; 0°/180° keep the same extents.
+    let (rot_w, rot_h) = match deg.wrapping_rem(360) {
+        90 | 270 => (h, w),
+        _ => (w, h),
+    };
+    let rot_ox = cx - rot_w / 2.0;
+    let rot_oy = cy - rot_h / 2.0;
+    ((rot_ox, rot_oy), (rot_w, rot_h))
+}
+
 /// Input for [`resolve_panel_placements`]: one board instance with enough
 /// geometry to correctly align the copper mask to the board outline corner.
+///
+/// For rotated instances (90°/270°) both `mask_bbox_mm` and
+/// `board_origin_mm`/`board_size_mm` must be pre-rotated via
+/// [`rotate_bbox_about_centre`] before construction.
 #[derive(Clone, Debug)]
 pub struct InstancePlacementInput {
     /// Path to the copper Gerber layer (not read here — passed through to [`Placement`]).
     pub mask_path: PathBuf,
     /// Copper mask bounding box in Gerber world coords (Y-up), from [`Mask`].
     /// Fields: `(min_x_mm, min_y_mm, max_x_mm, max_y_mm)`.
+    /// For rotated instances this is the bbox of the **rotated** mask.
     pub mask_bbox_mm: (f32, f32, f32, f32),
     /// Board outline bbox MIN corner (bottom-left, Gerber Y-up), from board metrics.
+    /// For rotated instances this is the MIN corner of the **rotated** outline bbox.
     pub board_origin_mm: (f32, f32),
     /// Board outline size in mm (`width, height`), from board metrics.
+    /// For rotated instances this is the size of the **rotated** outline bbox.
     pub board_size_mm: (f32, f32),
     /// Instance top-left position in panel space (mm, Y-down, origin top-left).
     pub inst_x_mm: f32,
     /// Instance top-left position in panel space (mm, Y-down, origin top-left).
     pub inst_y_mm: f32,
-    /// Rotation in degrees (0, 90, 180, 270).  Only 0/180 fully supported.
+    /// Clockwise rotation in degrees (0, 90, 180, 270).
     pub rotation_deg: u16,
 }
 
@@ -163,8 +216,17 @@ pub struct InstancePlacementInput {
 /// `board_origin_y + board_h`; subtracting `mask_max_y` from that top edge gives
 /// the downward displacement in panel Y-down.
 ///
-/// # Errors / warnings
-/// Same as [`panel_placements`] (panel-too-large error; 90/270 rotation warning).
+/// # Rotation
+///
+/// For instances with `rotation_deg` ≠ 0, callers must pre-rotate **both**
+/// `mask_bbox_mm` and `board_origin_mm`/`board_size_mm` via
+/// [`rotate_bbox_about_centre`] before calling this function.  The formula above
+/// then works unchanged: it sees the already-rotated bbox corners and computes the
+/// correct off values for the rotated copper mask.
+///
+/// # Errors
+/// Returns an error if the panel is larger than the exposure screen (same as
+/// [`panel_placements`]).
 pub fn resolve_panel_placements(
     panel_w_mm: f32,
     panel_h_mm: f32,
@@ -220,32 +282,31 @@ pub fn compose_layout(
 ) -> Result<Vec<u8>> {
     let mut screen = vec![0u8; SCREEN_W as usize * SCREEN_H as usize];
 
-    // Resolve each UNIQUE file's native mask once (auto-arrange spawns many
-    // copies of the same file), in parallel, through the cache — so repeat
-    // exposes and reloads reuse the raster instead of re-rendering.
-    let unique: Vec<PathBuf> = {
+    // Resolve each UNIQUE (file, rotation) pair's native mask once (auto-arrange
+    // spawns many copies of the same file at the same rotation), in parallel,
+    // through the cache — so repeat exposes and reloads reuse the raster.
+    let unique: Vec<(PathBuf, u16)> = {
         let mut seen = std::collections::HashSet::new();
         placements
             .iter()
-            .map(|p| p.path.clone())
-            .filter(|p| seen.insert(p.clone()))
+            .map(|p| (p.path.clone(), p.rotation_deg))
+            .filter(|k| seen.insert(k.clone()))
             .collect()
     };
-    let masks: HashMap<PathBuf, Arc<Mask>> = {
+    let masks: HashMap<(PathBuf, u16), Arc<Mask>> = {
         let _span = tracing::info_span!("rasterize").entered();
         unique
             .into_par_iter()
-            // TODO(expose-rotation): pass per-placement rotation_deg once Phase 2
-            // wires the rotated re-render; 0 here keeps existing behaviour unchanged.
-            .map(|path| cache::native_mask(&path, 0).map(|m| (path, m)))
+            .map(|(path, rot)| {
+                cache::native_mask(&path, rot).map(|m| ((path, rot), m))
+            })
             .collect::<Result<_>>()?
     };
 
     // Blit sequentially: writes go to overlapping screen regions, and it's
     // memory-bound (cheap) compared to rasterization.
-    // TODO(nesting): honor rotation_deg 90/270 via a rotated re-render.
     for p in placements {
-        let m = &masks[&p.path];
+        let m = &masks[&(p.path.clone(), p.rotation_deg)];
         goo::blit_max(
             &mut screen,
             SCREEN_W,
@@ -502,5 +563,172 @@ mod tests {
         let expected_dy = (11.0_f32 * SCREEN_PX_PER_MM_Y).round() as i32;
         assert_eq!(delta_x, expected_dx);
         assert_eq!(delta_y, expected_dy);
+    }
+
+    // ── rotate_bbox_about_centre tests ──────────────────────────────────────
+
+    /// Rotation at 0° and 180° must return the same extents/origin as the input
+    /// (rectangles are symmetric, centre is invariant).
+    ///
+    /// Board outline: origin (0,0), size (30,20).  Centre = (15, 10).
+    #[test]
+    fn rotate_bbox_0_180_unchanged() {
+        let origin = (0.0f32, 0.0f32);
+        let size = (30.0f32, 20.0f32);
+
+        let (o0, s0) = rotate_bbox_about_centre(origin, size, 0);
+        assert_eq!(o0, (0.0, 0.0), "0°: origin");
+        assert_eq!(s0, (30.0, 20.0), "0°: size");
+
+        let (o180, s180) = rotate_bbox_about_centre(origin, size, 180);
+        assert_eq!(o180, (0.0, 0.0), "180°: origin");
+        assert_eq!(s180, (30.0, 20.0), "180°: size");
+    }
+
+    /// 90° and 270° must swap width↔height and shift the origin so the centre
+    /// stays at (15, 10).
+    ///
+    /// Rotated size: (20, 30).
+    /// Rotated origin: (cx − 10, cy − 15) = (15 − 10, 10 − 15) = (5, −5).
+    #[test]
+    fn rotate_bbox_90_270_swaps_extents() {
+        let origin = (0.0f32, 0.0f32);
+        let size = (30.0f32, 20.0f32);
+
+        let (o90, s90) = rotate_bbox_about_centre(origin, size, 90);
+        assert_eq!(s90, (20.0, 30.0), "90°: size should swap");
+        assert_eq!(o90, (5.0, -5.0), "90°: origin should shift to keep centre at (15,10)");
+
+        let (o270, s270) = rotate_bbox_about_centre(origin, size, 270);
+        assert_eq!(s270, (20.0, 30.0), "270°: size should swap");
+        assert_eq!(o270, (5.0, -5.0), "270°: origin should shift to keep centre at (15,10)");
+    }
+
+    /// A non-zero-origin board confirms that the centre pivot uses the actual
+    /// geometric centre, not (0,0).
+    ///
+    /// Board outline: origin (2, 3), size (10, 6).  Centre = (7, 6).
+    /// 90°: size = (6, 10), origin = (7−3, 6−5) = (4, 1).
+    #[test]
+    fn rotate_bbox_nonzero_origin_90() {
+        let origin = (2.0f32, 3.0f32);
+        let size = (10.0f32, 6.0f32);
+        let (o, s) = rotate_bbox_about_centre(origin, size, 90);
+        assert_eq!(s, (6.0, 10.0), "90° non-zero origin: size");
+        // cx=7, cy=6; rot_w=6, rot_h=10 → rot_origin = (7-3, 6-5) = (4, 1)
+        assert_eq!(o, (4.0, 1.0), "90° non-zero origin: origin");
+    }
+
+    // ── resolve_panel_placements rotation tests ──────────────────────────────
+
+    /// Test 4 — 90° rotation: copper mask inset from board outline.
+    ///
+    /// Board outline: origin=(0,0), size=(10,8).  Centre=(5,4).
+    /// Rotated outline (90°): size=(8,10), origin=(1,−1).
+    ///
+    /// Copper mask unrotated: (1,1.5,9,6.5), centre=(5,4), size=(8,5).
+    /// Rotated copper mask (90°): size=(5,8), origin=(2.5,0).
+    ///   → mask_bbox_mm = (min_x=2.5, min_y=0, max_x=7.5, max_y=8).
+    ///
+    /// Formula:
+    ///   origin_x = 1 − 2.5 = −1.5
+    ///   origin_y = 8 − (−1 + 10) = −1
+    ///   off_x = (80.84 + 5.0 − (−1.5)) * 71.4286 ≈ 6239
+    ///   off_y = (44.185 + 3.0 − (−1)) * 52.6316  ≈ 2536
+    #[test]
+    fn resolve_placements_rotated_90() {
+        let panel_w = 50.0f32;
+        let panel_h = 30.0f32;
+
+        // Pre-rotate bboxes as expose_run::resolve_placements does.
+        let (board_origin_mm, board_size_mm) =
+            rotate_bbox_about_centre((0.0, 0.0), (10.0, 8.0), 90);
+        // Copper mask unrotated centre = (5,4), size=(8,5); rotated 90°: size=(5,8).
+        let (mask_origin, mask_size) =
+            rotate_bbox_about_centre((1.0, 1.5), (8.0, 5.0), 90);
+        let mask_bbox_mm = (
+            mask_origin.0,
+            mask_origin.1,
+            mask_origin.0 + mask_size.0,
+            mask_origin.1 + mask_size.1,
+        );
+
+        let item = InstancePlacementInput {
+            mask_path: PathBuf::from("dummy.gbr"),
+            mask_bbox_mm,
+            board_origin_mm,
+            board_size_mm,
+            inst_x_mm: 5.0,
+            inst_y_mm: 3.0,
+            rotation_deg: 90,
+        };
+        let result = resolve_panel_placements(panel_w, panel_h, &[item]).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].rotation_deg, 90, "rotation_deg must be carried through");
+
+        // Pinned concrete pixel anchors (hand-derived, verified by calc_pixels).
+        assert_eq!(result[0].off_x, 6239, "X offset wrong for 90° rotation");
+        assert_eq!(result[0].off_y, 2536, "Y offset wrong for 90° rotation");
+    }
+
+    /// Test 5 — 270° rotation: same bbox layout as 90° for a symmetric rectangle,
+    /// so pixel offsets match, but `rotation_deg` must be 270.
+    #[test]
+    fn resolve_placements_rotated_270() {
+        let panel_w = 50.0f32;
+        let panel_h = 30.0f32;
+
+        let (board_origin_mm, board_size_mm) =
+            rotate_bbox_about_centre((0.0, 0.0), (10.0, 8.0), 270);
+        let (mask_origin, mask_size) =
+            rotate_bbox_about_centre((1.0, 1.5), (8.0, 5.0), 270);
+        let mask_bbox_mm = (
+            mask_origin.0,
+            mask_origin.1,
+            mask_origin.0 + mask_size.0,
+            mask_origin.1 + mask_size.1,
+        );
+
+        let item = InstancePlacementInput {
+            mask_path: PathBuf::from("dummy.gbr"),
+            mask_bbox_mm,
+            board_origin_mm,
+            board_size_mm,
+            inst_x_mm: 5.0,
+            inst_y_mm: 3.0,
+            rotation_deg: 270,
+        };
+        let result = resolve_panel_placements(panel_w, panel_h, &[item]).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].rotation_deg, 270, "rotation_deg must be carried through");
+
+        // Same screen position as 90° (bbox extents are symmetric for a rectangle).
+        assert_eq!(result[0].off_x, 6239, "X offset wrong for 270° rotation");
+        assert_eq!(result[0].off_y, 2536, "Y offset wrong for 270° rotation");
+    }
+
+    /// Test 6 — 0° resolve test still passes with new code path (regression guard).
+    ///
+    /// Repeats the same geometry as Test 2 (copper inset) to confirm the 0°
+    /// case is unchanged after the rotation plumbing was added.
+    #[test]
+    fn resolve_placements_0deg_unchanged_after_rotation_plumbing() {
+        let panel_w = 50.0f32;
+        let panel_h = 30.0f32;
+        let item = InstancePlacementInput {
+            mask_path: PathBuf::from("dummy.gbr"),
+            mask_bbox_mm: (1.0, 1.5, 9.0, 6.5),
+            board_origin_mm: (0.0, 0.0),
+            board_size_mm: (10.0, 8.0),
+            inst_x_mm: 5.0,
+            inst_y_mm: 3.0,
+            rotation_deg: 0,
+        };
+        let result = resolve_panel_placements(panel_w, panel_h, &[item]).unwrap();
+        assert_eq!(result.len(), 1);
+        // These are the same values as Test 2.
+        assert_eq!(result[0].off_x, 6203, "0° X offset regressed");
+        assert_eq!(result[0].off_y, 2562, "0° Y offset regressed");
+        assert_eq!(result[0].rotation_deg, 0);
     }
 }
