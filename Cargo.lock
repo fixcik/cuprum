@@ -519,6 +519,7 @@ dependencies = [
  "cuprum-goo",
  "cuprum-grbl",
  "cuprum-mesh",
+ "cuprum-mill",
  "cuprum-sdcp",
  "cuprum-trace",
  "rayon",

@@ -244,6 +244,7 @@ fn main() {
             commands::drill_run::drill_run_estop,
             commands::drill_run::drill_run_status,
             commands::drill_run::drill_plan,
+            commands::mill_run::mill_plan,
             commands::expose_run::expose_run_start,
             commands::expose_run::expose_run_stop,
             commands::expose_run::expose_run_status
