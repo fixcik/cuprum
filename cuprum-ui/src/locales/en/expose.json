@@ -4,5 +4,43 @@
     "noProject": "No project open",
     "panelSize": "Panel {{w}} × {{h}} mm",
     "phase4Placeholder": "Panel preview and run controls — coming in Phase 4"
+  },
+  "editor": {
+    "noProject": "No project open",
+    "noInstances": "No boards placed on the panel",
+    "rotationWarning": "One or more boards have a non-zero rotation. The compositor exposes rotated boards without rotation — remove the rotation in the panel editor if needed.",
+    "preview": {
+      "title": "Panel layout",
+      "size": "{{w}} × {{h}} mm · {{n}} board(s)"
+    },
+    "params": {
+      "title": "Exposure parameters",
+      "side": "Side",
+      "side_top": "Top",
+      "side_bottom": "Bottom",
+      "exposureS": "Time",
+      "seconds": "s",
+      "pwm": "PWM",
+      "options": "Options",
+      "mirror": "Mirror",
+      "invert": "Invert"
+    },
+    "run": {
+      "start": "Expose",
+      "stop": "Stop",
+      "remaining": "{{t}} left"
+    }
+  },
+  "stage": {
+    "idle": "Idle",
+    "composing": "Composing layout…",
+    "discovering": "Finding printer…",
+    "uploading": "Uploading…",
+    "starting": "Starting exposure…",
+    "exposing": "Exposing…",
+    "done": "Exposure complete",
+    "stopped": "Stopped",
+    "error": "Error",
+    "unknown": "Unknown"
   }
 }

@@ -483,6 +483,56 @@ export interface Poly {
   holes: [number, number][][];
 }
 
+/** Progress payload from `expose://progress` (camelCase, all fields optional). */
+export interface ExposeProgress {
+  stage?: string;
+  currentLayer: number | null;
+  totalLayers: number | null;
+  percent: number | null;
+  remainingS: number | null;
+  printerState: string | null;
+}
+
+/** One gerber file entry for ExposeRunRequest (camelCase mirror of GerberFileDto). */
+export interface ExposeGerberFile {
+  path: string;
+  layerType: LayerType;
+}
+
+/** One design entry for ExposeRunRequest (camelCase mirror of DesignDto). */
+export interface ExposeDesignDto {
+  id: string;
+  gerbers: ExposeGerberFile[];
+}
+
+/** One panel instance entry for ExposeRunRequest (camelCase mirror of BoardInstanceDto). */
+export interface ExposeBoardInstance {
+  designId: string;
+  xMm: number;
+  yMm: number;
+  rotationDeg: number;
+}
+
+/** Panel entry for ExposeRunRequest (camelCase mirror of PanelDto). */
+export interface ExposePanelDto {
+  widthMm: number;
+  heightMm: number;
+  instances: ExposeBoardInstance[];
+}
+
+/** Full request sent to `expose_run_start` (camelCase mirror of ExposeRunRequest). */
+export interface ExposeRunRequest {
+  workingDir: string;
+  panel: ExposePanelDto;
+  designs: ExposeDesignDto[];
+  side: "top" | "bottom";
+  mirror: boolean;
+  invert: boolean;
+  exposureS: number;
+  pwm: number;
+  runUid: string;
+}
+
 export interface DrillRunProgress {
   holesCompleted: number;
   holesTotal: number;
@@ -995,6 +1045,22 @@ export const api = {
     onError: (cb: (msg: string) => void): Promise<UnlistenFn> =>
       listen<{ message: string }>("drill-run://error", (e) => cb(e.payload.message)),
     onDone: (cb: () => void): Promise<UnlistenFn> => listen("drill-run://done", () => cb()),
+  },
+
+  exposeRun: {
+    /** Start a panel UV-exposure run. Returns immediately; listen to
+     *  `expose://state` and `expose://progress` for progress. */
+    start: (req: ExposeRunRequest) => invoke<void>("expose_run_start", { req }),
+    /** Set the stopping flag and best-effort stop_print on the printer. */
+    stop: () => invoke<void>("expose_run_stop"),
+    /** Current run status for a window opening mid-run (re-attach). */
+    status: () => invoke<{ active: boolean; stage: string }>("expose_run_status"),
+    /** Subscribe to `expose://state` events (stage + message). */
+    onState: (cb: (p: { stage: string; message: string }) => void): Promise<UnlistenFn> =>
+      listen<{ stage: string; message: string }>("expose://state", (e) => cb(e.payload)),
+    /** Subscribe to `expose://progress` events. */
+    onProgress: (cb: (p: ExposeProgress) => void): Promise<UnlistenFn> =>
+      listen<ExposeProgress>("expose://progress", (e) => cb(e.payload)),
   },
 
   /** Operation-run journal (catalog DB). Op-agnostic — drill is the first writer.
