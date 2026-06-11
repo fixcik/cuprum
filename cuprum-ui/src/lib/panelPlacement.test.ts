@@ -22,6 +22,8 @@ import {
   keepOutBox,
   clampZoneRect,
   clampZonesForHoles,
+  buildSnapCandidates,
+  computeSelectionBBox,
   type AlignEdge,
   type GuideLine,
   type Box,
@@ -730,5 +732,78 @@ describe("clampZonesForHoles", () => {
   it("includes flip-role holes", () => {
     const z = clampZonesForHoles([{ id: "f", x_mm: 20, y_mm: 20, diameter_mm: 2, role: "flip" }], 1);
     expect(z).toEqual([{ holeId: "f", box: { minX: 18, minY: 18, maxX: 22, maxY: 22 } }]);
+  });
+});
+
+const inst = (o: Partial<BoardInstance> = {}): BoardInstance => ({
+  id: "i", design_id: "d", x_mm: 0, y_mm: 0, rotation_deg: 0, ...o,
+});
+
+describe("buildSnapCandidates", () => {
+  it("yields only the blank's nine points when there are no instances", () => {
+    const pts = buildSnapCandidates(100, 80, [], {});
+    expect(pts).toHaveLength(9);
+    // Corners (TL, TR, BL, BR), edge midpoints (top, bottom, left, right), centre.
+    expect(pts).toEqual([
+      { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 80 }, { x: 100, y: 80 },
+      { x: 50, y: 0 }, { x: 50, y: 80 }, { x: 0, y: 40 }, { x: 100, y: 40 }, { x: 50, y: 40 },
+    ]);
+  });
+
+  it("adds nine more points for each visible instance (axis-aligned bounds)", () => {
+    // 40×30 board at (10,10), unrotated → AABB [10,10]..[50,40].
+    const pts = buildSnapCandidates(100, 80, [inst({ x_mm: 10, y_mm: 10 })], { d: { w: 40, h: 30 } });
+    expect(pts).toHaveLength(18);
+    const boardPts = pts.slice(9);
+    expect(boardPts).toEqual([
+      { x: 10, y: 10 }, { x: 50, y: 10 }, { x: 10, y: 40 }, { x: 50, y: 40 },
+      { x: 30, y: 10 }, { x: 30, y: 40 }, { x: 10, y: 25 }, { x: 50, y: 25 }, { x: 30, y: 25 },
+    ]);
+  });
+
+  it("skips instances whose board size is unknown", () => {
+    const pts = buildSnapCandidates(100, 80, [inst({ design_id: "missing" })], {});
+    expect(pts).toHaveLength(9);
+  });
+});
+
+describe("computeSelectionBBox", () => {
+  const sizes = { d: { w: 40, h: 30 } };
+
+  it("returns null when nothing is selected", () => {
+    expect(computeSelectionBBox([inst({ id: "a", x_mm: 10, y_mm: 10 })], new Set(), sizes, null)).toBeNull();
+  });
+
+  it("returns the box + bottom-right anchor for a single selection", () => {
+    const r = computeSelectionBBox([inst({ id: "a", x_mm: 10, y_mm: 10 })], new Set(["a"]), sizes, null);
+    expect(r).toEqual({ minX: 10, minY: 10, maxX: 50, maxY: 40, anchorX: 50, anchorY: 40 });
+  });
+
+  it("unions two selected boards and anchors to the nearest real corner", () => {
+    const boards = [
+      inst({ id: "a", x_mm: 0, y_mm: 0 }),
+      inst({ id: "b", x_mm: 100, y_mm: 60 }),
+    ];
+    const r = computeSelectionBBox(boards, new Set(["a", "b"]), sizes, null);
+    // Union AABB [0,0]..[140,90]; the union's bottom-right (140,90) IS board b's
+    // bottom-right corner, so the anchor pins there.
+    expect(r).toEqual({ minX: 0, minY: 0, maxX: 140, maxY: 90, anchorX: 140, anchorY: 90 });
+  });
+
+  it("grows the box when a rotation preview is applied", () => {
+    const sel = new Set(["a"]);
+    const board = [inst({ id: "a", x_mm: 10, y_mm: 10 })];
+    const flat = computeSelectionBBox(board, sel, sizes, null)!;
+    const spun = computeSelectionBBox(board, sel, sizes, 45)!;
+    // A 45° spin of a 40×30 board about its centre widens its AABB on both axes.
+    expect(spun.maxX - spun.minX).toBeGreaterThan(flat.maxX - flat.minX);
+    expect(spun.maxY - spun.minY).toBeGreaterThan(flat.maxY - flat.minY);
+    // Centre is preserved by a centre-pivot rotation.
+    expect((spun.minX + spun.maxX) / 2).toBeCloseTo((flat.minX + flat.maxX) / 2);
+    expect((spun.minY + spun.maxY) / 2).toBeCloseTo((flat.minY + flat.maxY) / 2);
+  });
+
+  it("ignores selected ids whose size is unknown (null when none resolve)", () => {
+    expect(computeSelectionBBox([inst({ id: "a", design_id: "missing" })], new Set(["a"]), sizes, null)).toBeNull();
   });
 });
