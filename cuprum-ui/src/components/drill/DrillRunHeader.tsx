@@ -108,8 +108,13 @@ export function DrillRunHeader({
   const remainingFmt = formatDuration(remaining, minAbbr, secAbbr);
 
   // Time + holes left until the next tool-change pause. Hidden once the run finished
-  // (done) or while there's no change ahead (last bit) — toolChangeEta returns null.
-  const eta = phase === "done" ? null : toolChangeEta(route, groupMotionSecs, holesCompleted);
+  // (done), during a tool-change pause itself (the status label already says so, and the
+  // count would point at the change AFTER this one), or while no change lies ahead
+  // (last bit) — toolChangeEta returns null then.
+  const eta =
+    phase === "done" || phase === "awaitingToolChange"
+      ? null
+      : toolChangeEta(route, groupMotionSecs, holesCompleted);
   const untilToolChange =
     eta &&
     t("runHeader.untilToolChange", {

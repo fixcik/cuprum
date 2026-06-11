@@ -203,8 +203,16 @@ mod est_tests {
                     class: crate::types::DrillClass::Pth,
                     tool_id: Some("small".into()),
                     holes: vec![
-                        crate::types::PlanHole { x_mm: 0.0, y_mm: 0.0, id: None },
-                        crate::types::PlanHole { x_mm: 10.0, y_mm: 0.0, id: None },
+                        crate::types::PlanHole {
+                            x_mm: 0.0,
+                            y_mm: 0.0,
+                            id: None,
+                        },
+                        crate::types::PlanHole {
+                            x_mm: 10.0,
+                            y_mm: 0.0,
+                            id: None,
+                        },
                     ],
                 },
                 crate::types::DrillGroup {
@@ -212,8 +220,16 @@ mod est_tests {
                     class: crate::types::DrillClass::Pth,
                     tool_id: Some("big".into()),
                     holes: vec![
-                        crate::types::PlanHole { x_mm: 40.0, y_mm: 20.0, id: None },
-                        crate::types::PlanHole { x_mm: 60.0, y_mm: 30.0, id: None },
+                        crate::types::PlanHole {
+                            x_mm: 40.0,
+                            y_mm: 20.0,
+                            id: None,
+                        },
+                        crate::types::PlanHole {
+                            x_mm: 60.0,
+                            y_mm: 30.0,
+                            id: None,
+                        },
                     ],
                 },
             ],
@@ -243,6 +259,91 @@ mod est_tests {
             assert!(*s > 0.0, "every group should carry some motion time");
         }
         let sum: f64 = est.group_motion_secs.iter().sum();
-        assert!((sum - est.motion_sec).abs() < 1e-9, "buckets must sum to total");
+        assert!(
+            (sum - est.motion_sec).abs() < 1e-9,
+            "buckets must sum to total"
+        );
+    }
+
+    #[test]
+    fn group_motion_secs_sum_holds_with_keepout_detours() {
+        // Same two groups, but a keep-out zone straddles the gap between them so the
+        // route inserts detour waypoints. The bucket sum must still equal motion_sec:
+        // detour legs are charged to the group they travel toward, never dropped.
+        let plan = crate::types::PanelDrillPlan {
+            groups: vec![
+                crate::types::DrillGroup {
+                    diameter_mm: 0.8,
+                    class: crate::types::DrillClass::Pth,
+                    tool_id: Some("small".into()),
+                    holes: vec![
+                        crate::types::PlanHole {
+                            x_mm: 0.0,
+                            y_mm: 0.0,
+                            id: None,
+                        },
+                        crate::types::PlanHole {
+                            x_mm: 10.0,
+                            y_mm: 0.0,
+                            id: None,
+                        },
+                    ],
+                },
+                crate::types::DrillGroup {
+                    diameter_mm: 3.0,
+                    class: crate::types::DrillClass::Pth,
+                    tool_id: Some("big".into()),
+                    holes: vec![
+                        crate::types::PlanHole {
+                            x_mm: 40.0,
+                            y_mm: 20.0,
+                            id: None,
+                        },
+                        crate::types::PlanHole {
+                            x_mm: 60.0,
+                            y_mm: 30.0,
+                            id: None,
+                        },
+                    ],
+                },
+            ],
+        };
+        // A rectangle in the middle forces the inter-group traverse to detour around it.
+        let zones = [crate::types::Rect {
+            x: 20.0,
+            y: 5.0,
+            w: 8.0,
+            h: 20.0,
+        }];
+        let route = crate::route::plan_drill_route(&plan, (0.0, 0.0), &zones, None);
+        // The detour must actually have inserted waypoints (more path points than holes+1).
+        assert!(
+            route.path_points.len() > route.total_holes + 1,
+            "expected detour waypoints"
+        );
+        let tools = vec![
+            crate::types::Tool {
+                id: "small".into(),
+                diameter_mm: 0.8,
+                name: "s".into(),
+                recommended_rpm: 9000.0,
+                recommended_plunge_mm_min: 60.0,
+            },
+            crate::types::Tool {
+                id: "big".into(),
+                diameter_mm: 3.0,
+                name: "b".into(),
+                recommended_rpm: 9000.0,
+                recommended_plunge_mm_min: 60.0,
+            },
+        ];
+        let k = crate::types::Kinematics::default();
+        let est = estimate_drill(&route, &tools, &k, 5.0, 1.9, 0.0);
+        assert_eq!(est.group_motion_secs.len(), 2);
+        let sum: f64 = est.group_motion_secs.iter().sum();
+        assert!(
+            (sum - est.motion_sec).abs() < 1e-9,
+            "buckets must sum to total even with detour waypoints"
+        );
     }
 }
