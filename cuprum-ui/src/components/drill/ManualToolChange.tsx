@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { ArrowDownToLine, Loader2 } from "lucide-react";
+import { ArrowDownToLine, Loader2, TriangleAlert } from "lucide-react";
 import { DrillManualZBar } from "@/components/drill/DrillManualZBar";
+import type { ZBindBand } from "@/lib/drillZHeadroom";
 
 // Solid amber action button (manual confirm). Dark text on amber per the design
 // tokens — never the muted translucent brown. Kept identical to the probe tab's
@@ -16,6 +17,8 @@ export function ManualToolChange({
   lastManualZMm,
   enabled,
   busy,
+  band,
+  bindBlock,
   onConfirm,
 }: {
   /** Machine Z (mm) of the last manual touch-off this session — the yellow
@@ -25,6 +28,12 @@ export function ManualToolChange({
   enabled: boolean;
   /** A probe/manual action is in flight. */
   busy: boolean;
+  /** Safe machine-Z bind band — paints the forbidden zones on the bar. */
+  band?: ZBindBand | null;
+  /** The live bit position is in a forbidden zone: "below" (floor) / "above" (ceiling) /
+   *  null (safe). When set, binding here would trip the envelope, so the confirm is
+   *  gated up front — the zero is never set outside the band. */
+  bindBlock: "below" | "above" | null;
   /** Record the touch-off Z and bind the work zero. */
   onConfirm: () => void;
 }) {
@@ -32,8 +41,19 @@ export function ManualToolChange({
 
   return (
     <div className="flex flex-col gap-2">
-      <DrillManualZBar lastZMm={lastManualZMm} />
-      <button type="button" className={SOLID_WARNING} disabled={!enabled || busy} onClick={onConfirm}>
+      <DrillManualZBar lastZMm={lastManualZMm} band={band} />
+      {bindBlock && (
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-400">
+          <TriangleAlert className="size-3.5 shrink-0" />
+          {bindBlock === "below" ? t("toolChange.zoneTooLow") : t("toolChange.zoneTooHigh")}
+        </div>
+      )}
+      <button
+        type="button"
+        className={SOLID_WARNING}
+        disabled={!enabled || busy || bindBlock != null}
+        onClick={onConfirm}
+      >
         {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDownToLine className="size-4" />}
         {t("toolChange.manualConfirm")}
       </button>

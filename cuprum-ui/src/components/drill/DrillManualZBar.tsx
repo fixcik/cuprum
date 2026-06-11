@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { useJog } from "@/hooks/useJog";
+import { classifyBindZ, type ZBindBand } from "@/lib/drillZHeadroom";
 import { cn } from "@/lib/utils";
 
 const clamp01 = (f: number) => (f <= 0 ? 0 : f >= 1 ? 1 : f);
@@ -20,8 +21,20 @@ const Z_BTN =
  *  hold-jog by the shared step. A yellow tick marks the previous manual touch-off Z
  *  (`lastZMm`) so the operator can repeat the height for a same-diameter bit.
  *
+ *  When a Z-headroom `band` is known, the regions of travel where binding the zero would
+ *  trip the envelope are painted red (left = floor: too little plunge room; right = ceiling:
+ *  the safe/tool-change rapid would punch past Z=0); the safe band stays dark. The thumb
+ *  turns red while the live Z sits in a forbidden zone — the confirm button is gated to match.
+ *
  *  It does NOT bind Z — the card's confirm button does that (G10 L20 P1 on Z). */
-export function DrillManualZBar({ lastZMm }: { lastZMm: number | null }) {
+export function DrillManualZBar({
+  lastZMm,
+  band,
+}: {
+  lastZMm: number | null;
+  /** Safe machine-Z bind band (from `zBindBand`). null/unknown → no forbidden zones drawn. */
+  band?: ZBindBand | null;
+}) {
   const { t } = useTranslation("drill");
 
   const maxZMm = useSettings((s) => s.cncProfile.workEnvelopeMm.z);
@@ -50,6 +63,15 @@ export function DrillManualZBar({ lastZMm }: { lastZMm: number | null }) {
   const fracOf = (machineZ: number) => clamp01((machineZ + maxZMm) / range);
   const thumbFrac = fracOf(mz);
   const lastFrac = lastZMm != null ? fracOf(lastZMm) : null;
+
+  // Forbidden-zone fractions from the headroom band: the floor zone fills [0, minZ),
+  // the ceiling zone fills (maxZ, 1]. fracOf clamps, so a band edge outside the bar's
+  // travel collapses its zone to zero width. Thumb turns red while Z sits in a zone.
+  const known = band?.known ?? false;
+  const floorZoneFrac = known ? fracOf(band!.minZ) : 0; // red from 0 up to here
+  const ceilZoneFrac = known ? fracOf(band!.maxZ) : 1; // red from here up to 1
+  const thumbBlocked = known && classifyBindZ(band!, mz) != null;
+  const RED = "#ef4444";
 
   // Hover target (fraction along the track) for the tooltip + ghost line.
   const [hoverFrac, setHoverFrac] = useState<number | null>(null);
@@ -137,6 +159,28 @@ export function DrillManualZBar({ lastZMm }: { lastZMm: number | null }) {
           )}
           style={{ background: "#0c0e11" }}
         >
+          {/* Forbidden bind zones (floor / ceiling) — painted under the ticks + thumb */}
+          {floorZoneFrac > 0 && (
+            <div
+              className="pointer-events-none absolute bottom-0 left-0 top-0 rounded-l-md"
+              style={{
+                width: `${floorZoneFrac * 100}%`,
+                background: "hsl(0 70% 55% / 0.22)",
+                borderRight: `1px solid ${RED}`,
+              }}
+            />
+          )}
+          {ceilZoneFrac < 1 && (
+            <div
+              className="pointer-events-none absolute bottom-0 right-0 top-0 rounded-r-md"
+              style={{
+                width: `${(1 - ceilZoneFrac) * 100}%`,
+                background: "hsl(0 70% 55% / 0.22)",
+                borderLeft: `1px solid ${RED}`,
+              }}
+            />
+          )}
+
           {/* Scale ticks */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-2 opacity-60">
             {Array.from({ length: 15 }, (_, i) => (
@@ -178,10 +222,10 @@ export function DrillManualZBar({ lastZMm }: { lastZMm: number | null }) {
             </>
           )}
 
-          {/* Live-position thumb */}
+          {/* Live-position thumb — red while Z sits in a forbidden bind zone */}
           <div
             className="pointer-events-none absolute top-1/2 size-5 -translate-x-1/2 -translate-y-1/2 rounded-[5px] shadow-[0_1px_4px_rgba(0,0,0,.4)]"
-            style={{ left: `${thumbFrac * 100}%`, background: "hsl(var(--axis-z))" }}
+            style={{ left: `${thumbFrac * 100}%`, background: thumbBlocked ? RED : "hsl(var(--axis-z))" }}
           />
         </div>
 

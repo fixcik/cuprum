@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   checkZHeadroom,
+  classifyBindZ,
   DEFAULT_Z_HEADROOM_MARGIN_MM,
+  zBindBand,
+  type ZBindBandArgs,
   type ZHeadroomArgs,
 } from "@/lib/drillZHeadroom";
 
@@ -150,5 +153,85 @@ describe("checkZHeadroom", () => {
       expect(checkZHeadroom({ ...BASE, maxTravelZMm: null }).skipped).toBe(true);
       expect(checkZHeadroom({ ...BASE, maxTravelZMm: 0 }).skipped).toBe(true);
     });
+  });
+});
+
+// Same geometry as BASE, minus the live position (the band is position-independent).
+const BAND_BASE: ZBindBandArgs = {
+  homed: true,
+  softLimitsEnabled: true,
+  maxTravelZMm: 73,
+  plungeDepthMm: 1.9,
+  safeZMm: 5,
+  toolChangeZMm: 20,
+};
+
+describe("zBindBand", () => {
+  it("derives the safe machine-Z band (inverse of checkZHeadroom)", () => {
+    const b = zBindBand(BAND_BASE);
+    expect(b.known).toBe(true);
+    // floor: 1.9 + 0.5 − 73 = −70.6 ; ceiling: −max(5,20) − 0.5 = −20.5
+    expect(b.minZ).toBeCloseTo(-70.6);
+    expect(b.maxZ).toBeCloseTo(-20.5);
+  });
+
+  it("band edges agree with checkZHeadroom's pass/fail boundaries", () => {
+    const b = zBindBand(BAND_BASE);
+    // Binding exactly at each edge is ok; a hair beyond fails the matching bound.
+    const at = (z: number) => checkZHeadroom({ ...BASE, mposZ: z, wposZ: 0 });
+    expect(at(b.minZ).ok).toBe(true);
+    expect(at(b.minZ - 0.01).block).toBe("below");
+    expect(at(b.maxZ).ok).toBe(true);
+    expect(at(b.maxZ + 0.01).block).toBe("above");
+  });
+
+  it("ceiling is driven by the highest rapid — max(safeZ, toolChangeZ)", () => {
+    const b = zBindBand({ ...BAND_BASE, safeZMm: 30, toolChangeZMm: 20 });
+    expect(b.maxZ).toBeCloseTo(-30.5); // safe-Z (30) now dominates
+  });
+
+  it("respects a custom margin", () => {
+    const b = zBindBand({ ...BAND_BASE, marginMm: 1.5 });
+    expect(b.minZ).toBeCloseTo(1.9 + 1.5 - 73);
+    expect(b.maxZ).toBeCloseTo(-20 - 1.5);
+  });
+
+  it("unknown when the envelope is not computable", () => {
+    for (const patch of [
+      { homed: false },
+      { softLimitsEnabled: false as const },
+      { softLimitsEnabled: null },
+      { maxTravelZMm: null },
+      { maxTravelZMm: 0 },
+    ]) {
+      const b = zBindBand({ ...BAND_BASE, ...patch });
+      expect(b.known).toBe(false);
+      expect(b.minZ).toBe(-Infinity);
+      expect(b.maxZ).toBe(Infinity);
+    }
+  });
+});
+
+describe("classifyBindZ", () => {
+  const band = zBindBand(BAND_BASE); // [−70.6, −20.5]
+
+  it("inside the band → null", () => {
+    expect(classifyBindZ(band, -45)).toBeNull();
+    expect(classifyBindZ(band, band.minZ)).toBeNull();
+    expect(classifyBindZ(band, band.maxZ)).toBeNull();
+  });
+
+  it("below the floor → 'below'", () => {
+    expect(classifyBindZ(band, band.minZ - 0.01)).toBe("below");
+  });
+
+  it("above the ceiling → 'above'", () => {
+    expect(classifyBindZ(band, band.maxZ + 0.01)).toBe("above");
+  });
+
+  it("unknown band never blocks", () => {
+    const unknown = zBindBand({ ...BAND_BASE, homed: false });
+    expect(classifyBindZ(unknown, 0)).toBeNull();
+    expect(classifyBindZ(unknown, -1000)).toBeNull();
   });
 });
