@@ -8,6 +8,7 @@ import { DrillFeedSlider } from "@/components/drill/DrillFeedSlider";
 import { activeGroupForHole } from "@/lib/drillRoute";
 import { machineElapsedMs } from "@/lib/drillRunState";
 import { drillControlsEnabled } from "@/lib/drillControls";
+import { useDrillTimingTrace } from "@/hooks/useDrillTimingTrace";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DrillRoute } from "@/lib/drillRoute";
@@ -66,6 +67,10 @@ export function DrillRunInspector({
   // wait of a tool change) — but NOT the first tool change, which is the pre-start Z
   // bind before the run has moved. The emergency stop is NOT gated — always active.
   const controls = drillControlsEnabled(phase, state.toolChangeSeq === 1);
+
+  // Timing trace (#615): collect per-hole machine times and log an actual-vs-estimated
+  // report to the console when the run finishes, for estimate calibration.
+  useDrillTimingTrace({ route, groupMotionSecs, feedOverridePct });
 
   // Final/elapsed reflects MACHINE time only (movement + drilling); operator-wait
   // intervals (tool changes / pauses) are excluded via the machine clock.

@@ -1,7 +1,7 @@
 use crate::commands::error::{CmdError, CmdResult};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::broadcast;
@@ -89,6 +89,12 @@ struct ProgressPayload {
     holes_total: u32,
     hole_index: u32,
     step_index: u32,
+    /// Wall-clock time (ms) the just-finished hole's machine work took — its stream +
+    /// physical settle (`wait_idle`), excluding operator-wait. Set only on the POST-hole
+    /// emit (after the hole completes); `None` on the pre-hole emit and non-hole steps.
+    /// Feeds the timing-trace calibration (actual vs estimated per hole).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hole_actual_ms: Option<u64>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -481,9 +487,18 @@ async fn run_job(
                     holes_total,
                     hole_index: step.hole_index.unwrap_or(0),
                     step_index: step_index as u32,
+                    hole_actual_ms: None,
                 },
             );
         }
+
+        // Wall-clock for this hole's machine work (stream + settle), for the timing
+        // trace. Only for hole steps; reported on the post-hole emit below.
+        let hole_started = if step.kind == "hole" {
+            Some(Instant::now())
+        } else {
+            None
+        };
 
         // Stream the step's lines FIRST (waiting for ok per line). For a
         // tool-change step this stops the spindle (M5) and retracts to safe Z
@@ -585,6 +600,7 @@ async fn run_job(
                     holes_total,
                     hole_index: step.hole_index.unwrap_or(0),
                     step_index: step_index as u32,
+                    hole_actual_ms: hole_started.map(|s| s.elapsed().as_millis() as u64),
                 },
             );
         }
