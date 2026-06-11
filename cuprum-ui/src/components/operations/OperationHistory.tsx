@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, XCircle, Loader2, History as HistoryIcon, RotateCcw } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  CircleSlash,
+  Loader2,
+  History as HistoryIcon,
+  RotateCcw,
+} from "lucide-react";
 import { api, type OperationRun } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { relativeTime } from "@/i18n/relativeTime";
@@ -318,6 +325,15 @@ function OutcomeBadge({
       <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
         <XCircle className="size-3.5" />
         {t("runHistory.outcome.error")}
+      </span>
+    );
+  }
+  if (outcome === "interrupted") {
+    // Orphaned run: its window closed mid-run, reconciled at the next project open.
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+        <CircleSlash className="size-3.5" />
+        {t("runHistory.outcome.interrupted")}
       </span>
     );
   }

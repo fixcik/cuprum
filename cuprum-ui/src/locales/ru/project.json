@@ -80,6 +80,7 @@
       "completed": "Завершён",
       "stopped": "Остановлен",
       "error": "Ошибка",
+      "interrupted": "Прервано",
       "running": "Идёт"
     }
   },

@@ -246,6 +246,25 @@ pub fn operation_run_finish(
     Ok(())
 }
 
+/// Finalize any still-open runs for a project as `interrupted`. A run is
+/// frontend-driven and cannot outlive its window, so an open row (`ended_at IS
+/// NULL`) at project-open time is orphaned — its window closed mid-run without
+/// writing a terminal outcome. Stamps `ended_at` and `outcome = 'interrupted'`.
+/// Returns the number of rows reconciled.
+pub fn operation_runs_reconcile(
+    conn: &Connection,
+    project_path: &str,
+    ended_at: i64,
+) -> Result<usize> {
+    let n = conn.execute(
+        "UPDATE operation_runs
+            SET ended_at = ?2, outcome = 'interrupted'
+          WHERE project_path = ?1 AND ended_at IS NULL",
+        rusqlite::params![project_path, ended_at],
+    )?;
+    Ok(n)
+}
+
 /// List runs for a project, newest first. `op_type = None` returns all types;
 /// `Some(t)` filters to that type.
 pub fn operation_runs_list(
@@ -492,6 +511,46 @@ mod tests {
             page2.iter().map(|r| r.run_uid.as_str()).collect::<Vec<_>>(),
             ["uid-1"]
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn operation_runs_reconcile_closes_orphans() {
+        let dir = std::env::temp_dir().join(format!("cuprum-oprec-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("catalog.sqlite");
+        let conn = open(&db).unwrap();
+        let proj = "/tmp/p.cuprum";
+
+        // Two open (orphaned) runs + one already finished.
+        operation_run_start(&conn, "open-1", proj, "drill", 100, Some(10), "{}").unwrap();
+        operation_run_start(&conn, "open-2", proj, "expose", 200, None, "{}").unwrap();
+        operation_run_start(&conn, "done-1", proj, "drill", 50, Some(5), "{}").unwrap();
+        operation_run_finish(&conn, "done-1", 80, "completed", 5, None).unwrap();
+        // A run in a different project must be untouched.
+        operation_run_start(&conn, "other", "/tmp/q.cuprum", "drill", 100, None, "{}").unwrap();
+
+        let n = operation_runs_reconcile(&conn, proj, 999).unwrap();
+        assert_eq!(n, 2); // only the two open rows of this project
+
+        let runs = operation_runs_list(&conn, proj, None, 100, 0).unwrap();
+        for r in &runs {
+            match r.run_uid.as_str() {
+                "open-1" | "open-2" => {
+                    assert_eq!(r.ended_at, Some(999));
+                    assert_eq!(r.outcome, Some("interrupted".to_string()));
+                }
+                "done-1" => assert_eq!(r.outcome, Some("completed".to_string())),
+                _ => panic!("unexpected run {}", r.run_uid),
+            }
+        }
+        // Other project's open run is still open.
+        let other = operation_runs_list(&conn, "/tmp/q.cuprum", None, 100, 0).unwrap();
+        assert_eq!(other[0].outcome, None);
+
+        // Idempotent: a second pass closes nothing new.
+        assert_eq!(operation_runs_reconcile(&conn, proj, 1234).unwrap(), 0);
 
         std::fs::remove_dir_all(&dir).ok();
     }

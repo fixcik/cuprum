@@ -1199,6 +1199,11 @@ export const api = {
         progressDone,
         summaryJson: summaryJson ?? null,
       }),
+    /** Finalize any still-open runs of a project as "interrupted". Called at
+     *  project-open — a run can't outlive its window, so an open row is an orphan
+     *  whose window closed mid-run. Best-effort. Resolves to the count closed. */
+    reconcile: (projectPath: string) =>
+      invoke<number>("operation_runs_reconcile", { projectPath }),
     /** List a project's runs (newest first), paginated via limit/offset ("load
      *  more"), optionally filtered by op type. */
     list: (projectPath: string, limit: number, offset: number, opType?: string | null) =>

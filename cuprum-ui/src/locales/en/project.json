@@ -80,6 +80,7 @@
       "completed": "Completed",
       "stopped": "Stopped",
       "error": "Error",
+      "interrupted": "Interrupted",
       "running": "Running"
     }
   },
