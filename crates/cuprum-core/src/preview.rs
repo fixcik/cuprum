@@ -406,6 +406,10 @@ fn encode_indexed_png(pixmap: &resvg::tiny_skia::Pixmap) -> anyhow::Result<Vec<u
         .collect();
 
     let mut liq = imagequant::new();
+    // Minimum quality 0 on purpose: previews must never hard-fail. A non-zero
+    // floor would make `quantize` return QualityTooLow on some inputs, turning a
+    // slightly-worse image into a render error. The narrow layer palette quantizes
+    // well within 256 colours regardless, so best-effort here costs nothing.
     liq.set_quality(0, 100)
         .map_err(|e| anyhow::anyhow!("liq quality: {e:?}"))?;
     let mut img = liq
@@ -454,6 +458,9 @@ fn rasterize(svg: &str, sizing: PreviewSizing) -> anyhow::Result<Vec<u8>> {
     let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| anyhow::anyhow!("usvg parse: {e}"))?;
     let size = tree.size();
     let (pw, ph, scale) = scaled_dims(size.width(), size.height(), sizing);
+    if scale <= 0.0 {
+        anyhow::bail!("invalid preview sizing: non-positive scale {scale}");
+    }
     let mut pixmap = resvg::tiny_skia::Pixmap::new(pw, ph)
         .ok_or_else(|| anyhow::anyhow!("pixmap alloc {pw}x{ph}"))?;
     let transform = resvg::tiny_skia::Transform::from_scale(scale, scale);
