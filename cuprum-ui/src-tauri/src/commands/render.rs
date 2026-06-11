@@ -265,7 +265,9 @@ fn design_preview_cached(
     key: &str,
     build: impl FnOnce() -> anyhow::Result<Vec<u8>>,
 ) -> anyhow::Result<(Vec<u8>, bool)> {
-    use crate::commands::board::{artifact_cache_dir, ARTIFACT_CACHE_MAX_BYTES, ARTIFACT_CACHE_TTL};
+    use crate::commands::board::{
+        artifact_cache_dir, ARTIFACT_CACHE_MAX_BYTES, ARTIFACT_CACHE_TTL,
+    };
     let dir = artifact_cache_dir(app);
     if let Some(d) = &dir {
         if let Some(blob) = cuprum_core::diskcache::get(d, key, ARTIFACT_CACHE_TTL) {
@@ -350,9 +352,7 @@ pub(crate) async fn render_design_preview(
                     trace_session,
                     "preview_detailed",
                     &traces,
-                    || {
-                        cuprum_core::preview::render_preview_png(&dir, &layers, &overrides, sizing)
-                    },
+                    || cuprum_core::preview::render_preview_png(&dir, &layers, &overrides, sizing),
                 )
             })?,
         };
