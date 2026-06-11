@@ -27,7 +27,7 @@ import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useShell } from "@/shellStore";
 import { useNavigation } from "@/navigationStore";
 import { usePanelSelection } from "@/panelSelectionStore";
-import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, type GuideLine } from "@/lib/panelPlacement";
+import { instanceBounds, isOffPanel, clampDeltaToPanel, marqueeHits, snapAngle, computeSmartGuides, clampZoneRect, KEEPOUT_MIN_MM, boxesOverlap, keepOutBox, toolingHoleBounds, buildSnapCandidates, computeSelectionBBox, type GuideLine } from "@/lib/panelPlacement";
 import type { Severity } from "@/lib/feasibility";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { SnapGuides } from "@/components/panel/SnapGuides";
@@ -238,24 +238,10 @@ export function PanelBlankCanvas({
   // Snap candidates (panel mm) for the hover crosshair: the blank's corners / edge
   // midpoints / centre, plus the same nine points of every visible instance's
   // (rotated) AABB. Mirrors the design preview's feature/board snapping.
-  const snapPts = useMemo(() => {
-    const pts: { x: number; y: number }[] = [];
-    const pushBox = (b: { minX: number; minY: number; maxX: number; maxY: number }) => {
-      const cx = (b.minX + b.maxX) / 2;
-      const cy = (b.minY + b.maxY) / 2;
-      pts.push(
-        { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.minX, y: b.maxY }, { x: b.maxX, y: b.maxY },
-        { x: cx, y: b.minY }, { x: cx, y: b.maxY }, { x: b.minX, y: cy }, { x: b.maxX, y: cy }, { x: cx, y: cy },
-      );
-    };
-    pushBox({ minX: 0, minY: 0, maxX: W, maxY: H });
-    for (const i of visibleInstances) {
-      const sz = sizes[i.design_id];
-      if (!sz) continue;
-      pushBox(instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg }));
-    }
-    return pts;
-  }, [W, H, visibleInstances, sizes]);
+  const snapPts = useMemo(
+    () => buildSnapCandidates(W, H, visibleInstances, sizes),
+    [W, H, visibleInstances, sizes],
+  );
 
   // Resolve a pointer-mm position to a snapped board point (+ whether it locked
   // onto a real candidate). Priority: candidate within threshold → grid node →
@@ -297,37 +283,10 @@ export function PanelBlankCanvas({
 
   // Union AABB (mm) of the selection, INCLUDING the live rotation preview, so the
   // rotation knob tracks the selection while it spins. null when nothing selected.
-  const selectionBBox = useMemo(() => {
-    const boxes = instances
-      .filter((i) => selected.has(i.id) && sizes[i.design_id])
-      .map((i) => {
-        const sz = sizes[i.design_id];
-        const rot = i.rotation_deg + (rotPreview ?? 0);
-        return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: rot });
-      });
-    if (boxes.length === 0) return null;
-    const minX = Math.min(...boxes.map((b) => b.minX));
-    const minY = Math.min(...boxes.map((b) => b.minY));
-    const maxX = Math.max(...boxes.map((b) => b.maxX));
-    const maxY = Math.max(...boxes.map((b) => b.maxY));
-    // Anchor for the rotation knob: the bottom-right corner of a REAL selected board
-    // nearest the union AABB's bottom-right corner. For a multi-selection that union
-    // corner usually falls in the empty gap between boards, leaving the knob floating
-    // in the void; pinning it to the closest actual board corner keeps it attached.
-    // Single selection: the nearest box IS the union, so this is a no-op.
-    let anchorX = maxX;
-    let anchorY = maxY;
-    let best = Infinity;
-    for (const b of boxes) {
-      const d = Math.hypot(b.maxX - maxX, b.maxY - maxY);
-      if (d < best) {
-        best = d;
-        anchorX = b.maxX;
-        anchorY = b.maxY;
-      }
-    }
-    return { minX, minY, maxX, maxY, anchorX, anchorY };
-  }, [instances, selected, sizes, rotPreview]);
+  const selectionBBox = useMemo(
+    () => computeSelectionBBox(instances, selected, sizes, rotPreview),
+    [instances, selected, sizes, rotPreview],
+  );
 
   // Pull a (possibly just-rotated) selection back inside the panel with one move.
   const clampSelectionIntoPanel = useCallback(

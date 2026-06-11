@@ -403,6 +403,83 @@ export function marqueeHits(items: { id: string; box: Box }[], rect: Box): strin
     .map(({ id }) => id);
 }
 
+/** Nine snap points of a box (mm): four corners, four edge midpoints, centre.
+ *  Order: TL, TR, BL, BR, top-mid, bottom-mid, left-mid, right-mid, centre. */
+function boxNinePoints(b: Box): { x: number; y: number }[] {
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  return [
+    { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.minX, y: b.maxY }, { x: b.maxX, y: b.maxY },
+    { x: cx, y: b.minY }, { x: cx, y: b.maxY }, { x: b.minX, y: cy }, { x: b.maxX, y: cy }, { x: cx, y: cy },
+  ];
+}
+
+/** Snap candidates (panel mm) for the hover crosshair: the blank's corners / edge
+ *  midpoints / centre, plus the same nine points of every supplied instance's
+ *  (rotated) AABB. Instances with no resolved size are skipped. Mirrors the design
+ *  preview's feature/board snapping. */
+export function buildSnapCandidates(
+  panelW: number,
+  panelH: number,
+  instances: BoardInstance[],
+  sizes: Record<string, { w: number; h: number }>,
+): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  pts.push(...boxNinePoints({ minX: 0, minY: 0, maxX: panelW, maxY: panelH }));
+  for (const i of instances) {
+    const sz = sizes[i.design_id];
+    if (!sz) continue;
+    pts.push(
+      ...boxNinePoints(
+        instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: i.rotation_deg }),
+      ),
+    );
+  }
+  return pts;
+}
+
+/** Union AABB (mm) of the selected instances, INCLUDING the live rotation preview
+ *  (`rotPreviewDeg` degrees added to each selected board's angle), so the rotation
+ *  knob tracks the selection while it spins. Returns null when nothing is selected
+ *  or no selected instance has a resolved size.
+ *
+ *  `anchorX/anchorY` is the bottom-right corner of the REAL selected board nearest
+ *  the union AABB's bottom-right corner: for a multi-selection that union corner
+ *  usually falls in the empty gap between boards, leaving the knob floating in the
+ *  void, so pinning it to the closest actual board corner keeps it attached. Single
+ *  selection: the nearest box IS the union, so this is a no-op. */
+export function computeSelectionBBox(
+  instances: BoardInstance[],
+  selected: Set<string>,
+  sizes: Record<string, { w: number; h: number }>,
+  rotPreviewDeg: number | null,
+): { minX: number; minY: number; maxX: number; maxY: number; anchorX: number; anchorY: number } | null {
+  const boxes = instances
+    .filter((i) => selected.has(i.id) && sizes[i.design_id])
+    .map((i) => {
+      const sz = sizes[i.design_id];
+      const rot = i.rotation_deg + (rotPreviewDeg ?? 0);
+      return instanceBounds({ xMm: i.x_mm, yMm: i.y_mm, boardW: sz.w, boardH: sz.h, rotationDeg: rot });
+    });
+  if (boxes.length === 0) return null;
+  const minX = Math.min(...boxes.map((b) => b.minX));
+  const minY = Math.min(...boxes.map((b) => b.minY));
+  const maxX = Math.max(...boxes.map((b) => b.maxX));
+  const maxY = Math.max(...boxes.map((b) => b.maxY));
+  let anchorX = maxX;
+  let anchorY = maxY;
+  let best = Infinity;
+  for (const b of boxes) {
+    const d = Math.hypot(b.maxX - maxX, b.maxY - maxY);
+    if (d < best) {
+      best = d;
+      anchorX = b.maxX;
+      anchorY = b.maxY;
+    }
+  }
+  return { minX, minY, maxX, maxY, anchorX, anchorY };
+}
+
 /** Snap an angle (deg) to 15° (default) or 1° (fine), normalised to [0,360). */
 export function snapAngle(deg: number, fine: boolean): number {
   const step = fine ? 1 : 15;
