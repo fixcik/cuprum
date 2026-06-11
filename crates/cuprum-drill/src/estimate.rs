@@ -51,6 +51,11 @@ pub fn estimate_drill(
         .flat_map(|g| g.ordered_holes.iter())
         .collect();
     let mut group_secs = vec![0.0f64; route.groups.len()];
+    // Feed-limited (G1 plunge) share of each group's time — the ONLY part GRBL feed
+    // override scales (rapids G0: traverse/retract/homing are unaffected). Subset of
+    // `group_secs`; lets the UI rescale the estimate when the operator moves the feed
+    // slider without re-planning.
+    let mut group_feed_secs = vec![0.0f64; route.groups.len()];
 
     // Traverse: sum trapezoidal time over consecutive path points (panel-space
     // distances == machine-space; machine_point is an isometry). Each leg is charged
@@ -94,25 +99,32 @@ pub fn estimate_drill(
             .as_deref()
             .and_then(|id| plunge_by_tool.get(id).copied())
             .unwrap_or(60.0);
-        let per_hole = if peck_mm > 0.0 && peck_mm < depth_mm {
+        // Split per-hole time into the feed-limited plunge (G1, scaled by feed override)
+        // and the rapid retract (G0, unaffected), so the UI can rescale only the former.
+        let (per_hole_feed, per_hole_rapid) = if peck_mm > 0.0 && peck_mm < depth_mm {
             // Peck: repeated G1 down to z then G0 retract to safe_z. Sum exact segments.
-            let mut s = 0.0;
+            let mut feed = 0.0;
+            let mut rapid = 0.0;
             let mut z = 0.0;
             while z < depth_mm - 1e-9 {
                 let next = (z + peck_mm).min(depth_mm);
                 // plunge from safe_z down to -next = safe_z + next; retract back = safe_z + next.
-                s += move_time(safe_z_mm + next, plunge_feed, k.accel_z_mm_s2);
-                s += move_time(safe_z_mm + next, k.max_rate_z_mm_min, k.accel_z_mm_s2);
+                feed += move_time(safe_z_mm + next, plunge_feed, k.accel_z_mm_s2);
+                rapid += move_time(safe_z_mm + next, k.max_rate_z_mm_min, k.accel_z_mm_s2);
                 z = next;
             }
-            s
+            (feed, rapid)
         } else {
-            move_time(z_span, plunge_feed, k.accel_z_mm_s2)
-                + move_time(z_span, k.max_rate_z_mm_min, k.accel_z_mm_s2)
+            (
+                move_time(z_span, plunge_feed, k.accel_z_mm_s2),
+                move_time(z_span, k.max_rate_z_mm_min, k.accel_z_mm_s2),
+            )
         };
-        let group_hole_secs = per_hole * g.ordered_holes.len() as f64;
+        let n = g.ordered_holes.len() as f64;
+        let group_hole_secs = (per_hole_feed + per_hole_rapid) * n;
         motion_sec += group_hole_secs;
         group_secs[gi] += group_hole_secs;
+        group_feed_secs[gi] += per_hole_feed * n;
     }
 
     DrillEstimate {
@@ -120,6 +132,7 @@ pub fn estimate_drill(
         motion_sec,
         tool_changes,
         group_motion_secs: group_secs,
+        group_feed_secs,
     }
 }
 
@@ -263,6 +276,16 @@ mod est_tests {
             (sum - est.motion_sec).abs() < 1e-9,
             "buckets must sum to total"
         );
+        // Feed buckets: same length, each positive (every group plunges) and strictly
+        // below its motion bucket (traverse + retract are rapid, not feed-limited).
+        assert_eq!(est.group_feed_secs.len(), route.groups.len());
+        for gi in 0..route.groups.len() {
+            assert!(est.group_feed_secs[gi] > 0.0, "group plunges → feed time");
+            assert!(
+                est.group_feed_secs[gi] < est.group_motion_secs[gi],
+                "feed share must be below the full motion (rapids excluded)"
+            );
+        }
     }
 
     #[test]

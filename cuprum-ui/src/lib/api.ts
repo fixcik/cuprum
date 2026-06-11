@@ -659,6 +659,10 @@ export interface DrillEstimate {
   /** Per-group motion time (s), one entry per `route.groups` in order; sums to
    *  `motionSec`. Drives the "time until next tool change" readout. */
   groupMotionSecs: number[];
+  /** Per-group feed-limited (G1 plunge) time (s) — the share of `groupMotionSecs` that
+   *  GRBL feed override scales (rapids are not). Each entry ≤ the matching
+   *  `groupMotionSecs`. Lets the UI rescale the estimate to the live feed slider. */
+  groupFeedSecs: number[];
 }
 
 /** Result of `drill_plan`: route + program + estimate. Mirrors Rust

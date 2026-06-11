@@ -6,6 +6,7 @@ import { machineElapsedMs } from "@/lib/drillRunState";
 import type { DrillRoute } from "@/lib/drillRoute";
 import { activeGroupForHole, orderedHoleList } from "@/lib/drillRoute";
 import { toolChangeEta } from "@/lib/drillToolChangeEta";
+import { scaledMotionSec } from "@/lib/feedOverride";
 import type { DatumCorner } from "@/lib/datum";
 import { machinePoint } from "@/lib/datum";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
@@ -35,6 +36,11 @@ export interface DrillRunHeaderProps {
   /** Per-group motion estimate (s) from the Rust plan, one per `route.groups`. Drives
    *  the "until next tool change" readout. Empty when no plan estimate is available. */
   groupMotionSecs: number[];
+  /** Per-group feed-limited (G1 plunge) seconds — the share that scales with feed
+   *  override. Same order as `groupMotionSecs`; empty when no estimate. */
+  groupFeedSecs: number[];
+  /** Live spindle feed override (%); 100 = nominal. Rescales the remaining/ETA times. */
+  feedOverridePct: number;
 }
 
 
@@ -58,6 +64,8 @@ export function DrillRunHeader({
   panelHeightMm,
   totalEstimateSec,
   groupMotionSecs,
+  groupFeedSecs,
+  feedOverridePct,
 }: DrillRunHeaderProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -103,7 +111,11 @@ export function DrillRunHeader({
 
   const minAbbr = t("preflight.minAbbr");
   const secAbbr = t("preflight.secAbbr");
-  const remaining = Math.max(0, Math.round(totalEstimateSec * (1 - pct)));
+  // Rescale the total to the live feed override (only its feed-limited share scales),
+  // then take the remaining fraction by hole progress.
+  const totalFeedSec = groupFeedSecs.reduce((a, s) => a + s, 0);
+  const scaledTotalSec = scaledMotionSec(totalEstimateSec, totalFeedSec, feedOverridePct);
+  const remaining = Math.max(0, Math.round(scaledTotalSec * (1 - pct)));
   const elapsed = formatDuration(elapsedSec, minAbbr, secAbbr);
   const remainingFmt = formatDuration(remaining, minAbbr, secAbbr);
 
@@ -114,7 +126,7 @@ export function DrillRunHeader({
   const eta =
     phase === "done" || phase === "awaitingToolChange"
       ? null
-      : toolChangeEta(route, groupMotionSecs, holesCompleted);
+      : toolChangeEta(route, groupMotionSecs, groupFeedSecs, holesCompleted, feedOverridePct);
   const untilToolChange =
     eta &&
     t("runHeader.untilToolChange", {
