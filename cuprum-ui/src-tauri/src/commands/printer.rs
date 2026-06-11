@@ -64,4 +64,3 @@ pub(crate) async fn render_preview(
         timings,
     })
 }
-
