@@ -93,6 +93,8 @@ export interface DrillPlanInspectorProps {
   /** Per-group motion estimate (s) from the Rust plan; feeds the run header's "until
    *  next tool change" readout. */
   groupMotionSecs: number[];
+  /** Per-group feed-limited (G1 plunge) seconds — scaled by feed override in the header. */
+  groupFeedSecs: number[];
   /** Deepest plunge depth (mm) = substrate thickness + breakthrough; feeds the
    *  tool-change card's Z-headroom guard. */
   plungeDepthMm: number;
@@ -138,6 +140,7 @@ export function DrillPlanInspector({
   onFeedChange,
   onRunDone,
   totalEstimateSec,
+  groupFeedSecs,
   groupMotionSecs,
   plungeDepthMm,
 }: DrillPlanInspectorProps) {
@@ -238,6 +241,7 @@ export function DrillPlanInspector({
           panelHeightMm={panelHeightMm}
           totalEstimateSec={totalEstimateSec}
           groupMotionSecs={groupMotionSecs}
+          groupFeedSecs={groupFeedSecs}
           plungeDepthMm={plungeDepthMm}
           feedOverridePct={feedOverridePct}
           onFeedChange={onFeedChange}

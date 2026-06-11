@@ -166,6 +166,11 @@ pub struct DrillEstimate {
     /// plus all intra-group traverses and per-hole plunge/retract. The sum equals
     /// `motion_sec`. Drives the "time until next tool change" readout.
     pub group_motion_secs: Vec<f64>,
+    /// Per-group feed-limited time (s) — the G1 plunge share of `group_motion_secs`,
+    /// the ONLY part GRBL feed override scales (rapids are unaffected). Same order;
+    /// each entry ≤ the matching `group_motion_secs`. Lets the UI rescale the estimate
+    /// to the live feed-override without re-planning.
+    pub group_feed_secs: Vec<f64>,
 }
 
 /// Default breakthrough (mm) past the bottom of the substrate to ensure clean perforation.
