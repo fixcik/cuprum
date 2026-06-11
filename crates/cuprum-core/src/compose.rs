@@ -117,12 +117,13 @@ pub fn panel_placements(
 
 /// Rotate a bounding box about the centre of a rectangle in Gerber Y-up coords.
 ///
-/// Both the copper mask bbox and the board outline bbox must be rotated the same
-/// way before being passed to [`resolve_panel_placements`]: the formula inside
-/// that function works unchanged as long as the `mask_bbox_mm` and the
-/// `board_origin_mm`/`board_size_mm` pair are mutually consistent (i.e. both
-/// describe the same rotation of their respective shapes about the **board
-/// outline's centre**).
+/// This is the special case of [`rotate_bbox_about_point`] where the pivot is the
+/// rectangle's own centre, so the rotated AABB stays centred on the same point.
+/// Use it for the **board outline** (a rotated instance pivots about the outline
+/// centre, so the outline rotates about its own centre).  For the **copper mask**,
+/// whose centre generally differs from the outline centre, use
+/// [`rotate_bbox_about_point`] with `pivot = outline centre` instead — otherwise
+/// the copper-to-outline registration shifts by the inter-centre offset at 90/270.
 ///
 /// # Arguments
 /// * `origin` — bbox minimum corner `(min_x, min_y)` in Gerber Y-up mm coords.
@@ -135,45 +136,104 @@ pub fn panel_placements(
 /// # Returns
 /// `(rotated_origin, rotated_size)` — the minimum corner and size of the
 /// axis-aligned bbox of the rotated rectangle, with the same centre as the input.
-///
-/// # Geometry
-/// Centre is invariant: `cx = origin_x + w/2`, `cy = origin_y + h/2`.
-/// For 90° / 270° extents swap: `rot_size = (h, w)`.
-/// For 180° extents are unchanged but the origin re-derives trivially:
-///   `rot_origin = (cx − w/2, cy − h/2) = origin` (identity for a rectangle).
-/// In all cases: `rot_origin = (cx − rot_w/2, cy − rot_h/2)`.
 pub fn rotate_bbox_about_centre(
     origin: (f32, f32),
     size: (f32, f32),
     deg: u16,
 ) -> ((f32, f32), (f32, f32)) {
+    let pivot = (origin.0 + size.0 / 2.0, origin.1 + size.1 / 2.0);
+    rotate_bbox_about_point(origin, size, pivot, deg)
+}
+
+/// Rotate an axis-aligned bbox about an **arbitrary pivot** and return the AABB of
+/// the result, in Gerber Y-up mm coords.
+///
+/// A rotated board instance is a rigid rotation of {copper + outline} about a
+/// single pivot — the board (outline) centre, matching the panel editor's
+/// `InstanceLayer` group pivot.  The copper's bbox centre generally differs from
+/// the outline centre, so the copper bbox must rotate about the *outline* centre,
+/// not its own.  This helper computes that: pass the unrotated copper bbox and
+/// `pivot = outline centre`.
+///
+/// # Arguments
+/// * `origin` — bbox minimum corner `(min_x, min_y)` in Gerber Y-up mm coords.
+/// * `size`   — bbox dimensions `(width, height)` in mm.
+/// * `pivot`  — rotation pivot in Gerber Y-up mm coords.
+/// * `deg`    — clockwise rotation on the exposure screen (0 / 90 / 180 / 270).
+///   In Gerber Y-up space this is a counter-clockwise rotation by the same angle
+///   (the raster Y-flip turns it into the CW screen rotation `gerber.rs` renders),
+///   so the sign matches `native_mask(path, deg)`.
+///
+/// # Returns
+/// `(rotated_origin, rotated_size)` — min corner + size of the rotated bbox's AABB.
+/// The size is pivot-invariant and equals `native_mask(path, deg)`'s pixmap size
+/// (extents swap for 90/270); only the position depends on the pivot.
+///
+/// # Geometry
+/// Each corner `(x, y)` maps via CCW-by-θ about `(px, py)` in Y-up:
+/// ```text
+/// x' = px + (x−px)·cosθ − (y−py)·sinθ
+/// y' = py + (x−px)·sinθ + (y−py)·cosθ
+/// ```
+/// For the four right angles this reduces to integer-exact swaps/negations, so no
+/// trig is needed and the result is f32-exact for axis-aligned inputs.
+pub fn rotate_bbox_about_point(
+    origin: (f32, f32),
+    size: (f32, f32),
+    pivot: (f32, f32),
+    deg: u16,
+) -> ((f32, f32), (f32, f32)) {
     let (ox, oy) = origin;
     let (w, h) = size;
-    let cx = ox + w / 2.0;
-    let cy = oy + h / 2.0;
-    // For 90°/270° extents swap; 0°/180° keep the same extents.
-    let (rot_w, rot_h) = match deg.wrapping_rem(360) {
-        90 | 270 => (h, w),
-        _ => (w, h),
+    let (px, py) = pivot;
+    let corners = [
+        (ox, oy),
+        (ox + w, oy),
+        (ox, oy + h),
+        (ox + w, oy + h),
+    ];
+    // CCW rotation by `deg` about (px, py) in Y-up; exact for the four right angles.
+    let rot = |(x, y): (f32, f32)| -> (f32, f32) {
+        let (dx, dy) = (x - px, y - py);
+        let (rx, ry) = match deg.wrapping_rem(360) {
+            90 => (-dy, dx),
+            180 => (-dx, -dy),
+            270 => (dy, -dx),
+            _ => (dx, dy),
+        };
+        (px + rx, py + ry)
     };
-    let rot_ox = cx - rot_w / 2.0;
-    let rot_oy = cy - rot_h / 2.0;
-    ((rot_ox, rot_oy), (rot_w, rot_h))
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for c in corners {
+        let (rx, ry) = rot(c);
+        min_x = min_x.min(rx);
+        min_y = min_y.min(ry);
+        max_x = max_x.max(rx);
+        max_y = max_y.max(ry);
+    }
+    ((min_x, min_y), (max_x - min_x, max_y - min_y))
 }
 
 /// Input for [`resolve_panel_placements`]: one board instance with enough
 /// geometry to correctly align the copper mask to the board outline corner.
 ///
-/// For rotated instances (90°/270°) both `mask_bbox_mm` and
-/// `board_origin_mm`/`board_size_mm` must be pre-rotated via
-/// [`rotate_bbox_about_centre`] before construction.
+/// For rotated instances (90°/270°) the caller must pre-rotate the bboxes about
+/// the **shared instance pivot = outline centre**:
+/// * `board_origin_mm`/`board_size_mm` via [`rotate_bbox_about_centre`] (the
+///   outline's own centre IS the pivot);
+/// * `mask_bbox_mm` via [`rotate_bbox_about_point`] with `pivot = outline centre`
+///   (the copper's own centre generally differs, so it must NOT use its own).
 #[derive(Clone, Debug)]
 pub struct InstancePlacementInput {
     /// Path to the copper Gerber layer (not read here — passed through to [`Placement`]).
     pub mask_path: PathBuf,
-    /// Copper mask bounding box in Gerber world coords (Y-up), from [`Mask`].
+    /// Copper mask bounding box in Gerber world coords (Y-up).
     /// Fields: `(min_x_mm, min_y_mm, max_x_mm, max_y_mm)`.
-    /// For rotated instances this is the bbox of the **rotated** mask.
+    /// For rotated instances this is the bbox of the copper rotated **about the
+    /// outline centre** (its size equals `native_mask(path, rotation)`'s size).
     pub mask_bbox_mm: (f32, f32, f32, f32),
     /// Board outline bbox MIN corner (bottom-left, Gerber Y-up), from board metrics.
     /// For rotated instances this is the MIN corner of the **rotated** outline bbox.
@@ -218,11 +278,13 @@ pub struct InstancePlacementInput {
 ///
 /// # Rotation
 ///
-/// For instances with `rotation_deg` ≠ 0, callers must pre-rotate **both**
-/// `mask_bbox_mm` and `board_origin_mm`/`board_size_mm` via
-/// [`rotate_bbox_about_centre`] before calling this function.  The formula above
-/// then works unchanged: it sees the already-rotated bbox corners and computes the
-/// correct off values for the rotated copper mask.
+/// For instances with `rotation_deg` ≠ 0, callers must pre-rotate the bboxes about
+/// the **shared instance pivot = outline centre**: the outline via
+/// [`rotate_bbox_about_centre`] and the copper via [`rotate_bbox_about_point`]
+/// (pivot = outline centre).  The formula above then works unchanged: it sees the
+/// already-rotated bbox corners and computes the correct off values for the rotated
+/// copper mask.  See [`InstancePlacementInput`] for why the copper must NOT rotate
+/// about its own centre.
 ///
 /// # Errors
 /// Returns an error if the panel is larger than the exposure screen (same as
@@ -345,6 +407,49 @@ mod tests {
             x_mm,
             y_mm,
             rotation_deg: 0,
+        }
+    }
+
+    /// Build an `InstancePlacementInput` the way `expose_run::resolve_placements`
+    /// does: the outline rotates about its own centre, the copper bbox rotates
+    /// about the OUTLINE centre (shared instance pivot).  `unrot_copper_bbox` is
+    /// the UNrotated copper bbox `(min_x, min_y, max_x, max_y)`.
+    fn rotated_input(
+        inst_x: f32,
+        inst_y: f32,
+        board_origin: (f32, f32),
+        board_size: (f32, f32),
+        unrot_copper_bbox: (f32, f32, f32, f32),
+        deg: u16,
+    ) -> InstancePlacementInput {
+        let outline_centre = (
+            board_origin.0 + board_size.0 / 2.0,
+            board_origin.1 + board_size.1 / 2.0,
+        );
+        let (board_origin_mm, board_size_mm) =
+            rotate_bbox_about_centre(board_origin, board_size, deg);
+        let (copper_origin, copper_size) = rotate_bbox_about_point(
+            (unrot_copper_bbox.0, unrot_copper_bbox.1),
+            (
+                unrot_copper_bbox.2 - unrot_copper_bbox.0,
+                unrot_copper_bbox.3 - unrot_copper_bbox.1,
+            ),
+            outline_centre,
+            deg,
+        );
+        InstancePlacementInput {
+            mask_path: PathBuf::from("dummy.gbr"),
+            mask_bbox_mm: (
+                copper_origin.0,
+                copper_origin.1,
+                copper_origin.0 + copper_size.0,
+                copper_origin.1 + copper_size.1,
+            ),
+            board_origin_mm,
+            board_size_mm,
+            inst_x_mm: inst_x,
+            inst_y_mm: inst_y,
+            rotation_deg: deg,
         }
     }
 
@@ -619,92 +724,139 @@ mod tests {
         assert_eq!(o, (4.0, 1.0), "90° non-zero origin: origin");
     }
 
+    // ── rotate_bbox_about_point tests ────────────────────────────────────────
+
+    /// Rotating about the rectangle's own centre must match
+    /// [`rotate_bbox_about_centre`] (the latter is the special case).
+    #[test]
+    fn rotate_bbox_about_point_self_centre_matches_centre_helper() {
+        let origin = (2.0f32, 3.0f32);
+        let size = (10.0f32, 6.0f32);
+        let pivot = (origin.0 + size.0 / 2.0, origin.1 + size.1 / 2.0);
+        for deg in [0u16, 90, 180, 270] {
+            let a = rotate_bbox_about_centre(origin, size, deg);
+            let b = rotate_bbox_about_point(origin, size, pivot, deg);
+            assert_eq!(a, b, "deg {deg}: self-pivot should equal rotate_bbox_about_centre");
+        }
+    }
+
+    /// Copper bbox rotated about a DIFFERENT pivot (the outline centre).
+    ///
+    /// Copper bbox (1,1)-(9,5)  [origin (1,1), size (8,4)], own centre (5,3).
+    /// Outline centre = (5,4)   (copper sits 1 mm below outline centre in Y-up).
+    ///
+    /// 90° CCW (Y-up) about (5,4):
+    ///   corner (1,1) → (5−(1−4), 4+(1−5)) = (8, 0)
+    ///   corner (9,1) → (5−(1−4), 4+(9−5)) = (8, 8)
+    ///   corner (1,5) → (5−(5−4), 4+(1−5)) = (4, 0)
+    ///   corner (9,5) → (5−(5−4), 4+(9−5)) = (4, 8)
+    ///   AABB → origin (4,0), size (4,8).  (Size = swapped extents, pivot-invariant.)
+    ///
+    /// Crucially the rotated copper centre is (6,4) ≠ outline centre (5,4) — the
+    /// inter-centre offset is preserved as a rigid rotation, NOT collapsed.
+    #[test]
+    fn rotate_bbox_about_point_copper_about_outline_centre_90() {
+        let copper_origin = (1.0f32, 1.0f32);
+        let copper_size = (8.0f32, 4.0f32);
+        let outline_centre = (5.0f32, 4.0f32);
+
+        let (o90, s90) = rotate_bbox_about_point(copper_origin, copper_size, outline_centre, 90);
+        assert_eq!(o90, (4.0, 0.0), "90°: origin (rotated about outline centre)");
+        assert_eq!(s90, (4.0, 8.0), "90°: size (extents swap, pivot-invariant)");
+
+        // 270° CCW about (5,4):
+        //   (1,1) → (5+(1−4), 4−(1−5)) = (2, 8)
+        //   (9,5) → (5+(5−4), 4−(9−5)) = (6, 0)
+        //   AABB → origin (2,0), size (4,8).
+        let (o270, s270) = rotate_bbox_about_point(copper_origin, copper_size, outline_centre, 270);
+        assert_eq!(o270, (2.0, 0.0), "270°: origin (rotated about outline centre)");
+        assert_eq!(s270, (4.0, 8.0), "270°: size");
+
+        // 90° and 270° land the copper on OPPOSITE sides of the outline centre —
+        // the asymmetry the buggy copper-centred rotation could not distinguish.
+        assert_ne!(o90, o270, "90° and 270° copper positions must differ for asymmetric copper");
+    }
+
     // ── resolve_panel_placements rotation tests ──────────────────────────────
 
-    /// Test 4 — 90° rotation: copper mask inset from board outline.
+    /// Test 4 — 90° rotation, copper centred on the outline (degenerate pivot case).
     ///
     /// Board outline: origin=(0,0), size=(10,8).  Centre=(5,4).
+    /// Copper mask unrotated: (1,1.5,9,6.5), centre=(5,4) == outline centre.
+    /// Because the centres coincide, copper-about-outline-centre and
+    /// copper-about-own-centre agree, so the pinned values are the same as in the
+    /// first (now-fixed) version of this test.
+    ///
     /// Rotated outline (90°): size=(8,10), origin=(1,−1).
-    ///
-    /// Copper mask unrotated: (1,1.5,9,6.5), centre=(5,4), size=(8,5).
-    /// Rotated copper mask (90°): size=(5,8), origin=(2.5,0).
-    ///   → mask_bbox_mm = (min_x=2.5, min_y=0, max_x=7.5, max_y=8).
-    ///
-    /// Formula:
-    ///   origin_x = 1 − 2.5 = −1.5
-    ///   origin_y = 8 − (−1 + 10) = −1
+    /// Rotated copper (90° about (5,4)): size=(5,8), origin=(2.5,0).
+    ///   → mask_bbox_mm = (2.5, 0, 7.5, 8).
+    ///   origin_x = 1 − 2.5 = −1.5 ; origin_y = 8 − (−1 + 10) = −1
     ///   off_x = (80.84 + 5.0 − (−1.5)) * 71.4286 ≈ 6239
     ///   off_y = (44.185 + 3.0 − (−1)) * 52.6316  ≈ 2536
     #[test]
-    fn resolve_placements_rotated_90() {
-        let panel_w = 50.0f32;
-        let panel_h = 30.0f32;
-
-        // Pre-rotate bboxes as expose_run::resolve_placements does.
-        let (board_origin_mm, board_size_mm) =
-            rotate_bbox_about_centre((0.0, 0.0), (10.0, 8.0), 90);
-        // Copper mask unrotated centre = (5,4), size=(8,5); rotated 90°: size=(5,8).
-        let (mask_origin, mask_size) =
-            rotate_bbox_about_centre((1.0, 1.5), (8.0, 5.0), 90);
-        let mask_bbox_mm = (
-            mask_origin.0,
-            mask_origin.1,
-            mask_origin.0 + mask_size.0,
-            mask_origin.1 + mask_size.1,
-        );
-
-        let item = InstancePlacementInput {
-            mask_path: PathBuf::from("dummy.gbr"),
-            mask_bbox_mm,
-            board_origin_mm,
-            board_size_mm,
-            inst_x_mm: 5.0,
-            inst_y_mm: 3.0,
-            rotation_deg: 90,
-        };
-        let result = resolve_panel_placements(panel_w, panel_h, &[item]).unwrap();
+    fn resolve_placements_rotated_90_copper_centred() {
+        let item = rotated_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.5, 9.0, 6.5), 90);
+        let result = resolve_panel_placements(50.0, 30.0, &[item]).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].rotation_deg, 90, "rotation_deg must be carried through");
-
-        // Pinned concrete pixel anchors (hand-derived, verified by calc_pixels).
         assert_eq!(result[0].off_x, 6239, "X offset wrong for 90° rotation");
         assert_eq!(result[0].off_y, 2536, "Y offset wrong for 90° rotation");
     }
 
-    /// Test 5 — 270° rotation: same bbox layout as 90° for a symmetric rectangle,
-    /// so pixel offsets match, but `rotation_deg` must be 270.
+    /// Test 5 — 270°, copper centred on the outline.  Same screen position as 90°
+    /// here (the copper is symmetric about the outline centre), but `rotation_deg`
+    /// is 270.
     #[test]
-    fn resolve_placements_rotated_270() {
-        let panel_w = 50.0f32;
-        let panel_h = 30.0f32;
-
-        let (board_origin_mm, board_size_mm) =
-            rotate_bbox_about_centre((0.0, 0.0), (10.0, 8.0), 270);
-        let (mask_origin, mask_size) =
-            rotate_bbox_about_centre((1.0, 1.5), (8.0, 5.0), 270);
-        let mask_bbox_mm = (
-            mask_origin.0,
-            mask_origin.1,
-            mask_origin.0 + mask_size.0,
-            mask_origin.1 + mask_size.1,
-        );
-
-        let item = InstancePlacementInput {
-            mask_path: PathBuf::from("dummy.gbr"),
-            mask_bbox_mm,
-            board_origin_mm,
-            board_size_mm,
-            inst_x_mm: 5.0,
-            inst_y_mm: 3.0,
-            rotation_deg: 270,
-        };
-        let result = resolve_panel_placements(panel_w, panel_h, &[item]).unwrap();
+    fn resolve_placements_rotated_270_copper_centred() {
+        let item = rotated_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.5, 9.0, 6.5), 270);
+        let result = resolve_panel_placements(50.0, 30.0, &[item]).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].rotation_deg, 270, "rotation_deg must be carried through");
-
-        // Same screen position as 90° (bbox extents are symmetric for a rectangle).
         assert_eq!(result[0].off_x, 6239, "X offset wrong for 270° rotation");
         assert_eq!(result[0].off_y, 2536, "Y offset wrong for 270° rotation");
+    }
+
+    /// Test 4b — THE CATCHING TEST: copper centre ≠ outline centre.
+    ///
+    /// Board outline: origin=(0,0), size=(10,8).  Centre=(5,4).
+    /// Copper bbox UNROTATED: (1,1)-(9,5).  Centre=(5,3) — 1 mm below the outline
+    /// centre.  This asymmetry is what real boards have (copper isn't symmetric in
+    /// the outline) and is exactly what the original Phase-2 code got wrong.
+    ///
+    /// CORRECT (copper rotated about the OUTLINE centre (5,4)):
+    ///   90°:  mask_bbox = (4, 0, 8, 8) → off = (6346, 2536)
+    ///   270°: mask_bbox = (2, 0, 6, 8) → off = (6203, 2536)
+    ///   90° and 270° land on OPPOSITE sides → off_x differs.
+    ///
+    /// BUGGY (copper rotated about its OWN centre (5,3)) would yield:
+    ///   both 90° and 270°: mask_bbox = (3, −1, 7, 7) → off = (6274, 2589)
+    /// i.e. wrong, and indistinguishable between 90/270 — this test fails under
+    /// the old code at BOTH the value and the 90≠270 assertions.
+    #[test]
+    fn resolve_placements_rotated_asymmetric_copper_catches_pivot_bug() {
+        let item90 = rotated_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.0, 9.0, 5.0), 90);
+        let r90 = resolve_panel_placements(50.0, 30.0, &[item90]).unwrap();
+        assert_eq!(r90[0].rotation_deg, 90);
+        // CORRECT values (copper about outline centre). Old buggy code → (6274, 2589).
+        assert_eq!(r90[0].off_x, 6346, "90° X — copper must rotate about OUTLINE centre");
+        assert_eq!(r90[0].off_y, 2536, "90° Y — copper must rotate about OUTLINE centre");
+
+        let item270 = rotated_input(5.0, 3.0, (0.0, 0.0), (10.0, 8.0), (1.0, 1.0, 9.0, 5.0), 270);
+        let r270 = resolve_panel_placements(50.0, 30.0, &[item270]).unwrap();
+        assert_eq!(r270[0].rotation_deg, 270);
+        assert_eq!(r270[0].off_x, 6203, "270° X — copper must rotate about OUTLINE centre");
+        assert_eq!(r270[0].off_y, 2536, "270° Y — copper must rotate about OUTLINE centre");
+
+        // The decisive guard: asymmetric copper lands on opposite sides at 90 vs
+        // 270.  The buggy copper-centred rotation produced identical offsets here.
+        assert_ne!(
+            r90[0].off_x, r270[0].off_x,
+            "asymmetric copper must place differently at 90° vs 270°"
+        );
+
+        // And both differ from the buggy value (6274) — a hard regression pin.
+        assert_ne!(r90[0].off_x, 6274, "90° must NOT match the buggy copper-centred result");
+        assert_ne!(r270[0].off_x, 6274, "270° must NOT match the buggy copper-centred result");
     }
 
     /// Test 6 — 0° resolve test still passes with new code path (regression guard).
