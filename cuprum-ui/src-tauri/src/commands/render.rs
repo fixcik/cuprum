@@ -280,9 +280,8 @@ pub(crate) async fn render_design_preview(
             });
         }
         let dir = std::path::Path::new(&working_dir).join("artifacts");
-        let sizing = cuprum_core::preview::PreviewSizing::MaxPx(
-            cuprum_core::preview::CARD_PREVIEW_MAX_PX,
-        );
+        let sizing =
+            cuprum_core::preview::PreviewSizing::MaxPx(cuprum_core::preview::CARD_PREVIEW_MAX_PX);
         let key = cuprum_core::preview::preview_key(&layers, &overrides, sizing);
         let fresh = artifact_fresh(&dir.join("preview"), &key);
         let traces = traces_dir(&app);
