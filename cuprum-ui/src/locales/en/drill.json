@@ -136,7 +136,8 @@
     "stopping": "Stopping",
     "done": "Done",
     "elapsedShort": "{{elapsed}} elapsed",
-    "remainingShort": "~{{remaining}} left"
+    "remainingShort": "~{{remaining}} left",
+    "untilToolChange": "tool change in ~{{time}} · {{holes}} holes"
   },
   "phase": {
     "traverse": "Traverse",

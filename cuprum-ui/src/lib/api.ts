@@ -599,6 +599,9 @@ export interface DrillEstimate {
   travelMm: number;
   motionSec: number;
   toolChanges: number;
+  /** Per-group motion time (s), one entry per `route.groups` in order; sums to
+   *  `motionSec`. Drives the "time until next tool change" readout. */
+  groupMotionSecs: number[];
 }
 
 /** Result of `drill_plan`: route + program + estimate. Mirrors Rust

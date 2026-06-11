@@ -1,6 +1,13 @@
 // Trapezoidal drill-time estimate from GRBL kinematics.
-use crate::types::{DrillEstimate, DrillRoute, Kinematics, Tool};
+use crate::types::{DrillEstimate, DrillRoute, Kinematics, PlanHole, Tool};
 use std::collections::HashMap;
+
+/// Same XY point (within tolerance) — used to recognise which path waypoints are the
+/// actual ordered holes (vs keep-out detour waypoints) when attributing traverse time
+/// to groups. Hole coordinates come straight from the route, so an exact-ish match.
+fn same_xy(a: &PlanHole, b: &PlanHole) -> bool {
+    (a.x_mm - b.x_mm).abs() < 1e-6 && (a.y_mm - b.y_mm).abs() < 1e-6
+}
 
 /// Time (s) for a single start-to-stop move of `dist` mm, given max feed
 /// `max_rate_mm_min` and acceleration `accel_mm_s2`. Trapezoidal profile,
@@ -30,17 +37,44 @@ pub fn estimate_drill(
     depth_mm: f64,
     peck_mm: f64,
 ) -> DrillEstimate {
+    // Per-ordered-hole group index: groups are laid out back-to-back, so the i-th
+    // ordered hole belongs to the group whose cumulative hole count first exceeds i.
+    let mut group_of_hole: Vec<usize> = Vec::with_capacity(route.total_holes);
+    for (gi, g) in route.groups.iter().enumerate() {
+        for _ in &g.ordered_holes {
+            group_of_hole.push(gi);
+        }
+    }
+    let ordered: Vec<&PlanHole> = route
+        .groups
+        .iter()
+        .flat_map(|g| g.ordered_holes.iter())
+        .collect();
+    let mut group_secs = vec![0.0f64; route.groups.len()];
+
     // Traverse: sum trapezoidal time over consecutive path points (panel-space
-    // distances == machine-space; machine_point is an isometry).
+    // distances == machine-space; machine_point is an isometry). Each leg is charged
+    // to the group of the hole it travels TOWARD (the group we're entering); the final
+    // return-to-zero leg (past the last hole) lands on the last group. Detour waypoints
+    // don't match an ordered hole, so `hole_idx` only advances on real holes.
     let mut travel_mm = 0.0;
     let mut motion_sec = 0.0;
     let pts = &route.path_points;
+    let mut hole_idx = 0usize;
     for i in 1..pts.len() {
         let dx = pts[i].x_mm - pts[i - 1].x_mm;
         let dy = pts[i].y_mm - pts[i - 1].y_mm;
         let d = (dx * dx + dy * dy).sqrt();
         travel_mm += d;
-        motion_sec += move_time(d, k.max_rate_xy_mm_min, k.accel_xy_mm_s2);
+        let t = move_time(d, k.max_rate_xy_mm_min, k.accel_xy_mm_s2);
+        motion_sec += t;
+        if !group_of_hole.is_empty() {
+            let gi = group_of_hole[hole_idx.min(group_of_hole.len() - 1)];
+            group_secs[gi] += t;
+        }
+        if hole_idx < ordered.len() && same_xy(&pts[i], ordered[hole_idx]) {
+            hole_idx += 1;
+        }
     }
 
     let plunge_by_tool: HashMap<&str, f64> = tools
@@ -51,7 +85,7 @@ pub fn estimate_drill(
     // Per-hole plunge (feed-limited) + retract (rapid Z). Travel per Z move = safe_z + depth.
     let z_span = safe_z_mm + depth_mm;
     let mut tool_changes = 0u32;
-    for g in &route.groups {
+    for (gi, g) in route.groups.iter().enumerate() {
         if g.tool_id.is_some() {
             tool_changes += 1;
         }
@@ -76,13 +110,16 @@ pub fn estimate_drill(
             move_time(z_span, plunge_feed, k.accel_z_mm_s2)
                 + move_time(z_span, k.max_rate_z_mm_min, k.accel_z_mm_s2)
         };
-        motion_sec += per_hole * g.ordered_holes.len() as f64;
+        let group_hole_secs = per_hole * g.ordered_holes.len() as f64;
+        motion_sec += group_hole_secs;
+        group_secs[gi] += group_hole_secs;
     }
 
     DrillEstimate {
         travel_mm,
         motion_sec,
         tool_changes,
+        group_motion_secs: group_secs,
     }
 }
 
@@ -149,5 +186,63 @@ mod est_tests {
         assert_eq!(est.tool_changes, 1);
         assert!(est.motion_sec > 0.0);
         assert!(est.travel_mm >= 50.0);
+        // One group → all motion lands in its single bucket.
+        assert_eq!(est.group_motion_secs.len(), 1);
+        assert!((est.group_motion_secs[0] - est.motion_sec).abs() < 1e-9);
+    }
+
+    #[test]
+    fn group_motion_secs_split_and_sum_to_total() {
+        // Two diameter groups → two tool changes. Each group's bucket is positive and
+        // the buckets sum to the total motion time (traverse charged to the group it
+        // enters + per-hole time).
+        let plan = crate::types::PanelDrillPlan {
+            groups: vec![
+                crate::types::DrillGroup {
+                    diameter_mm: 0.8,
+                    class: crate::types::DrillClass::Pth,
+                    tool_id: Some("small".into()),
+                    holes: vec![
+                        crate::types::PlanHole { x_mm: 0.0, y_mm: 0.0, id: None },
+                        crate::types::PlanHole { x_mm: 10.0, y_mm: 0.0, id: None },
+                    ],
+                },
+                crate::types::DrillGroup {
+                    diameter_mm: 3.0,
+                    class: crate::types::DrillClass::Pth,
+                    tool_id: Some("big".into()),
+                    holes: vec![
+                        crate::types::PlanHole { x_mm: 40.0, y_mm: 20.0, id: None },
+                        crate::types::PlanHole { x_mm: 60.0, y_mm: 30.0, id: None },
+                    ],
+                },
+            ],
+        };
+        let route = crate::route::plan_drill_route(&plan, (0.0, 0.0), &[], None);
+        let tools = vec![
+            crate::types::Tool {
+                id: "small".into(),
+                diameter_mm: 0.8,
+                name: "s".into(),
+                recommended_rpm: 9000.0,
+                recommended_plunge_mm_min: 60.0,
+            },
+            crate::types::Tool {
+                id: "big".into(),
+                diameter_mm: 3.0,
+                name: "b".into(),
+                recommended_rpm: 9000.0,
+                recommended_plunge_mm_min: 60.0,
+            },
+        ];
+        let k = crate::types::Kinematics::default();
+        let est = estimate_drill(&route, &tools, &k, 5.0, 1.9, 0.0);
+        assert_eq!(est.tool_changes, 2);
+        assert_eq!(est.group_motion_secs.len(), route.groups.len());
+        for s in &est.group_motion_secs {
+            assert!(*s > 0.0, "every group should carry some motion time");
+        }
+        let sum: f64 = est.group_motion_secs.iter().sum();
+        assert!((sum - est.motion_sec).abs() < 1e-9, "buckets must sum to total");
     }
 }

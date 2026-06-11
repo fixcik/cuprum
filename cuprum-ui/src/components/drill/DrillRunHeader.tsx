@@ -5,6 +5,7 @@ import type { DrillRunPhase } from "@/lib/drillRunState";
 import { machineElapsedMs } from "@/lib/drillRunState";
 import type { DrillRoute } from "@/lib/drillRoute";
 import { activeGroupForHole, orderedHoleList } from "@/lib/drillRoute";
+import { toolChangeEta } from "@/lib/drillToolChangeEta";
 import type { DatumCorner } from "@/lib/datum";
 import { machinePoint } from "@/lib/datum";
 import { groupColor } from "@/components/drill/DrillMapCanvas";
@@ -31,6 +32,9 @@ export interface DrillRunHeaderProps {
   panelWidthMm: number;
   panelHeightMm: number;
   totalEstimateSec: number;
+  /** Per-group motion estimate (s) from the Rust plan, one per `route.groups`. Drives
+   *  the "until next tool change" readout. Empty when no plan estimate is available. */
+  groupMotionSecs: number[];
 }
 
 
@@ -53,6 +57,7 @@ export function DrillRunHeader({
   panelWidthMm,
   panelHeightMm,
   totalEstimateSec,
+  groupMotionSecs,
 }: DrillRunHeaderProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -101,6 +106,16 @@ export function DrillRunHeader({
   const remaining = Math.max(0, Math.round(totalEstimateSec * (1 - pct)));
   const elapsed = formatDuration(elapsedSec, minAbbr, secAbbr);
   const remainingFmt = formatDuration(remaining, minAbbr, secAbbr);
+
+  // Time + holes left until the next tool-change pause. Hidden once the run finished
+  // (done) or while there's no change ahead (last bit) — toolChangeEta returns null.
+  const eta = phase === "done" ? null : toolChangeEta(route, groupMotionSecs, holesCompleted);
+  const untilToolChange =
+    eta &&
+    t("runHeader.untilToolChange", {
+      time: formatDuration(Math.round(eta.etaSec), minAbbr, secAbbr),
+      holes: eta.holesRemaining,
+    });
 
   const statusLabel = (): string | null => {
     switch (phase) {
@@ -238,6 +253,14 @@ export function DrillRunHeader({
         <div className="mt-3 flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
           <span>{t("runHeader.elapsedShort", { elapsed })}</span>
           <span>{t("runHeader.remainingShort", { remaining: remainingFmt })}</span>
+        </div>
+      )}
+
+      {/* Time until the next tool change (only while one lies ahead) */}
+      {runStartedAt != null && untilToolChange && (
+        <div className="mt-1 flex items-center gap-1.5 text-[11px] tabular-nums text-warning">
+          <Pause className="size-3" />
+          <span>{untilToolChange}</span>
         </div>
       )}
     </div>
