@@ -180,6 +180,8 @@
     "manualFail": "Couldn't set Z — check the machine connection",
     "resumeFirst": "Start drilling",
     "resumeMore": "Continue",
+    "zoneTooLow": "Too low — raise the bit into the dark zone",
+    "zoneTooHigh": "Too high — lower the bit into the dark zone",
     "zTooLowTitle": "Work zero is too low",
     "zTooLowMsg": "There isn't enough Z travel below the zero for the cut (need {{needed}}, available {{available}}). Re-zero higher, or move the board up.",
     "zRebind": "Re-zero higher",

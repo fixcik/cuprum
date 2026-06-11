@@ -12,7 +12,7 @@ import {
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useMachine } from "@/machineStore";
 import { canSetZero } from "@/lib/machineControls";
-import { checkZHeadroom } from "@/lib/drillZHeadroom";
+import { checkZHeadroom, classifyBindZ, zBindBand } from "@/lib/drillZHeadroom";
 import { ProbeToolChange } from "@/components/drill/ProbeToolChange";
 import { ManualToolChange } from "@/components/drill/ManualToolChange";
 import { api } from "@/lib/api";
@@ -132,6 +132,26 @@ export function DrillToolChangeCard({
   // The bound zero is unsafe and the run must not resume — "below" = too low (re-zero
   // higher / raise board), "above" = too high (re-zero lower / lower board).
   const zBlock = zBound && !headroom.skipped ? headroom.block : null;
+
+  // Safe machine-Z bind band (inverse of the headroom check) — drives the manual bar's
+  // forbidden zones AND pre-gates the manual confirm: a touch-off binds work-zero at the
+  // current machine Z, so binding outside the band would trip the envelope. We block the
+  // confirm up front (the zero is never set wrong) rather than binding then warning. The
+  // probe path can't be pre-gated (copper height is unknown until the plunge) — it keeps
+  // the post-bind `zBlock` as its safety net.
+  const band = useMemo(
+    () =>
+      zBindBand({
+        homed,
+        softLimitsEnabled,
+        maxTravelZMm: maxTravelMm?.[2] ?? null,
+        plungeDepthMm,
+        safeZMm: probe.safeZMm,
+        toolChangeZMm: probe.toolChangeZMm,
+      }),
+    [homed, softLimitsEnabled, maxTravelMm, plungeDepthMm, probe.safeZMm, probe.toolChangeZMm],
+  );
+  const manualPreBlock = !zBound ? classifyBindZ(band, machineZ) : null;
 
   // Auto-advance step 1 → step 2 the moment the operator touches the probe to the
   // bit (pin latches). The explicit button below is the affordance/fallback.
@@ -337,6 +357,8 @@ export function DrillToolChangeCard({
                 lastManualZMm={lastManualZMm}
                 enabled={enabled}
                 busy={busy}
+                band={band}
+                bindBlock={manualPreBlock}
                 onConfirm={() => void bindManual()}
               />
             )}

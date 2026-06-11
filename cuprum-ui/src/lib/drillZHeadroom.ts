@@ -98,3 +98,66 @@ export function checkZHeadroom(args: ZHeadroomArgs): ZHeadroomResult {
 
   return { ok: floorOk && ceilingOk, skipped: false, block, neededMm, availableMm, ceilingOverMm };
 }
+
+/** Geometry needed to derive the safe bind band — the same envelope inputs as
+ *  {@link checkZHeadroom}, minus the live position (the band is position-independent). */
+export interface ZBindBandArgs {
+  homed: boolean;
+  softLimitsEnabled: boolean | null;
+  maxTravelZMm: number | null;
+  plungeDepthMm: number;
+  safeZMm: number;
+  toolChangeZMm: number;
+  marginMm?: number;
+}
+
+/** The range of MACHINE Z (mm) at which it is safe to bind the work-zero, i.e. the
+ *  inverse of {@link checkZHeadroom}: a manual touch-off binds work-zero at the current
+ *  machine Z (`WCO_z = z`), so the bind is safe exactly when `minZ ≤ z ≤ maxZ`.
+ *
+ *  - `minZ` (floor): below it the deepest plunge would punch past `−$132` — too little
+ *    travel for the cut. `minZ = plungeDepth + margin − $132`.
+ *  - `maxZ` (ceiling): above it the safe-Z / tool-change rapid lifts past `Z=0` →
+ *    ALARM:2. `maxZ = −max(safeZ, toolChangeZ) − margin`.
+ *
+ *  Lets the UI both pre-gate the manual confirm (don't even bind a zero outside the band)
+ *  and paint the forbidden Z-bar regions. When the envelope isn't computable the band is
+ *  unknown (`known: false`) — don't gate, don't paint (parity with checkZHeadroom's skip). */
+export interface ZBindBand {
+  /** Envelope computable → the band is meaningful (gate + paint). */
+  known: boolean;
+  /** Lowest machine Z (mm) safe to bind at. −Infinity when unknown. */
+  minZ: number;
+  /** Highest machine Z (mm) safe to bind at. +Infinity when unknown. */
+  maxZ: number;
+}
+
+export function zBindBand(args: ZBindBandArgs): ZBindBand {
+  const {
+    homed,
+    softLimitsEnabled,
+    maxTravelZMm,
+    plungeDepthMm,
+    safeZMm,
+    toolChangeZMm,
+    marginMm = DEFAULT_Z_HEADROOM_MARGIN_MM,
+  } = args;
+
+  if (!homed || softLimitsEnabled !== true || maxTravelZMm == null || maxTravelZMm <= 0) {
+    return { known: false, minZ: -Infinity, maxZ: Infinity };
+  }
+
+  const minZ = plungeDepthMm + marginMm - maxTravelZMm;
+  const maxZ = -Math.max(safeZMm, toolChangeZMm) - marginMm;
+  return { known: true, minZ, maxZ };
+}
+
+/** Classify a candidate bind position against the band, mirroring checkZHeadroom's
+ *  `block`: "below" = too low (floor), "above" = too high (ceiling), null = inside the
+ *  band (or band unknown). Floor takes precedence if the band is empty (minZ > maxZ). */
+export function classifyBindZ(band: ZBindBand, machineZ: number): "below" | "above" | null {
+  if (!band.known) return null;
+  if (machineZ < band.minZ) return "below";
+  if (machineZ > band.maxZ) return "above";
+  return null;
+}
