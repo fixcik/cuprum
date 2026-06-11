@@ -741,32 +741,58 @@ export interface MillEstimate {
   pathCount: number;
 }
 
-/** Everything `mill_plan` needs: the source gerber + drill holes (subtracted from
- *  the copper) plus the isolation/cut parameters. The backend computes the copper
- *  boolean, derives the isolation toolpaths and plans the G-code. `kinematics` is
- *  taken from the backend cache (not sent here). Mirrors Rust `MillPlanCmdInput`. */
+/** One design referenced by the panel: its source gerber + drill holes (subtracted
+ *  from the copper), the gerber bbox origin and the design's extent. The backend
+ *  isolates each design once in board-local space. Mirrors Rust `MillDesignInput`. */
+export interface MillDesignInput {
+  gerberRel: string;
+  /** Drill holes (absolute gerber coords) subtracted from the copper. */
+  holes: Hole[];
+  /** X of the copper bbox min corner (mm) — shifts the design to board-local. */
+  originXMm: number;
+  /** Y of the copper bbox min corner (mm). */
+  originYMm: number;
+  /** Design extent width (mm) — placed footprint width; Y-flip + rotation centre. */
+  boardWMm: number;
+  /** Design extent height (mm). */
+  boardHMm: number;
+}
+
+/** One placed instance: which design (index into `designs`) + its panel pose.
+ *  Mirrors Rust `MillInstanceInput`. */
+export interface MillInstanceInput {
+  designIndex: number;
+  xMm: number;
+  yMm: number;
+  rotationDeg: number;
+}
+
+/** Everything `mill_plan` needs to plan a PANEL-WIDE isolation run: every design
+ *  referenced by the panel (gerber + holes + origin + extent) and every placed
+ *  instance, plus the isolation/cut parameters. The backend isolates each design
+ *  once, projects its toolpaths into panel space per instance, then plans one
+ *  G-code program over the whole panel. `kinematics` is taken from the backend
+ *  cache (not sent here). Mirrors Rust `MillPlanCmdInput`. */
 export interface MillPlanInput {
   workingDir: string;
-  gerberRel: string;
-  holes: Hole[];
+  /** Distinct designs referenced by the panel (deduped by the frontend). */
+  designs: MillDesignInput[];
+  /** Placed instances; each points at a design via `designIndex`. */
+  instances: MillInstanceInput[];
+  panelWidthMm: number;
+  panelHeightMm: number;
   /** Effective cut width of the bit (cylindrical: diameter; V-bit: vbitCutWidth). */
   cutWidthMm: number;
   passes: number;
   overlap: number;
   climb: boolean;
   datum: DatumCornerDto;
-  panelWidthMm: number;
-  panelHeightMm: number;
-  /** X of the copper bbox min corner (mm). The backend subtracts this + flips Y
-   *  to normalise the absolute-coords copper into panel space (Y down). */
-  originXMm: number;
-  /** Y of the copper bbox min corner (mm). */
-  originYMm: number;
   cnc: CncParamsDto;
   cutDepthMm: number;
   depthPerPassMm?: number;
   feedXyMmMin: number;
   plungeMmMin: number;
+  /** Keep-out zones in PANEL coordinates (now applicable — plan is panel-wide). */
   keepOutZones: DrillRect[];
   startMachineXY?: { x: number; y: number };
 }
