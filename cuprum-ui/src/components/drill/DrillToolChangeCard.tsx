@@ -3,12 +3,9 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
-  CheckCircle2,
   Hand,
-  Loader2,
   Pause,
   Play,
-  PlugZap,
   ScanLine,
   TriangleAlert,
 } from "lucide-react";
@@ -16,7 +13,8 @@ import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useMachine } from "@/machineStore";
 import { useJog } from "@/hooks/useJog";
 import { checkZHeadroom } from "@/lib/drillZHeadroom";
-import { DrillManualZBar } from "@/components/drill/DrillManualZBar";
+import { ProbeToolChange } from "@/components/drill/ProbeToolChange";
+import { ManualToolChange } from "@/components/drill/ManualToolChange";
 import { api } from "@/lib/api";
 
 /** Probe parameters threaded from the machine profile. */
@@ -226,52 +224,6 @@ export function DrillToolChangeCard({
     </div>
   );
 
-  const probeBlock = !probeChecked ? (
-    // Step 1 · circuit test
-    <div className="rounded-lg border border-warning/30 bg-warning/[0.05] px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
-        <PlugZap className="size-3.5" />
-        {t("toolChange.probeStep1Title")}
-      </div>
-      <div className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
-        {t("toolChange.probeStep1Hint")}
-      </div>
-      <button
-        type="button"
-        onClick={checkCircuit}
-        className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-warning/50 bg-warning/10 py-2 text-[12px] font-semibold text-warning transition-colors hover:bg-warning/15"
-      >
-        <Hand className="size-4" />
-        {t("toolChange.probeStep1Btn")}
-      </button>
-    </div>
-  ) : (
-    // Step 2 · set Z by probe (circuit already verified this session)
-    <>
-      <div className="mb-2 flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-1.5 text-[10.5px] font-medium text-primary">
-        <CheckCircle2 className="size-3.5" />
-        {t("toolChange.probeReady")}
-      </div>
-      <button type="button" className={SOLID_WARNING} disabled={!enabled || busy} onClick={() => void runProbe()}>
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
-        {busy ? t("toolChange.probing") : t("toolChange.probeStep2Btn")}
-      </button>
-      <div className="mt-1.5 text-center text-[10px] text-muted-foreground">
-        {t("toolChange.probeStep2Hint")}
-      </div>
-    </>
-  );
-
-  const manualBlock = (
-    <div className="flex flex-col gap-2">
-      <DrillManualZBar lastZMm={lastManualZMm} />
-      <button type="button" className={SOLID_WARNING} disabled={!enabled || busy} onClick={() => void bindManual()}>
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDownToLine className="size-4" />}
-        {t("toolChange.manualConfirm")}
-      </button>
-    </div>
-  );
-
   // Checklist marker: ✓ once Z is bound, else the step number.
   const mark = (n: number) =>
     zBound ? <span className="text-primary">✓</span> : <span className="text-foreground/60">{n}.</span>;
@@ -369,7 +321,22 @@ export function DrillToolChangeCard({
         ) : (
           <>
             {hasProbe && <div className="mb-2">{methodToggle}</div>}
-            {method === "probe" ? probeBlock : manualBlock}
+            {method === "probe" ? (
+              <ProbeToolChange
+                probeChecked={probeChecked}
+                enabled={enabled}
+                busy={busy}
+                onCheckCircuit={checkCircuit}
+                onRunProbe={() => void runProbe()}
+              />
+            ) : (
+              <ManualToolChange
+                lastManualZMm={lastManualZMm}
+                enabled={enabled}
+                busy={busy}
+                onConfirm={() => void bindManual()}
+              />
+            )}
             {error && <p className="mt-2 text-[11px] text-red-400">{error}</p>}
           </>
         )}
