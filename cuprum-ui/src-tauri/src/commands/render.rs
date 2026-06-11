@@ -280,13 +280,15 @@ pub(crate) async fn render_design_preview(
             });
         }
         let dir = std::path::Path::new(&working_dir).join("artifacts");
-        let max_px = cuprum_core::preview::CARD_PREVIEW_MAX_PX;
-        let key = cuprum_core::preview::preview_key(&layers, &overrides, max_px);
+        let sizing = cuprum_core::preview::PreviewSizing::MaxPx(
+            cuprum_core::preview::CARD_PREVIEW_MAX_PX,
+        );
+        let key = cuprum_core::preview::preview_key(&layers, &overrides, sizing);
         let fresh = artifact_fresh(&dir.join("preview"), &key);
         let traces = traces_dir(&app);
         let png =
             cuprum_core::trace::operation_in_session(trace_session, "preview", &traces, || {
-                cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, max_px)
+                cuprum_core::preview::render_design_preview(&dir, &layers, &overrides, sizing)
             })?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(PreviewDto {

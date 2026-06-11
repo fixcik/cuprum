@@ -337,10 +337,38 @@ pub fn preview_key(
     h.finish()
 }
 
-/// Render a design's composite preview to a PNG caching it persistently under
-/// `<artifacts_dir>/preview/<key>.bin`. On a cache hit returns the stored bytes.
-/// Drill layers should be excluded by the caller (the card preview has no holes);
-/// composes top side only. Honors `cache_disabled()`.
+/// Compose + rasterize a design preview to an indexed PNG at `sizing`. No result
+/// caching (the per-layer SVG artifact cache under `<artifacts_dir>/svg` is still
+/// reused). Drill layers must be excluded by the caller. Top side only.
+pub fn render_preview_png(
+    artifacts_dir: &Path,
+    layers: &[PreviewLayer],
+    overrides: &HashMap<String, String>,
+    sizing: PreviewSizing,
+) -> anyhow::Result<Vec<u8>> {
+    let svg_dir = artifacts_dir.join("svg");
+    let mut composed: Vec<(String, LayerGeometry)> = Vec::with_capacity(layers.len());
+    for l in layers {
+        match crate::cache::layer_svg_artifact(&svg_dir, &l.bytes) {
+            Ok(g) => composed.push((l.layer_type.clone(), g)),
+            Err(_) => continue,
+        }
+    }
+    let board_outline = layers
+        .iter()
+        .find(|l| l.layer_type == "edgeCuts")
+        .and_then(|e| board_outline(&e.bytes));
+    let doc = compose_svg(
+        &composed,
+        overrides,
+        board_outline.as_ref().map(|(d, bb)| (d.as_str(), *bb)),
+    );
+    rasterize(&doc, sizing)
+}
+
+/// Render a design's composite preview to an indexed PNG, caching it persistently
+/// under `<artifacts_dir>/preview/<key>.bin` (ships in the `.cuprum`). On a cache
+/// hit returns the stored bytes. Used for the card thumbnail. Honors `cache_disabled()`.
 pub fn render_design_preview(
     artifacts_dir: &Path,
     layers: &[PreviewLayer],
@@ -354,34 +382,7 @@ pub fn render_design_preview(
             return Ok(png);
         }
     }
-    // Reuse the shared per-layer SVG artifact cache (same content key as the
-    // inspector's `cache::layer_svg_artifact`) instead of re-rendering each layer
-    // here. On a cold card show the preview and inspector then render a given layer
-    // exactly once between them — single-flight de-dups even when they run
-    // concurrently. The internal SVG element id differs from a direct render but is
-    // invisible in the raster, so the composed PNG is byte-identical (no version bump).
-    // Skip layers whose gerber fails to parse (blank silk/paste is common) so
-    // one bad layer doesn't abort the whole preview.
-    let svg_dir = artifacts_dir.join("svg");
-    let mut composed: Vec<(String, LayerGeometry)> = Vec::with_capacity(layers.len());
-    for l in layers {
-        match crate::cache::layer_svg_artifact(&svg_dir, &l.bytes) {
-            Ok(g) => composed.push((l.layer_type.clone(), g)),
-            Err(_) => continue,
-        }
-    }
-    // Reconstruct the board outline from Edge_Cuts so the composite clips to the
-    // real (rounded) shape instead of the rectangular bbox — matches the inspector.
-    let board_outline = layers
-        .iter()
-        .find(|l| l.layer_type == "edgeCuts")
-        .and_then(|e| board_outline(&e.bytes));
-    let doc = compose_svg(
-        &composed,
-        overrides,
-        board_outline.as_ref().map(|(d, bb)| (d.as_str(), *bb)),
-    );
-    let png = rasterize(&doc, sizing)?;
+    let png = render_preview_png(artifacts_dir, layers, overrides, sizing)?;
     if !crate::diskcache::cache_disabled() {
         crate::diskcache::put_persistent(&dir, &key, &png);
     }
