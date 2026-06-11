@@ -300,19 +300,29 @@ fn scaled_dims(width_mm: f32, height_mm: f32, sizing: PreviewSizing) -> (u32, u3
     (w, h, scale)
 }
 
-/// Content-hash key for a design's preview: version + raster size + each
-/// layer's (type, color, gerber-content), sorted by `(layer_type, bytes)` so
-/// input order never changes the key. Shared with `artifact::gc`'s valid set.
-/// `max_px` is part of the key because the cached PNG is rasterized to that
-/// size — the same layers at a different size are a different artifact.
+/// Content-hash key for a design's preview: version + sizing + each layer's
+/// (type, color, gerber-content), sorted by `(layer_type, bytes)` so input
+/// order never changes the key. Shared with `artifact::gc`'s valid set.
+/// `sizing` is part of the key because the cached PNG is rasterized to those
+/// dimensions — the same layers at a different size are a different artifact.
 pub fn preview_key(
     layers: &[PreviewLayer],
     overrides: &HashMap<String, String>,
-    max_px: u32,
+    sizing: PreviewSizing,
 ) -> String {
     let mut h = crate::diskcache::Hasher::new();
     h.add(crate::artifact::PREVIEW_VERSION);
-    h.add(&max_px.to_le_bytes());
+    match sizing {
+        PreviewSizing::MaxPx(n) => {
+            h.add(&[0u8]);
+            h.add(&n.to_le_bytes());
+        }
+        PreviewSizing::Density { px_per_mm, cap_px } => {
+            h.add(&[1u8]);
+            h.add(&px_per_mm.to_le_bytes());
+            h.add(&cap_px.to_le_bytes());
+        }
+    }
     let mut sorted: Vec<&PreviewLayer> = layers.iter().collect();
     sorted.sort_by(|a, b| {
         a.layer_type
@@ -327,17 +337,17 @@ pub fn preview_key(
     h.finish()
 }
 
-/// Render a design's composite preview to a PNG (longest side == `max_px`),
-/// caching it persistently under `<artifacts_dir>/preview/<key>.bin`. On a cache
-/// hit returns the stored bytes. Drill layers should be excluded by the caller
-/// (the card preview has no holes); composes top side only. Honors `cache_disabled()`.
+/// Render a design's composite preview to a PNG caching it persistently under
+/// `<artifacts_dir>/preview/<key>.bin`. On a cache hit returns the stored bytes.
+/// Drill layers should be excluded by the caller (the card preview has no holes);
+/// composes top side only. Honors `cache_disabled()`.
 pub fn render_design_preview(
     artifacts_dir: &Path,
     layers: &[PreviewLayer],
     overrides: &HashMap<String, String>,
-    max_px: u32,
+    sizing: PreviewSizing,
 ) -> anyhow::Result<Vec<u8>> {
-    let key = preview_key(layers, overrides, max_px);
+    let key = preview_key(layers, overrides, sizing);
     let dir = artifacts_dir.join("preview");
     if !crate::diskcache::cache_disabled() {
         if let Some(png) = crate::diskcache::get_persistent(&dir, &key) {
@@ -371,7 +381,7 @@ pub fn render_design_preview(
         overrides,
         board_outline.as_ref().map(|(d, bb)| (d.as_str(), *bb)),
     );
-    let png = rasterize(&doc, PreviewSizing::MaxPx(max_px))?;
+    let png = rasterize(&doc, sizing)?;
     if !crate::diskcache::cache_disabled() {
         crate::diskcache::put_persistent(&dir, &key, &png);
     }
@@ -482,6 +492,20 @@ mod tests {
 
         let mut buf = vec![0u8; reader.output_buffer_size()];
         reader.next_frame(&mut buf).expect("decode frame");
+    }
+
+    #[test]
+    fn preview_key_distinguishes_sizing() {
+        let layers = vec![PreviewLayer {
+            layer_type: "topCopper".to_string(),
+            bytes: b"G04*".to_vec(),
+        }];
+        let o = std::collections::HashMap::new();
+        let card = preview_key(&layers, &o, PreviewSizing::MaxPx(512));
+        let detailed = preview_key(&layers, &o, PreviewSizing::Density { px_per_mm: 12.0, cap_px: 4096 });
+        assert_ne!(card, detailed, "card and detailed keys must differ");
+        // Stable for identical inputs.
+        assert_eq!(card, preview_key(&layers, &o, PreviewSizing::MaxPx(512)));
     }
 
     #[test]
@@ -748,7 +772,7 @@ mod tests {
         }];
         let overrides = std::collections::HashMap::new();
 
-        let png = render_design_preview(&dir, &layers, &overrides, 128).expect("preview ok");
+        let png = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128)).expect("preview ok");
         assert_eq!(
             &png[..8],
             &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
@@ -759,7 +783,7 @@ mod tests {
         let sub = dir.join("preview");
         let n = std::fs::read_dir(&sub).map(|rd| rd.count()).unwrap_or(0);
         assert_eq!(n, 1, "exactly one persistent preview blob written");
-        let png2 = render_design_preview(&dir, &layers, &overrides, 128).expect("cache hit ok");
+        let png2 = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128)).expect("cache hit ok");
         assert_eq!(png, png2, "second call returns the cached bytes");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -780,8 +804,8 @@ mod tests {
         b.reverse();
         let o = std::collections::HashMap::new();
         assert_eq!(
-            preview_key(&a, &o, 128),
-            preview_key(&b, &o, 128),
+            preview_key(&a, &o, PreviewSizing::MaxPx(128)),
+            preview_key(&b, &o, PreviewSizing::MaxPx(128)),
             "key independent of input order"
         );
     }
@@ -794,8 +818,8 @@ mod tests {
         }];
         let o = std::collections::HashMap::new();
         assert_ne!(
-            preview_key(&layers, &o, 128),
-            preview_key(&layers, &o, 512),
+            preview_key(&layers, &o, PreviewSizing::MaxPx(128)),
+            preview_key(&layers, &o, PreviewSizing::MaxPx(512)),
             "same layers at a different raster size must key differently"
         );
     }
@@ -812,8 +836,8 @@ mod tests {
         a.insert("topCopper".to_string(), "#ff0000".to_string());
         let mut b = std::collections::HashMap::new();
         b.insert("topCopper".to_string(), "#00ff00".to_string());
-        let _ = render_design_preview(&dir, &layers, &a, 128).unwrap();
-        let _ = render_design_preview(&dir, &layers, &b, 128).unwrap();
+        let _ = render_design_preview(&dir, &layers, &a, PreviewSizing::MaxPx(128)).unwrap();
+        let _ = render_design_preview(&dir, &layers, &b, PreviewSizing::MaxPx(128)).unwrap();
         let n = std::fs::read_dir(dir.join("preview"))
             .map(|rd| rd.count())
             .unwrap_or(0);
@@ -834,7 +858,7 @@ mod tests {
             bytes: UNIQ.to_vec(),
         }];
         let overrides = std::collections::HashMap::new();
-        let _ = render_design_preview(&dir, &layers, &overrides, 128).expect("preview ok");
+        let _ = render_design_preview(&dir, &layers, &overrides, PreviewSizing::MaxPx(128)).expect("preview ok");
         // The preview routed the layer through the shared artifact cache, so its SVG
         // blob lands under <dir>/svg/<svg_artifact_key>.bin — the SAME key/path the
         // inspector would use, proving the layer renders once across both.
