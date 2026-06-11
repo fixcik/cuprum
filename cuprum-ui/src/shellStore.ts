@@ -21,6 +21,11 @@ import { useHistory } from "@/historyStore";
 // consumers keep resolving.
 export type { View } from "@/navigationStore";
 
+// Labels of the separate operation windows that own a live, journalled run. While
+// any is open, the run-journal reconcile (orphan sweep) is skipped so a live row
+// isn't mistaken for an orphan. Keep in sync with the backend window builders.
+const OP_RUN_WINDOW_LABELS = ["drill", "expose", "mill"] as const;
+
 interface ShellStore {
   recents: RecentProject[];
   recentsLoading: boolean;
@@ -262,6 +267,19 @@ export const useShell = create<ShellStore>((set, get) => ({
         workingDir: opened.workingDir,
         currentManifest: opened.manifest,
       });
+      // Reconcile orphaned run-journal rows: a run is window-driven and can't
+      // outlive its window, so a still-open row is from a window closed mid-run.
+      // Skip when an operation window (drill/expose/mill) is currently open — it
+      // may own a LIVE, not-yet-finished run whose row we'd wrongly close (the
+      // navigate-away-then-back case). Best-effort, fire-and-forget; orphans left
+      // behind get swept the next time the project opens with no op window up.
+      void (async () => {
+        const opWindows = await Promise.all(
+          OP_RUN_WINDOW_LABELS.map((label) => WebviewWindow.getByLabel(label)),
+        );
+        if (opWindows.some((w) => w !== null)) return;
+        await api.operationLog.reconcile(path);
+      })().catch(() => {});
       useNavigation.getState().setError(null);
       await get().loadRecents();
       useHistory.getState().reset();

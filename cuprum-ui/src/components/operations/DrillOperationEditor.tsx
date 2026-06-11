@@ -320,9 +320,25 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   const run = useDrillRun();
   const machineWork = useMachinePosition();
 
-  // run_uid of the in-flight journalled run (null when none is being logged, e.g.
-  // unsaved project). Set on start, cleared when the terminal outcome is written.
+  // run_uid of the journalled run, set only once the machine actually starts
+  // cutting (see pendingRunRef); cleared when the terminal outcome is written.
   const runUidRef = useRef<string | null>(null);
+  // A launched-but-not-yet-journalled run. The journal row is written only once
+  // the machine actually starts drilling (first cut), NOT on "Начать" — so a run
+  // abandoned at the first Z touch-off (operator sets Z, then exits) never leaves
+  // a phantom "Идёт" row in history. Holds the params captured at launch.
+  const pendingRunRef = useRef<{
+    uid: string;
+    projectPath: string;
+    progressTotal: number;
+    paramsJson: string;
+  } | null>(null);
+  // Whether the pending run's start was already journalled (flush guard).
+  const loggedStartRef = useRef(false);
+  // Whether a tool-change pause has occurred this run. Re-entering `running` after
+  // a tool change means the operator finished the first Z touch-off and cutting
+  // has begun — that (or the first completed hole) is "the machine actually started".
+  const sawToolChangeRef = useRef(false);
 
   const handleStart = useCallback(async () => {
     // Re-plan with the real machine work position so the FIRST traverse routes
@@ -337,12 +353,16 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     }
     const steps = exec.program.steps;
     void run.start(steps);
-    // Best-effort journal write — never blocks or aborts the real run. Skipped for
-    // an unsaved project (no stable path to key history on).
+    // Stash the run for the journal, but DON'T write it yet — the row is created
+    // only when the machine actually starts cutting (see the flush effect below),
+    // so abandoning the run at the first Z touch-off leaves no phantom history
+    // entry. Skipped for an unsaved project (no stable path to key history on).
+    runUidRef.current = null;
+    loggedStartRef.current = false;
+    sawToolChangeRef.current = false;
+    pendingRunRef.current = null;
     const projectPath = snap.currentPath;
     if (projectPath) {
-      const uid = crypto.randomUUID();
-      runUidRef.current = uid;
       const holesTotal = steps.filter((s) => s.kind === "hole").length;
       const params = {
         selectedHoleIds: [...selectedHoleIds],
@@ -354,9 +374,12 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
         // Distinct tools (bit groups) — for the history summary.
         toolCount: subPlanWithOverrides?.groups.length ?? 0,
       };
-      void api.operationLog
-        .start({ runUid: uid, projectPath, opType: "drill", progressTotal: holesTotal, paramsJson: JSON.stringify(params) })
-        .catch(() => {});
+      pendingRunRef.current = {
+        uid: crypto.randomUUID(),
+        projectPath,
+        progressTotal: holesTotal,
+        paramsJson: JSON.stringify(params),
+      };
     }
   }, [
     buildPlanInput,
@@ -372,17 +395,46 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   ]);
   const showMarker = shouldShowMarker(run.state.phase, machineWork !== null);
 
+  // Write the journal row on the FIRST cut, not on "Начать": only once the
+  // machine has actually started drilling — re-entered `running` after the first
+  // tool-change pause (operator finished the Z touch-off), or completed a hole.
+  // Until then the run is "abandonable" with no trace (the whole point of the fix).
+  useEffect(() => {
+    const pending = pendingRunRef.current;
+    if (!pending || loggedStartRef.current) return;
+    if (run.state.phase === "awaitingToolChange") sawToolChangeRef.current = true;
+    const cutting =
+      run.state.holesCompleted > 0 ||
+      (run.state.phase === "running" && sawToolChangeRef.current);
+    if (!cutting) return;
+    loggedStartRef.current = true;
+    runUidRef.current = pending.uid;
+    void api.operationLog
+      .start({
+        runUid: pending.uid,
+        projectPath: pending.projectPath,
+        opType: "drill",
+        progressTotal: pending.progressTotal,
+        paramsJson: pending.paramsJson,
+      })
+      .catch(() => {});
+  }, [run.state.phase, run.state.holesCompleted]);
+
   // Journal the run outcome on the active→terminal transition (best-effort). The
   // backend has no distinct "stopped" event — both graceful stop and estop end at
-  // "idle" — so idle-after-active maps to "stopped".
+  // "idle" — so idle-after-active maps to "stopped". Only fires for a run that was
+  // actually journalled (runUidRef set by the flush effect above).
   const prevPhaseRef = useRef(run.state.phase);
   useEffect(() => {
     const prev = prevPhaseRef.current;
     const cur = run.state.phase;
     prevPhaseRef.current = cur;
     const uid = runUidRef.current;
-    if (!uid) return;
     if (ACTIVE_RUN_PHASES.has(prev) && !ACTIVE_RUN_PHASES.has(cur)) {
+      // Run reached a terminal state: drop the pending stash either way so a
+      // never-cut run (no row written) can't get logged by a later phase blip.
+      pendingRunRef.current = null;
+      if (!uid) return;
       runUidRef.current = null;
       const outcome = cur === "done" ? "completed" : cur === "error" ? "error" : "stopped";
       // A completed run drilled every selected hole; use the total so a late

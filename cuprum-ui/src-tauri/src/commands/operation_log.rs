@@ -69,6 +69,16 @@ pub(crate) fn operation_run_log_finish(
     .map_err(CmdError::from)
 }
 
+/// Finalize any still-open runs for a project as `interrupted`. Called at
+/// project-open: a run is frontend-driven and can't outlive its window, so any
+/// open row is an orphan whose window closed mid-run. Returns the count closed.
+#[tauri::command]
+pub(crate) fn operation_runs_reconcile(app: AppHandle, project_path: String) -> CmdResult<usize> {
+    let db = catalog_db_path(&app)?;
+    cuprum_project::operation_runs_reconcile(&db, &project_path, now_epoch())
+        .map_err(CmdError::from)
+}
+
 /// List a project's runs (newest first), optionally filtered by `op_type`.
 #[tauri::command]
 pub(crate) fn operation_runs_list(

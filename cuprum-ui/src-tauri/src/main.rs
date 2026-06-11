@@ -203,6 +203,7 @@ fn main() {
             commands::render::read_drill,
             commands::operation_log::operation_run_log_start,
             commands::operation_log::operation_run_log_finish,
+            commands::operation_log::operation_runs_reconcile,
             commands::operation_log::operation_runs_list,
             commands::operation_log::operation_run_last_params,
             commands::windows::display_px_per_mm,

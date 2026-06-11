@@ -185,6 +185,17 @@ pub fn operation_run_finish(
     )
 }
 
+/// Finalize any still-open runs for a project as `interrupted` (orphans left by a
+/// window that closed mid-run). Returns how many rows were reconciled.
+pub fn operation_runs_reconcile(
+    db_path: &Path,
+    project_path: &str,
+    ended_at: i64,
+) -> Result<usize> {
+    let conn = catalog::open(db_path)?;
+    catalog::operation_runs_reconcile(&conn, project_path, ended_at)
+}
+
 /// List operation runs for a project (newest first), optionally filtered by type,
 /// paginated via `limit`/`offset` ("load more").
 pub fn operation_runs_list(
