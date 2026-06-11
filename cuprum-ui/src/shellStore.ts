@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
-import { api, type AddDesignResult, type BoardInstance, type DrillClass, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type RestorePointMeta, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
+import { api, type AddDesignResult, type BoardInstance, type DrillClass, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
 import { panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
@@ -14,6 +14,7 @@ import { metricsCache } from "@/lib/metricsCache";
 import { serializePack } from "@/lib/projectPack";
 import { useArtifacts } from "@/artifactsStore";
 import { useNavigation } from "@/navigationStore";
+import { useHistory } from "@/historyStore";
 
 // The navigation domain (view + display scale + Home error/notice) lives in
 // `useNavigation`. Re-exported here so existing `import { View } from "@/shellStore"`
@@ -32,32 +33,12 @@ interface ShellStore {
    *  points) is in flight — drives the toolbar save spinner. */
   saving: boolean;
 
-  /** In-session document history. Snapshots are whole manifests. */
-  undoStack: Manifest[];
-  redoStack: Manifest[];
-  /** Persistent restore points for the open project (newest first). */
-  restorePoints: RestorePointMeta[];
-  /** Bumped on undo/redo/restore so editors with local state (PanelEditor)
-   *  re-sync from the manifest. */
-  docNonce: number;
-  /** True while a history op (undo/redo/restoreTo/makeRestorePoint) is in
-   *  flight; blocks concurrent history ops to prevent overlapping repacks. */
-  historyBusy: boolean;
-  canUndo: () => boolean;
-  canRedo: () => boolean;
-  undo: () => Promise<void>;
-  redo: () => Promise<void>;
-  makeRestorePoint: (label?: string, auto?: boolean) => Promise<void>;
-  restoreTo: (id: string) => Promise<void>;
-  refreshRestorePoints: () => Promise<void>;
   /** Private: persist a manifest as the new document (working-dir + .cuprum). */
   _persistManifest: (manifest: Manifest) => Promise<void>;
-  /** Private: push the previous manifest onto the undo stack (caps length). */
-  _recordUndo: (prev: Manifest) => void;
-  /** Private: create an "opened" restore point only when the document differs
-   *  from the newest existing point, so reopening an unchanged project does not
-   *  stack duplicate auto points. */
-  _maybeAutoOpenPoint: () => Promise<void>;
+  /** Private: set the manifest as the live document WITHOUT recording undo, then
+   *  persist it. The single cross-store "handle" `useHistory` uses to apply an
+   *  undo/redo/restore target (behaviour matches the old in-store set + persist). */
+  _applyManifest: (manifest: Manifest) => Promise<void>;
 
   loadRecents: () => Promise<void>;
   newProject: () => Promise<void>;
@@ -171,11 +152,6 @@ export const useShell = create<ShellStore>((set, get) => ({
   workingDir: null,
   currentManifest: null,
   saving: false,
-  undoStack: [],
-  redoStack: [],
-  restorePoints: [],
-  docNonce: 0,
-  historyBusy: false,
   pendingAddDesignId: null,
   pendingDrillPrefill: null,
   setPendingDrillPrefill: (paramsJson) => set({ pendingDrillPrefill: paramsJson }),
@@ -225,9 +201,9 @@ export const useShell = create<ShellStore>((set, get) => ({
       });
       useNavigation.getState().setError(null);
       await get().loadRecents();
-      set({ undoStack: [], redoStack: [] });
-      await get().refreshRestorePoints();
-      await get()._maybeAutoOpenPoint();
+      useHistory.getState().reset();
+      await useHistory.getState().refreshRestorePoints();
+      await useHistory.getState()._maybeAutoOpenPoint();
     } catch (e) {
       useNavigation.getState().setError(String(e));
     }
@@ -281,9 +257,9 @@ export const useShell = create<ShellStore>((set, get) => ({
       });
       useNavigation.getState().setError(null);
       await get().loadRecents();
-      set({ undoStack: [], redoStack: [] });
-      await get().refreshRestorePoints();
-      await get()._maybeAutoOpenPoint();
+      useHistory.getState().reset();
+      await useHistory.getState().refreshRestorePoints();
+      await useHistory.getState()._maybeAutoOpenPoint();
     } catch (e) {
       if (isProjectNotFound(e)) {
         const name = projectDisplayName(path, get().recents);
@@ -316,7 +292,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     const prev = get().currentManifest;
     try {
       const manifest = await api.updateProjectMetadata(path, name, description);
-      if (prev) get()._recordUndo(prev);
+      if (prev) useHistory.getState().recordUndo(prev);
       set({ currentManifest: manifest });
       useNavigation.getState().setError(null);
       await get()._mirrorManifest(manifest);
@@ -392,7 +368,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     // loose manifest and repacks it via the serialized pack chain.
     const manifest: Manifest = { ...prev, panel, stackup };
     try {
-      get()._recordUndo(prev);
+      useHistory.getState().recordUndo(prev);
       set({ currentManifest: manifest });
       useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);
@@ -756,30 +732,6 @@ export const useShell = create<ShellStore>((set, get) => ({
     if (workingDir) await api.writeWorkingManifest(workingDir, manifest);
   },
 
-  _recordUndo: (prev) =>
-    set((s) => ({ undoStack: [...s.undoStack, prev].slice(-100), redoStack: [] })),
-
-  // Create an "opened" restore point only if the document differs from the
-  // newest existing point — so reopening an unchanged project doesn't stack
-  // identical auto points.
-  _maybeAutoOpenPoint: async () => {
-    const { workingDir, currentManifest, restorePoints } = get();
-    if (!workingDir || !currentManifest) return;
-    if (restorePoints.length > 0) {
-      try {
-        const newest = await api.readRestorePoint(workingDir, restorePoints[0].id);
-        if (JSON.stringify(newest) === JSON.stringify(currentManifest)) return; // unchanged
-      } catch {
-        /* fall through and create the point */
-      }
-    }
-    try {
-      await get().makeRestorePoint(undefined, true);
-    } catch {
-      /* auto restore point is best-effort */
-    }
-  },
-
   // Persist a manifest as the live document: working-dir loose file (instant)
   // + repack the .cuprum (autosave). No-op without an open project.
   _persistManifest: async (manifest) => {
@@ -789,102 +741,17 @@ export const useShell = create<ShellStore>((set, get) => ({
     await serializePack(() => api.saveProject(workingDir, currentPath));
   },
 
-  canUndo: () => get().undoStack.length > 0,
-  canRedo: () => get().redoStack.length > 0,
-
-  undo: async () => {
-    if (get().historyBusy) return;
-    const { undoStack, currentManifest } = get();
-    if (undoStack.length === 0 || !currentManifest) return;
-    set({ historyBusy: true });
-    try {
-      const prev = undoStack[undoStack.length - 1];
-      set((s) => ({
-        undoStack: s.undoStack.slice(0, -1),
-        redoStack: [...s.redoStack, currentManifest],
-        currentManifest: prev,
-        docNonce: s.docNonce + 1,
-      }));
-      // _persistManifest writes the working-dir manifest first (the live source
-      // of truth), so in-memory state stays consistent with the working dir even
-      // when the .cuprum repack fails; no rollback needed.
-      await get()._persistManifest(prev);
-    } catch (e) {
-      useNavigation.getState().setError(String(e));
-    } finally {
-      set({ historyBusy: false });
-    }
-  },
-
-  redo: async () => {
-    if (get().historyBusy) return;
-    const { redoStack, currentManifest } = get();
-    if (redoStack.length === 0 || !currentManifest) return;
-    set({ historyBusy: true });
-    try {
-      const next = redoStack[redoStack.length - 1];
-      set((s) => ({
-        redoStack: s.redoStack.slice(0, -1),
-        undoStack: [...s.undoStack, currentManifest],
-        currentManifest: next,
-        docNonce: s.docNonce + 1,
-      }));
-      // _persistManifest writes the working-dir manifest first (the live source
-      // of truth), so in-memory state stays consistent with the working dir even
-      // when the .cuprum repack fails; no rollback needed.
-      await get()._persistManifest(next);
-    } catch (e) {
-      useNavigation.getState().setError(String(e));
-    } finally {
-      set({ historyBusy: false });
-    }
-  },
-
-  refreshRestorePoints: async () => {
-    const { workingDir } = get();
-    if (!workingDir) return;
-    try {
-      set({ restorePoints: await api.listRestorePoints(workingDir) });
-    } catch {
-      /* listing is best-effort */
-    }
-  },
-
-  makeRestorePoint: async (label, auto = false) => {
-    if (get().historyBusy) return;
-    const { workingDir, currentPath } = get();
-    if (!workingDir || !currentPath) return;
-    set({ historyBusy: true });
-    try {
-      // Snapshot reads the working-dir manifest, which _mirrorManifest keeps current.
-      await api.makeRestorePoint(workingDir, label, auto);
-      await serializePack(() => api.saveProject(workingDir, currentPath)); // flush so the .cuprum carries it
-      await get().refreshRestorePoints();
-    } catch (e) {
-      useNavigation.getState().setError(String(e));
-    } finally {
-      set({ historyBusy: false });
-    }
-  },
-
-  restoreTo: async (id) => {
-    if (get().historyBusy) return;
-    const { workingDir, currentManifest } = get();
-    if (!workingDir || !currentManifest) return;
-    set({ historyBusy: true });
-    try {
-      const manifest = await api.readRestorePoint(workingDir, id);
-      get()._recordUndo(currentManifest);
-      set((s) => ({ currentManifest: manifest, docNonce: s.docNonce + 1 }));
-      // _persistManifest writes the working-dir manifest first (the live source
-      // of truth), so in-memory state stays consistent with the working dir even
-      // when the .cuprum repack fails; no rollback needed.
-      await get()._persistManifest(manifest);
-    } catch (e) {
-      useNavigation.getState().setError(String(e));
-    } finally {
-      set({ historyBusy: false });
-    }
+  // Set the manifest as the live document WITHOUT recording undo, then persist it
+  // through the same working-dir + autosave path. This is the single cross-store
+  // "handle" `useHistory` uses to apply an undo/redo/restore target — its prior
+  // form was an inline `set({ currentManifest }) + _persistManifest` in undo/redo.
+  _applyManifest: async (manifest) => {
+    set({ currentManifest: manifest });
+    // Bump docNonce in the same sync tick, right after the manifest swap, so
+    // editors keyed on docNonce always re-sync against the NEW manifest (the old
+    // code set currentManifest + docNonce atomically; manifest-first preserves that).
+    useHistory.getState()._bumpDocNonce();
+    await get()._persistManifest(manifest);
   },
 
   addDesignsFromZips: async () => {
@@ -926,7 +793,7 @@ export const useShell = create<ShellStore>((set, get) => ({
           // and undo restores the state just before this commit.
           const base = get().currentManifest ?? prev;
           const manifest: Manifest = { ...base, designs: [...base.designs, ...added] };
-          get()._recordUndo(base);
+          useHistory.getState().recordUndo(base);
           set({ currentManifest: manifest });
       useNavigation.getState().setError(null);
           // Stash trace tokens for the freshly-imported designs (artifact store).
@@ -963,7 +830,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     );
     const manifest: Manifest = { ...prev, designs };
     try {
-      get()._recordUndo(prev);
+      useHistory.getState().recordUndo(prev);
       set({ currentManifest: manifest });
       useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);
@@ -985,7 +852,7 @@ export const useShell = create<ShellStore>((set, get) => ({
     if (designs.every((d, i) => d === prev.designs[i])) return;
     const manifest: Manifest = { ...prev, designs };
     try {
-      get()._recordUndo(prev);
+      useHistory.getState().recordUndo(prev);
       set({ currentManifest: manifest });
       useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);
@@ -1008,7 +875,7 @@ export const useShell = create<ShellStore>((set, get) => ({
       : prev.panel;
     const manifest: Manifest = { ...prev, designs, panel };
     try {
-      get()._recordUndo(prev);
+      useHistory.getState().recordUndo(prev);
       set({ currentManifest: manifest });
       useNavigation.getState().setError(null);
       await get()._persistManifest(manifest);

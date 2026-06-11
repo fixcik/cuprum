@@ -14,6 +14,7 @@ import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import { useReportPanelVerdict } from "@/hooks/useReportPanelVerdict";
 import { useShell } from "@/shellStore";
+import { useHistory } from "@/historyStore";
 import { usePanelSelection } from "@/panelSelectionStore";
 import { useSettings } from "@/settingsStore";
 
@@ -24,7 +25,7 @@ import { useSettings } from "@/settingsStore";
 export function PanelEditor() {
   const currentPath = useShell((s) => s.currentPath);
   const savePanelConfig = useShell((s) => s.savePanelConfig);
-  const docNonce = useShell((s) => s.docNonce);
+  const docNonce = useHistory((s) => s.docNonce);
   const userPresets = useSettings((s) => s.panelPresets);
   const addPanelPreset = useSettings((s) => s.addPanelPreset);
   const removePanelPreset = useSettings((s) => s.removePanelPreset);
