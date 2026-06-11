@@ -2,8 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Crosshair, Loader2, LocateFixed, Maximize, Minus, Plus, Ruler } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { BBox, Hole, LayerType } from "@/lib/api";
-import { LAYER_Z } from "@/lib/layerColors";
-import { outlineLoops, outlinePathD } from "@/lib/boardOutline";
+import { useLayerClassification } from "@/hooks/useLayerClassification";
 import { DrcMarkers, type DrcMarkerInput, type ProjectedMarker } from "@/components/preview/DrcMarkers";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { RulersOverlay, type Viewport } from "@/components/editor/RulersOverlay";
@@ -72,6 +71,11 @@ function fullBBox(layers: StackLayer[]): BBox | null {
     { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
   );
 }
+
+// Stand-in extent passed to the classification hook before any layers exist, so
+// the hook (and thus hook order) runs unconditionally; its outputs go unused on
+// the empty-state path.
+const FALLBACK_BBOX: BBox = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
 interface View {
   s: number; // px per mm
@@ -314,27 +318,13 @@ export function LayerStack({
   // Board outline path (gerber mm) for clipping the soldermask/substrate to the
   // real board shape. Kept above the early returns so hook order stays stable.
   const clipId = useId().replace(/:/g, "");
-  const edgeLayer = layers.find((l) => l.type === "edgeCuts");
-  const boardClipD = useMemo(
-    () => (edgeLayer ? outlinePathD(edgeLayer.svgBody) : null),
-    [edgeLayer],
-  );
-  // True board extent = bbox of the Edge_Cuts CENTERLINE (the cut path), NOT the
-  // stroked layer bbox — the rendered outline has the gerber stroke width, so its
-  // bbox is half a line-width too big on every side. The cut follows the centre.
-  const edgeBoxOutline = useMemo(() => {
-    if (!edgeLayer) return null;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const loop of outlineLoops(edgeLayer.svgBody)) {
-      for (const p of loop) {
-        if (p.x < minX) minX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y > maxY) maxY = p.y;
-      }
-    }
-    return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
-  }, [edgeLayer]);
+  // Classify the stack into render-ready structures (visible layers in z-order,
+  // Edge_Cuts layer + clip path + true extent, snap candidate sets). Runs every
+  // render so hook order stays stable across the empty-state early return below;
+  // a stub extent stands in for `box` when there are no layers yet (its derived
+  // values go unused on that path).
+  const { visible, boardClipD, edgeBox, featurePts, boardPts } =
+    useLayerClassification(layers, box ?? FALLBACK_BBOX);
 
   // Project DRC markers (board mm → screen px) with the live view transform,
   // memoised so a cursor-only re-render (the hover crosshair tracking the
@@ -402,14 +392,9 @@ export function LayerStack({
   };
 
   const pct = Math.round((view.s / pxPerMm) * 100);
-  const visible = layers
-    .filter((l) => l.visible)
-    .slice()
-    .sort((a, b) => LAYER_Z[a.type] - LAYER_Z[b.type]);
 
   // Real board size — the Edge_Cuts centerline extent when present, else the
-  // overall extent of all layers.
-  const edgeBox = edgeBoxOutline ?? box;
+  // overall extent of all layers (`edgeBox` resolved by useLayerClassification).
   const boardW = edgeBox.maxX - edgeBox.minX;
   const boardH = edgeBox.maxY - edgeBox.minY;
 
@@ -424,16 +409,8 @@ export function LayerStack({
   const { minor: minorStep, labelEvery } = gridSteps(view.s);
 
   const SNAP_PX = 10;
-  // Visible feature snap points (gerber mm).
-  const featurePts: [number, number][] = visible.flatMap((l) => l.snap);
-  // Board corners + edge midpoints + center (from the Edge_Cuts extent).
-  const bx = edgeBox; // computed above for the board-size chip
-  const boardPts: [number, number][] = [
-    [bx.minX, bx.minY], [bx.maxX, bx.minY], [bx.minX, bx.maxY], [bx.maxX, bx.maxY],
-    [(bx.minX + bx.maxX) / 2, bx.minY], [(bx.minX + bx.maxX) / 2, bx.maxY],
-    [bx.minX, (bx.minY + bx.maxY) / 2], [bx.maxX, (bx.minY + bx.maxY) / 2],
-    [(bx.minX + bx.maxX) / 2, (bx.minY + bx.maxY) / 2],
-  ];
+  // Snap candidate sets (gerber mm) — visible-layer features + the board frame —
+  // are classified in useLayerClassification (`featurePts` / `boardPts`).
 
   // Snap the cursor (screen px) to the nearest candidate within SNAP_PX, else the
   // nearest grid node, else the raw point. Priority: features > board > grid.
