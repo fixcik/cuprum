@@ -235,7 +235,9 @@ pub fn compose_layout(
         let _span = tracing::info_span!("rasterize").entered();
         unique
             .into_par_iter()
-            .map(|path| cache::native_mask(&path).map(|m| (path, m)))
+            // TODO(expose-rotation): pass per-placement rotation_deg once Phase 2
+            // wires the rotated re-render; 0 here keeps existing behaviour unchanged.
+            .map(|path| cache::native_mask(&path, 0).map(|m| (path, m)))
             .collect::<Result<_>>()?
     };
 

@@ -275,7 +275,10 @@ fn resolve_placements(req: &ExposeRunRequest) -> anyhow::Result<Vec<compose::Pla
                 .map_err(|e| anyhow::anyhow!("{}", e.message()))?;
 
         // Get mask bbox from the in-process cache.
-        let mask = cuprum_core::cache::native_mask(&abs_path)?;
+        // TODO(expose-rotation): pass inst.rotation_deg once Phase 2 wires the
+        // rotated re-render into compose_layout; using 0 here keeps existing
+        // behaviour unchanged in this phase.
+        let mask = cuprum_core::cache::native_mask(&abs_path, 0)?;
         let mask_bbox_mm = (mask.min_x_mm, mask.min_y_mm, mask.max_x_mm, mask.max_y_mm);
 
         // Get board outline from the cached metrics path.
