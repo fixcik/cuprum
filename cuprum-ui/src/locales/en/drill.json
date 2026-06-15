@@ -252,6 +252,12 @@
     "rmsWarnHint": "Residual is elevated — check fiducial centres.",
     "rmsBadHint": "Residual is too high — recapture fiducials more carefully.",
     "modeCorner": "By corner",
-    "modeFiducial": "By fiducials"
+    "modeFiducial": "By fiducials",
+    "zDown": "Z−",
+    "zDownTitle": "Step Z down (slow feed)",
+    "zUp": "Z+",
+    "zUpTitle": "Step Z up",
+    "raiseZ": "Safe Z",
+    "raiseZTitle": "Raise to safe Z height (rapid)"
   }
 }

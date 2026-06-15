@@ -16,6 +16,7 @@ import {
   ArrowUp,
   ArrowUpLeft,
   ArrowUpRight,
+  ChevronsUp,
 } from "lucide-react";
 import { api, type FiducialDto, type FiducialStateDto } from "@/lib/api";
 import type { DatumCorner } from "@/lib/datum";
@@ -27,6 +28,7 @@ import {
   canSolve,
   machineToWorkXY,
   FIDUCIAL_CAPTURE_STEPS_MM,
+  FIDUCIAL_Z_DESCENT_FEED_MM_MIN,
   getRegistrationHoles,
 } from "@/lib/fiducialRegistration";
 import type { JogBounds } from "@/lib/jogBounds";
@@ -217,6 +219,38 @@ export function FiducialPanel({
     setActiveIdx(null);
     setCapturePhase("idle");
   }, [stopContinuous]);
+
+  /** One step down in Z at the slow descent feed.
+   *  Targets the current work-frame Z minus one step, clamped by the bounds. */
+  const handleZDown = useCallback(async () => {
+    if (!enabled || !homed || typeof step !== "number") return;
+    const { wpos } = useMachine.getState().status;
+    await jogTo({ z: wpos[2] - step }, FIDUCIAL_Z_DESCENT_FEED_MM_MIN);
+  }, [enabled, homed, step, jogTo]);
+
+  /** One step up in Z at the normal jog feed. */
+  const handleZUp = useCallback(async () => {
+    if (!enabled || !homed || typeof step !== "number") return;
+    const { wpos } = useMachine.getState().status;
+    await jogTo({ z: wpos[2] + step });
+  }, [enabled, homed, step, jogTo]);
+
+  /** Raise Z to the machine-frame safe retract height (rapid). */
+  const handleRaiseToSafeZ = useCallback(async () => {
+    if (!enabled || !homed) return;
+    const { mpos, wpos } = useMachine.getState().status;
+    const wcoZ = mpos[2] - wpos[2];
+    const retractMachineZ = safeRetractMachineZ(
+      wcoZ,
+      cncProfile.safeZMm,
+      cncProfile.machineSafeZMm,
+    );
+    try {
+      await jogTo({ z: retractMachineZ - wcoZ }, RAPID_JOG_FEED);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [enabled, homed, jogTo, cncProfile.safeZMm, cncProfile.machineSafeZMm]);
 
   /** Run fiducial_solve and refresh state. */
   const handleSolve = useCallback(async () => {
@@ -503,6 +537,40 @@ export function FiducialPanel({
                       </button>
                       <button type="button" disabled={!enabled} className={padBtn} {...xyProps(1, -1)}>
                         <ArrowDownRight className="size-4" />
+                      </button>
+                    </div>
+
+                    {/* Z controls: step down / step up / raise to safe Z */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={!enabled || !homed}
+                        className={padBtn + " flex-1"}
+                        title={t("fiducial.zDownTitle")}
+                        onClick={() => void handleZDown()}
+                      >
+                        <ArrowDown className="size-4" />
+                        <span className="ml-1 text-[11px]">{t("fiducial.zDown")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!enabled || !homed}
+                        className={padBtn + " flex-1"}
+                        title={t("fiducial.zUpTitle")}
+                        onClick={() => void handleZUp()}
+                      >
+                        <ArrowUp className="size-4" />
+                        <span className="ml-1 text-[11px]">{t("fiducial.zUp")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!enabled || !homed}
+                        className={padBtn + " flex-1"}
+                        title={t("fiducial.raiseZTitle")}
+                        onClick={() => void handleRaiseToSafeZ()}
+                      >
+                        <ChevronsUp className="size-4" />
+                        <span className="ml-1 text-[11px]">{t("fiducial.raiseZ")}</span>
                       </button>
                     </div>
 
