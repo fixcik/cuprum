@@ -25,9 +25,9 @@ pub struct EmitCtx {
     /// origin for the first traverse's keep-out avoidance. Defaults to (0,0) →
     /// byte-identical output when omitted.
     pub start_machine_xy: Option<(f64, f64)>,
-    /// Optional fiducial registration transform. When `Some`, each hole coordinate
-    /// is passed through `reg.apply(mx, my)` after `machine_point()` to correct for
-    /// board placement offset, rotation and scale. `None` → identity (no change).
+    /// Optional fiducial registration transform. When `Some`, each work-frame hole
+    /// coordinate is passed through `reg.apply(wx, wy)` after `machine_point()` to
+    /// correct for board placement offset, rotation and scale. `None` → identity.
     pub registration: Option<Registration>,
 }
 

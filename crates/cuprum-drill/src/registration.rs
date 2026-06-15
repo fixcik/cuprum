@@ -1,30 +1,32 @@
 // 2D rigid-body (+ optional uniform scale) transform fitting for fiducial
-// registration: corrects board-placement error within the machine frame.
+// registration: corrects board-placement error within the work frame (G54).
 //
-// The transform operates entirely in machine space. `fit_transform` learns it
-// from pairs of (ideal machine point, measured machine point): the ideal point
-// is where a fiducial *should* land after the nominal datum transform, the
-// measured point is where the probe actually found it. `apply` then nudges any
-// machine-space hole coordinate by the same small correction.
+// The transform operates in work space (G54). `fit_transform` learns it
+// from pairs of (ideal work point, measured work point): the ideal point
+// is where a fiducial *should* land after the nominal datum transform (= the
+// WPos the spindle shows when centred over the nominal hole), the measured
+// point is the WPos actually captured. `apply` then nudges any
+// work-frame hole coordinate by the same small correction.
 //
 // Usage pattern:
-//   1. For each fiducial, compute its ideal machine point (datum transform of
-//      the panel coordinate) and probe its measured machine point.
+//   1. For each fiducial, compute its ideal work point (datum transform of
+//      the panel coordinate via `machine_point`) and capture the WPos the
+//      spindle shows when centred over it.
 //   2. Call `fit_transform` to get a `Registration` (or an error on degenerate input).
-//   3. Call `reg.apply(mx, my)` on an already-datum-transformed (machine-space)
-//      hole coordinate to get the corrected machine-space coordinate.
+//   3. Call `reg.apply(wx, wy)` on an already-datum-transformed (work-frame)
+//      hole coordinate to get the corrected work-frame coordinate.
 //   4. Inspect `reg.rms_residual_mm` for fit quality.
 //
-// Coordinate convention: everything is machine-space f64 mm. No unit conversion
+// Coordinate convention: everything is work-frame f64 mm. No unit conversion
 // is done here; callers are responsible.
 
 use crate::types::MachineXY;
 
 /// A 2D similarity transform: optional uniform scale, rotation, translation.
 ///
-/// Both input and output are machine-space points (mm). It corrects a small
-/// board-placement error, mapping an ideal machine point `p` to the corrected
-/// machine point as:
+/// Both input and output are work-frame (G54) points (mm). It corrects a small
+/// board-placement error, mapping an ideal work point `p` to the corrected
+/// work point as:
 ///   `scale * R(angle) * p + translation`
 ///
 /// where `R(angle)` is the 2×2 rotation matrix.
@@ -81,8 +83,8 @@ impl std::fmt::Display for FitError {
 impl std::error::Error for FitError {}
 
 impl Registration {
-    /// Apply this correction to a machine-space point (already datum-transformed),
-    /// returning the corrected machine-space point.
+    /// Apply this correction to a work-frame (G54) point (already datum-transformed),
+    /// returning the corrected work-frame point.
     #[inline]
     pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
         let cos_a = self.angle_rad.cos();
