@@ -1,4 +1,5 @@
 pub(crate) mod board;
+pub(crate) mod crash;
 pub(crate) mod drill_run;
 pub(crate) mod error;
 pub(crate) mod expose_run;
