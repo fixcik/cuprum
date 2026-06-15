@@ -215,6 +215,11 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
         />
       );
     case KIND_MASK:
+      // polygonOffset pushes the mask slightly BACK in the depth buffer so that
+      // where its slab walls coincide with the copper pad/opening edges, copper
+      // wins the depth test instead of the two z-fighting (the speckle at
+      // copper∩mask boundaries). depthWrite stays off so copper still shows
+      // faintly through the translucent film.
       return (
         <meshStandardMaterial
           color={MASK_COLOR}
@@ -223,6 +228,9 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
           transparent
           opacity={0.9}
           depthWrite={false}
+          polygonOffset
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
           side={THREE.DoubleSide}
         />
       );
