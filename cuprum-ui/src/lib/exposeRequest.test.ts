@@ -47,7 +47,7 @@ const BASE_SNAP: ExposeSnapshot = {
   },
   placedSizes: { "design-a": { w: 40, h: 30 } },
   side: "top",
-  mirror: false,
+  mirrorAxis: "none",
   invert: false,
   exposureS: 60,
   pwm: 255,
@@ -57,7 +57,7 @@ describe("buildExposeRequest", () => {
   it("maps snapshot to ExposeRunRequest with correct camelCase fields", () => {
     const req = buildExposeRequest(BASE_SNAP, {
       side: "top",
-      mirror: false,
+      mirrorAxis: "none",
       invert: true,
       exposureS: 45,
       pwm: 200,
@@ -97,17 +97,17 @@ describe("buildExposeRequest", () => {
 
   it("returns null when workingDir is null", () => {
     const snap = { ...BASE_SNAP, workingDir: null };
-    expect(buildExposeRequest(snap, { side: "top", mirror: false, invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
+    expect(buildExposeRequest(snap, { side: "top", mirrorAxis: "none", invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
   });
 
   it("returns null when manifest is null", () => {
     const snap = { ...BASE_SNAP, manifest: null };
-    expect(buildExposeRequest(snap, { side: "top", mirror: false, invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
+    expect(buildExposeRequest(snap, { side: "top", mirrorAxis: "none", invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
   });
 
   it("returns null when panel is null", () => {
     const snap = { ...BASE_SNAP, manifest: { ...BASE_SNAP.manifest!, panel: null } };
-    expect(buildExposeRequest(snap, { side: "top", mirror: false, invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
+    expect(buildExposeRequest(snap, { side: "top", mirrorAxis: "none", invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
   });
 
   it("returns null when no designs are placed", () => {
@@ -118,20 +118,20 @@ describe("buildExposeRequest", () => {
         panel: { ...BASE_SNAP.manifest!.panel!, instances: [] },
       },
     };
-    expect(buildExposeRequest(snap, { side: "top", mirror: false, invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
+    expect(buildExposeRequest(snap, { side: "top", mirrorAxis: "none", invert: false, exposureS: 60, pwm: 255, runUid: "x" })).toBeNull();
   });
 
-  it("handles bottom side correctly", () => {
+  it("handles bottom side with mirror axis correctly", () => {
     const req = buildExposeRequest(BASE_SNAP, {
       side: "bottom",
-      mirror: true,
+      mirrorAxis: "y",
       invert: false,
       exposureS: 30,
       pwm: 128,
       runUid: "uid-bottom",
     });
     expect(req!.side).toBe("bottom");
-    expect(req!.mirror).toBe(true);
+    expect(req!.mirrorAxis).toBe("y");
     expect(req!.exposureS).toBe(30);
     expect(req!.pwm).toBe(128);
   });

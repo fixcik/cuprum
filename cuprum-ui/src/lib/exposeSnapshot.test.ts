@@ -12,7 +12,7 @@ describe("buildExposeSnapshot", () => {
     expect(snap.currentPath).toBe("/tmp/project.cu");
     expect(snap.manifest).toBeNull();
     expect(snap.side).toBe("top");
-    expect(snap.mirror).toBe(false);
+    expect(snap.mirrorAxis).toBe("none");
     expect(snap.invert).toBe(false);
     expect(snap.exposureS).toBe(DEFAULT_EXPOSURE_S);
     expect(snap.pwm).toBe(DEFAULT_PWM);
@@ -26,13 +26,13 @@ describe("buildExposeSnapshot", () => {
       manifest: null,
       placedSizes: { "design-1": { w: 40, h: 30 } },
       side: "bottom",
-      mirror: true,
+      mirrorAxis: "x",
       invert: true,
       exposureS: 45,
       pwm: 200,
     });
     expect(snap.side).toBe("bottom");
-    expect(snap.mirror).toBe(true);
+    expect(snap.mirrorAxis).toBe("x");
     expect(snap.invert).toBe(true);
     expect(snap.exposureS).toBe(45);
     expect(snap.pwm).toBe(200);
@@ -57,7 +57,7 @@ describe("buildExposeSnapshot", () => {
     });
     // All required fields present
     expect(Object.keys(snap).sort()).toEqual(
-      ["currentPath", "exposureS", "invert", "manifest", "mirror", "placedSizes", "pwm", "side", "workingDir"].sort(),
+      ["currentPath", "exposureS", "invert", "manifest", "mirrorAxis", "placedSizes", "pwm", "side", "workingDir"].sort(),
     );
   });
 });

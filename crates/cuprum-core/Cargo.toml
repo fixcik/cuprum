@@ -7,6 +7,7 @@ description = "Core library for Cuprum: drive an Elegoo Saturn 4 Ultra 16K as a 
 
 [dependencies]
 anyhow.workspace = true
+serde.workspace = true
 resvg.workspace = true
 usvg.workspace = true
 rayon.workspace = true

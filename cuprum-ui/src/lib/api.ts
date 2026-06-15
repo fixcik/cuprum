@@ -305,7 +305,8 @@ export interface ExposeSnapshot {
   placedSizes: Record<string, { w: number; h: number }>;
   /** Which copper side to expose. */
   side: "top" | "bottom";
-  mirror: boolean;
+  /** Which axis to mirror about ("none" | "x" | "y"). */
+  mirrorAxis: MirrorAxis;
   invert: boolean;
   /** Exposure time in seconds. */
   exposureS: number;
@@ -553,13 +554,17 @@ export interface ExposePanelDto {
   instances: ExposeBoardInstance[];
 }
 
+/** Which axis to mirror the exposure screen buffer about. Matches `MirrorAxis` in Rust. */
+export type MirrorAxis = "none" | "x" | "y";
+
 /** Full request sent to `expose_run_start` (camelCase mirror of ExposeRunRequest). */
 export interface ExposeRunRequest {
   workingDir: string;
   panel: ExposePanelDto;
   designs: ExposeDesignDto[];
   side: "top" | "bottom";
-  mirror: boolean;
+  /** Which axis to mirror about. */
+  mirrorAxis: MirrorAxis;
   invert: boolean;
   exposureS: number;
   pwm: number;

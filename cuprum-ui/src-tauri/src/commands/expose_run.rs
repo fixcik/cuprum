@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, State};
 
-use cuprum_core::compose::{self, InstancePlacementInput};
+use cuprum_core::compose::{self, InstancePlacementInput, MirrorAxis};
 use cuprum_core::goo::{self, ExposureParams, SCREEN_H, SCREEN_W};
 use cuprum_core::sdcp;
 use cuprum_project::LayerType;
@@ -69,7 +69,8 @@ pub struct ExposeRunRequest {
     pub designs: Vec<DesignDto>,
     /// "top" | "bottom" — selects topCopper / bottomCopper from each design.
     pub side: String,
-    pub mirror: bool,
+    /// Which axis to mirror the screen buffer about ("none" | "x" | "y").
+    pub mirror_axis: MirrorAxis,
     pub invert: bool,
     pub exposure_s: f32,
     pub pwm: u16,
@@ -366,7 +367,7 @@ fn run_expose(app: AppHandle, req: ExposeRunRequest, ctrl: Arc<ExposeControl>) {
         "expose-compose",
         &traces,
         || -> anyhow::Result<Vec<u8>> {
-            let screen = compose::compose_layout(&placements, req.mirror, req.invert, true)?;
+            let screen = compose::compose_layout(&placements, req.mirror_axis, req.invert, true)?;
             let params = ExposureParams {
                 exposure_time_s: req.exposure_s,
                 light_pwm: req.pwm,

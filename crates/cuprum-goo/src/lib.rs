@@ -214,6 +214,21 @@ pub fn flip_x(buf: &mut [u8], width: u32, height: u32) {
     }
 }
 
+/// Flip a row-major buffer vertically (mirror across the horizontal axis). Used
+/// to apply a whole-sheet emulsion-down mirror when the board is flipped about
+/// the Y axis of the fixture (top/bottom edge swap).
+pub fn flip_y(buf: &mut [u8], width: u32, height: u32) {
+    let w = width as usize;
+    let h = height as usize;
+    for y in 0..h / 2 {
+        let top = y * w;
+        let bot = (h - 1 - y) * w;
+        // Safety: top and bot are distinct non-overlapping slices within buf.
+        let (a, b) = buf.split_at_mut(bot);
+        a[top..top + w].swap_with_slice(&mut b[..w]);
+    }
+}
+
 /// Rotate a row-major buffer 180°. The Saturn 4 Ultra displays the slice buffer
 /// rotated 180° on the physical screen (verified with the calibration target: our
 /// top-left origin lands at the screen's bottom-right corner). Pre-rotating cancels
@@ -305,5 +320,37 @@ mod tests {
         let rot = rotate180(&src);
         assert_eq!(rot, vec![5, 4, 3, 2, 1, 0]);
         assert_eq!(rotate180(&rot), src, "rotating twice restores the original");
+    }
+
+    /// flip_x mirrors each row: [0,1,2, 3,4,5] 2x3 → [2,1,0, 5,4,3]
+    #[test]
+    fn flip_x_reverses_rows() {
+        // 3 wide, 2 tall
+        let mut buf: Vec<u8> = (0..6).collect(); // [[0,1,2],[3,4,5]]
+        flip_x(&mut buf, 3, 2);
+        assert_eq!(buf, vec![2, 1, 0, 5, 4, 3]);
+        // involutive
+        flip_x(&mut buf, 3, 2);
+        assert_eq!(buf, (0u8..6).collect::<Vec<_>>());
+    }
+
+    /// flip_y swaps row order: 2x3 [[0,1],[2,3],[4,5]] → [[4,5],[2,3],[0,1]]
+    #[test]
+    fn flip_y_reverses_rows_order() {
+        // 2 wide, 3 tall
+        let mut buf: Vec<u8> = (0..6).collect(); // rows: [0,1], [2,3], [4,5]
+        flip_y(&mut buf, 2, 3);
+        assert_eq!(buf, vec![4, 5, 2, 3, 0, 1]);
+        // involutive
+        flip_y(&mut buf, 2, 3);
+        assert_eq!(buf, (0u8..6).collect::<Vec<_>>());
+    }
+
+    /// flip_y on an even-height buffer: 2x2
+    #[test]
+    fn flip_y_even_height() {
+        let mut buf = vec![0u8, 1, 2, 3]; // rows: [0,1], [2,3]
+        flip_y(&mut buf, 2, 2);
+        assert_eq!(buf, vec![2, 3, 0, 1]);
     }
 }
