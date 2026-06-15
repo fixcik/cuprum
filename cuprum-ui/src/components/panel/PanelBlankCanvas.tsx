@@ -32,6 +32,7 @@ import { SelectionOverlay } from "@/components/panel/SelectionOverlay";
 import { RotationHandle } from "@/components/panel/RotationHandle";
 import { RenestDialog } from "@/components/panel/RenestDialog";
 import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog";
+import { AutoFiducialsDialog } from "@/components/panel/AutoFiducialsDialog";
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
 import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
 import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
@@ -90,6 +91,8 @@ export function PanelBlankCanvas({
   const setToolingHoleDiameter = useShell((s) => s.setToolingHoleDiameter);
   const setToolingHoleRole = useShell((s) => s.setToolingHoleRole);
   const addRegistrationSet = useShell((s) => s.addRegistrationSet);
+  const addAutoFiducials = useShell((s) => s.addAutoFiducials);
+  const fiducialParams = useShell((s) => s.currentManifest?.panel?.fiducial_params);
   const addKeepOutZone = useShell((s) => s.addKeepOutZone);
   const moveKeepOutZones = useShell((s) => s.moveKeepOutZones);
   const removeKeepOutZones = useShell((s) => s.removeKeepOutZones);
@@ -623,6 +626,7 @@ export function PanelBlankCanvas({
   const hasSelection = selected.size > 0;
   const [renestOpen, setRenestOpen] = useState(false);
   const [regSetOpen, setRegSetOpen] = useState(false);
+  const [autoFiducialsOpen, setAutoFiducialsOpen] = useState(false);
   const [selectedHoleId, setSelectedHoleId] = useState<string | null>(null);
   // Tooling mode is edit-first: the "+" action ARMS a one-shot placement. While
   // armed a ghost crosshair (ghostMm) follows the cursor; the next canvas click
@@ -821,6 +825,7 @@ export function PanelBlankCanvas({
         onAddHole={armAddHole}
         addArmed={addArmed}
         onAddRegistrationSet={() => setRegSetOpen(true)}
+        onAddAutoFiducials={() => setAutoFiducialsOpen(true)}
       />
       <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />
 
@@ -892,6 +897,15 @@ export function PanelBlankCanvas({
       panelH={H}
       existingHoles={holes}
       onApply={(opts) => void addRegistrationSet(opts)}
+    />
+    <AutoFiducialsDialog
+      open={autoFiducialsOpen}
+      onClose={() => setAutoFiducialsOpen(false)}
+      panelW={W}
+      panelH={H}
+      existingHoles={holes}
+      initialParams={fiducialParams}
+      onApply={({ params, replace }) => void addAutoFiducials(params, replace)}
     />
     </>
   );

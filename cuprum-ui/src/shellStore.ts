@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
-import { api, type AddDesignResult, type BoardInstance, type DrillClass, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
+import { api, type AddDesignResult, type BoardInstance, type DrillClass, type FiducialParams, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
-import { panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
+import { panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, placeFiducials, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
 import { solvePanelPlacements } from "@/lib/packSolve";
 import { type NestSettings } from "@/lib/nest";
 import { isProjectNotFound, projectDisplayName } from "@/lib/projectErrors";
@@ -127,6 +127,10 @@ interface ShellStore {
   setDrillClassOverride: (diameterKey: string, klass: DrillClass | null) => Promise<void>;
   /** Add a corner registration set (4 holes) in one undo step. */
   addRegistrationSet: (opts: { count: 2 | 4; marginMm: number; diameterMm: number; replace: boolean }) => Promise<void>;
+  /** Place fiducial holes using the auto-fiducial parameters, persisting the
+   *  params into the panel doc so the dialog can restore them on next open.
+   *  When `replace` is true, existing tooling holes are cleared first. */
+  addAutoFiducials: (params: FiducialParams, replace: boolean) => Promise<void>;
 
   /** Add a keep-out zone to the panel. Returns the new zone id, or "" when no panel
    *  is open. Width/height are normalised to positive values; the zone is clamped
@@ -691,6 +695,22 @@ export const useShell = create<ShellStore>((set, get) => ({
       holes = [...holes, { id, x_mm: c.x, y_mm: c.y, diameter_mm: diameterMm, role: "registration" }];
     }
     const next: PanelDoc = { ...panel, tooling_holes: holes };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  addAutoFiducials: async (params, replace) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const positions = placeFiducials(panel.width_mm, panel.height_mm, params);
+    let holes = replace ? [] : [...panel.tooling_holes];
+    const r = params.diameter_mm / 2;
+    for (const pos of positions) {
+      const c = clampToolingHoleCenter(pos.x_mm, pos.y_mm, r, panel.width_mm, panel.height_mm);
+      const id = nextToolingId(holes);
+      holes = [...holes, { id, x_mm: c.x, y_mm: c.y, diameter_mm: params.diameter_mm, role: "registration" }];
+    }
+    const next: PanelDoc = { ...panel, tooling_holes: holes, fiducial_params: params };
     await get().savePanelConfig(next, stackup);
   },
 

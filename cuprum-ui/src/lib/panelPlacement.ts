@@ -1,5 +1,5 @@
 import type { NestSettings } from "@/lib/nest";
-import type { BoardInstance, KeepOutZone, ToolingHole, ToolingHoleRole } from "@/lib/api";
+import type { BoardInstance, FiducialParams, KeepOutZone, ToolingHole, ToolingHoleRole } from "@/lib/api";
 
 /** Axis-aligned bounding box (mm). */
 export type Box = { minX: number; minY: number; maxX: number; maxY: number };
@@ -767,4 +767,41 @@ export function distributeInstances(items: AlignItem[], axis: "h" | "v"): Pose[]
     next.set(i.id, { id: i.id, x_mm: i.x_mm + (axis === "h" ? delta : 0), y_mm: i.y_mm + (axis === "v" ? delta : 0) });
   });
   return items.map((i) => next.get(i.id)!);
+}
+
+/** Computed position of a single fiducial hole (mm). */
+export interface FiducialPosition {
+  x_mm: number;
+  y_mm: number;
+}
+
+/**
+ * Place `params.count` fiducials symmetrically about the panel centre along
+ * the axis specified by `params.axis`.
+ *
+ * The row is centred on the panel mid-point of the chosen axis.  Adjacent holes
+ * are separated by `params.step_mm`.  `params.edge_offset_mm` offsets the row
+ * from the panel edge perpendicular to the axis.
+ *
+ * Mirrors the Rust `place_fiducials` function in `cuprum-project/src/document/panel.rs`.
+ */
+export function placeFiducials(
+  panelWidthMm: number,
+  panelHeightMm: number,
+  params: FiducialParams,
+): FiducialPosition[] {
+  const n = Math.max(params.count, 2);
+  const span = (n - 1) * params.step_mm;
+
+  if (params.axis === "x") {
+    const centreX = panelWidthMm / 2;
+    const y = Math.min(Math.max(params.edge_offset_mm, 0), panelHeightMm);
+    const x0 = centreX - span / 2;
+    return Array.from({ length: n }, (_, i) => ({ x_mm: x0 + i * params.step_mm, y_mm: y }));
+  } else {
+    const centreY = panelHeightMm / 2;
+    const x = Math.min(Math.max(params.edge_offset_mm, 0), panelWidthMm);
+    const y0 = centreY - span / 2;
+    return Array.from({ length: n }, (_, i) => ({ x_mm: x, y_mm: y0 + i * params.step_mm }));
+  }
 }

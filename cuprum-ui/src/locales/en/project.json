@@ -159,6 +159,7 @@
       "tooling": "Tooling hole",
       "addHole": "Add tooling hole",
       "registrationSet": "Registration set",
+      "autoFiducials": "Auto-place fiducials",
       "keepout": "Forbidden zone"
     },
     "keepout": {
@@ -201,6 +202,19 @@
       "existing": "Existing holes",
       "existingAdd": "Add",
       "existingReplace": "Replace all",
+      "apply": "Place"
+    },
+    "autoFiducials": {
+      "title": "Auto-place fiducials",
+      "axis": "Axis",
+      "axisX": "X (horizontal)",
+      "axisY": "Y (vertical)",
+      "params": "Parameters",
+      "count": "Count",
+      "step": "Spacing",
+      "edgeOffset": "Edge offset",
+      "coordinates": "Hole coordinates",
+      "coordNo": "No.",
       "apply": "Place"
     },
     "align": {
