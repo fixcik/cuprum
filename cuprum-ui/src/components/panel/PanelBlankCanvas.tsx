@@ -319,6 +319,10 @@ export function PanelBlankCanvas({
   // the native contextmenu must reach the Radix trigger on the container.
   const onInstanceContextMenu = (id: string) => () => {
     if (tool !== "select") return;
+    // Selecting a board (even via right-click) is exclusive — drop zone + hole
+    // selection so only the board's HUD/menu shows, not a stale hole inspector.
+    clearKeepOutSelection();
+    setSelectedHoleId(null);
     if (!usePanelSelection.getState().selected.has(id)) setSelection([id]);
   };
 
@@ -874,20 +878,35 @@ export function PanelBlankCanvas({
         {/* Measure overlay on its own untransformed layer: endpoints (panel mm) are
             projected to screen px via the viewport, so line/reticle widths stay
             constant under zoom — mirrors the design inspector's measure overlay. */}
-        {tool === "measure" && (
-          <Layer listening={false}>
-            <MeasureOverlay
-              a={mA}
-              b={mB}
-              hover={measureHover}
-              width={size.w}
-              height={size.h}
-              originX={viewport.originX}
-              originY={viewport.originY}
-              pxPerMm={viewport.pxPerMm}
-            />
-          </Layer>
-        )}
+        {tool === "measure" && (() => {
+          // MeasureOverlay is authored in SCREEN px, but a Konva Layer is a child of
+          // the Stage and inherits its zoom/pan transform — which would apply that
+          // transform a SECOND time (the overlay would drift with pan and mis-scale).
+          // Cancel the Stage transform on this layer: inverse scale + offset, so the
+          // overlay's screen coordinates stay screen coordinates.
+          // overlayScale = 1 / stageScale = fit / pxPerMm.
+          const overlayScale = viewport.pxPerMm > 0 ? fit / viewport.pxPerMm : 1;
+          return (
+            <Layer
+              listening={false}
+              scaleX={overlayScale}
+              scaleY={overlayScale}
+              x={-viewport.originX * overlayScale}
+              y={-viewport.originY * overlayScale}
+            >
+              <MeasureOverlay
+                a={mA}
+                b={mB}
+                hover={measureHover}
+                width={size.w}
+                height={size.h}
+                originX={viewport.originX}
+                originY={viewport.originY}
+                pxPerMm={viewport.pxPerMm}
+              />
+            </Layer>
+          );
+        })()}
       </Stage>
 
       <RulersOverlay
