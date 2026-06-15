@@ -114,19 +114,24 @@ pub struct BoardMesh {
     pub layers: Vec<LayerMesh>,
 }
 
-/// Z of a surface layer plane: bottom layers hang below z=0, top layers sit
-/// above the FR4. Offsets spread the stack so it stays separable in the depth
-/// buffer (matches the JS `zOffsetFor`).
-fn z_for(role: Role, side: Side, thickness: f32) -> f32 {
-    let off = match role {
-        Role::Copper => 0.03,
-        Role::Mask => 0.08,
-        Role::Silk | Role::Paste => 0.14,
-        _ => 0.03,
+/// Vertical extent `(z_bottom, z_top)` of a surface layer's extruded slab, in mm.
+/// Layers are real (exaggerated-for-visibility) slabs that sit flush on the
+/// surface beneath them, so nothing reads as a floating plane: copper on the FR4,
+/// mask wrapping the copper, silk on the mask, paste on the copper. Bottom-side
+/// layers mirror below z=0. The small per-role base lift keeps coincident base
+/// planes out of the depth buffer (no z-fighting against the FR4 face).
+fn layer_z_range(role: Role, side: Side, thickness: f32) -> (f32, f32) {
+    // (lift above the board surface, slab thickness) in mm.
+    let (lift, thick) = match role {
+        Role::Copper => (0.001, 0.035),
+        Role::Mask => (0.003, 0.05),
+        Role::Silk => (0.055, 0.012),
+        Role::Paste => (0.036, 0.12),
+        _ => (0.001, 0.03),
     };
     match side {
-        Side::Bottom => -off,
-        _ => thickness + off,
+        Side::Bottom => (-(lift + thick), -lift),
+        _ => (thickness + lift, thickness + lift + thick),
     }
 }
 
@@ -289,25 +294,24 @@ mod tests {
             "max z = thickness"
         );
 
-        // Top copper plane sits at thickness + its stack offset.
+        // Top copper is an extruded slab sitting just above the FR4 top: it has
+        // both a bottom face (z0) and a top face (z1), and z0 follows thickness.
         let cu = board
             .layers
             .iter()
             .find(|m| m.kind == KIND_COPPER)
             .expect("copper");
-        let cu_z = cu
-            .buffer
-            .positions
-            .chunks_exact(3)
-            .map(|c| c[2])
-            .next()
-            .unwrap();
-        assert_eq!(
-            cu_z,
-            z_for(Role::Copper, Side::Top, T),
-            "copper z follows thickness"
+        let (z0, z1) = layer_z_range(Role::Copper, Side::Top, T);
+        let cu_zs: Vec<f32> = cu.buffer.positions.chunks_exact(3).map(|c| c[2]).collect();
+        assert!(cu_zs.contains(&z1), "copper slab has a top face at z1={z1}");
+        assert!(
+            cu_zs.contains(&z0),
+            "copper slab has a bottom face at z0={z0}"
         );
-        assert_eq!(cu_z, T + 0.03, "copper z = thickness + copper offset");
+        assert!(
+            z0 > T && z1 > z0,
+            "copper slab sits above the FR4 top: {z0}..{z1}"
+        );
     }
 
     #[test]
