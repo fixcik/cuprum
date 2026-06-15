@@ -99,3 +99,22 @@ export function fiducialCaptureBounds(
 export function canSolve(capturedCount: number): boolean {
   return capturedCount >= MIN_CAPTURES_FOR_SOLVE;
 }
+
+/**
+ * Convert a machine-frame XY target into the work frame that `jogTo` expects.
+ *
+ * Fiducial ideal positions live in machine coordinates (from `machinePoint`),
+ * but `jogTo` clamps/sends work-frame targets (it adds the live WCO back).
+ * The work offset is `wco = mpos − wpos` per axis, so `work = machine − wco`.
+ * Without this, a non-zero work zero would send the spindle to the wrong spot.
+ */
+export function machineToWorkXY(
+  ideal: { x: number; y: number },
+  mpos: readonly number[],
+  wpos: readonly number[],
+): { x: number; y: number } {
+  return {
+    x: ideal.x - (mpos[0] - wpos[0]),
+    y: ideal.y - (mpos[1] - wpos[1]),
+  };
+}

@@ -5,6 +5,7 @@ import {
   buildFiducialEntries,
   fiducialCaptureBounds,
   canSolve,
+  machineToWorkXY,
   FIDUCIAL_CAPTURE_RADIUS_MM,
   MIN_CAPTURES_FOR_SOLVE,
   RMS_WARN_MM,
@@ -124,5 +125,24 @@ describe("canSolve", () => {
     expect(canSolve(MIN_CAPTURES_FOR_SOLVE)).toBe(true);
     expect(canSolve(MIN_CAPTURES_FOR_SOLVE + 1)).toBe(true);
     expect(canSolve(10)).toBe(true);
+  });
+});
+
+describe("machineToWorkXY", () => {
+  it("is identity when work zero equals machine zero (wco = 0)", () => {
+    const ideal = { x: 50, y: 100 };
+    expect(machineToWorkXY(ideal, [0, 0, 0], [0, 0, 0])).toEqual(ideal);
+  });
+
+  it("subtracts the per-axis work offset (work = machine − wco)", () => {
+    // mpos − wpos = wco. Here wco = (10, -5).
+    const work = machineToWorkXY({ x: 50, y: 100 }, [30, 20, 0], [20, 25, 0]);
+    expect(work.x).toBeCloseTo(50 - 10);
+    expect(work.y).toBeCloseTo(100 - -5);
+  });
+
+  it("ignores the Z components of the position vectors", () => {
+    const work = machineToWorkXY({ x: 1, y: 2 }, [0, 0, 99], [0, 0, -99]);
+    expect(work).toEqual({ x: 1, y: 2 });
   });
 });

@@ -232,6 +232,7 @@
     "title": "Registration",
     "back": "Plan",
     "hint": "Navigate the spindle over each registration hole and capture its position. Two captures minimum for solve.",
+    "notHomed": "Machine is not homed. Run homing ($H) so machine coordinates are valid before capturing fiducials.",
     "noRegistrationHoles": "No registration holes on the panel. Add tooling holes with the role «registration» in the panel editor.",
     "markerN": "Fiducial {{n}}",
     "navigate": "Navigate",

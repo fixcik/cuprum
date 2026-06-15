@@ -25,12 +25,15 @@ import {
   fiducialCaptureBounds,
   classifyRms,
   canSolve,
+  machineToWorkXY,
   FIDUCIAL_CAPTURE_STEPS_MM,
   getRegistrationHoles,
 } from "@/lib/fiducialRegistration";
 import type { JogBounds } from "@/lib/jogBounds";
 import { useJog, RAPID_JOG_FEED } from "@/hooks/useJog";
 import { useMachine } from "@/machineStore";
+import { useSettings } from "@/settingsStore";
+import { safeRetractMachineZ } from "@/lib/gotoZero";
 import { canMove } from "@/lib/machineControls";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { Button } from "@/components/ui/Button";
@@ -49,9 +52,6 @@ export interface FiducialPanelProps {
   /** Navigate back to the plan inspector. */
   onBack: () => void;
 }
-
-/** Safe Z height (mm) to raise to before navigating XY toward a fiducial.
- *  Taken from the CNC safe-Z setting; fallback to 5 mm. */
 
 /** Capture phase within a single fiducial workflow. */
 type CapturePhase = "idle" | "raising-z" | "navigating-xy" | "lowering-z" | "ready-to-capture";
@@ -75,7 +75,13 @@ export function FiducialPanel({
 
   const machineState = useMachine((s) => s.status.state);
   const connected = useMachine((s) => s.connected);
+  // Machine-frame moves (the safe-Z retract, "navigate to ideal") need a homed
+  // machine: when unhomed, mpos is GRBL-relative-to-power-on and meaningless, so
+  // any machine-coordinate jog is undefined. Gate capture on it (same contract as
+  // gotoWorkZero) and surface a banner.
+  const homed = useMachine((s) => s.homed);
   const enabled = canMove(machineState, connected);
+  const cncProfile = useSettings((s) => s.cncProfile);
 
   // Registration holes: extract once from props.
   const regHoles = getRegistrationHoles(toolingHoles);
@@ -156,16 +162,27 @@ export function FiducialPanel({
     }
   }, []);
 
-  /** Start navigating to fiducial at `idx`: raise Z, then offer XY jog. */
+  /** Start navigating to fiducial at `idx`: raise Z to the machine-frame safe
+   *  retract, then offer XY jog. */
   const handleStartCapture = useCallback(
     async (idx: number) => {
-      if (!enabled) return;
+      // Machine-frame retract is only meaningful when homed.
+      if (!enabled || !homed) return;
       setActiveIdx(idx);
       setCapturePhase("raising-z");
       setError(null);
       try {
-        // Step 1: raise Z to safe height.
-        await jogTo({ z: 0 }, RAPID_JOG_FEED);
+        // Step 1: raise Z to a safe machine-frame height. jogTo targets are in the
+        // work frame (it adds WCO back), so convert the machine-Z retract to work-Z:
+        // work = machine − wcoZ, where wcoZ = mpos.z − wpos.z.
+        const { mpos, wpos } = useMachine.getState().status;
+        const wcoZ = mpos[2] - wpos[2];
+        const retractMachineZ = safeRetractMachineZ(
+          wcoZ,
+          cncProfile.safeZMm,
+          cncProfile.machineSafeZMm,
+        );
+        await jogTo({ z: retractMachineZ - wcoZ }, RAPID_JOG_FEED);
         setCapturePhase("navigating-xy");
       } catch (e) {
         setError(String(e));
@@ -173,7 +190,7 @@ export function FiducialPanel({
         setActiveIdx(null);
       }
     },
-    [enabled, jogTo],
+    [enabled, homed, jogTo, cncProfile.safeZMm, cncProfile.machineSafeZMm],
   );
 
   /** Confirm the spindle is over the fiducial and capture its position. */
@@ -331,6 +348,14 @@ export function FiducialPanel({
           </div>
         )}
 
+        {/* Not-homed banner: machine-frame moves are undefined until $H. */}
+        {connected && !homed && (
+          <div className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            <span className="flex-1">{t("fiducial.notHomed")}</span>
+          </div>
+        )}
+
         {/* Intro hint */}
         <p className="px-4 pt-3 text-[11px] text-muted-foreground">{t("fiducial.hint")}</p>
 
@@ -394,7 +419,7 @@ export function FiducialPanel({
                     <Button
                       size="sm"
                       variant={captured ? "secondary" : "outline"}
-                      disabled={!connected || (activeIdx !== null && !isActive)}
+                      disabled={!connected || !homed || (activeIdx !== null && !isActive)}
                       onClick={() => void handleStartCapture(idx)}
                       className="shrink-0 text-[11px]"
                     >
@@ -457,13 +482,13 @@ export function FiducialPanel({
                         disabled={!enabled || !entries[idx]}
                         className={padBtn}
                         title={t("fiducial.jogToIdeal")}
-                        onClick={() =>
-                          entries[idx] &&
-                          void jogTo(
-                            { x: entries[idx].ideal.x, y: entries[idx].ideal.y },
-                            RAPID_JOG_FEED,
-                          )
-                        }
+                        onClick={() => {
+                          const entry = entries[idx];
+                          if (!entry) return;
+                          // ideal is machine-frame; jogTo expects work-frame.
+                          const { mpos, wpos } = useMachine.getState().status;
+                          void jogTo(machineToWorkXY(entry.ideal, mpos, wpos), RAPID_JOG_FEED);
+                        }}
                       >
                         <Crosshair className="size-4" />
                       </button>
