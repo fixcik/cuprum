@@ -39,8 +39,9 @@ pub struct Registration {
     pub scale: f64,
     /// Rotation angle in radians (counter-clockwise).
     pub angle_rad: f64,
-    /// Translation vector in machine space (mm). Named object (not a tuple) so it
-    /// serializes as `{ x, y }` for the frontend, matching the `MachineXY` convention.
+    /// Translation vector in work space (G54) mm (board-placement offset component).
+    /// Named object (not a tuple) so it serializes as `{ x, y }` for the frontend,
+    /// matching the `MachineXY` convention.
     pub translation: MachineXY,
     /// RMS residual (mm) between transformed ideal points and measured points.
     /// Zero for exact fits (2-point rigid).
