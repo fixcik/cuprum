@@ -187,6 +187,10 @@ pub fn board_geometry(layers: &[LayerInput], thickness: f32) -> BoardMesh {
             let mut buf = Buffer::default();
             for h in &hs {
                 if h.d_mm > 0.0 {
+                    // Barrel at the true drill radius (flush with the bore). The
+                    // copper/mask hole walls sit at the same radius, so the barrel
+                    // wins their depth tie via a render-side polygonOffset in the
+                    // frontend (KIND_BARREL material) — no geometry is altered.
                     add_barrel(&mut buf, h.x_mm, h.y_mm, h.d_mm / 2.0, 0.0, thickness);
                 }
             }

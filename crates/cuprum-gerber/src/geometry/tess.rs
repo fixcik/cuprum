@@ -9,8 +9,10 @@ use crate::GerberPrimitive;
 
 /// Arc tessellation steps — matches the visual fidelity of [`crate::svg`].
 const ARC_STEPS: usize = 64;
-/// Sides for a circle / round line-cap approximation.
-pub(crate) const CIRCLE_SEGS: usize = 32;
+/// Sides for a circle / round line-cap approximation. 64 keeps drilled holes
+/// visibly round up close and matches the 3D barrel/substrate facet count so the
+/// hole walls of every layer nest cleanly (no stepped "square" mismatch).
+pub(crate) const CIRCLE_SEGS: usize = 64;
 
 /// Shoelace signed area; positive = counter-clockwise.
 fn signed_area(ring: &[[f64; 2]]) -> f64 {

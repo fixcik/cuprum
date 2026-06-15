@@ -33,10 +33,13 @@ pub use outline::outline_info;
 /// Default FR4 substrate thickness in mm, used when the project's panel stackup
 /// is not configured. The real thickness is passed into [`board_geometry`].
 pub const DEFAULT_FR4_THICK: f32 = 1.6;
-/// Drill-bore cylinder facet count.
-const BARREL_SEGS: usize = 24;
+/// Drill-bore cylinder facet count. Matches `geometry::CIRCLE_SEGS` (and
+/// `DRILL_SEGS`) so the barrel nests exactly inside the copper/mask/FR4 hole
+/// walls — mismatched counts left a stepped "square" edge in the bore.
+const BARREL_SEGS: usize = 64;
 /// Facets for circles used when difference-drilling the substrate faces.
-const DRILL_SEGS: usize = 32;
+/// Kept equal to `BARREL_SEGS` / `geometry::CIRCLE_SEGS` for clean nesting.
+const DRILL_SEGS: usize = 64;
 /// Endpoint-match tolerance (mm) when stitching the Edge_Cuts outline.
 const STITCH_EPS: f64 = 1e-3;
 /// Arc tessellation for the Edge_Cuts outline.
