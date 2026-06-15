@@ -13,6 +13,7 @@ import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
+import { useFlag } from "@/hooks/useFlag";
 
 type ProjectTab = "panel" | "designs" | "operations";
 
@@ -21,6 +22,8 @@ export function ProjectPage() {
   const manifest = useShell((s) => s.currentManifest);
   const [tab, setTab] = useState<ProjectTab>("panel");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const showExpose = useFlag("uvExposure");
+  const showMill = useFlag("cncMilling");
 
   const workingDir = useShell((s) => s.workingDir);
   const undo = useHistory((s) => s.undo);
@@ -228,7 +231,8 @@ export function ProjectPage() {
                   <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
                 </button>
 
-                {/* Expose card — active */}
+                {/* Expose card — gated behind the uvExposure flag (unfinished) */}
+                {showExpose && (
                 <button
                   type="button"
                   onClick={() => void api.openExposeWindow()}
@@ -252,8 +256,10 @@ export function ProjectPage() {
                   </div>
                   <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
                 </button>
+                )}
 
-                {/* Milling card — active (Phase 4a: preview) */}
+                {/* Milling card — gated behind the cncMilling flag (unfinished) */}
+                {showMill && (
                 <button
                   type="button"
                   onClick={() => void api.openMillWindow()}
@@ -277,6 +283,7 @@ export function ProjectPage() {
                   </div>
                   <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
                 </button>
+                )}
               </div>
 
               {/* Run history (right) */}

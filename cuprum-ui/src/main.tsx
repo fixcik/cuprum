@@ -38,6 +38,21 @@ void api.onLanguage((language) => {
   }
 });
 
+// Cross-window feature-flag sync. Mirror the language pattern: broadcast local
+// override changes, and apply incoming ones without re-broadcasting (no echo).
+let lastFlags = JSON.stringify(useSettings.getState().flagOverrides);
+useSettings.subscribe((state) => {
+  const cur = JSON.stringify(state.flagOverrides);
+  if (cur !== lastFlags) {
+    lastFlags = cur;
+    void api.emitFlagOverrides(state.flagOverrides);
+  }
+});
+void api.onFlagOverrides((overrides) => {
+  lastFlags = JSON.stringify(overrides); // mark as seen before applying → no echo
+  useSettings.getState().setFlagOverrides(overrides);
+});
+
 // Brighten the slim scrollbars while actively scrolling (capture phase —
 // `scroll` doesn't bubble), then dim them back shortly after scrolling stops.
 let scrollTimer: number | undefined;

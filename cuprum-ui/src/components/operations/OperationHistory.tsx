@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { api, type OperationRun } from "@/lib/api";
 import { useShell } from "@/shellStore";
+import { useFlag } from "@/hooks/useFlag";
 import { relativeTime } from "@/i18n/relativeTime";
 
 /** Runs fetched per page; "load more" appends the next page. */
@@ -65,6 +66,9 @@ async function repeatRun(run: OperationRun) {
 export function OperationHistory() {
   const { t } = useTranslation("project");
   const currentPath = useShell((s) => s.currentPath);
+  // Gate the "repeat" action for expose runs the same way the operation card is
+  // gated, so a past run can't reopen the expose window when the flag is off.
+  const showExpose = useFlag("uvExposure");
   const [runs, setRuns] = useState<OperationRun[] | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -211,6 +215,7 @@ export function OperationHistory() {
               run={r}
               t={t}
               typeLabel={typeLabel}
+              showExpose={showExpose}
               expanded={expanded === r.runUid}
               onToggle={() => setExpanded((cur) => (cur === r.runUid ? null : r.runUid))}
             />
@@ -236,12 +241,14 @@ function RunCard({
   run,
   t,
   typeLabel,
+  showExpose,
   expanded,
   onToggle,
 }: {
   run: OperationRun;
   t: (k: string | string[], opts?: Record<string, unknown>) => string;
   typeLabel: (op: string) => string;
+  showExpose: boolean;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -253,7 +260,7 @@ function RunCard({
       ? formatDuration(Math.max(0, run.endedAt - run.startedAt), minShort, secShort)
       : null;
   const drill = run.opType === "drill" ? parseDrillParams(run.paramsJson) : null;
-  const canRepeat = OPENABLE.has(run.opType);
+  const canRepeat = OPENABLE.has(run.opType) && (run.opType !== "expose" || showExpose);
 
   return (
     <div className="rounded-lg border border-border bg-card/50">
