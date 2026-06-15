@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { api, getLastInvokedCommand } from "@/lib/api";
+import { reportCrashSafe } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 
 interface Props {
@@ -17,11 +17,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    void api.crash.reportFrontend(
-      error.message,
-      `${error.stack ?? ""}\n${info.componentStack ?? ""}`,
-      getLastInvokedCommand(),
-    );
+    reportCrashSafe(error.message, `${error.stack ?? ""}\n${info.componentStack ?? ""}`);
   }
 
   render() {

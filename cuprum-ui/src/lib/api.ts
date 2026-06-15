@@ -1400,6 +1400,22 @@ export const api = {
   },
 };
 
+// Best-effort crash reporter with a re-entrancy guard: if report_frontend_crash
+// itself rejects, its rejected promise would re-enter unhandledrejection and loop
+// forever. The in-flight flag breaks that cycle. Always logs to console first so
+// the error is visible even if the backend write fails.
+let crashReportInFlight = false;
+export function reportCrashSafe(message: string, stack: string): void {
+  console.error("[crash]", message, stack);
+  if (crashReportInFlight) return;
+  crashReportInFlight = true;
+  void api.crash
+    .reportFrontend(message, stack, getLastInvokedCommand())
+    .finally(() => {
+      crashReportInFlight = false;
+    });
+}
+
 /** Zeroed kinematics placeholder for `DrillPlanInput`: the backend overwrites it
  *  with its cached GRBL limits, but serde requires the (non-Option) field. */
 export const ZERO_KINEMATICS: KinematicsDto = {

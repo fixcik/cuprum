@@ -12,7 +12,7 @@ import "./styles.css";
 import i18n from "./i18n";
 import { resolveLanguage } from "./i18n/resolveLanguage";
 import { useSettings } from "./settingsStore";
-import { api, getLastInvokedCommand } from "./lib/api";
+import { api, reportCrashSafe } from "./lib/api";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Keep i18next's active language in sync with the persisted setting (and the
@@ -73,19 +73,11 @@ window.addEventListener(
 // Global error handlers: capture uncaught JS errors and unhandled promise
 // rejections and forward them to the Rust crash store.
 window.addEventListener("error", (e) => {
-  void api.crash.reportFrontend(
-    e.message,
-    (e.error as { stack?: string } | undefined)?.stack ?? "",
-    getLastInvokedCommand(),
-  );
+  reportCrashSafe(e.message, (e.error as { stack?: string } | undefined)?.stack ?? "");
 });
 window.addEventListener("unhandledrejection", (e) => {
   const reason = e.reason as { message?: string; stack?: string } | undefined;
-  void api.crash.reportFrontend(
-    String(reason?.message ?? e.reason),
-    reason?.stack ?? "",
-    getLastInvokedCommand(),
-  );
+  reportCrashSafe(String(reason?.message ?? e.reason), reason?.stack ?? "");
 });
 
 let label = "main";
