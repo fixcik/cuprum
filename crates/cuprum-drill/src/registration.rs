@@ -122,6 +122,17 @@ pub fn fit_transform(pairs: &[PointPair]) -> Result<Registration, FitError> {
         return fit_exact_2pt(pairs[0], pairs[1]);
     }
 
+    // Check for coincident measured points: if every measured point lands on
+    // the same spot while ideal points differ, scale degenerates to ~0. Mirror
+    // the ideal-point check above. (For n == 2 this is handled inside
+    // fit_exact_2pt; here it guards the 3+ path.)
+    if pairs
+        .iter()
+        .all(|&(_, m)| dist2(m, pairs[0].1) < f64::EPSILON * f64::EPSILON)
+    {
+        return Err(FitError::CoincidentMeasuredPoints);
+    }
+
     // 3+ points: closed-form Umeyama (2D).
     fit_umeyama(pairs)
 }
@@ -201,7 +212,7 @@ fn fit_umeyama(pairs: &[PointPair]) -> Result<Registration, FitError> {
 
     // Variance of source, cross-covariance.
     // sigma_s^2 = (1/n) * sum ||s_i - mu_s||^2
-    // H = (1/n) * sum (t_i - mu_t)^T (s_i - mu_s)   [2×2 matrix in row-major]
+    // H = (1/n) * sum (t_i - mu_t)(s_i - mu_s)^T   [2×2 outer product, row-major]
     let mut sigma_s2 = 0.0_f64;
     // H = [[h00, h01], [h10, h11]]
     let mut h00 = 0.0_f64;
@@ -358,6 +369,20 @@ mod tests {
     fn error_coincident_measured_two_pts() {
         // Ideal points differ, but measured land on same spot.
         let pairs = [((0.0, 0.0), (5.0, 5.0)), ((10.0, 0.0), (5.0, 5.0))];
+        assert_eq!(
+            fit_transform(&pairs),
+            Err(FitError::CoincidentMeasuredPoints)
+        );
+    }
+
+    #[test]
+    fn error_coincident_measured_three_pts() {
+        // n >= 3 path: distinct ideal points, all measured collapse to one spot.
+        let pairs = [
+            ((0.0, 0.0), (5.0, 5.0)),
+            ((10.0, 0.0), (5.0, 5.0)),
+            ((5.0, 8.0), (5.0, 5.0)),
+        ];
         assert_eq!(
             fit_transform(&pairs),
             Err(FitError::CoincidentMeasuredPoints)
