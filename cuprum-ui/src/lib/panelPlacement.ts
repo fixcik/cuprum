@@ -780,8 +780,8 @@ export interface FiducialPosition {
  * the axis specified by `params.axis`.
  *
  * The row is centred on the panel mid-point of the chosen axis.  Adjacent holes
- * are separated by `params.step_mm`.  `params.edge_offset_mm` offsets the row
- * from the panel edge perpendicular to the axis.
+ * are separated by `params.step_mm`.  `params.center_offset_mm` shifts the row
+ * from the panel centre line perpendicular to the axis (default 0 = centre).
  *
  * Mirrors the Rust `place_fiducials` function in `cuprum-project/src/document/panel.rs`.
  */
@@ -795,12 +795,14 @@ export function placeFiducials(
 
   if (params.axis === "x") {
     const centreX = panelWidthMm / 2;
-    const y = Math.min(Math.max(params.edge_offset_mm, 0), panelHeightMm);
+    // Perpendicular coordinate: panel centre on Y + signed offset.
+    const y = panelHeightMm / 2 + params.center_offset_mm;
     const x0 = centreX - span / 2;
     return Array.from({ length: n }, (_, i) => ({ x_mm: x0 + i * params.step_mm, y_mm: y }));
   } else {
     const centreY = panelHeightMm / 2;
-    const x = Math.min(Math.max(params.edge_offset_mm, 0), panelWidthMm);
+    // Perpendicular coordinate: panel centre on X + signed offset.
+    const x = panelWidthMm / 2 + params.center_offset_mm;
     const y0 = centreY - span / 2;
     return Array.from({ length: n }, (_, i) => ({ x_mm: x, y_mm: y0 + i * params.step_mm }));
   }

@@ -200,7 +200,8 @@ export interface FiducialParams {
   count: number;
   step_mm: number;
   diameter_mm: number;
-  edge_offset_mm: number;
+  /** Signed offset from the panel centre perpendicular to the axis (mm). Default 0 = centre. */
+  center_offset_mm: number;
 }
 
 export interface KeepOutZone {

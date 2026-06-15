@@ -108,10 +108,12 @@ pub struct FiducialParams {
     pub step_mm: f32,
     /// Hole diameter (mm).
     pub diameter_mm: f32,
-    /// Distance from the panel edge perpendicular to the axis to the hole
-    /// centre (mm).  For axis `X` this is the Y offset from the top edge;
-    /// for axis `Y` this is the X offset from the left edge.
-    pub edge_offset_mm: f32,
+    /// Signed offset from the panel centre perpendicular to the axis (mm).
+    /// Default 0 = row lies exactly on the panel centre line.
+    /// For axis `X` this shifts the row along Y; for axis `Y` along X.
+    /// Old documents that carry `edge_offset_mm` are silently migrated.
+    #[serde(alias = "edge_offset_mm")]
+    pub center_offset_mm: f32,
 }
 
 impl Default for FiducialParams {
@@ -121,7 +123,7 @@ impl Default for FiducialParams {
             count: 2,
             step_mm: 50.0,
             diameter_mm: 3.0,
-            edge_offset_mm: 5.0,
+            center_offset_mm: 0.0,
         }
     }
 }
@@ -138,8 +140,8 @@ pub struct FiducialPosition {
 /// the axis specified by `params.axis`.
 ///
 /// The layout is centred on the panel centre of the chosen axis, with adjacent
-/// holes separated by `params.step_mm`.  `params.edge_offset_mm` positions the
-/// row offset from the panel edge perpendicular to the axis.
+/// holes separated by `params.step_mm`.  `params.center_offset_mm` shifts the
+/// row from the panel centre line perpendicular to the axis (default 0 = centre).
 ///
 /// Always returns exactly `count.max(2)` positions.  Holes that fall outside
 /// the panel bounds are clamped to the panel edge by the caller.
@@ -154,9 +156,9 @@ pub fn place_fiducials(
 
     match params.axis {
         FiducialAxis::X => {
-            // Row is horizontal: centres along X, fixed Y.
+            // Row is horizontal: centres along X, perpendicular position on Y = panel centre + offset.
             let centre_x = panel_width_mm / 2.0;
-            let y = params.edge_offset_mm.clamp(0.0, panel_height_mm);
+            let y = panel_height_mm / 2.0 + params.center_offset_mm;
             let x0 = centre_x - span / 2.0;
             (0..n)
                 .map(|i| FiducialPosition {
@@ -166,9 +168,9 @@ pub fn place_fiducials(
                 .collect()
         }
         FiducialAxis::Y => {
-            // Row is vertical: centres along Y, fixed X.
+            // Row is vertical: centres along Y, perpendicular position on X = panel centre + offset.
             let centre_y = panel_height_mm / 2.0;
-            let x = params.edge_offset_mm.clamp(0.0, panel_width_mm);
+            let x = panel_width_mm / 2.0 + params.center_offset_mm;
             let y0 = centre_y - span / 2.0;
             (0..n)
                 .map(|i| FiducialPosition {
@@ -441,7 +443,8 @@ mod tests {
         assert_eq!(p.count, 2);
         assert!((p.step_mm - 50.0).abs() < 1e-5);
         assert!((p.diameter_mm - 3.0).abs() < 1e-5);
-        assert!((p.edge_offset_mm - 5.0).abs() < 1e-5);
+        // Default center offset is 0 — row sits exactly on the panel centre line.
+        assert!((p.center_offset_mm - 0.0).abs() < 1e-5);
     }
 
     #[test]
@@ -451,11 +454,23 @@ mod tests {
             count: 3,
             step_mm: 40.0,
             diameter_mm: 2.5,
-            edge_offset_mm: 8.0,
+            center_offset_mm: 8.0,
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: FiducialParams = serde_json::from_str(&json).unwrap();
         assert_eq!(back, p);
+    }
+
+    /// Old documents serialised with `edge_offset_mm` must deserialise via the serde alias.
+    #[test]
+    fn fiducial_params_legacy_edge_offset_alias() {
+        let json =
+            r#"{"axis":"x","count":2,"step_mm":50.0,"diameter_mm":3.0,"edge_offset_mm":7.0}"#;
+        let p: FiducialParams = serde_json::from_str(json).unwrap();
+        assert!(
+            (p.center_offset_mm - 7.0).abs() < 1e-5,
+            "alias migration failed"
+        );
     }
 
     #[test]
@@ -472,7 +487,7 @@ mod tests {
             count: 2,
             step_mm: 60.0,
             diameter_mm: 3.0,
-            edge_offset_mm: 5.0,
+            center_offset_mm: 5.0,
         };
         let holes = place_fiducials(200.0, 100.0, &params);
         assert_eq!(holes.len(), 2);
@@ -481,9 +496,51 @@ mod tests {
         let d0 = (holes[0].x_mm - cx).abs();
         let d1 = (holes[1].x_mm - cx).abs();
         assert!((d0 - d1).abs() < 1e-4, "not symmetric: d0={d0} d1={d1}");
-        // Y is the edge offset.
-        assert!((holes[0].y_mm - 5.0).abs() < 1e-4);
-        assert!((holes[1].y_mm - 5.0).abs() < 1e-4);
+        // Y = panel centre (50.0) + center_offset (5.0) = 55.0.
+        assert!((holes[0].y_mm - 55.0).abs() < 1e-4);
+        assert!((holes[1].y_mm - 55.0).abs() < 1e-4);
+    }
+
+    /// offset=0 → perpendicular coordinate is exactly the panel centre.
+    #[test]
+    fn place_fiducials_x_axis_zero_offset_is_center() {
+        let params = FiducialParams {
+            axis: FiducialAxis::X,
+            count: 2,
+            step_mm: 60.0,
+            diameter_mm: 3.0,
+            center_offset_mm: 0.0,
+        };
+        let holes = place_fiducials(200.0, 100.0, &params);
+        let expected_y = 100.0_f32 / 2.0;
+        for h in &holes {
+            assert!(
+                (h.y_mm - expected_y).abs() < 1e-4,
+                "y={} expected={expected_y}",
+                h.y_mm
+            );
+        }
+    }
+
+    /// offset=0 → perpendicular coordinate is exactly the panel centre (axis Y).
+    #[test]
+    fn place_fiducials_y_axis_zero_offset_is_center() {
+        let params = FiducialParams {
+            axis: FiducialAxis::Y,
+            count: 2,
+            step_mm: 40.0,
+            diameter_mm: 3.0,
+            center_offset_mm: 0.0,
+        };
+        let holes = place_fiducials(150.0, 120.0, &params);
+        let expected_x = 150.0_f32 / 2.0;
+        for h in &holes {
+            assert!(
+                (h.x_mm - expected_x).abs() < 1e-4,
+                "x={} expected={expected_x}",
+                h.x_mm
+            );
+        }
     }
 
     /// N=4, axis=X, step=30: row should span 90mm centred at 100mm centre of 200mm panel.
@@ -494,7 +551,7 @@ mod tests {
             count: 4,
             step_mm: 30.0,
             diameter_mm: 3.0,
-            edge_offset_mm: 5.0,
+            center_offset_mm: 0.0,
         };
         let holes = place_fiducials(200.0, 100.0, &params);
         assert_eq!(holes.len(), 4);
@@ -502,6 +559,10 @@ mod tests {
         let expected_xs = [55.0_f32, 85.0, 115.0, 145.0];
         for (h, &ex) in holes.iter().zip(expected_xs.iter()) {
             assert!((h.x_mm - ex).abs() < 1e-4, "x={} expected={}", h.x_mm, ex);
+        }
+        // All at panel centre Y (no offset).
+        for h in &holes {
+            assert!((h.y_mm - 50.0).abs() < 1e-4, "y={} expected=50.0", h.y_mm);
         }
     }
 
@@ -513,7 +574,7 @@ mod tests {
             count: 2,
             step_mm: 40.0,
             diameter_mm: 3.0,
-            edge_offset_mm: 6.0,
+            center_offset_mm: 6.0,
         };
         let holes = place_fiducials(150.0, 120.0, &params);
         assert_eq!(holes.len(), 2);
@@ -521,9 +582,9 @@ mod tests {
         let d0 = (holes[0].y_mm - cy).abs();
         let d1 = (holes[1].y_mm - cy).abs();
         assert!((d0 - d1).abs() < 1e-4, "not symmetric: d0={d0} d1={d1}");
-        // X is the edge offset.
-        assert!((holes[0].x_mm - 6.0).abs() < 1e-4);
-        assert!((holes[1].x_mm - 6.0).abs() < 1e-4);
+        // X = panel centre (75.0) + center_offset (6.0) = 81.0.
+        assert!((holes[0].x_mm - 81.0).abs() < 1e-4);
+        assert!((holes[1].x_mm - 81.0).abs() < 1e-4);
     }
 
     /// place_fiducials returns exactly `count` holes.
@@ -561,7 +622,7 @@ mod tests {
             count: 3,
             step_mm: 30.0,
             diameter_mm: 2.0,
-            edge_offset_mm: 7.0,
+            center_offset_mm: 7.0,
         };
         let mut p = PanelDoc::new(100.0, 80.0);
         p.fiducial_params = Some(fp.clone());
