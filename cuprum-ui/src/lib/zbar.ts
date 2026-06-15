@@ -21,3 +21,20 @@ export function parseZTarget(text: string, envZ: number): number | null {
   if (v < lo || v > 0) return null;
   return v;
 }
+
+/** Safe-descent predicate for the fiducial capture Z bar.
+ *
+ *  In safe-descent mode only upward track clicks are allowed: the operator may
+ *  raise Z freely but must use the Z− button for controlled descent (slow feed).
+ *  A track click is "safe" when the target is AT or ABOVE the current position.
+ *
+ *  Both arguments are work-frame Z (mm, negative = below surface). The caller
+ *  passes the clicked target and the live wpos[2]. An upward click (target ≥ current)
+ *  returns true; a downward click (target < current) returns false and must be
+ *  ignored/clamped by the caller.
+ *
+ *  A tiny epsilon (0.1 mm) guards against floating-point jitter from track clicks
+ *  that land exactly at the live position — they are treated as upward. */
+export function isSafeDescentTarget(currentWorkZ: number, targetWorkZ: number): boolean {
+  return targetWorkZ >= currentWorkZ - 0.1;
+}

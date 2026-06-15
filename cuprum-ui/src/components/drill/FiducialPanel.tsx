@@ -39,6 +39,7 @@ import { canMove } from "@/lib/machineControls";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { Button } from "@/components/ui/Button";
 import { JogStepControl } from "@/components/machine/JogStepControl";
+import { DrillManualZBar } from "@/components/drill/DrillManualZBar";
 
 export interface FiducialPanelProps {
   /** Registration tooling holes from the panel manifest. */
@@ -230,21 +231,6 @@ export function FiducialPanel({
     setActiveIdx(null);
     setCapturePhase("idle");
   }, [stopContinuous]);
-
-  /** One step down in Z at the slow descent feed.
-   *  Targets the current work-frame Z minus one step, clamped by the bounds. */
-  const handleZDown = useCallback(async () => {
-    if (!enabled || !homed || typeof step !== "number") return;
-    const { wpos } = useMachine.getState().status;
-    await jogTo({ z: wpos[2] - step }, FIDUCIAL_Z_DESCENT_FEED_MM_MIN);
-  }, [enabled, homed, step, jogTo]);
-
-  /** One step up in Z at the normal jog feed. */
-  const handleZUp = useCallback(async () => {
-    if (!enabled || !homed || typeof step !== "number") return;
-    const { wpos } = useMachine.getState().status;
-    await jogTo({ z: wpos[2] + step });
-  }, [enabled, homed, step, jogTo]);
 
   /** Raise Z to the machine-frame safe retract height (rapid). */
   const handleRaiseToSafeZ = useCallback(async () => {
@@ -558,39 +544,24 @@ export function FiducialPanel({
                       </button>
                     </div>
 
-                    {/* Z controls: step down / step up / raise to safe Z */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={!enabled || !homed}
-                        className={padBtn + " flex-1"}
-                        title={t("fiducial.zDownTitle")}
-                        onClick={() => void handleZDown()}
-                      >
-                        <ArrowDown className="size-4" />
-                        <span className="ml-1 text-[11px]">{t("fiducial.zDown")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!enabled || !homed}
-                        className={padBtn + " flex-1"}
-                        title={t("fiducial.zUpTitle")}
-                        onClick={() => void handleZUp()}
-                      >
-                        <ArrowUp className="size-4" />
-                        <span className="ml-1 text-[11px]">{t("fiducial.zUp")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!enabled || !homed}
-                        className={padBtn + " flex-1"}
-                        title={t("fiducial.raiseZTitle")}
-                        onClick={() => void handleRaiseToSafeZ()}
-                      >
-                        <ChevronsUp className="size-4" />
-                        <span className="ml-1 text-[11px]">{t("fiducial.raiseZ")}</span>
-                      </button>
-                    </div>
+                    {/* Z bar (safe-descent mode) + safe-Z retract button */}
+                    <DrillManualZBar
+                      safeDescent
+                      safeSteps={FIDUCIAL_CAPTURE_STEPS_MM}
+                      descentFeedMmMin={FIDUCIAL_Z_DESCENT_FEED_MM_MIN}
+                      zLabel={t("fiducial.zBarLabel")}
+                      caption={t("fiducial.zBarHint")}
+                    />
+                    <button
+                      type="button"
+                      disabled={!enabled || !homed}
+                      className={padBtn + " w-full"}
+                      title={t("fiducial.raiseZTitle")}
+                      onClick={() => void handleRaiseToSafeZ()}
+                    >
+                      <ChevronsUp className="size-4" />
+                      <span className="ml-1 text-[11px]">{t("fiducial.raiseZ")}</span>
+                    </button>
 
                     {/* Capture button */}
                     <Button

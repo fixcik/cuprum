@@ -254,10 +254,8 @@
     "rmsBadHint": "Residual is too high — recapture fiducials more carefully.",
     "modeCorner": "By corner",
     "modeFiducial": "By fiducials",
-    "zDown": "Z−",
-    "zDownTitle": "Step Z down (slow feed)",
-    "zUp": "Z+",
-    "zUpTitle": "Step Z up",
+    "zBarLabel": "Z position",
+    "zBarHint": "Use Z− to descend slowly (slow feed). Track click only raises Z. Inline editing is disabled in capture mode.",
     "raiseZ": "Safe Z",
     "raiseZTitle": "Raise to safe Z height (rapid)"
   }

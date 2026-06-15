@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { machineZFromFraction, parseZTarget } from "./zbar";
+import { machineZFromFraction, parseZTarget, isSafeDescentTarget } from "./zbar";
 
 describe("machineZFromFraction", () => {
   it("maps the bottom of the bar to -envZ and the top to 0", () => {
@@ -53,5 +53,29 @@ describe("parseZTarget", () => {
   it("treats the envelope as a magnitude (sign-agnostic)", () => {
     expect(parseZTarget("-40", -80)).toBe(-40);
     expect(parseZTarget("-80.1", -80)).toBeNull();
+  });
+});
+
+describe("isSafeDescentTarget", () => {
+  it("allows an upward click (target above current)", () => {
+    expect(isSafeDescentTarget(-10, -5)).toBe(true); // moving up: -5 > -10
+    expect(isSafeDescentTarget(-20, 0)).toBe(true); // all the way to ceiling
+  });
+
+  it("allows a click at the same level (within epsilon)", () => {
+    expect(isSafeDescentTarget(-10, -10)).toBe(true); // exact same
+    expect(isSafeDescentTarget(-10, -10.05)).toBe(true); // within 0.1 mm epsilon
+    expect(isSafeDescentTarget(-10, -10.09)).toBe(true); // still within epsilon
+  });
+
+  it("rejects a downward click (target below current, beyond epsilon)", () => {
+    expect(isSafeDescentTarget(-10, -15)).toBe(false); // moving down
+    expect(isSafeDescentTarget(-10, -10.11)).toBe(false); // just beyond epsilon
+    expect(isSafeDescentTarget(0, -5)).toBe(false); // from ceiling downward
+  });
+
+  it("works at zero (surface level)", () => {
+    expect(isSafeDescentTarget(0, 0)).toBe(true);
+    expect(isSafeDescentTarget(0, -0.2)).toBe(false);
   });
 });
