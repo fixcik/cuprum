@@ -2,6 +2,7 @@ pub(crate) mod board;
 pub(crate) mod drill_run;
 pub(crate) mod error;
 pub(crate) mod expose_run;
+pub(crate) mod fiducial;
 pub(crate) mod machine;
 pub(crate) mod mill_run;
 pub(crate) mod operation_log;

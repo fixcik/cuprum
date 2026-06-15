@@ -107,6 +107,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(PendingOpen::default())
         .manage(commands::machine::MachineState::default())
+        .manage(commands::fiducial::FiducialState::default())
         .manage(commands::drill_run::DrillJob::default())
         .manage(commands::expose_run::ExposeJob::default())
         .menu(|handle| build_app_menu(handle, &default_menu_labels()))
@@ -237,6 +238,11 @@ fn main() {
             commands::machine::machine_is_connected,
             commands::machine::machine_reattach,
             commands::machine::machine_console_backlog,
+            commands::fiducial::fiducial_init,
+            commands::fiducial::fiducial_capture,
+            commands::fiducial::fiducial_solve,
+            commands::fiducial::fiducial_reset,
+            commands::fiducial::fiducial_state,
             commands::drill_run::drill_run_start,
             commands::drill_run::drill_run_pause,
             commands::drill_run::drill_run_resume,

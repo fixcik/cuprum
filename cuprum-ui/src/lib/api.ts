@@ -654,6 +654,49 @@ export interface DrillRect {
 /** Which panel corner is machine (0,0). Mirrors Rust `DatumCorner`. */
 export type DatumCornerDto = "bottom-left" | "bottom-right" | "top-left" | "top-right";
 
+// ── Fiducial registration DTOs (mirror cuprum-drill + commands/fiducial.rs) ───
+
+/** A 2D similarity transform from fiducial registration. Mirrors Rust
+ *  `Registration` (camelCase). `translation` is a named `{x,y}` object
+ *  matching the `MachineXY` convention. */
+export interface Registration {
+  /** Uniform scale factor (1.0 for rigid-only fit). */
+  scale: number;
+  /** Rotation angle in radians (counter-clockwise). */
+  angleRad: number;
+  /** Translation vector in machine space (mm). */
+  translation: { x: number; y: number };
+  /** RMS residual (mm); 0 for exact 2-point fits. */
+  rmsResidualMm: number;
+}
+
+/** Snapshot of one fiducial marker. Mirrors Rust `FiducialDto`. */
+export interface FiducialDto {
+  /** Ideal (nominal) machine-space position (mm). */
+  ideal: { x: number; y: number };
+  /** Measured machine-space position captured by `fiducial_capture`; null if not yet captured. */
+  measured: { x: number; y: number } | null;
+  /** True when this fiducial has been captured. */
+  captured: boolean;
+}
+
+/** Full state snapshot returned by `fiducial_state`. Mirrors Rust `FiducialStateDto`. */
+export interface FiducialStateDto {
+  /** All fiducials in init order. */
+  fiducials: FiducialDto[];
+  /** Number of fiducials that have been captured. */
+  capturedCount: number;
+  /** Whether a solved `Registration` is available. */
+  hasRegistration: boolean;
+  /** RMS residual of the solved registration (mm); 0 when none. */
+  rmsResidualMm: number;
+}
+
+/** Result of a successful `fiducial_solve`. Mirrors Rust `FiducialSolveResult`. */
+export interface FiducialSolveResult {
+  registration: Registration;
+}
+
 /** Everything the backend needs to plan a drill run. Mirrors Rust
  *  `DrillPlanInput`. `kinematics` is ignored by the command (taken from the
  *  backend cache) but serde requires it — send a zeroed placeholder. */
@@ -670,6 +713,11 @@ export interface DrillPlanInput {
   peckDepthMm?: number;
   keepOutZones: DrillRect[];
   startMachineXY?: { x: number; y: number };
+  /** Optional fiducial registration transform. When present the backend applies
+   *  it to every hole coordinate before emitting G-code. Normally injected
+   *  server-side by `drill_plan` from the solved `FiducialState`; passing it
+   *  explicitly here is useful for testing or playback. `null`/absent → identity. */
+  registration?: Registration | null;
 }
 
 /** One drill route group (ordered holes). Mirrors Rust `RouteGroup`. */
@@ -1272,6 +1320,33 @@ export const api = {
      *  live without reopening the project. Payload-less; refetch the current project. */
     onChanged: (cb: () => void): Promise<UnlistenFn> =>
       listen("operation-runs://changed", () => cb()),
+  },
+
+  /** Fiducial-registration commands. Capture real machine positions for fiducial
+   *  markers, fit a 2D correction transform, and inject it into the drill planner.
+   *
+   *  Workflow:
+   *    1. `init` — set ideal machine XY for every fiducial; resets measurements.
+   *    2. `capture(index)` — jog spindle over fiducial N, then call this;
+   *                          snapshots the current machine XY from GRBL.
+   *    3. `solve` — fit Registration from ≥2 captured pairs; returns the result.
+   *    4. `reset` — clear everything (need `init` again for next session).
+   *    5. `state` — inspect what is captured and whether a transform is ready. */
+  fiducial: {
+    /** Set the ideal machine positions for the current session's fiducials.
+     *  Resets any previous measurements and the solved transform. */
+    init: (entries: Array<{ ideal: { x: number; y: number } }>) =>
+      invoke<void>("fiducial_init", { entries }),
+    /** Snapshot the current machine XY as the measured position for fiducial
+     *  `index`. The spindle must already be positioned over the fiducial. */
+    capture: (index: number) => invoke<void>("fiducial_capture", { index }),
+    /** Fit a Registration from all captured (ideal, measured) pairs.
+     *  Requires at least 2 captured fiducials; rejects otherwise. */
+    solve: () => invoke<FiducialSolveResult>("fiducial_solve"),
+    /** Clear all measurements, the solved Registration, and the fiducial list. */
+    reset: () => invoke<void>("fiducial_reset"),
+    /** Snapshot of the current fiducial state (captures, transform, residual). */
+    state: () => invoke<FiducialStateDto>("fiducial_state"),
   },
 
   /** Drill planning in the Rust core: route + G-code program + motion-time
