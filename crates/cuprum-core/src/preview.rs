@@ -71,28 +71,6 @@ fn union_bbox(layers: &[(String, LayerGeometry)]) -> Option<BBox> {
     })
 }
 
-/// SVG path subpaths (one per hole) approximating circles, in the same gerber-mm
-/// space as the board-outline `d`. Appended to the clip path so evenodd subtracts
-/// them — punching transparent through-holes in the whole composite. Each circle is
-/// two half-arcs: `M cx-r,cy A r,r 0 1,0 cx+r,cy A r,r 0 1,0 cx-r,cy Z`.
-fn holes_path(holes: &[(f32, f32, f32)]) -> String {
-    let mut d = String::new();
-    for &(cx, cy, r) in holes {
-        if r <= 0.0 {
-            continue;
-        }
-        let _ = write!(
-            d,
-            " M{l} {cy} A{r} {r} 0 1 0 {right} {cy} A{r} {r} 0 1 0 {l} {cy} Z",
-            l = trim(cx - r),
-            right = trim(cx + r),
-            cy = trim(cy),
-            r = trim(r),
-        );
-    }
-    d
-}
-
 /// Assemble a self-contained colored SVG document from per-layer fragments,
 /// replicating the frontend `LayerStack` composition for design-card thumbnails:
 ///
@@ -114,10 +92,10 @@ fn holes_path(holes: &[(f32, f32, f32)]) -> String {
 /// the board bbox. Absent → union-of-layers bbox framing and no clipping.
 ///
 /// `holes` is a list of (cx, cy, radius) in gerber-mm. When provided they are
-/// appended to the clip path as circle subpaths so evenodd subtracts them,
-/// punching transparent through-holes through the entire composite. When there is
-/// no board outline but holes are present, a synthetic bbox rect clip is built so
-/// the holes have something to punch through.
+/// punched as transparent through-holes via a luminance mask over the whole group
+/// (white board, black hole discs) — independent of the board outline. (A mask,
+/// not subpaths in the board clip: resvg mis-renders holes folded into a complex
+/// evenodd clip path, but renders masks reliably.)
 pub fn compose_svg(
     layers: &[(String, LayerGeometry)],
     overrides: &HashMap<String, String>,
@@ -140,25 +118,8 @@ pub fn compose_svg(
     let ws = trim(w);
     let hs = trim(h);
 
-    // Build the clip `d`: board outline (if any) plus a synthesized bbox rect when
-    // there is no outline but we still need to punch holes. Hole subpaths are
-    // appended so evenodd subtracts them from the clipped region.
+    let board_clip = board_outline.map(|(d, _)| d);
     let has_holes = holes.iter().any(|&(_, _, r)| r > 0.0);
-    let clip_d: Option<String> = match (board_outline.map(|(d, _)| d), has_holes) {
-        (Some(d), _) => Some(format!("{d}{}", holes_path(holes))),
-        (None, true) => {
-            // Outer rect as a path (gerber-mm, Y-up bbox) + holes, evenodd.
-            let rect = format!(
-                "M{minx} {miny} L{maxx} {miny} L{maxx} {maxy} L{minx} {maxy} Z",
-                minx = trim(bb.min_x),
-                miny = trim(bb.min_y),
-                maxx = trim(bb.max_x),
-                maxy = trim(bb.max_y),
-            );
-            Some(format!("{rect}{}", holes_path(holes)))
-        }
-        (None, false) => None,
-    };
 
     // Draw order: top-side layers only, sorted by z-order (stable for ties).
     let mut idx: Vec<usize> = (0..layers.len())
@@ -171,32 +132,64 @@ pub fn compose_svg(
         out,
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{minx} {miny} {ws} {hs}">"#,
     );
-    // Flip Y about the bbox: translate to top, scale Y by -1. Done as a group
-    // transform so fragment coordinates stay in absolute mm.
-    let _ = write!(
-        out,
-        r#"<g transform="translate(0,{ty}) scale(1,-1)">"#,
-        ty = trim(bb.min_y + bb.max_y),
-    );
 
-    // Board-shaped clip (rounded Edge_Cuts outline) so the substrate/mask/layers
-    // follow the real edge instead of the rectangular bbox. userSpaceOnUse → its
-    // path coords share the (flipped) gerber-mm space of the elements it clips.
-    // Hole subpaths are already folded into clip_d via evenodd.
-    let clip_attr = if clip_d.is_some() {
-        r#" clip-path="url(#board-clip)""#
-    } else {
-        ""
-    };
-    if let Some(d) = &clip_d {
-        // evenodd so inner cutout loops punch holes regardless of winding order
-        // (stitch() doesn't normalize direction; nonzero would fill them in).
-        // Drill hole subpaths appended to `d` are subtracted by the same rule.
+    // Defs: board-shape clip (silhouette) and the drill-hole punch mask. Both are
+    // referenced from inside the Y-flip group below, in flipped gerber-mm space.
+    out.push_str("<defs>");
+    if let Some(d) = board_clip {
+        // Board-shaped clip (rounded Edge_Cuts outline) so substrate/mask/layers
+        // follow the real edge. evenodd so inner Edge_Cuts cutout loops punch
+        // regardless of winding (stitch() doesn't normalize direction).
         let _ = write!(
             out,
             r#"<clipPath id="board-clip" clipPathUnits="userSpaceOnUse"><path fill-rule="evenodd" d="{d}"/></clipPath>"#,
         );
     }
+    if has_holes {
+        // Drill holes punched as a luminance mask (white board, black hole discs).
+        // NOTE: resvg mis-renders holes folded into a complex evenodd clip path
+        // (works with a simple rect outline, fails with the real Edge_Cuts loop),
+        // but renders masks reliably — same mechanism as the soldermask. So holes
+        // are a mask on the whole group, NOT subpaths in the board clip.
+        let _ = write!(
+            out,
+            "<mask id=\"holes-punch\" maskUnits=\"userSpaceOnUse\" x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\">\
+<rect x=\"{minx}\" y=\"{miny}\" width=\"{ws}\" height=\"{hs}\" fill=\"#fff\"/>",
+        );
+        for &(cx, cy, r) in holes {
+            if r > 0.0 {
+                let _ = write!(
+                    out,
+                    r##"<circle cx="{cx}" cy="{cy}" r="{r}" fill="#000"/>"##,
+                    cx = trim(cx),
+                    cy = trim(cy),
+                    r = trim(r),
+                );
+            }
+        }
+        out.push_str("</mask>");
+    }
+    out.push_str("</defs>");
+
+    // Flip Y about the bbox: translate to top, scale Y by -1, as a group transform
+    // so fragment coordinates stay in absolute mm. The hole mask punches the whole
+    // composite (substrate + every layer) at once.
+    let hole_mask = if has_holes {
+        r#" mask="url(#holes-punch)""#
+    } else {
+        ""
+    };
+    let _ = write!(
+        out,
+        r#"<g transform="translate(0,{ty}) scale(1,-1)"{hole_mask}>"#,
+        ty = trim(bb.min_y + bb.max_y),
+    );
+
+    let clip_attr = if board_clip.is_some() {
+        r#" clip-path="url(#board-clip)""#
+    } else {
+        ""
+    };
 
     // FR4 substrate: opaque tan rectangle covering the full board extent.
     out.push_str(&format!(
@@ -413,13 +406,13 @@ pub fn render_preview_png(
         .find(|l| l.layer_type == "edgeCuts")
         .and_then(|e| board_outline(&e.bytes));
     // Drilled holes (centre + radius, gerber mm) → punched transparent through the
-    // whole composite. Parse-failure on a bad drill layer just yields no holes.
+    // whole composite. A design can carry MULTIPLE drill layers (e.g. plated PTH +
+    // non-plated NPTH for mechanical/switch holes), so collect from every drill
+    // layer — not just the first. Parse-failure on a bad drill layer yields none.
     let holes: Vec<(f32, f32, f32)> = layers
         .iter()
-        .find(|l| l.layer_type == "drill")
-        .map(|d| crate::drill::parse_drill(&d.bytes).unwrap_or_default())
-        .unwrap_or_default()
-        .into_iter()
+        .filter(|l| l.layer_type == "drill")
+        .flat_map(|d| crate::drill::parse_drill(&d.bytes).unwrap_or_default())
         .map(|h| (h.x_mm, h.y_mm, h.d_mm / 2.0))
         .collect();
     let doc = compose_svg(
@@ -851,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_punches_holes_into_clip() {
+    fn compose_punches_holes_via_mask() {
         // Rect board outline 0..10 x 0..8, one hole at (5,4) r=1.
         let layers = vec![(
             "topCopper".to_string(),
@@ -866,24 +859,27 @@ mod tests {
             max_y: 8.0,
         };
         let doc = compose_svg(&layers, &overrides, Some((outline, bb)), &[(5.0, 4.0, 1.0)]);
-        // The clip path must keep evenodd and now contain an arc subpath for the hole.
-        let clip_start = doc.find("board-clip").expect("clip present");
-        let clip = &doc[clip_start..doc[clip_start..].find("</clipPath>").unwrap() + clip_start];
+        // Holes punch via a luminance mask (NOT subpaths in the board clip).
         assert!(
-            clip.contains("fill-rule=\"evenodd\""),
-            "evenodd kept: {clip}"
+            doc.contains("id=\"holes-punch\""),
+            "holes mask defined: {doc}"
         );
-        assert!(clip.contains('A'), "hole rendered as arc subpath: {clip}");
-        // Hole centre x±r appears (4 and 6 with r=1 at cx=5).
         assert!(
-            clip.contains('6') && clip.contains('4'),
-            "hole geometry present: {clip}"
+            doc.contains("<circle cx=\"5\" cy=\"4\" r=\"1\" fill=\"#000\"/>"),
+            "hole rendered as a black mask disc: {doc}"
         );
+        // The Y-flip group carries the hole mask.
+        assert!(
+            doc.contains("scale(1,-1)\" mask=\"url(#holes-punch)\""),
+            "hole mask applied to the composite group: {doc}"
+        );
+        // Board clip still present and separate from the holes.
+        assert!(doc.contains("id=\"board-clip\""), "board clip kept: {doc}");
     }
 
     #[test]
-    fn compose_no_outline_with_holes_builds_clip() {
-        // No board outline, but holes present → synthesize a bbox clip so holes punch.
+    fn compose_no_outline_with_holes_punches() {
+        // No board outline, but holes present → mask still punches them (no clip needed).
         let layers = vec![(
             "topCopper".to_string(),
             geom("<circle/>", 0.0, 0.0, 10.0, 8.0),
@@ -891,10 +887,18 @@ mod tests {
         let overrides = std::collections::HashMap::new();
         let doc = compose_svg(&layers, &overrides, None, &[(5.0, 4.0, 1.0)]);
         assert!(
-            doc.contains("board-clip"),
-            "clip synthesized when holes exist: {doc}"
+            doc.contains("id=\"holes-punch\""),
+            "holes mask present without an outline: {doc}"
         );
-        assert!(doc.contains('A'), "hole arc present: {doc}");
+        assert!(
+            doc.contains("mask=\"url(#holes-punch)\""),
+            "hole mask applied: {doc}"
+        );
+        // Without an outline there is no silhouette clip.
+        assert!(
+            !doc.contains("board-clip"),
+            "no board clip without outline: {doc}"
+        );
     }
 
     #[test]

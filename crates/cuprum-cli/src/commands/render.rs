@@ -5,18 +5,17 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use cuprum_core::preview::{render_design_preview, PreviewLayer, PreviewSizing};
-use cuprum_project::layer::LayerType;
 use cuprum_project::resolve::{resolve_design, ResolveOpts};
 
 use crate::commands::type_key;
 
 pub fn run(input: &Path, out: Option<PathBuf>, max_px: u32) -> Result<()> {
     let rd = resolve_design(input, &ResolveOpts::default())?;
-    // Drill layers carry no surface; the composite has no holes (matches the card).
+    // Include drill: the renderer punches it as transparent holes through the
+    // composite (not a drawn layer), matching the card/panel previews.
     let layers: Vec<PreviewLayer> = rd
         .layers
         .iter()
-        .filter(|l| l.kind != LayerType::Drill)
         .map(|l| PreviewLayer {
             layer_type: type_key(l.kind),
             bytes: l.bytes.clone(),
