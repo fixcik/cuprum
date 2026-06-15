@@ -36,7 +36,8 @@ pub const METRICS_VERSION: &[u8] = b"metrics-v19";
 /// v5: G74 single-quadrant arc center selection + polygon winding fixed.
 /// v6: indexed PNG-8 output (was truecolor PNG); key now carries PreviewSizing.
 /// v7: drill holes punched transparent through the composite (drill now part of key).
-pub const PREVIEW_VERSION: &[u8] = b"preview-v7";
+/// v8: drill holes punched via a luminance mask instead of an evenodd clip (resvg).
+pub const PREVIEW_VERSION: &[u8] = b"preview-v8";
 
 /// Bump when `mesh::board_geometry` output changes (triangulation, layer/barrel
 /// emission, substrate Z). Unlike the others this keys the OS app-cache mesh blob,
