@@ -265,9 +265,12 @@ pub(crate) fn build_crash_report(app: AppHandle, id: Option<u64>) -> CrashReport
             } else {
                 ""
             };
+            // The struct's log_dir stays raw (frontend opens it locally); the issue
+            // body is public, so redact the home dir out of the path shown there.
+            let log_dir_redacted = redact_paths(&log_dir, &home_dir_string());
             let body = format!(
                 "## Среда\nCuprum v{} · {}\n\n## Тип\n{}\n\n## Ошибка\n{}\n\n## Последняя операция\n{}\n\n## Где\n{}\n\n## Backtrace (пути обезличены)\n```\n{}{}\n```\n\n_Полный лог: {}_\n",
-                r.version, r.os, r.kind, r.message, r.last_op, r.location, bt, truncated, log_dir
+                r.version, r.os, r.kind, r.message, r.last_op, r.location, bt, truncated, log_dir_redacted
             );
             CrashReport {
                 id: Some(r.id),
