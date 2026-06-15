@@ -215,11 +215,15 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
         />
       );
     case KIND_MASK:
-      // polygonOffset pushes the mask slightly BACK in the depth buffer so that
-      // where its slab walls coincide with the copper pad/opening edges, copper
-      // wins the depth test instead of the two z-fighting (the speckle at
-      // copper∩mask boundaries). depthWrite stays off so copper still shows
-      // faintly through the translucent film.
+      // The mask is a thin translucent SLAB. With depthWrite off + DoubleSide its
+      // front/back faces blend in indeterminate order — at a distance (board thin
+      // in screen px) that shimmers as you rotate. depthWrite=true sorts the slab
+      // (only the front face survives) → no shimmer; copper still shows faintly
+      // because it's drawn first (opaque pass) and the mask blends 0.9 over it.
+      // polygonOffset (constant units only, factor=0) pushes the mask back a fixed
+      // amount so copper wins at the pad/opening edges. factor>0 adds a SLOPE term
+      // that grows with foreshortening — zoomed out + tilted it shoved the whole
+      // mask behind the copper, making the film vanish (board went bare-gold).
       return (
         <meshStandardMaterial
           color={MASK_COLOR}
@@ -227,9 +231,9 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
           metalness={0.0}
           transparent
           opacity={0.9}
-          depthWrite={false}
+          depthWrite
           polygonOffset
-          polygonOffsetFactor={1}
+          polygonOffsetFactor={0}
           polygonOffsetUnits={1}
           side={THREE.DoubleSide}
         />
@@ -238,12 +242,19 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
       return <meshStandardMaterial color={SILK_COLOR} roughness={0.85} metalness={0.0} side={THREE.DoubleSide} />;
     case KIND_BARREL:
       // Plated bore wall — copper, a touch rougher/duller than the pads.
+      // polygonOffset pulls the barrel slightly TOWARD the camera (negative units,
+      // factor=0 so it's zoom-independent) so it wins the depth tie against the
+      // copper/mask hole walls that sit at the same radius — otherwise they
+      // z-fight (speckle inside the bore). No geometry is altered.
       return (
         <meshStandardMaterial
           color={COPPER_COLOR}
           roughness={0.5}
           metalness={0.85}
           envMapIntensity={0.85}
+          polygonOffset
+          polygonOffsetFactor={0}
+          polygonOffsetUnits={-2}
           side={THREE.DoubleSide}
         />
       );

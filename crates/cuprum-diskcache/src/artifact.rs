@@ -27,7 +27,8 @@ pub const SVG_VERSION: &[u8] = b"svg-v3";
 /// v18: BoardDims gains origin_x_mm/origin_y_mm (Edge_Cuts outline min corner).
 /// v19: annular ring takes the worst pad across copper layers; geometry fixes
 /// (G74 arcs, winding, macro unary minus).
-pub const METRICS_VERSION: &[u8] = b"metrics-v19";
+/// v20: CIRCLE_SEGS 32→64 (rounder drilled-hole circles) shifts drill geometry.
+pub const METRICS_VERSION: &[u8] = b"metrics-v20";
 
 /// Bump when the preview composition/palette/size changes.
 /// v2: FR4 substrate + inverted soldermask + top-side-only composition.
@@ -43,7 +44,7 @@ pub const PREVIEW_VERSION: &[u8] = b"preview-v8";
 /// emission, substrate Z). Unlike the others this keys the OS app-cache mesh blob,
 /// not a packed `.cuprum` artifact (see module docs) — bumping just orphans the
 /// old cache entry, which the TTL/LRU reclaims.
-pub const MESH_VERSION: &[u8] = b"mesh-v9";
+pub const MESH_VERSION: &[u8] = b"mesh-v10";
 
 use std::collections::HashSet;
 use std::path::Path;
