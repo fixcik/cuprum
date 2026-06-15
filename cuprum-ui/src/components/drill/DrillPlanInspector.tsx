@@ -4,7 +4,7 @@ import { AlertTriangle, ListChecks } from "lucide-react";
 import { AlarmActions } from "@/components/machine/AlarmActions";
 import { LimitRecoveryNotice } from "@/components/machine/LimitRecoveryNotice";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
-import type { DrillClass, DrillEstimate } from "@/lib/api";
+import type { DrillClass, DrillEstimate, ToolingHole } from "@/lib/api";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
@@ -22,9 +22,12 @@ import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary"
 import { WorkZeroStatusCard } from "@/components/drill/WorkZeroStatusCard";
 import { ConnBar } from "@/components/machine/ConnBar";
 import { DrillZeroInspector } from "@/components/drill/DrillZeroInspector";
+import { FiducialPanel } from "@/components/drill/FiducialPanel";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { formatXYViolations } from "@/lib/xyGate";
 import { formatZReasons } from "@/lib/zGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
+import { getRegistrationHoles } from "@/lib/fiducialRegistration";
 
 export interface DrillPlanInspectorProps {
   /** The full (unfiltered) drill plan — passed to DrillSelectionControls for id-based presets. */
@@ -98,6 +101,8 @@ export interface DrillPlanInspectorProps {
   /** Deepest plunge depth (mm) = substrate thickness + breakthrough; feeds the
    *  tool-change card's Z-headroom guard. */
   plungeDepthMm: number;
+  /** All panel tooling holes — used by the fiducial registration panel. */
+  toolingHoles: ToolingHole[];
 }
 
 /** Right-panel inspector for the drill operation.
@@ -143,6 +148,7 @@ export function DrillPlanInspector({
   groupFeedSecs,
   groupMotionSecs,
   plungeDepthMm,
+  toolingHoles,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -154,14 +160,21 @@ export function DrillPlanInspector({
   // Whether pass switching and plan editing are blocked.
   const isRunActive = mode === "run";
 
-  // Inspector sub-mode within "plan": the plan list ⇄ the zero-binding controls.
+  // Inspector sub-mode within "plan": the plan list ⇄ the zero-binding controls ⇄ fiducial registration.
   // The canvas does not change when switching — only the right sidebar swaps.
-  const [panelMode, setPanelMode] = useState<"plan" | "zero">("plan");
+  const [panelMode, setPanelMode] = useState<"plan" | "zero" | "fiducial">("plan");
   // A run takes over the inspector; collapse back to the plan list so we don't
   // return into the zero mode after the run ends.
   useEffect(() => {
     if (isRunActive) setPanelMode("plan");
   }, [isRunActive]);
+
+  // Registration mode toggle: "corner" (classic datum bind) or "fiducial".
+  // Persisted only for the session (ephemeral state). Defaults to "corner".
+  const [registrationMode, setRegistrationMode] = useState<"corner" | "fiducial">("corner");
+
+  // Detect whether the panel has any registration holes so the toggle can be shown.
+  const hasRegistrationHoles = getRegistrationHoles(toolingHoles).length > 0;
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
@@ -276,6 +289,18 @@ export function DrillPlanInspector({
           onClear={onClear}
           zeroError={zeroError}
         />
+      ) : panelMode === "fiducial" ? (
+        /* ── FIDUCIAL REGISTRATION mode ── */
+        <FiducialPanel
+          toolingHoles={toolingHoles}
+          datum={datum}
+          panelWidthMm={panelWidthMm}
+          panelHeightMm={panelHeightMm}
+          maxXMm={maxXMm}
+          maxYMm={maxYMm}
+          maxZMm={maxZMm}
+          onBack={() => setPanelMode("plan")}
+        />
       ) : (
         /* ── PLAN mode ── */
         <>
@@ -315,18 +340,103 @@ export function DrillPlanInspector({
               </div>
             )}
 
-            {/* Work zero — compact status card-button (opens the zero-binding mode) */}
+            {/* Work zero — compact status card-button (opens the zero-binding mode).
+                Shows a registration-mode toggle when the panel has registration holes. */}
             <div className="border-t border-border">
-              <WorkZeroStatusCard
-                isSet={workZeroSet}
-                datum={datum}
-                xyGate={xyGate}
-                disabled={!connected}
-                onOpen={() => {
-                  onClearHole();
-                  setPanelMode("zero");
-                }}
-              />
+              {/* Registration mode toggle (shown only when registration holes exist) */}
+              {hasRegistrationHoles && (
+                <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    {t("workzero.title")}
+                  </span>
+                  <SegmentedControl
+                    options={[
+                      { value: "corner" as const, label: t("fiducial.modeCorner") },
+                      { value: "fiducial" as const, label: t("fiducial.modeFiducial") },
+                    ]}
+                    value={registrationMode}
+                    onChange={setRegistrationMode}
+                    className="ml-auto text-[11px]"
+                  />
+                </div>
+              )}
+
+              {registrationMode === "fiducial" && hasRegistrationHoles ? (
+                /* Fiducial mode: compact status card-button opens fiducial panel */
+                <div className="px-4 py-2">
+                  <button
+                    type="button"
+                    disabled={!connected}
+                    onClick={() => {
+                      onClearHole();
+                      setPanelMode("fiducial");
+                    }}
+                    className={
+                      "flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2.5 text-left transition-colors " +
+                      (!connected
+                        ? "border-border bg-card/30 opacity-60 cursor-not-allowed"
+                        : "border-primary/40 bg-primary/5 hover:border-primary/60 cursor-pointer")
+                    }
+                  >
+                    <div
+                      className={
+                        "grid size-9 shrink-0 place-items-center rounded-lg " +
+                        (!connected ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary")
+                      }
+                    >
+                      {/* Crosshair icon from lucide */}
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="size-5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="22" y1="12" x2="18" y2="12" />
+                        <line x1="6" y1="12" x2="2" y2="12" />
+                        <line x1="12" y1="6" x2="12" y2="2" />
+                        <line x1="12" y1="22" x2="12" y2="18" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium text-foreground">
+                        {t("fiducial.title")}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {!connected ? t("workzero.connectFirst") : t("workzero.openSettings")}
+                      </div>
+                    </div>
+                    {connected && (
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="size-4 shrink-0 text-primary"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                /* Corner mode: classic work-zero status card */
+                <WorkZeroStatusCard
+                  isSet={workZeroSet}
+                  datum={datum}
+                  xyGate={xyGate}
+                  disabled={!connected}
+                  onOpen={() => {
+                    onClearHole();
+                    setPanelMode("zero");
+                  }}
+                />
+              )}
             </div>
 
             {/* Divider */}
