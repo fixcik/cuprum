@@ -18,7 +18,9 @@
 // into DrillPlanInput.registration so hole coordinates are corrected before G-code
 // emission. When no registration is solved the field stays None → identity.
 //
-// All coordinates are machine-space mm (not work-space).
+// All coordinates are work-space (G54) mm.
+// ideal = machinePoint() output = datum-relative work coords.
+// measured = WPos snapshot when the operator confirms alignment.
 
 use crate::commands::error::{CmdError, CmdResult};
 use cuprum_core::drilling::{fit_transform, MachineXY, PointPair, Registration};
@@ -31,10 +33,10 @@ use tauri::State;
 /// captured real machine position (set by `fiducial_capture`).
 #[derive(Clone, Debug)]
 struct Fiducial {
-    /// Where the fiducial should be in machine space, computed from the datum
+    /// Where the fiducial should be in work space (G54), computed from the datum
     /// transform of its panel coordinate before the session starts.
     ideal: MachineXY,
-    /// The measured machine XY, taken from the live MPos when the user calls
+    /// The measured work XY (WPos snapshot), taken when the user calls
     /// `fiducial_capture`. None until captured.
     measured: Option<MachineXY>,
 }
@@ -74,7 +76,7 @@ pub struct FiducialInitEntry {
 #[serde(rename_all = "camelCase")]
 pub struct FiducialDto {
     pub ideal: MachineXY,
-    /// The measured machine position; null when not yet captured.
+    /// The measured work position (WPos); null when not yet captured.
     pub measured: Option<MachineXY>,
     /// True when this fiducial has been captured.
     pub captured: bool,
@@ -126,11 +128,11 @@ pub fn fiducial_init(
     Ok(())
 }
 
-/// Capture the current machine XY as the measured position for fiducial `index`.
+/// Capture the current work XY (WPos) as the measured position for fiducial `index`.
 ///
 /// The caller must first jog the spindle over the fiducial and only then invoke
 /// this command. The command sends a `?` status query and waits for the next
-/// `<…>` status report from GRBL, which carries the live machine position. It
+/// `<...>` status report from GRBL, which carries the live position. It
 /// fails if the machine is not connected or no status arrives within 2 s.
 #[tauri::command]
 pub async fn fiducial_capture(
@@ -151,10 +153,10 @@ pub async fn fiducial_capture(
         .map_err(CmdError::from)?;
 
     // Wait for the next status broadcast (the 200 ms poll answers promptly; cap at 2 s).
-    let mpos = tokio::time::timeout(Duration::from_secs(2), async {
+    let wpos = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             match rx.recv().await {
-                Ok(GrblEvent::Status { status, .. }) => break Ok(status.mpos),
+                Ok(GrblEvent::Status { status, .. }) => break Ok(status.wpos),
                 Ok(GrblEvent::Disconnected) | Err(_) => {
                     break Err(CmdError::from(
                         "machine disconnected while reading position",
@@ -173,8 +175,8 @@ pub async fn fiducial_capture(
         .get_mut(index)
         .ok_or_else(|| CmdError::from(format!("fiducial index {index} out of range")))?;
     fid.measured = Some(MachineXY {
-        x: mpos[0] as f64,
-        y: mpos[1] as f64,
+        x: wpos[0] as f64,
+        y: wpos[1] as f64,
     });
     // Invalidate the previous solve when a measurement changes.
     inner.registration = None;

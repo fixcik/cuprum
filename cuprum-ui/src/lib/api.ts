@@ -665,7 +665,7 @@ export interface Registration {
   scale: number;
   /** Rotation angle in radians (counter-clockwise). */
   angleRad: number;
-  /** Translation vector in machine space (mm). */
+  /** Translation vector in work space (G54) mm. */
   translation: { x: number; y: number };
   /** RMS residual (mm); 0 for exact 2-point fits. */
   rmsResidualMm: number;
@@ -673,9 +673,9 @@ export interface Registration {
 
 /** Snapshot of one fiducial marker. Mirrors Rust `FiducialDto`. */
 export interface FiducialDto {
-  /** Ideal (nominal) machine-space position (mm). */
+  /** Ideal (nominal) work-frame (G54) XY position (mm). */
   ideal: { x: number; y: number };
-  /** Measured machine-space position captured by `fiducial_capture`; null if not yet captured. */
+  /** Measured work-frame (G54) XY (WPos snapshot) captured by `fiducial_capture`; null if not yet captured. */
   measured: { x: number; y: number } | null;
   /** True when this fiducial has been captured. */
   captured: boolean;
@@ -1331,22 +1331,22 @@ export const api = {
       listen("operation-runs://changed", () => cb()),
   },
 
-  /** Fiducial-registration commands. Capture real machine positions for fiducial
-   *  markers, fit a 2D correction transform, and inject it into the drill planner.
+  /** Fiducial-registration commands. Capture real work-frame (G54) positions for
+   *  fiducial markers, fit a 2D correction transform, and inject it into the drill planner.
    *
    *  Workflow:
-   *    1. `init` — set ideal machine XY for every fiducial; resets measurements.
+   *    1. `init` — set ideal work-frame (G54) XY for every fiducial; resets measurements.
    *    2. `capture(index)` — jog spindle over fiducial N, then call this;
-   *                          snapshots the current machine XY from GRBL.
+   *                          snapshots the current WPos (work-frame XY) from GRBL.
    *    3. `solve` — fit Registration from ≥2 captured pairs; returns the result.
    *    4. `reset` — clear everything (need `init` again for next session).
    *    5. `state` — inspect what is captured and whether a transform is ready. */
   fiducial: {
-    /** Set the ideal machine positions for the current session's fiducials.
+    /** Set the ideal work-frame (G54) XY positions for the current session's fiducials.
      *  Resets any previous measurements and the solved transform. */
     init: (entries: Array<{ ideal: { x: number; y: number } }>) =>
       invoke<void>("fiducial_init", { entries }),
-    /** Snapshot the current machine XY as the measured position for fiducial
+    /** Snapshot the current WPos (work-frame XY) as the measured position for fiducial
      *  `index`. The spindle must already be positioned over the fiducial. */
     capture: (index: number) => invoke<void>("fiducial_capture", { index }),
     /** Fit a Registration from all captured (ideal, measured) pairs.

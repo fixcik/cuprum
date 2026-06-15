@@ -26,7 +26,6 @@ import {
   fiducialCaptureBounds,
   classifyRms,
   canSolve,
-  machineToWorkXY,
   FIDUCIAL_CAPTURE_STEPS_MM,
   FIDUCIAL_Z_DESCENT_FEED_MM_MIN,
   getRegistrationHoles,
@@ -51,6 +50,8 @@ export interface FiducialPanelProps {
   maxXMm: number;
   maxYMm: number;
   maxZMm: number;
+  /** Whether the XY work zero has been bound (captured by the operator). */
+  workZeroSet: boolean;
   /** Navigate back to the plan inspector. */
   onBack: () => void;
 }
@@ -69,6 +70,7 @@ export function FiducialPanel({
   maxXMm,
   maxYMm,
   maxZMm,
+  workZeroSet,
   onBack,
 }: FiducialPanelProps) {
   const { t } = useTranslation("drill");
@@ -109,14 +111,23 @@ export function FiducialPanel({
     z: [-maxZMm, 0],
   };
 
-  // Build ideal machine XY for each registration hole.
+  // Build ideal work-frame (G54) XY for each registration hole.
   const entries = buildFiducialEntries(regHoles, datum, panelWidthMm, panelHeightMm);
 
   // Derive jog bounds: restricted to capture box when a fiducial is active,
   // otherwise full machine envelope.
+  // The capture box is centred on the machine-frame position of the fiducial
+  // (ideal work + WCO), so reads live mpos/wpos from the store.
+  const { mpos: liveMpos, wpos: liveWpos } = useMachine((s) => s.status);
   const jogBounds: JogBounds =
     activeIdx !== null && entries[activeIdx]
-      ? fiducialCaptureBounds(entries[activeIdx].ideal.x, entries[activeIdx].ideal.y, machineBounds)
+      ? fiducialCaptureBounds(
+          entries[activeIdx].ideal.x,
+          entries[activeIdx].ideal.y,
+          liveMpos,
+          liveWpos,
+          machineBounds,
+        )
       : machineBounds;
 
   // Jog hook with dynamic bounds. In capture mode only fine steps are allowed.
@@ -390,6 +401,14 @@ export function FiducialPanel({
           </div>
         )}
 
+        {/* Work-zero banner: fiducial alignment assumes work zero is set at the datum corner. */}
+        {connected && homed && !workZeroSet && (
+          <div className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            <span className="flex-1">{t("fiducial.workZeroNeeded")}</span>
+          </div>
+        )}
+
         {/* Intro hint */}
         <p className="px-4 pt-3 text-[11px] text-muted-foreground">{t("fiducial.hint")}</p>
 
@@ -519,9 +538,8 @@ export function FiducialPanel({
                         onClick={() => {
                           const entry = entries[idx];
                           if (!entry) return;
-                          // ideal is machine-frame; jogTo expects work-frame.
-                          const { mpos, wpos } = useMachine.getState().status;
-                          void jogTo(machineToWorkXY(entry.ideal, mpos, wpos), RAPID_JOG_FEED);
+                          // ideal is already work-frame (G54); jogTo takes work coords directly.
+                          void jogTo({ x: entry.ideal.x, y: entry.ideal.y }, RAPID_JOG_FEED);
                         }}
                       >
                         <Crosshair className="size-4" />

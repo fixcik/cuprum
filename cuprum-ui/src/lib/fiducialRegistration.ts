@@ -2,10 +2,22 @@
  * Pure logic for fiducial-registration workflow in the drill operation.
  *
  * Responsibilities:
- *  - Build the machine-space ideal positions for fiducials from panel tooling holes.
+ *  - Build the work-frame (G54) ideal positions for fiducials from panel tooling holes.
  *  - Derive the envelope jog clamp box around a specific fiducial (capture zone).
  *  - Classify the RMS residual into a severity level.
  *  - Validate the minimum number of captures required for solve.
+ *
+ * Coordinate convention
+ * ---------------------
+ * `ideal`    -- work-frame (G54) XY; `machinePoint()` output = datum corner is the
+ *              G54 origin, so the result is directly the WPos the spindle should read
+ *              when centred over the fiducial.
+ * `measured` -- WPos captured at the moment the operator confirms alignment.
+ * machineBounds / captureMachineXY -- machine-frame (G53) coordinates used by
+ *              the jog-clamp envelope (useJog bounds are always machine-frame).
+ *
+ * The fit (ideal->measured) is therefore work->work: a small correction for board
+ * placement offset, rotation and scale, with no WCO contamination.
  */
 
 import type { ToolingHole } from "@/lib/api";
@@ -14,12 +26,12 @@ import type { DatumCorner } from "@/lib/datum";
 import type { JogBounds } from "@/lib/jogBounds";
 
 /** Radius (mm) of the capture zone around the ideal fiducial position.
- *  The jog envelope is clamped to a ±R square while the operator navigates
+ *  The jog envelope is clamped to a +/-R square while the operator navigates
  *  to a fiducial, preventing accidental large moves. */
 export const FIDUCIAL_CAPTURE_RADIUS_MM = 3;
 
 /** Allowed jog step sizes (mm) while in fiducial capture mode.
- *  The 10 mm step is intentionally absent — only fine steps allowed. */
+ *  The 10 mm step is intentionally absent -- only fine steps allowed. */
 export const FIDUCIAL_CAPTURE_STEPS_MM: number[] = [0.05, 0.1, 0.5];
 
 /** Feed rate (mm/min) for a manual Z descent step during fiducial capture.
@@ -35,7 +47,7 @@ export const RMS_WARN_MM = 0.1;
 /** RMS residual threshold: above this is "bad" registration (mm). */
 export const RMS_ERROR_MM = 0.5;
 
-/** One fiducial entry for api.fiducial.init. */
+/** One fiducial entry for api.fiducial.init. ideal is work-frame (G54) mm. */
 export interface FiducialInitEntry {
   ideal: { x: number; y: number };
 }
@@ -56,11 +68,13 @@ export function getRegistrationHoles(toolingHoles: ToolingHole[]): ToolingHole[]
 }
 
 /**
- * Build fiducial init entries (ideal machine-space XY) from panel registration
+ * Build fiducial init entries (ideal work-frame G54 XY) from panel registration
  * holes. Applies the datum-corner transform (same as the drill route planner).
  *
  * Panel space: Y-down, origin top-left.
- * Machine space: Y-up, origin at the datum corner.
+ * Work space (G54): Y-up, origin at the datum corner (= the G54 work zero).
+ * The output `ideal` values equal the WPos the spindle should show when centred
+ * over the fiducial, regardless of the machine WCO.
  */
 export function buildFiducialEntries(
   registrationHoles: ToolingHole[],
@@ -69,30 +83,45 @@ export function buildFiducialEntries(
   panelHeightMm: number,
 ): FiducialInitEntry[] {
   return registrationHoles.map((h) => {
-    const [mx, my] = machinePoint(h.x_mm, h.y_mm, datum, panelWidthMm, panelHeightMm);
-    return { ideal: { x: mx, y: my } };
+    const [wx, wy] = machinePoint(h.x_mm, h.y_mm, datum, panelWidthMm, panelHeightMm);
+    return { ideal: { x: wx, y: wy } };
   });
 }
 
 /**
- * Derive the jog clamp bounds for capturing a fiducial at a given ideal machine XY.
- * Returns a ±FIDUCIAL_CAPTURE_RADIUS_MM box centred on the ideal XY, intersected
- * with the overall machine envelope so it never exceeds real travel limits.
+ * Derive the jog clamp bounds for capturing a fiducial.
+ *
+ * useJog bounds are always machine-frame (G53), so the +/-r box must be centred on
+ * the machine position of the fiducial:
+ *   machineXY = ideal (work) + WCO,  where WCO = mpos - wpos.
+ *
+ * @param idealX  Work-frame X of the fiducial (from buildFiducialEntries).
+ * @param idealY  Work-frame Y of the fiducial.
+ * @param mpos    Live MPos (machine-frame, 3-element array).
+ * @param wpos    Live WPos (work-frame, 3-element array).
+ * @param machineBounds  Full machine travel envelope (machine-frame).
  */
 export function fiducialCaptureBounds(
   idealX: number,
   idealY: number,
+  mpos: readonly number[],
+  wpos: readonly number[],
   machineBounds: JogBounds,
 ): JogBounds {
   const r = FIDUCIAL_CAPTURE_RADIUS_MM;
+  // Convert work-frame ideal to machine-frame so the box aligns with machineBounds.
+  const wcoX = mpos[0] - wpos[0];
+  const wcoY = mpos[1] - wpos[1];
+  const centerMachineX = idealX + wcoX;
+  const centerMachineY = idealY + wcoY;
   return {
     x: [
-      Math.max(machineBounds.x[0], idealX - r),
-      Math.min(machineBounds.x[1], idealX + r),
+      Math.max(machineBounds.x[0], centerMachineX - r),
+      Math.min(machineBounds.x[1], centerMachineX + r),
     ],
     y: [
-      Math.max(machineBounds.y[0], idealY - r),
-      Math.min(machineBounds.y[1], idealY + r),
+      Math.max(machineBounds.y[0], centerMachineY - r),
+      Math.min(machineBounds.y[1], centerMachineY + r),
     ],
     // Z travel is not restricted during XY capture navigation.
     z: machineBounds.z,
@@ -102,23 +131,4 @@ export function fiducialCaptureBounds(
 /** Whether enough fiducials have been captured to attempt a solve. */
 export function canSolve(capturedCount: number): boolean {
   return capturedCount >= MIN_CAPTURES_FOR_SOLVE;
-}
-
-/**
- * Convert a machine-frame XY target into the work frame that `jogTo` expects.
- *
- * Fiducial ideal positions live in machine coordinates (from `machinePoint`),
- * but `jogTo` clamps/sends work-frame targets (it adds the live WCO back).
- * The work offset is `wco = mpos − wpos` per axis, so `work = machine − wco`.
- * Without this, a non-zero work zero would send the spindle to the wrong spot.
- */
-export function machineToWorkXY(
-  ideal: { x: number; y: number },
-  mpos: readonly number[],
-  wpos: readonly number[],
-): { x: number; y: number } {
-  return {
-    x: ideal.x - (mpos[0] - wpos[0]),
-    y: ideal.y - (mpos[1] - wpos[1]),
-  };
 }

@@ -299,6 +299,7 @@ export function DrillPlanInspector({
           maxXMm={maxXMm}
           maxYMm={maxYMm}
           maxZMm={maxZMm}
+          workZeroSet={workZeroSet}
           onBack={() => setPanelMode("plan")}
         />
       ) : (
