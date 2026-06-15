@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { MousePointer2, Hand, Target, OctagonAlert, Ruler, CircleDot, Grid2x2, Crosshair, Magnet, type LucideIcon } from "lucide-react";
+import { MousePointer2, Hand, Target, OctagonAlert, Ruler, CircleDot, Grid2x2, Crosshair, Magnet, Trash2, type LucideIcon } from "lucide-react";
 import { RULER_TOP, RULER_OVERLAY_GAP } from "@/components/editor/canvasStyle";
 import { UnitField } from "@/components/ui/settings/UnitField";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { usePanelTool } from "@/panelToolStore";
 import { useSettings, type Units } from "@/settingsStore";
 import type { PanelTool } from "@/components/panel/PanelToolPalette";
+import type { ToolingHole, ToolingHoleRole } from "@/lib/api";
 
 /** Horizontal context bar of options for the active tool, centred at the top of
  *  the panel canvas. This is the heart of variant C: it replaces the rail's swapped
@@ -21,12 +22,22 @@ export function ToolOptionsBar({
   addArmed,
   onAddRegistrationSet,
   onAddAutoFiducials,
+  selectedHole,
+  onHoleDiameter,
+  onHoleRole,
+  onHoleDelete,
 }: {
   tool: PanelTool;
   onAddHole: () => void;
   addArmed: boolean;
   onAddRegistrationSet: () => void;
   onAddAutoFiducials: () => void;
+  /** When a tooling hole is selected, the bar shows ITS properties (diameter, role,
+   *  delete) instead of the tool options — one bar, no separate inspector. */
+  selectedHole: ToolingHole | null;
+  onHoleDiameter: (mm: number) => void;
+  onHoleRole: (r: ToolingHoleRole) => void;
+  onHoleDelete: () => void;
 }) {
   const { t } = useTranslation(["project", "common"]);
   const holeDiameterMm = usePanelTool((s) => s.holeDiameterMm);
@@ -78,7 +89,40 @@ export function ToolOptionsBar({
   const hint = (text: string) => <span className="text-[11px] text-muted-foreground">{text}</span>;
 
   let content: React.ReactNode;
-  switch (tool) {
+  if (selectedHole) {
+    // A hole is selected (in tooling or select) — show its properties here instead
+    // of the tool options, so there is a single bar, not a duplicate inspector.
+    content = (
+      <>
+        {label(Target, t("panel.tool.tooling"))}
+        {divider}
+        <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+          Ø
+          <UnitField value={selectedHole.diameter_mm} onChange={onHoleDiameter} dim="fine" className="w-20" />
+        </span>
+        {divider}
+        <SegmentedControl<ToolingHoleRole>
+          value={selectedHole.role}
+          onChange={onHoleRole}
+          options={[
+            { value: "registration", label: t("panel.tooling.role.registration") },
+            { value: "flip", label: t("panel.tooling.role.flip") },
+            { value: "unused", label: t("panel.tooling.role.unused") },
+          ]}
+        />
+        {divider}
+        <button
+          type="button"
+          onClick={onHoleDelete}
+          aria-label={t("panel.tooling.delete")}
+          title={t("panel.tooling.delete")}
+          className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </>
+    );
+  } else switch (tool) {
     case "tooling":
       content = (
         <>

@@ -36,7 +36,6 @@ import { RenestDialog } from "@/components/panel/RenestDialog";
 import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog";
 import { AutoFiducialsDialog } from "@/components/panel/AutoFiducialsDialog";
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
-import { ToolingHoleInspector } from "@/components/panel/ToolingHoleInspector";
 import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
 import { ClampZoneLayer } from "@/components/panel/ClampZoneLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
@@ -939,20 +938,16 @@ export function PanelBlankCanvas({
         addArmed={addArmed}
         onAddRegistrationSet={() => setRegSetOpen(true)}
         onAddAutoFiducials={() => setAutoFiducialsOpen(true)}
+        selectedHole={
+          (tool === "tooling" || tool === "select") && selectedHoleId
+            ? holes.find((h) => h.id === selectedHoleId) ?? null
+            : null
+        }
+        onHoleDiameter={(d) => { if (selectedHoleId) void setToolingHoleDiameter(selectedHoleId, d); }}
+        onHoleRole={(r) => { if (selectedHoleId) void setToolingHoleRole(selectedHoleId, r); }}
+        onHoleDelete={() => { if (selectedHoleId) { removeToolingHole(selectedHoleId).catch(() => {}); setSelectedHoleId(null); } }}
       />
       <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />
-
-      {(tool === "tooling" || tool === "select") && selectedHoleId && (() => {
-        const h = holes.find((x) => x.id === selectedHoleId);
-        return h ? (
-          <ToolingHoleInspector
-            hole={h}
-            onDiameter={(d) => void setToolingHoleDiameter(h.id, d)}
-            onRole={(r) => void setToolingHoleRole(h.id, r)}
-            onDelete={() => { removeToolingHole(h.id).catch(() => {}); setSelectedHoleId(null); }}
-          />
-        ) : null;
-      })()}
 
       <div className="absolute right-3 z-10 rounded-md border border-border bg-card/90 px-2 py-1 text-[11px] tabular-nums text-muted-foreground" style={{ top: RULER_TOP + 6 }}>
         {W} × {H} mm
