@@ -204,7 +204,9 @@ pub(crate) fn mask_polygons(
                 .collect()
         })
         .collect();
-    let polys = cuprum_core::geometry::mask_polygons(&rings, &bytes)?;
+    // This command has no drill context; the live 3D path drills the mask in
+    // `board_geometry` instead. Pass no holes here.
+    let polys = cuprum_core::geometry::mask_polygons(&rings, &bytes, &[])?;
     Ok(polys_to_dtos(polys))
 }
 

@@ -42,7 +42,7 @@ pub const PREVIEW_VERSION: &[u8] = b"preview-v7";
 /// emission, substrate Z). Unlike the others this keys the OS app-cache mesh blob,
 /// not a packed `.cuprum` artifact (see module docs) — bumping just orphans the
 /// old cache entry, which the TTL/LRU reclaims.
-pub const MESH_VERSION: &[u8] = b"mesh-v7";
+pub const MESH_VERSION: &[u8] = b"mesh-v8";
 
 use std::collections::HashSet;
 use std::path::Path;
