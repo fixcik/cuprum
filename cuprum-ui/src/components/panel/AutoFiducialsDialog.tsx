@@ -232,8 +232,8 @@ export function AutoFiducialsDialog({
                   <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">
                     {t("panel.autoFiducials.coordNo")}
                   </th>
-                  <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">X, мм</th>
-                  <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Y, мм</th>
+                  <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">{`X, ${t("common:unit.mm")}`}</th>
+                  <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">{`Y, ${t("common:unit.mm")}`}</th>
                 </tr>
               </thead>
               <tbody>

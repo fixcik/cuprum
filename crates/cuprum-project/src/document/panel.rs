@@ -141,16 +141,16 @@ pub struct FiducialPosition {
 /// holes separated by `params.step_mm`.  `params.edge_offset_mm` positions the
 /// row offset from the panel edge perpendicular to the axis.
 ///
-/// Returns an empty `Vec` if the panel is too small to fit any hole, but never
-/// fewer than `count` holes when the dimensions are reasonable.
+/// Always returns exactly `count.max(2)` positions.  Holes that fall outside
+/// the panel bounds are clamped to the panel edge by the caller.
 pub fn place_fiducials(
     panel_width_mm: f32,
     panel_height_mm: f32,
     params: &FiducialParams,
 ) -> Vec<FiducialPosition> {
-    let n = params.count.max(2) as f32;
+    let n = params.count.max(2);
     // Total span of the row: (N-1) * step.
-    let span = (n - 1.0) * params.step_mm;
+    let span = (n - 1) as f32 * params.step_mm;
 
     match params.axis {
         FiducialAxis::X => {
@@ -158,7 +158,7 @@ pub fn place_fiducials(
             let centre_x = panel_width_mm / 2.0;
             let y = params.edge_offset_mm.clamp(0.0, panel_height_mm);
             let x0 = centre_x - span / 2.0;
-            (0..params.count.max(2))
+            (0..n)
                 .map(|i| FiducialPosition {
                     x_mm: x0 + i as f32 * params.step_mm,
                     y_mm: y,
@@ -170,7 +170,7 @@ pub fn place_fiducials(
             let centre_y = panel_height_mm / 2.0;
             let x = params.edge_offset_mm.clamp(0.0, panel_width_mm);
             let y0 = centre_y - span / 2.0;
-            (0..params.count.max(2))
+            (0..n)
                 .map(|i| FiducialPosition {
                     x_mm: x,
                     y_mm: y0 + i as f32 * params.step_mm,
@@ -580,5 +580,18 @@ mod tests {
             !json.contains("fiducial_params"),
             "fiducial_params key should be absent: {json}"
         );
+    }
+
+    /// count < 2 is defensively floored to 2 (reachable from a hand-edited .cuprum).
+    #[test]
+    fn place_fiducials_count_below_2_floored() {
+        for n in [0u32, 1] {
+            let params = FiducialParams {
+                count: n,
+                ..FiducialParams::default()
+            };
+            let holes = place_fiducials(200.0, 100.0, &params);
+            assert_eq!(holes.len(), 2, "count={n} must be floored to 2");
+        }
     }
 }
