@@ -590,15 +590,20 @@ export function PanelBlankCanvas({
       const d = keepOutDraw;
       keepOutDrawStart.current = null;
       setKeepOutDraw(null);
+      // Ignore an accidental click with no real drag; otherwise commit and let
+      // addKeepOutZone → clampZoneRect enforce the KEEPOUT_MIN_MM minimum. This keeps
+      // sub-mm zones drawable when the snap toggle is off.
+      const rawW = Math.abs(d.x1 - d.x0);
+      const rawH = Math.abs(d.y1 - d.y0);
+      if (rawW < 0.1 && rawH < 0.1) return;
       // Snap to the 1 mm grid unless the snap toggle is off.
       const round = (v: number) => (keepOutSnap ? Math.round(v) : v);
-      const x_mm = round(Math.min(d.x0, d.x1));
-      const y_mm = round(Math.min(d.y0, d.y1));
-      const width_mm = round(Math.abs(d.x1 - d.x0));
-      const height_mm = round(Math.abs(d.y1 - d.y0));
-      // Minimum 1 mm × 1 mm to avoid accidental tiny zones.
-      if (width_mm < 1 || height_mm < 1) return;
-      void addKeepOutZone({ x_mm, y_mm, width_mm, height_mm });
+      void addKeepOutZone({
+        x_mm: round(Math.min(d.x0, d.x1)),
+        y_mm: round(Math.min(d.y0, d.y1)),
+        width_mm: round(rawW),
+        height_mm: round(rawH),
+      });
       return;
     }
     keepOutDrawStart.current = null;
