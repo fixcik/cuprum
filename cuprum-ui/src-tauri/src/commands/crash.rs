@@ -47,6 +47,7 @@ pub(crate) fn redact_paths(input: &str, home: &str) -> String {
 // ── Storage ──────────────────────────────────────────────────────────────────
 
 /// Next sequential id = max existing + 1 (filenames are <id>.json).
+// Acceptable race on simultaneous double-panic: one of two records may be lost; fine for single-user desktop.
 fn next_id(dir: &Path) -> u64 {
     let mut max = 0u64;
     if let Ok(entries) = fs::read_dir(dir) {
@@ -101,7 +102,9 @@ fn set_flags(dir: &Path, id: u64, reported: Option<bool>, dismissed: Option<bool
         if let Some(v) = dismissed {
             r.dismissed = v;
         }
-        let _ = fs::write(&path, serde_json::to_vec_pretty(&r).unwrap_or_default());
+        if let Ok(bytes) = serde_json::to_vec_pretty(&r) {
+            let _ = fs::write(&path, bytes);
+        }
     }
 }
 
@@ -149,6 +152,7 @@ pub(crate) fn install_panic_hook<R: Runtime>(app: &AppHandle<R>) {
             .location()
             .map(|l| format!("{}:{}", l.file(), l.line()))
             .unwrap_or_default();
+        // force_capture ignores RUST_BACKTRACE so we always get a trace regardless of env.
         let bt = std::backtrace::Backtrace::force_capture().to_string();
         let rec = CrashRecord {
             id: 0,
@@ -159,10 +163,7 @@ pub(crate) fn install_panic_hook<R: Runtime>(app: &AppHandle<R>) {
             message: redact_paths(&msg, &home),
             location: redact_paths(&location, &home),
             backtrace: redact_paths(&bt, &home),
-            last_op: std::thread::current()
-                .name()
-                .unwrap_or("?")
-                .to_string(),
+            last_op: std::thread::current().name().unwrap_or("?").to_string(),
             reported: false,
             dismissed: false,
         };
@@ -206,6 +207,7 @@ pub(crate) fn report_frontend_crash(
         version: app.package_info().version.to_string(),
         os: os_string(),
         message: redact_paths(&message, &home),
+        // JS location is embedded in the stack field.
         location: String::new(),
         backtrace: redact_paths(&stack, &home),
         last_op,
@@ -256,8 +258,9 @@ pub(crate) fn build_crash_report(app: AppHandle, id: Option<u64>) -> CrashReport
     });
     match rec {
         Some(r) => {
+            let truncated_flag = r.backtrace.chars().count() > 6000;
             let bt: String = r.backtrace.chars().take(6000).collect();
-            let truncated = if r.backtrace.len() > bt.len() {
+            let truncated = if truncated_flag {
                 "\n…(обрезано; полный лог в папке логов)"
             } else {
                 ""
@@ -268,10 +271,7 @@ pub(crate) fn build_crash_report(app: AppHandle, id: Option<u64>) -> CrashReport
             );
             CrashReport {
                 id: Some(r.id),
-                title: format!(
-                    "Сбой: {}",
-                    r.message.chars().take(80).collect::<String>()
-                ),
+                title: format!("Сбой: {}", r.message.chars().take(80).collect::<String>()),
                 body,
                 log_dir,
             }
@@ -339,19 +339,20 @@ mod storage_tests {
 
     #[test]
     fn write_then_read_back() {
-        let dir = std::env::temp_dir()
-            .join(format!("cuprum-crash-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("cuprum-crash-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let id1 = write_record(&dir, rec()).unwrap();
         let id2 = write_record(&dir, rec()).unwrap();
         assert_eq!((id1, id2), (1, 2));
         assert_eq!(all_records(&dir).len(), 2);
         set_flags(&dir, id1, Some(true), None);
-        assert!(all_records(&dir)
-            .iter()
-            .find(|r| r.id == 1)
-            .unwrap()
-            .reported);
+        assert!(
+            all_records(&dir)
+                .iter()
+                .find(|r| r.id == 1)
+                .unwrap()
+                .reported
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }
