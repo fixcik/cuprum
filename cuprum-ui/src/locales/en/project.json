@@ -160,6 +160,14 @@
       "autoFiducials": "Auto-place fiducials",
       "keepout": "Forbidden zone"
     },
+    "toolbar": {
+      "single": "Single hole",
+      "set": "Set",
+      "auto": "Auto",
+      "snapGrid": "Snap to grid",
+      "selectHint": "Click to select · Shift to add",
+      "panHint": "Drag the canvas · wheel to zoom · space to grab"
+    },
     "keepout": {
       "delete": "Delete",
       "draw": "Draw a forbidden zone"
