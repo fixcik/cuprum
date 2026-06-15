@@ -46,6 +46,7 @@ import { useKeepOutSelection } from "@/keepOutSelectionStore";
 import { usePanelContextActions } from "@/hooks/usePanelContextActions";
 import { usePanelKeyHandlers } from "@/hooks/usePanelKeyHandlers";
 import { ToolingGhostCrosshair, MarqueeRect, KeepOutDrawRect } from "@/components/panel/DraftShapes";
+import { MeasureOverlay, type MeasurePoint } from "@/components/panel/MeasureOverlay";
 import { InstanceLayer } from "@/components/panel/InstanceLayer";
 import { PanelContextMenuContent } from "@/components/panel/PanelContextMenuContent";
 import { useCrosshairState } from "@/hooks/useCrosshairState";
@@ -484,7 +485,29 @@ export function PanelBlankCanvas({
     e.target === e.target.getStage() || e.target.name() === "panel-bg";
 
   const onBgMouseDown = (e: KonvaEventObject<MouseEvent>) => {
-    if (panMode || !isEmptyTarget(e)) return;
+    if (panMode) return;
+    if (tool === "measure") {
+      // Measure picks points anywhere on the canvas (not just empty), so it runs
+      // before the empty-target gate. Right/middle click resets the line.
+      if (e.evt.button !== 0) {
+        setMA(null);
+        setMB(null);
+        return;
+      }
+      const p = pointerMm();
+      if (!p) return;
+      const snap = e.evt.altKey ? { mm: p, feature: false } : snapPointMm(p);
+      const pt: MeasurePoint = { x: snap.mm.x, y: snap.mm.y, feature: snap.feature };
+      // No start yet, or a completed line → begin a fresh measurement.
+      if (!mA || (mA && mB)) {
+        setMA(pt);
+        setMB(null);
+      } else {
+        setMB(pt);
+      }
+      return;
+    }
+    if (!isEmptyTarget(e)) return;
     if (tool === "tooling") {
       // Edit-first: a bare click just deselects. A hole is placed only when the
       // "+" action has armed a one-shot placement; then disarm and select it.
@@ -568,6 +591,16 @@ export function PanelBlankCanvas({
       const p = pointerMm();
       if (p) setKeepOutDraw({ x0: keepOutDrawStart.current.x, y0: keepOutDrawStart.current.y, x1: p.x, y1: p.y });
     }
+    // Live measure hover: prospective endpoint (while measuring) or next start.
+    if (tool === "measure") {
+      const p = pointerMm();
+      if (!p) {
+        setMeasureHover(null);
+      } else {
+        const snap = e.evt.altKey ? { mm: p, feature: false } : snapPointMm(p);
+        setMeasureHover({ x: snap.mm.x, y: snap.mm.y, feature: snap.feature });
+      }
+    }
     // Live marquee (select tool) — unchanged.
     if (!marqueeStart.current) return;
     const p = pointerMm();
@@ -650,6 +683,19 @@ export function PanelBlankCanvas({
     setAddArmed(true);
   }, []);
 
+  // --- Measure tool (click-click ruler over the blank, mm endpoints) ---
+  // mA is the placed start; mB the placed end. With both set (or none), the next
+  // click begins a new line; otherwise it places mB. `measureHover` is the live
+  // cursor used as the prospective endpoint / next-start reticle.
+  const [mA, setMA] = useState<MeasurePoint | null>(null);
+  const [mB, setMB] = useState<MeasurePoint | null>(null);
+  const [measureHover, setMeasureHover] = useState<MeasurePoint | null>(null);
+  const clearMeasure = useCallback(() => {
+    setMA(null);
+    setMB(null);
+    setMeasureHover(null);
+  }, []);
+
   // Keyboard + lifecycle effects (tool-change cleanup, Delete/Esc on the selected
   // tooling hole / keep-out zones, commit resize on mouseup outside the window).
   usePanelKeyHandlers({
@@ -667,6 +713,7 @@ export function PanelBlankCanvas({
     keepOutResize,
     setKeepOutResize,
     resizeKeepOutZone,
+    clearMeasure,
   });
 
   return (
@@ -675,7 +722,7 @@ export function PanelBlankCanvas({
       <ContextMenuTrigger asChild>
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : addArmed || tool === "keepout" ? "cursor-crosshair" : ""}`}
+      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : addArmed || tool === "keepout" || tool === "measure" ? "cursor-crosshair" : ""}`}
     >
       <Stage
         ref={stageRef}
@@ -686,7 +733,7 @@ export function PanelBlankCanvas({
         onWheel={onWheel}
         onMouseDown={onBgMouseDown}
         onMouseMove={onStageMouseMove}
-        onMouseLeave={() => { queueHover(null); setGhostMm(null); }}
+        onMouseLeave={() => { queueHover(null); setGhostMm(null); setMeasureHover(null); }}
         onMouseUp={onBgMouseUp}
         onDragStart={() => setCursor("grabbing")}
         onDragMove={syncViewport}
@@ -805,6 +852,23 @@ export function PanelBlankCanvas({
             {keepOutDraw && <KeepOutDrawRect rect={keepOutDraw} />}
           </Group>
         </Layer>
+        {/* Measure overlay on its own untransformed layer: endpoints (panel mm) are
+            projected to screen px via the viewport, so line/reticle widths stay
+            constant under zoom — mirrors the design inspector's measure overlay. */}
+        {tool === "measure" && (
+          <Layer listening={false}>
+            <MeasureOverlay
+              a={mA}
+              b={mB}
+              hover={measureHover}
+              width={size.w}
+              height={size.h}
+              originX={viewport.originX}
+              originY={viewport.originY}
+              pxPerMm={viewport.pxPerMm}
+            />
+          </Layer>
+        )}
       </Stage>
 
       <RulersOverlay

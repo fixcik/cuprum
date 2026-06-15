@@ -39,6 +39,8 @@ export function usePanelKeyHandlers(opts: {
   keepOutResize: KeepOutResizeState | null;
   setKeepOutResize: (v: KeepOutResizeState | null) => void;
   resizeKeepOutZone: (id: string, r: KeepOutResizeState) => Promise<void> | void;
+  /** Reset the measure tool's endpoints + hover (on Esc or when leaving measure). */
+  clearMeasure: () => void;
 }): void {
   const {
     tool,
@@ -55,6 +57,7 @@ export function usePanelKeyHandlers(opts: {
     keepOutResize,
     setKeepOutResize,
     resizeKeepOutZone,
+    clearMeasure,
   } = opts;
 
   // Clear hole selection + disarm placement when leaving tooling mode.
@@ -69,8 +72,23 @@ export function usePanelKeyHandlers(opts: {
       keepOutDrawStartRef.current = null;
       setKeepOutDraw(null);
     }
+    if (tool !== "measure") {
+      clearMeasure();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
+
+  // Esc clears the in-progress / placed measurement.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (tool !== "measure" || e.key !== "Escape") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      clearMeasure();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tool, clearMeasure]);
 
   // Delete/Backspace removes the selected tooling hole; Esc deselects it.
   useEffect(() => {

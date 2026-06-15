@@ -158,7 +158,8 @@
       "addHole": "Add tooling hole",
       "registrationSet": "Registration set",
       "autoFiducials": "Auto-place fiducials",
-      "keepout": "Forbidden zone"
+      "keepout": "Forbidden zone",
+      "measure": "Measure"
     },
     "toolbar": {
       "single": "Single hole",

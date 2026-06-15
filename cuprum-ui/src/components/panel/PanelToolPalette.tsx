@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { MousePointer2, Hand, FilePlus2, Target, OctagonAlert, type LucideIcon } from "lucide-react";
+import { MousePointer2, Hand, FilePlus2, Target, OctagonAlert, Ruler, type LucideIcon } from "lucide-react";
 import { rulerCornerOffset } from "@/components/editor/canvasStyle";
 import { api } from "@/lib/api";
 
-export type PanelTool = "select" | "pan" | "tooling" | "keepout";
+export type PanelTool = "select" | "pan" | "tooling" | "keepout" | "measure";
 
 /** Per-tool keyboard shortcut, surfaced in the button title (e.g. "Выбор · V").
  *  The shortcuts themselves are bound in PanelEditor's global keydown. */
@@ -12,6 +12,7 @@ const TOOL_SHORTCUT: Record<PanelTool, string> = {
   pan: "H",
   tooling: "T",
   keepout: "K",
+  measure: "M",
 };
 
 /** Floating tool palette over the panel canvas (KiCad/Photoshop style). The rail
@@ -72,6 +73,8 @@ export function PanelToolPalette({
       {divider}
       {toolBtn("tooling", Target, t("panel.tool.tooling"))}
       {toolBtn("keepout", OctagonAlert, t("panel.tool.keepout"))}
+      {divider}
+      {toolBtn("measure", Ruler, t("panel.tool.measure"))}
     </div>
   );
 }
