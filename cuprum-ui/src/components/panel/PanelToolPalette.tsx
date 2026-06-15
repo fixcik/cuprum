@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { MousePointer2, Hand, FilePlus2, Copy, Trash2, Target, Grid2x2, CirclePlus, OctagonAlert, type LucideIcon } from "lucide-react";
+import { MousePointer2, Hand, FilePlus2, Copy, Trash2, Target, Grid2x2, CirclePlus, OctagonAlert, Crosshair, type LucideIcon } from "lucide-react";
 import { rulerCornerOffset } from "@/components/editor/canvasStyle";
 import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
@@ -11,8 +11,8 @@ export type PanelTool = "select" | "pan" | "tooling" | "keepout";
 /** Floating tool palette over the panel canvas (KiCad/Photoshop style). Add is
  *  always available; duplicate and delete act on the current selection. The
  *  duplicate action is delegated to `onDuplicate` so the caller can apply a
- *  clamped offset before dispatching to the store. When tool is "tooling", an
- *  extra action button to add a registration set is shown. */
+ *  clamped offset before dispatching to the store. When tool is "tooling", extra
+ *  action buttons to add a registration set or auto-place fiducials are shown. */
 export function PanelToolPalette({
   tool,
   onToolChange,
@@ -20,6 +20,7 @@ export function PanelToolPalette({
   onAddHole,
   addArmed,
   onAddRegistrationSet,
+  onAddAutoFiducials,
 }: {
   tool: PanelTool;
   onToolChange: (t: PanelTool) => void;
@@ -27,6 +28,7 @@ export function PanelToolPalette({
   onAddHole: () => void;
   addArmed: boolean;
   onAddRegistrationSet: () => void;
+  onAddAutoFiducials: () => void;
 }) {
   const { t } = useTranslation("project");
   const selected = usePanelSelection((s) => s.selected);
@@ -101,6 +103,7 @@ export function PanelToolPalette({
         <>
           {actionBtn(CirclePlus, t("panel.tool.addHole"), onAddHole, false, addArmed)}
           {actionBtn(Grid2x2, t("panel.tool.registrationSet"), onAddRegistrationSet)}
+          {actionBtn(Crosshair, t("panel.tool.autoFiducials"), onAddAutoFiducials)}
         </>
       ) : tool === "keepout" ? null : (
         <>

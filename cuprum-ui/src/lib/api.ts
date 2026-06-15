@@ -191,6 +191,18 @@ export const DEFAULT_FR4_THICKNESS_MM = 1.6;
 
 export type ToolingHoleRole = "registration" | "flip" | "unused";
 
+/** Which panel axis the fiducial row runs along. Mirrors Rust `FiducialAxis`. */
+export type FiducialAxis = "x" | "y";
+
+/** Persisted auto-fiducial parameters. Mirrors Rust `FiducialParams`. */
+export interface FiducialParams {
+  axis: FiducialAxis;
+  count: number;
+  step_mm: number;
+  diameter_mm: number;
+  edge_offset_mm: number;
+}
+
 export interface KeepOutZone {
   id: string;
   x_mm: number;
@@ -225,6 +237,8 @@ export interface PanelDoc {
   tooling_holes: ToolingHole[];
   keep_out_zones: KeepOutZone[];
   drill_class_overrides: Record<string, DrillClass>;
+  /** Persisted auto-fiducial parameters; absent when the user hasn't configured them yet. */
+  fiducial_params?: FiducialParams | null;
 }
 
 export interface Manifest {
