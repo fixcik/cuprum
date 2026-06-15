@@ -201,15 +201,16 @@ function SnapFx({ side, snapNonce, radius }: { side: "top" | "bottom"; snapNonce
 function LayerMaterial({ kind, color }: { kind: number; color: string }) {
   switch (kind) {
     case KIND_COPPER:
-      // Matte copper finish: high roughness scatters the highlight into a broad soft
-      // sheen (no mirror), kept metallic so it still reads as metal; the env map is
-      // dialed down so it catches the room softly instead of reflecting it sharply.
+      // Semi-gloss copper: roughness low enough that the camera-tracking headlamp
+      // forms a real specular hotspot that travels as you orbit (proves the light
+      // follows the viewer) — a high-roughness matte finish scattered it into an
+      // imperceptible sheen. Kept metallic; env dialed up a touch for metallic life.
       return (
         <meshStandardMaterial
           color={COPPER_COLOR}
-          roughness={0.72}
+          roughness={0.4}
           metalness={0.85}
-          envMapIntensity={0.75}
+          envMapIntensity={0.9}
           side={THREE.DoubleSide}
         />
       );
@@ -232,9 +233,9 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
       return (
         <meshStandardMaterial
           color={COPPER_COLOR}
-          roughness={0.78}
+          roughness={0.5}
           metalness={0.85}
-          envMapIntensity={0.7}
+          envMapIntensity={0.85}
           side={THREE.DoubleSide}
         />
       );
