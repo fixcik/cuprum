@@ -212,7 +212,7 @@
       "params": "Parameters",
       "count": "Count",
       "step": "Spacing",
-      "edgeOffset": "Edge offset",
+      "centerOffset": "Centre offset",
       "coordinates": "Hole coordinates",
       "coordNo": "No.",
       "apply": "Place"

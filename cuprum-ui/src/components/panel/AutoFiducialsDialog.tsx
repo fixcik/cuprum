@@ -14,7 +14,7 @@ export const DEFAULT_FIDUCIAL_PARAMS: FiducialParams = {
   count: 2,
   step_mm: 50,
   diameter_mm: 3,
-  edge_offset_mm: 5,
+  center_offset_mm: 0,
 };
 
 // Budget for the small panel thumbnail preview (px).
@@ -140,17 +140,17 @@ export function AutoFiducialsDialog({
   const [count, setCount] = useState(seed.count);
   const [stepMm, setStepMm] = useState(seed.step_mm);
   const [diameterMm, setDiameterMm] = useState(seed.diameter_mm);
-  const [edgeOffsetMm, setEdgeOffsetMm] = useState(seed.edge_offset_mm);
+  const [centerOffsetMm, setCenterOffsetMm] = useState(seed.center_offset_mm);
   const [mode, setMode] = useState<"add" | "replace">("add");
 
   const hasExisting = existingHoles.length > 0;
   const replacing = hasExisting && mode === "replace";
 
-  const params: FiducialParams = { axis, count, step_mm: stepMm, diameter_mm: diameterMm, edge_offset_mm: edgeOffsetMm };
+  const params: FiducialParams = { axis, count, step_mm: stepMm, diameter_mm: diameterMm, center_offset_mm: centerOffsetMm };
   const positions = useMemo(
     () => placeFiducials(panelW, panelH, params),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [panelW, panelH, axis, count, stepMm, diameterMm, edgeOffsetMm],
+    [panelW, panelH, axis, count, stepMm, diameterMm, centerOffsetMm],
   );
 
   const handleApply = () => {
@@ -218,8 +218,8 @@ export function AutoFiducialsDialog({
             <UnitField value={diameterMm} onChange={setDiameterMm} dim="fine" step="0.5" />
           </label>
           <label className="flex items-center gap-1.5 text-muted-foreground">
-            {t("panel.autoFiducials.edgeOffset")}
-            <UnitField value={edgeOffsetMm} onChange={setEdgeOffsetMm} dim="fine" step="0.5" />
+            {t("panel.autoFiducials.centerOffset")}
+            <UnitField value={centerOffsetMm} onChange={setCenterOffsetMm} dim="fine" step="0.5" />
           </label>
         </Group>
 
