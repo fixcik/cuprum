@@ -63,12 +63,26 @@ pub(crate) fn emit_face(buf: &mut Buffer, data: &[f64], tris: &[usize], z: f32, 
     }
 }
 
-/// Triangulate one polygon into `buf` at constant `z` with a flat `(0, 0, nz)`
-/// normal. Convenience for surface layers (one face per polygon).
-pub(crate) fn add_poly(buf: &mut Buffer, poly: &Poly, z: f32, nz: f32) {
-    if let Some((data, tris)) = triangulate_poly(poly) {
-        emit_face(buf, &data, &tris, z, nz);
+/// Extrude a polygon into a closed slab between `z0` (bottom) and `z1` (top): a
+/// top face (up), a bottom face (down) and vertical walls around the outer ring
+/// and every hole. Gives surface layers real volume so they read as solid
+/// material sitting on the board instead of planes floating at grazing angles.
+pub(crate) fn add_slab(buf: &mut Buffer, poly: &Poly, z0: f32, z1: f32) {
+    let Some((data, tris)) = triangulate_poly(poly) else {
+        return;
+    };
+    emit_face(buf, &data, &tris, z1, 1.0); // top, up
+    emit_face(buf, &data, &tris, z0, -1.0); // bottom, down
+    add_wall(buf, &ring_f64(&poly.outer), z0, z1);
+    for hole in &poly.holes {
+        add_wall(buf, &ring_f64(hole), z0, z1);
     }
+}
+
+/// Widen a polygon ring's `[f32; 2]` vertices to the `[f64; 2]` that [`add_wall`]
+/// consumes.
+fn ring_f64(ring: &[[f32; 2]]) -> Vec<[f64; 2]> {
+    ring.iter().map(|p| [p[0] as f64, p[1] as f64]).collect()
 }
 
 /// Add a vertical wall along a closed ring, from `z0` up to `z1`, with outward

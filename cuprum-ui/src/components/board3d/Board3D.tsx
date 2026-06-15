@@ -201,15 +201,16 @@ function SnapFx({ side, snapNonce, radius }: { side: "top" | "bottom"; snapNonce
 function LayerMaterial({ kind, color }: { kind: number; color: string }) {
   switch (kind) {
     case KIND_COPPER:
-      // Matte copper finish: high roughness scatters the highlight into a broad soft
-      // sheen (no mirror), kept metallic so it still reads as metal; the env map is
-      // dialed down so it catches the room softly instead of reflecting it sharply.
+      // Semi-gloss copper: roughness low enough that the camera-tracking headlamp
+      // forms a real specular hotspot that travels as you orbit (proves the light
+      // follows the viewer) — a high-roughness matte finish scattered it into an
+      // imperceptible sheen. Kept metallic; env dialed up a touch for metallic life.
       return (
         <meshStandardMaterial
           color={COPPER_COLOR}
-          roughness={0.72}
+          roughness={0.4}
           metalness={0.85}
-          envMapIntensity={0.75}
+          envMapIntensity={0.9}
           side={THREE.DoubleSide}
         />
       );
@@ -232,9 +233,9 @@ function LayerMaterial({ kind, color }: { kind: number; color: string }) {
       return (
         <meshStandardMaterial
           color={COPPER_COLOR}
-          roughness={0.78}
+          roughness={0.5}
           metalness={0.85}
-          envMapIntensity={0.7}
+          envMapIntensity={0.85}
           side={THREE.DoubleSide}
         />
       );
@@ -288,7 +289,13 @@ export function Board3D({
       {/* Headlamp: tracks the camera so the board is always lit toward the viewer.
           Softened now that the env map carries the metallic reflections. */}
       <HeadLight intensity={0.75} />
+      {/* Fixed fill rake from the upper-left, MIRRORED across the board plane
+          (z = ±30) so the front (+Z) and back (−Z) faces get an identical rake.
+          A single z>0 light lit only the top, leaving the bottom view dimmer;
+          the pair makes the fixed lighting invariant under z→−z. (HeadLight,
+          ambient and the Y-axis hemisphere are already z-symmetric.) */}
       <directionalLight position={[-40, 50, 30]} intensity={0.2} />
+      <directionalLight position={[-40, 50, -30]} intensity={0.2} />
       {/* Centre the board at the origin. No Y flip: gerber and three.js are both Y-up. */}
       <group position={[-center[0], -center[1], -center[2]]}>
         {mesh.substrate.getAttribute("position") && (

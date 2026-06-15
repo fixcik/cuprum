@@ -8,10 +8,10 @@ use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::overlay::FloatOverlay;
 use rayon::prelude::*;
 
-use super::emit::{add_barrel, add_poly, add_wall, emit_face, triangulate_poly};
+use super::emit::{add_barrel, add_slab, add_wall, emit_face, triangulate_poly};
 use super::outline::outline_loops;
 use super::{
-    z_for, BoardMesh, Buffer, LayerInput, LayerMesh, Role, Side, DRILL_SEGS, KIND_BARREL,
+    layer_z_range, BoardMesh, Buffer, LayerInput, LayerMesh, Role, DRILL_SEGS, KIND_BARREL,
     KIND_COPPER, KIND_MASK, KIND_OTHER, KIND_SILK,
 };
 
@@ -95,17 +95,14 @@ fn build_surface_layer(
     if polys.is_empty() {
         return None;
     }
-    let z = z_for(layer.role, layer.side, thickness);
-    let nz = if matches!(layer.side, Side::Bottom) {
-        -1.0
-    } else {
-        1.0
-    };
+    // Each layer is an extruded slab (real thickness) sitting flush on the surface
+    // beneath it, so it reads as solid material instead of a floating plane.
+    let (z0, z1) = layer_z_range(layer.role, layer.side, thickness);
     let mut buf = Buffer::default();
     {
         let _span = tracing::info_span!("triangulate", polys = polys.len()).entered();
         for p in &polys {
-            add_poly(&mut buf, p, z, nz);
+            add_slab(&mut buf, p, z0, z1);
         }
     }
     if buf.positions.is_empty() {
