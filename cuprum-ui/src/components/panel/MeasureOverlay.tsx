@@ -1,4 +1,5 @@
 import { Group, Line, Circle, Rect, Text } from "react-konva";
+import { COPPER_STROKE } from "@/components/editor/canvasStyle";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 
 /** A measurement endpoint: panel-mm position + whether it locked onto a real
@@ -9,12 +10,13 @@ export interface MeasurePoint {
   feature: boolean;
 }
 
-// Measure overlay styling — a copper core (--primary) over a dark casing, so the
-// line and reticles stay legible over any canvas colour. All widths and radii are
-// SCREEN px (constant under zoom); endpoints live in panel mm and are projected to
-// screen space. Ported from the design inspector (LayerStack) measure overlay;
-// constants are duplicated here to keep this module self-contained.
-const M_CORE = "hsl(var(--primary))"; // copper accent
+// Measure overlay styling — a copper core over a dark casing, so the line and
+// reticles stay legible over any canvas colour. All widths and radii are SCREEN px
+// (constant under zoom); endpoints live in panel mm and are projected to screen
+// space. Ported from the design inspector (LayerStack) measure overlay. NOTE: Konva
+// paints onto a 2D context where `var(--…)` can't resolve, so colours are concrete
+// (the SVG original used hsl(var(--…))). Copper reuses the canvas COPPER_STROKE.
+const M_CORE = COPPER_STROKE; // copper accent (concrete; matches the rest of the canvas)
 const M_CASE = "rgba(0,0,0,0.6)"; // dark halo/casing under the copper
 const M_LINE_CASE = 5; // measure line — casing width
 const M_LINE_CORE = 2; // measure line — copper width
@@ -28,8 +30,8 @@ const M_CROSS_CASE = 4; // crosshair — casing width
 const M_CROSS_CORE = 1.5; // crosshair — copper width
 const M_DOT_R = 2.5; // centre dot radius
 const M_FEATURE_R = 15; // dashed lock ring shown when snapped to a feature
-const MEASURE_LABEL_BG = "hsl(222 16% 9% / 0.92)";
-const MEASURE_LABEL_BORDER = "hsl(var(--border))";
+const MEASURE_LABEL_BG = "rgba(12,14,17,0.92)"; // ≈ canvas background, concrete (Canvas 2D)
+const MEASURE_LABEL_BORDER = "rgba(139,151,167,0.3)"; // neutral border, concrete
 const MEASURE_LABEL_FG = "rgba(255,255,255,0.95)";
 const MEASURE_LABEL_SUB = "rgba(255,255,255,0.6)";
 
