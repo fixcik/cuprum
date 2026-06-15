@@ -18,7 +18,8 @@
 /// where `R(angle)` is the 2×2 rotation matrix.
 ///
 /// For a rigid-only fit `scale == 1.0`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Registration {
     /// Uniform scale factor (1.0 for rigid-only, varies for similarity fit).
     pub scale: f64,
