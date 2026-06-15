@@ -156,6 +156,8 @@ fn main() {
             }
         }))
         .setup(|app| {
+            // Install panic hook early so any crash during setup is also captured.
+            commands::crash::install_panic_hook(app.handle());
             // Remove clean (no-unsaved-changes) leftover working dirs from prior runs.
             let handle = app.handle().clone();
             if let Ok(base) = working_base(&handle) {
@@ -255,7 +257,12 @@ fn main() {
             commands::mill_run::mill_plan,
             commands::expose_run::expose_run_start,
             commands::expose_run::expose_run_stop,
-            commands::expose_run::expose_run_status
+            commands::expose_run::expose_run_status,
+            commands::crash::list_pending_crashes,
+            commands::crash::report_frontend_crash,
+            commands::crash::mark_crash_reported,
+            commands::crash::dismiss_crash,
+            commands::crash::build_crash_report
         ])
         .build(tauri::generate_context!())
         .expect("error while building Cuprum");
