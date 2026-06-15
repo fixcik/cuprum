@@ -113,7 +113,7 @@ interface ShellStore {
 
   /** Add a tooling hole centred at (xMm, yMm) with the default diameter.
    *  Returns the new hole id, or "" when no panel is open. */
-  addToolingHole: (xMm: number, yMm: number) => Promise<string>;
+  addToolingHole: (xMm: number, yMm: number, diameterMm?: number) => Promise<string>;
   /** Translate an existing tooling hole by (dxMm, dyMm), clamped to the panel. */
   moveToolingHole: (id: string, dxMm: number, dyMm: number) => Promise<void>;
   /** Remove a tooling hole by id. */
@@ -607,14 +607,15 @@ export const useShell = create<ShellStore>((set, get) => ({
     return copies.map((c) => c.id);
   },
 
-  addToolingHole: async (xMm, yMm) => {
+  addToolingHole: async (xMm, yMm, diameterMm = DEFAULT_TOOLING_DIAMETER_MM) => {
     const panel = get().currentManifest?.panel;
     const stackup = get().currentManifest?.stackup;
     if (!panel || !stackup) return "";
-    const r = DEFAULT_TOOLING_DIAMETER_MM / 2;
+    const dia = diameterMm > 0 ? diameterMm : DEFAULT_TOOLING_DIAMETER_MM;
+    const r = dia / 2;
     const { x, y } = clampToolingHoleCenter(xMm, yMm, r, panel.width_mm, panel.height_mm);
     const id = nextToolingId(panel.tooling_holes);
-    const hole: ToolingHole = { id, x_mm: x, y_mm: y, diameter_mm: DEFAULT_TOOLING_DIAMETER_MM, role: "registration" };
+    const hole: ToolingHole = { id, x_mm: x, y_mm: y, diameter_mm: dia, role: "registration" };
     const next: PanelDoc = { ...panel, tooling_holes: [...panel.tooling_holes, hole] };
     await get().savePanelConfig(next, stackup);
     return id;

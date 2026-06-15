@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { MousePointer2, Hand, FilePlus2, Target, Grid2x2, CirclePlus, OctagonAlert, Crosshair, type LucideIcon } from "lucide-react";
+import { MousePointer2, Hand, FilePlus2, Target, OctagonAlert, type LucideIcon } from "lucide-react";
 import { rulerCornerOffset } from "@/components/editor/canvasStyle";
 import { api } from "@/lib/api";
 
@@ -15,27 +15,17 @@ const TOOL_SHORTCUT: Record<PanelTool, string> = {
 };
 
 /** Floating tool palette over the panel canvas (KiCad/Photoshop style). The rail
- *  holds only the modal tools plus a single "add design" command at the top —
- *  the set never swaps. Selection actions (duplicate/delete/rotate/open) live in
- *  SelectionHud, the context menu and keyboard shortcuts, so they are NOT mirrored
- *  here. Tool options (hole mode, diameter, snap, …) live in ToolOptionsBar.
- *
- *  The tooling action group (add hole / registration set / auto fiducials) is kept
- *  here transitionally; it moves into ToolOptionsBar in the next phase. */
+ *  holds only the modal tools plus a single "add design" command at the top — the
+ *  set never swaps. Tool options (hole mode, diameter, snap, …) live in the
+ *  horizontal ToolOptionsBar at the top of the canvas; selection actions
+ *  (duplicate/delete/rotate/open) live in SelectionHud, the context menu and
+ *  keyboard shortcuts. Neither is mirrored here. */
 export function PanelToolPalette({
   tool,
   onToolChange,
-  onAddHole,
-  addArmed,
-  onAddRegistrationSet,
-  onAddAutoFiducials,
 }: {
   tool: PanelTool;
   onToolChange: (t: PanelTool) => void;
-  onAddHole: () => void;
-  addArmed: boolean;
-  onAddRegistrationSet: () => void;
-  onAddAutoFiducials: () => void;
 }) {
   const { t } = useTranslation("project");
 
@@ -58,22 +48,6 @@ export function PanelToolPalette({
       </button>
     );
   };
-
-  const actionBtn = (Icon: LucideIcon, label: string, onClick?: () => void, active = false) => (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      aria-pressed={active}
-      className={[
-        "grid size-9 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        active ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
-      ].join(" ")}
-    >
-      <Icon className="size-[18px]" />
-    </button>
-  );
 
   const divider = <div className="my-0.5 h-px w-6 bg-border" />;
 
@@ -98,14 +72,6 @@ export function PanelToolPalette({
       {divider}
       {toolBtn("tooling", Target, t("panel.tool.tooling"))}
       {toolBtn("keepout", OctagonAlert, t("panel.tool.keepout"))}
-      {tool === "tooling" && (
-        <>
-          {divider}
-          {actionBtn(CirclePlus, t("panel.tool.addHole"), onAddHole, addArmed)}
-          {actionBtn(Grid2x2, t("panel.tool.registrationSet"), onAddRegistrationSet)}
-          {actionBtn(Crosshair, t("panel.tool.autoFiducials"), onAddAutoFiducials)}
-        </>
-      )}
     </div>
   );
 }

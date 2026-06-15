@@ -5,6 +5,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { LocateFixed } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PanelToolPalette } from "@/components/panel/PanelToolPalette";
+import { ToolOptionsBar } from "@/components/panel/ToolOptionsBar";
 import { usePanelTool } from "@/panelToolStore";
 import { ZoomToolbar, ZOOM_STEP } from "@/components/ui/ZoomToolbar";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
@@ -128,6 +129,8 @@ export function PanelBlankCanvas({
   const { hoverPx, showCrosshair, setShowCrosshair, queueHover } = useCrosshairState();
   const tool = usePanelTool((s) => s.tool);
   const setTool = usePanelTool((s) => s.setTool);
+  const holeDiameterMm = usePanelTool((s) => s.holeDiameterMm);
+  const keepOutSnap = usePanelTool((s) => s.keepOutSnap);
   const panMode = tool === "pan" || spaceDown;
   // Resolved board extents (mm) keyed by design id — shared hook, fetched once per design.
   const sizes = usePlacedBoardSizes();
@@ -494,7 +497,7 @@ export function PanelBlankCanvas({
       setAddArmed(false);
       setGhostMm(null);
       void (async () => {
-        const id = await addToolingHole(p.x, p.y);
+        const id = await addToolingHole(p.x, p.y, holeDiameterMm);
         if (id) setSelectedHoleId(id);
       })();
       return;
@@ -523,7 +526,7 @@ export function PanelBlankCanvas({
       const p = pointerMm();
       if (!p) return;
       const { fixedX, fixedY } = keepOutResizeRef.current;
-      const snap = !e.evt.altKey;                 // Alt disables 1 mm snap
+      const snap = keepOutSnap && !e.evt.altKey;  // toggle off (or Alt) disables 1 mm snap
       const px = snap ? Math.round(p.x) : p.x;
       const py = snap ? Math.round(p.y) : p.y;
       const cxp = Math.max(0, Math.min(px, W));    // clamp pointer into panel
@@ -587,13 +590,20 @@ export function PanelBlankCanvas({
       const d = keepOutDraw;
       keepOutDrawStart.current = null;
       setKeepOutDraw(null);
-      const x_mm = Math.min(d.x0, d.x1);
-      const y_mm = Math.min(d.y0, d.y1);
-      const width_mm = Math.round(Math.abs(d.x1 - d.x0));
-      const height_mm = Math.round(Math.abs(d.y1 - d.y0));
-      // Minimum 1 mm × 1 mm to avoid accidental tiny zones.
-      if (width_mm < 1 || height_mm < 1) return;
-      void addKeepOutZone({ x_mm: Math.round(x_mm), y_mm: Math.round(y_mm), width_mm, height_mm });
+      // Ignore an accidental click with no real drag; otherwise commit and let
+      // addKeepOutZone → clampZoneRect enforce the KEEPOUT_MIN_MM minimum. This keeps
+      // sub-mm zones drawable when the snap toggle is off.
+      const rawW = Math.abs(d.x1 - d.x0);
+      const rawH = Math.abs(d.y1 - d.y0);
+      if (rawW < 0.1 && rawH < 0.1) return;
+      // Snap to the 1 mm grid unless the snap toggle is off.
+      const round = (v: number) => (keepOutSnap ? Math.round(v) : v);
+      void addKeepOutZone({
+        x_mm: round(Math.min(d.x0, d.x1)),
+        y_mm: round(Math.min(d.y0, d.y1)),
+        width_mm: round(rawW),
+        height_mm: round(rawH),
+      });
       return;
     }
     keepOutDrawStart.current = null;
@@ -820,9 +830,9 @@ export function PanelBlankCanvas({
         />
       )}
 
-      <PanelToolPalette
+      <PanelToolPalette tool={tool} onToolChange={setTool} />
+      <ToolOptionsBar
         tool={tool}
-        onToolChange={setTool}
         onAddHole={armAddHole}
         addArmed={addArmed}
         onAddRegistrationSet={() => setRegSetOpen(true)}
