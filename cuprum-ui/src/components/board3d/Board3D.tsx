@@ -288,7 +288,13 @@ export function Board3D({
       {/* Headlamp: tracks the camera so the board is always lit toward the viewer.
           Softened now that the env map carries the metallic reflections. */}
       <HeadLight intensity={0.75} />
+      {/* Fixed fill rake from the upper-left, MIRRORED across the board plane
+          (z = ±30) so the front (+Z) and back (−Z) faces get an identical rake.
+          A single z>0 light lit only the top, leaving the bottom view dimmer;
+          the pair makes the fixed lighting invariant under z→−z. (HeadLight,
+          ambient and the Y-axis hemisphere are already z-symmetric.) */}
       <directionalLight position={[-40, 50, 30]} intensity={0.2} />
+      <directionalLight position={[-40, 50, -30]} intensity={0.2} />
       {/* Centre the board at the origin. No Y flip: gerber and three.js are both Y-up. */}
       <group position={[-center[0], -center[1], -center[2]]}>
         {mesh.substrate.getAttribute("position") && (
