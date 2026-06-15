@@ -8,6 +8,7 @@ use tokio::sync::broadcast;
 
 use cuprum_core::grbl::{self, GrblEvent, GrblHandle, GrblLease, MachineState as GrblState};
 
+use super::fiducial::FiducialState;
 use super::machine::MachineState;
 
 // ── Planning ─────────────────────────────────────────────────────────────────
@@ -16,15 +17,25 @@ use super::machine::MachineState;
 /// The GRBL kinematics are ALWAYS taken from the backend cache (kept fresh by
 /// `$$` reads and console `$NNN=` snooping); any `kinematics` field the frontend
 /// sends is ignored, so the estimate uses the controller's real limits.
+/// When a fiducial Registration has been solved (`fiducial_solve`), it is
+/// injected into `DrillPlanInput.registration` so hole coordinates are corrected
+/// for board-placement error. No active registration → None → identity transform.
 #[tauri::command]
 pub async fn drill_plan(
     state: State<'_, MachineState>,
+    fiducial: State<'_, FiducialState>,
     mut input: cuprum_core::drilling::DrillPlanInput,
 ) -> CmdResult<cuprum_core::drilling::DrillPlanResult> {
     // Snapshot the cached kinematics on the IPC thread (cheap lock), then run the
     // route/G-code/estimate off-thread: the planner is non-trivial and the editor
     // re-plans on every preview tweak, so it must not block the IPC thread.
     input.kinematics = state.kinematics();
+    // Inject the solved registration (if any); None keeps the existing field value
+    // (which the frontend may have set explicitly for playback / testing). When both
+    // are Some the backend-side registration wins — it is the authoritative live solve.
+    if let Some(reg) = fiducial.solved_registration() {
+        input.registration = Some(reg);
+    }
     tauri::async_runtime::spawn_blocking(move || cuprum_core::drilling::drill_plan(input))
         .await
         .map_err(CmdError::from)
