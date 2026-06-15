@@ -1,5 +1,6 @@
 // GRBL drill G-code emitter — port of drillGcode.ts.
 use crate::geom::{Pt, Rect};
+use crate::registration::Registration;
 use crate::route::{machine_point, order_nearest, route_avoiding};
 use crate::types::*;
 
@@ -24,6 +25,10 @@ pub struct EmitCtx {
     /// origin for the first traverse's keep-out avoidance. Defaults to (0,0) →
     /// byte-identical output when omitted.
     pub start_machine_xy: Option<(f64, f64)>,
+    /// Optional fiducial registration transform. When `Some`, each hole coordinate
+    /// is passed through `reg.apply(mx, my)` after `machine_point()` to correct for
+    /// board placement offset, rotation and scale. `None` → identity (no change).
+    pub registration: Option<Registration>,
 }
 
 fn class_order(c: DrillClass) -> u8 {
@@ -185,10 +190,24 @@ pub fn emit_drill_program(plan: &PanelDrillPlan, ctx: EmitCtx) -> DrillProgram {
             spindle_up_lines.push("M3".to_string());
         }
 
+        // Registration is a *small* correction (sub-mm offset + fractions of a
+        // degree): the route order below (order_nearest), keep-out detour routing
+        // and the time estimate all run on pre-registration machine coordinates.
+        // For corrections this small the resulting divergence from the emitted
+        // (post-registration) G-code is negligible, so we deliberately do NOT
+        // re-route or re-estimate. Only the emitted hole coordinates are corrected.
         let machine_pts: Vec<(f64, f64)> = g
             .holes
             .iter()
-            .map(|h| machine_point(h.x_mm, h.y_mm, datum, w_mm, panel_height_mm))
+            .map(|h| {
+                let (mx, my) = machine_point(h.x_mm, h.y_mm, datum, w_mm, panel_height_mm);
+                // Apply registration correction (board placement offset/rotation/scale)
+                // after the datum-space transform, if provided.
+                match &ctx.registration {
+                    Some(reg) => reg.apply(mx, my),
+                    None => (mx, my),
+                }
+            })
             .collect();
         let pts_arr: Vec<[f64; 2]> = machine_pts.iter().map(|&(x, y)| [x, y]).collect();
         let order = order_nearest(&pts_arr, cur_x, cur_y);
@@ -393,6 +412,7 @@ mod gcode_tests {
                 peck_depth_mm: None,
                 keep_out_zones: vec![],
                 start_machine_xy: None,
+                registration: None,
             },
         );
         let expected = "\
@@ -472,6 +492,7 @@ M2
                 peck_depth_mm: None,
                 keep_out_zones: vec![],
                 start_machine_xy: None,
+                registration: None,
             },
         );
         assert_eq!(prog.skipped_diameters_mm, vec![0.5]);
@@ -507,6 +528,7 @@ M2
                 peck_depth_mm: Some(1.0), // pecks: -1.0 then -1.9
                 keep_out_zones: vec![],
                 start_machine_xy: None,
+                registration: None,
             },
         );
         // Two peck cycles: G1 Z-1.000 and G1 Z-1.900.
@@ -556,6 +578,7 @@ M2
                     h: 40.0,
                 }],
                 start_machine_xy: None,
+                registration: None,
             },
         );
         // More than the 2 hole rapids → a detour waypoint G0 X was inserted.
@@ -602,6 +625,7 @@ M2
                     h: 15.0,
                 }],
                 start_machine_xy: None,
+                registration: None,
             },
         );
         let post = prog
@@ -652,9 +676,159 @@ M2
                 peck_depth_mm: None,
                 keep_out_zones: vec![],
                 start_machine_xy: None,
+                registration: None,
             },
         );
         // x=0 with bottom-right (w=100) → -100.000; y=0 → 60.000.
         assert!(prog.gcode.contains("G0 X-100.000 Y60.000"));
+    }
+
+    // --- Registration transform tests ---
+
+    fn single_hole_plan(x_mm: f64, y_mm: f64) -> PanelDrillPlan {
+        PanelDrillPlan {
+            groups: vec![DrillGroup {
+                diameter_mm: 1.0,
+                class: DrillClass::Registration,
+                tool_id: Some("t1".into()),
+                holes: vec![PlanHole {
+                    x_mm,
+                    y_mm,
+                    id: None,
+                }],
+            }],
+        }
+    }
+
+    /// `registration: None` must produce byte-identical output to omitting the field
+    /// entirely (identity behaviour, no coordinate change).
+    #[test]
+    fn registration_none_is_identity() {
+        let plan = single_hole_plan(10.0, 20.0);
+        // Reference: no registration at all (None).
+        let prog_none = emit_drill_program(
+            &plan,
+            EmitCtx {
+                panel_height_mm: 60.0,
+                panel_width_mm: 100.0,
+                datum: DatumCorner::BottomLeft,
+                cnc: cnc(),
+                tools: vec![tool("t1", 1.0)],
+                substrate_thickness_mm: 1.6,
+                breakthrough_mm: None,
+                peck_depth_mm: None,
+                keep_out_zones: vec![],
+                start_machine_xy: None,
+                registration: None,
+            },
+        );
+        // Identity registration: scale=1, angle=0, translation=(0,0).
+        let identity = Registration {
+            scale: 1.0,
+            angle_rad: 0.0,
+            translation: MachineXY { x: 0.0, y: 0.0 },
+            rms_residual_mm: 0.0,
+        };
+        let prog_identity = emit_drill_program(
+            &plan,
+            EmitCtx {
+                panel_height_mm: 60.0,
+                panel_width_mm: 100.0,
+                datum: DatumCorner::BottomLeft,
+                cnc: cnc(),
+                tools: vec![tool("t1", 1.0)],
+                substrate_thickness_mm: 1.6,
+                breakthrough_mm: None,
+                peck_depth_mm: None,
+                keep_out_zones: vec![],
+                start_machine_xy: None,
+                registration: Some(identity),
+            },
+        );
+        assert_eq!(
+            prog_none.gcode, prog_identity.gcode,
+            "identity registration must produce byte-identical G-code"
+        );
+    }
+
+    /// A known pure-translation registration shifts all emitted hole coordinates
+    /// by the given offset.
+    #[test]
+    fn registration_translation_shifts_hole_coordinates() {
+        // Hole at panel (0, 0) with BottomLeft datum → machine (0, 60) before reg.
+        let plan = single_hole_plan(0.0, 0.0);
+        let tx = 5.0_f64;
+        let ty = -3.0_f64;
+        let reg = Registration {
+            scale: 1.0,
+            angle_rad: 0.0,
+            translation: MachineXY { x: tx, y: ty },
+            rms_residual_mm: 0.0,
+        };
+        let prog = emit_drill_program(
+            &plan,
+            EmitCtx {
+                panel_height_mm: 60.0,
+                panel_width_mm: 100.0,
+                datum: DatumCorner::BottomLeft,
+                cnc: cnc(),
+                tools: vec![tool("t1", 1.0)],
+                substrate_thickness_mm: 1.6,
+                breakthrough_mm: None,
+                peck_depth_mm: None,
+                keep_out_zones: vec![],
+                start_machine_xy: None,
+                registration: Some(reg),
+            },
+        );
+        // machine_point(0,0,BottomLeft,100,60) = (0,60); after +tx,+ty = (5, 57).
+        let expected_x = fmt_mm(0.0 + tx); // "5.000"
+        let expected_y = fmt_mm(60.0 + ty); // "57.000"
+        assert!(
+            prog.gcode
+                .contains(&format!("G0 X{expected_x} Y{expected_y}")),
+            "expected translated coordinate G0 X{expected_x} Y{expected_y} in:\n{}",
+            prog.gcode
+        );
+    }
+
+    /// A pure rotation of 90° maps machine-space X→Y and Y→-X.
+    #[test]
+    fn registration_rotation_90deg_transforms_hole_coordinates() {
+        // Hole at panel (10, 0) with BottomLeft datum → machine (10, 60) before reg.
+        let plan = single_hole_plan(10.0, 0.0);
+        let reg = Registration {
+            scale: 1.0,
+            angle_rad: std::f64::consts::FRAC_PI_2, // 90°
+            translation: MachineXY { x: 0.0, y: 0.0 },
+            rms_residual_mm: 0.0,
+        };
+        let prog = emit_drill_program(
+            &plan,
+            EmitCtx {
+                panel_height_mm: 60.0,
+                panel_width_mm: 100.0,
+                datum: DatumCorner::BottomLeft,
+                cnc: cnc(),
+                tools: vec![tool("t1", 1.0)],
+                substrate_thickness_mm: 1.6,
+                breakthrough_mm: None,
+                peck_depth_mm: None,
+                keep_out_zones: vec![],
+                start_machine_xy: None,
+                registration: Some(reg.clone()),
+            },
+        );
+        // machine_point(10,0,...) = (10, 60).
+        // 90° rotation: (x,y) → (-y, x) so (10, 60) → (-60, 10).
+        let (rx, ry) = reg.apply(10.0, 60.0);
+        let expected_x = fmt_mm(rx);
+        let expected_y = fmt_mm(ry);
+        assert!(
+            prog.gcode
+                .contains(&format!("G0 X{expected_x} Y{expected_y}")),
+            "expected rotated coordinate G0 X{expected_x} Y{expected_y} in:\n{}",
+            prog.gcode
+        );
     }
 }

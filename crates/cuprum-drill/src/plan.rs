@@ -2,6 +2,7 @@
 use crate::estimate::estimate_drill;
 use crate::gcode::{emit_drill_program, EmitCtx};
 use crate::geom::Rect;
+use crate::registration::Registration;
 use crate::route::plan_drill_route;
 use crate::types::*;
 
@@ -25,6 +26,11 @@ pub struct DrillPlanInput {
     // so rename explicitly. MachineXY (object), not a tuple (array).
     #[serde(rename = "startMachineXY")]
     pub start_machine_xy: Option<MachineXY>,
+    /// Optional fiducial registration. When provided, hole coordinates are corrected
+    /// for board placement offset, rotation and scale before G-code emission.
+    /// `None` (the default when not sent by the frontend) → identity, no change.
+    #[serde(default)]
+    pub registration: Option<Registration>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -76,6 +82,7 @@ pub fn drill_plan(input: DrillPlanInput) -> DrillPlanResult {
             peck_depth_mm: input.peck_depth_mm,
             keep_out_zones: input.keep_out_zones.clone(),
             start_machine_xy: input.start_machine_xy.map(|m| (m.x, m.y)),
+            registration: input.registration.clone(),
         },
     );
     let estimate = estimate_drill(
@@ -144,6 +151,7 @@ mod plan_tests {
             peck_depth_mm: None,
             keep_out_zones: vec![],
             start_machine_xy: None,
+            registration: None,
         });
         assert_eq!(res.route.total_holes, 2);
         assert!(res.program.gcode.contains("M2"));
