@@ -16,6 +16,8 @@ import { useReportPanelVerdict } from "@/hooks/useReportPanelVerdict";
 import { useShell } from "@/shellStore";
 import { useHistory } from "@/historyStore";
 import { usePanelSelection } from "@/panelSelectionStore";
+import { usePanelTool } from "@/panelToolStore";
+import type { PanelTool } from "@/components/panel/PanelToolPalette";
 import { useSettings } from "@/settingsStore";
 
 /** Inline FR4-blank editor (left params + right schematic canvas). Autosaves on
@@ -129,8 +131,8 @@ export function PanelEditor() {
   }, [currentPath, docNonce]);
 
   // Panel editor hotkeys: Delete/Backspace removes, Esc clears, Ctrl/Cmd+A selects
-  // all, Ctrl/Cmd+D duplicates, arrows nudge (Shift = 10 mm). Ignored when typing in
-  // a field. Bound once;
+  // all, Ctrl/Cmd+D duplicates, arrows nudge (Shift = 10 mm), V/H/T/K pick the tool.
+  // Ignored when typing in a field. Bound once;
   // panel dims are read via refs so the listener needn't re-bind on every edit.
   const panelDims = useRef({ w: width, h: height });
   panelDims.current = { w: width, h: height };
@@ -179,6 +181,14 @@ export function PanelEditor() {
         const picked = placed.filter((i) => selSet.has(i.id));
         const { dx: cdx, dy: cdy } = clampDeltaToPanel(boxesForInstances(picked, sizesRef.current), dx0, dy0, panelW, panelH);
         void useShell.getState().moveInstances(sel, cdx, cdy);
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Unmodified letters pick the active tool (V/H/T/K), mirroring the rail.
+        const map: Record<string, PanelTool> = { v: "select", h: "pan", t: "tooling", k: "keepout" };
+        const next = map[e.key.toLowerCase()];
+        if (next) {
+          e.preventDefault();
+          usePanelTool.getState().setTool(next);
+        }
       }
     };
     window.addEventListener("keydown", onKey);

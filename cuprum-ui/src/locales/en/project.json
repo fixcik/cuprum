@@ -154,8 +154,6 @@
       "select": "Select",
       "pan": "Pan",
       "add": "Add design",
-      "duplicate": "Duplicate",
-      "delete": "Delete",
       "tooling": "Tooling hole",
       "addHole": "Add tooling hole",
       "registrationSet": "Registration set",
