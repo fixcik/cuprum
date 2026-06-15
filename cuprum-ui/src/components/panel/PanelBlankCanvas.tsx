@@ -306,8 +306,9 @@ export function PanelBlankCanvas({
   const onInstanceClick = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
     if (tool !== "select") return;
     e.cancelBubble = true; // don't trigger the empty-canvas click → clear
-    // Clicking a board clears zone selection.
+    // Clicking a board clears zone + hole selection (selection is exclusive).
     clearKeepOutSelection();
+    setSelectedHoleId(null);
     const native = e.evt;
     if (native.shiftKey || native.ctrlKey || native.metaKey) toggleSelection(id);
     else setSelection([id]);
@@ -324,6 +325,8 @@ export function PanelBlankCanvas({
   const onInstanceDragStart = (id: string) => (e: KonvaEventObject<DragEvent>) => {
     if (tool !== "select") return;
     e.cancelBubble = true;
+    clearKeepOutSelection();
+    setSelectedHoleId(null);
     if (!selected.has(id)) setSelection([id]);
     dragStart.current = pointerMm();
     setDragDelta({ dx: 0, dy: 0 });
@@ -395,6 +398,10 @@ export function PanelBlankCanvas({
   // --- Tooling hole interaction handlers ---
   const onHoleMouseDown = (id: string, e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
+    // Selecting a hole is exclusive: clear any board/zone selection so the inspector
+    // and Delete/Backspace act on the hole, not a lingering board/zone selection.
+    clearSelection();
+    clearKeepOutSelection();
     setSelectedHoleId(id);
   };
 
@@ -419,8 +426,9 @@ export function PanelBlankCanvas({
   // --- Keep-out zone interaction handlers ---
   const onZoneMouseDown = (id: string, e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
-    // Clicking a zone clears board selection and selects this zone.
+    // Clicking a zone clears board + hole selection and selects this zone.
     clearSelection();
+    setSelectedHoleId(null);
     const native = e.evt;
     // Only replace the selection when this zone isn't already in it — otherwise
     // dragging one of several selected zones would collapse the selection to it.
@@ -522,6 +530,10 @@ export function PanelBlankCanvas({
       void (async () => {
         const id = await addToolingHole(p.x, p.y, holeDiameterMm);
         if (id) setSelectedHoleId(id);
+        // Drop back to Select after placing, so the next click edits instead of
+        // placing another hole. The hole stays selected (holes are selectable in
+        // Select too), so its inspector is ready.
+        setTool("select");
       })();
       return;
     }
@@ -535,8 +547,9 @@ export function PanelBlankCanvas({
       return;
     }
     if (tool !== "select") return;
-    // On select tool: clear keep-out selection too when clicking empty canvas.
+    // On select tool: clear keep-out + hole selection too when clicking empty canvas.
     clearKeepOutSelection();
+    setSelectedHoleId(null);
     const p = pointerMm();
     if (!p) return;
     marqueeStart.current = p;
@@ -631,12 +644,18 @@ export function PanelBlankCanvas({
       if (rawW < 0.1 && rawH < 0.1) return;
       // Snap to the 1 mm grid unless the snap toggle is off.
       const round = (v: number) => (keepOutSnap ? Math.round(v) : v);
-      void addKeepOutZone({
-        x_mm: round(Math.min(d.x0, d.x1)),
-        y_mm: round(Math.min(d.y0, d.y1)),
-        width_mm: round(rawW),
-        height_mm: round(rawH),
-      });
+      void (async () => {
+        const id = await addKeepOutZone({
+          x_mm: round(Math.min(d.x0, d.x1)),
+          y_mm: round(Math.min(d.y0, d.y1)),
+          width_mm: round(rawW),
+          height_mm: round(rawH),
+        });
+        // Drop back to Select after drawing, so the next click edits instead of
+        // drawing another zone; select the new zone so its handles are ready.
+        if (id) setKeepOutSelection([id]);
+        setTool("select");
+      })();
       return;
     }
     keepOutDrawStart.current = null;
@@ -836,9 +855,9 @@ export function PanelBlankCanvas({
             <SnapGuides guides={guides} />
             <ToolingHoleLayer
               holes={holes}
-              selectedId={tool === "tooling" ? selectedHoleId : null}
+              selectedId={tool === "tooling" || tool === "select" ? selectedHoleId : null}
               pxPerMm={viewport.pxPerMm}
-              interactive={tool === "tooling" && !addArmed}
+              interactive={(tool === "tooling" && !addArmed) || tool === "select"}
               severityByHole={liveToolingSeverity}
               onHoleMouseDown={onHoleMouseDown}
               onHoleDragEnd={onHoleDragEnd}
@@ -904,7 +923,7 @@ export function PanelBlankCanvas({
       />
       <PanelAlignBar onAlign={alignSelected} onDistribute={distributeSelected} />
 
-      {tool === "tooling" && selectedHoleId && (() => {
+      {(tool === "tooling" || tool === "select") && selectedHoleId && (() => {
         const h = holes.find((x) => x.id === selectedHoleId);
         return h ? (
           <ToolingHoleInspector

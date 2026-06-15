@@ -60,13 +60,16 @@ export function usePanelKeyHandlers(opts: {
     clearMeasure,
   } = opts;
 
-  // Clear hole selection + disarm placement when leaving tooling mode.
+  // Disarm placement when leaving tooling mode. Hole selection survives into the
+  // select tool (holes are selectable there too), so only drop it outside both.
   // Clear keep-out draw state when leaving keepout mode.
   useEffect(() => {
     if (tool !== "tooling") {
-      setSelectedHoleId(null);
       setAddArmed(false);
       setGhostMm(null);
+    }
+    if (tool !== "tooling" && tool !== "select") {
+      setSelectedHoleId(null);
     }
     if (tool !== "keepout") {
       keepOutDrawStartRef.current = null;
@@ -90,10 +93,12 @@ export function usePanelKeyHandlers(opts: {
     return () => window.removeEventListener("keydown", onKey);
   }, [tool, clearMeasure]);
 
-  // Delete/Backspace removes the selected tooling hole; Esc deselects it.
+  // Delete/Backspace removes the selected tooling hole; Esc deselects it. Active in
+  // tooling and select (holes are selectable in both). Selection is exclusive, so a
+  // hole is only set when no board/zone is selected — no Delete ambiguity.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (tool !== "tooling") return;
+      if (tool !== "tooling" && tool !== "select") return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       if ((e.key === "Delete" || e.key === "Backspace") && selectedHoleId) {
