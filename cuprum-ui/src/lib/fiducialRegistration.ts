@@ -22,6 +22,10 @@ export const FIDUCIAL_CAPTURE_RADIUS_MM = 3;
  *  The 10 mm step is intentionally absent — only fine steps allowed. */
 export const FIDUCIAL_CAPTURE_STEPS_MM: number[] = [0.05, 0.1, 0.5];
 
+/** Feed rate (mm/min) for a manual Z descent step during fiducial capture.
+ *  Intentionally slow so the operator can stop the cone/tool before contact. */
+export const FIDUCIAL_Z_DESCENT_FEED_MM_MIN = 60;
+
 /** Minimum number of captured fiducials required before solve is available. */
 export const MIN_CAPTURES_FOR_SOLVE = 2;
 
