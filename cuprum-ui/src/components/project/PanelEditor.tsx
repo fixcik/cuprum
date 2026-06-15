@@ -130,6 +130,14 @@ export function PanelEditor() {
     usePanelSelection.getState().clear();
   }, [currentPath, docNonce]);
 
+  // Reset the active tool to "select" when switching projects. The tool now lives
+  // in a module-level store (so it survives tab switches), so unlike the old local
+  // state it must be reset explicitly on project change. Not keyed on docNonce: the
+  // tool is independent of instance ids, so undo/redo/restore must not disturb it.
+  useEffect(() => {
+    usePanelTool.getState().setTool("select");
+  }, [currentPath]);
+
   // Panel editor hotkeys: Delete/Backspace removes, Esc clears, Ctrl/Cmd+A selects
   // all, Ctrl/Cmd+D duplicates, arrows nudge (Shift = 10 mm), V/H/T/K pick the tool.
   // Ignored when typing in a field. Bound once;
@@ -142,7 +150,7 @@ export function PanelEditor() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const sel = [...usePanelSelection.getState().selected];
       if (e.key === "Delete" || e.key === "Backspace") {
         if (sel.length) {
