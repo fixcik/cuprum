@@ -16,6 +16,7 @@ import {
   nextMachineId,
 } from "@/lib/machine";
 import { SCREEN_W_MM, SCREEN_H_MM } from "@/lib/api";
+import { type FlagKey } from "@/lib/flags";
 
 /** Seed the tool library from a persisted state: existing tools win; else migrate
  *  the legacy `profile.drillBitSetMm` into Drill tools; else defaults. Exported for tests. */
@@ -169,6 +170,17 @@ interface SettingsStore {
   resetProfile: () => void;
   setLanguage: (language: Language) => void;
   setUnits: (units: Units) => void;
+  /** Per-flag runtime overrides; absent key = use the build-mode default. */
+  flagOverrides: Partial<Record<FlagKey, boolean>>;
+  /** Set one override; `undefined` removes it (reverts to the env default). */
+  setFlagOverride: (key: FlagKey, value: boolean | undefined) => void;
+  /** Replace the whole override map (used by cross-window sync). */
+  setFlagOverrides: (overrides: Partial<Record<FlagKey, boolean>>) => void;
+  /** Clear every override. */
+  resetFlagOverrides: () => void;
+  /** Whether the hidden experimental panel has been unlocked (tap version ×5). */
+  devPanelUnlocked: boolean;
+  setDevPanelUnlocked: (unlocked: boolean) => void;
   /** User-saved panel-blank presets (size + stackup), reusable across projects. */
   panelPresets: PanelPreset[];
   addPanelPreset: (preset: PanelPreset) => void;
@@ -301,6 +313,18 @@ export const useSettings = create<SettingsStore>()(
       resetProfile: () => set({ profile: DEFAULT_PROFILE }),
       setLanguage: (language) => set({ language }),
       setUnits: (units) => set({ units }),
+      flagOverrides: {},
+      setFlagOverride: (key, value) =>
+        set((s) => {
+          const next = { ...s.flagOverrides };
+          if (value === undefined) delete next[key];
+          else next[key] = value;
+          return { flagOverrides: next };
+        }),
+      setFlagOverrides: (overrides) => set({ flagOverrides: { ...overrides } }),
+      resetFlagOverrides: () => set({ flagOverrides: {} }),
+      devPanelUnlocked: false,
+      setDevPanelUnlocked: (unlocked) => set({ devPanelUnlocked: unlocked }),
       panelPresets: [],
       addPanelPreset: (preset) =>
         set((s) => ({
@@ -401,7 +425,7 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: "cuprum-settings",
-      version: 8,
+      version: 9,
       migrate: (persisted) => persisted, // merge handles field defaulting across versions
       // Merge persisted values onto current defaults so fields added in later
       // versions get their default values.
@@ -418,6 +442,8 @@ export const useSettings = create<SettingsStore>()(
           profile: { ...DEFAULT_PROFILE, ...(p?.profile ?? {}) },
           language: p?.language ?? "auto",
           units: p?.units ?? "mm",
+          flagOverrides: p?.flagOverrides ?? {},
+          devPanelUnlocked: p?.devPanelUnlocked ?? false,
           panelPresets: p?.panelPresets ?? [],
           hiddenPanelPresetIds: p?.hiddenPanelPresetIds ?? [],
           nest: { ...DEFAULT_NEST, ...(p?.nest ?? {}) },

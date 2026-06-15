@@ -393,3 +393,31 @@ describe("toolsFromPersisted (settings migration)", () => {
     expect(toolsFromPersisted({})).toBe(DEFAULT_TOOLS);
   });
 });
+
+// The global beforeEach above resets the store to its initial state
+// (flagOverrides: {}, devPanelUnlocked: false), so each case starts clean.
+describe("flag overrides", () => {
+  it("setFlagOverride sets and clears a single key", () => {
+    useSettings.getState().setFlagOverride("cncMilling", true);
+    expect(useSettings.getState().flagOverrides.cncMilling).toBe(true);
+    useSettings.getState().setFlagOverride("cncMilling", undefined);
+    expect("cncMilling" in useSettings.getState().flagOverrides).toBe(false);
+  });
+
+  it("setFlagOverrides replaces the whole map", () => {
+    useSettings.getState().setFlagOverride("uvExposure", true);
+    useSettings.getState().setFlagOverrides({ cncMilling: false });
+    expect(useSettings.getState().flagOverrides).toEqual({ cncMilling: false });
+  });
+
+  it("resetFlagOverrides clears all", () => {
+    useSettings.getState().setFlagOverride("uvExposure", true);
+    useSettings.getState().resetFlagOverrides();
+    expect(useSettings.getState().flagOverrides).toEqual({});
+  });
+
+  it("setDevPanelUnlocked toggles the unlock flag", () => {
+    useSettings.getState().setDevPanelUnlocked(true);
+    expect(useSettings.getState().devPanelUnlocked).toBe(true);
+  });
+});
