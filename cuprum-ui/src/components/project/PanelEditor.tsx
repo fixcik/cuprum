@@ -191,7 +191,7 @@ export function PanelEditor() {
         void useShell.getState().moveInstances(sel, cdx, cdy);
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         // Unmodified letters pick the active tool (V/H/T/K), mirroring the rail.
-        const map: Record<string, PanelTool> = { v: "select", h: "pan", t: "tooling", k: "keepout" };
+        const map: Record<string, PanelTool> = { v: "select", h: "pan", t: "tooling", k: "keepout", m: "measure" };
         const next = map[e.key.toLowerCase()];
         if (next) {
           e.preventDefault();

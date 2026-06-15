@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { MousePointer2, Hand, Target, OctagonAlert, CircleDot, Grid2x2, Crosshair, Magnet, type LucideIcon } from "lucide-react";
+import { MousePointer2, Hand, Target, OctagonAlert, Ruler, CircleDot, Grid2x2, Crosshair, Magnet, type LucideIcon } from "lucide-react";
 import { RULER_TOP, RULER_OVERLAY_GAP } from "@/components/editor/canvasStyle";
 import { UnitField } from "@/components/ui/settings/UnitField";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { usePanelTool } from "@/panelToolStore";
+import { useSettings, type Units } from "@/settingsStore";
 import type { PanelTool } from "@/components/panel/PanelToolPalette";
 
 /** Horizontal context bar of options for the active tool, centred at the top of
@@ -26,11 +28,15 @@ export function ToolOptionsBar({
   onAddRegistrationSet: () => void;
   onAddAutoFiducials: () => void;
 }) {
-  const { t } = useTranslation("project");
+  const { t } = useTranslation(["project", "common"]);
   const holeDiameterMm = usePanelTool((s) => s.holeDiameterMm);
   const setHoleDiameterMm = usePanelTool((s) => s.setHoleDiameterMm);
   const keepOutSnap = usePanelTool((s) => s.keepOutSnap);
   const setKeepOutSnap = usePanelTool((s) => s.setKeepOutSnap);
+  // The measure readout follows the global display units (settingsStore.units),
+  // so the segment both reflects and drives the same setting useUnitFormat reads.
+  const units = useSettings((s) => s.units);
+  const setUnits = useSettings((s) => s.setUnits);
 
   const divider = <div className="h-5 w-px bg-border" />;
 
@@ -95,6 +101,22 @@ export function ToolOptionsBar({
           {label(OctagonAlert, t("panel.tool.keepout"))}
           {divider}
           {chip(Magnet, t("panel.toolbar.snapGrid"), keepOutSnap, () => setKeepOutSnap(!keepOutSnap))}
+        </>
+      );
+      break;
+    case "measure":
+      content = (
+        <>
+          {label(Ruler, t("panel.tool.measure"))}
+          {divider}
+          <SegmentedControl<Units>
+            value={units}
+            onChange={setUnits}
+            options={[
+              { value: "mm", label: t("common:unit.mm") },
+              { value: "imperial", label: t("common:unit.inch") },
+            ]}
+          />
         </>
       );
       break;
