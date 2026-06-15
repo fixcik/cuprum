@@ -83,7 +83,9 @@
     "units": "Units",
     "unitsMetric": "Metric (mm)",
     "unitsImperial": "Imperial (in, mil)",
-    "version": "Version"
+    "version": "Version",
+    "experimental": "Experimental features",
+    "experimentalReset": "Reset all"
   },
   "field": {
     "maxPanelWidth": { "label": "Max panel width", "help": "Largest blank that fits the machine work area. A bigger board can't be made in one pass (exposure or CNC)." },

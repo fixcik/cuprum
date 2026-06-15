@@ -7,6 +7,8 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Diagrams } from "@/components/settings/diagrams";
 import { NumberField, BoolField } from "@/components/settings/fields";
 import { ToolLibrarySection } from "@/components/settings/ToolLibrarySection";
+import { Switch } from "@/components/ui/Switch";
+import { FLAGS, resolveFlag, type FlagKey } from "@/lib/flags";
 import { useSettings } from "@/settingsStore";
 import { type Language, type Units } from "@/settingsStore";
 import type { CapabilityProfile } from "@/lib/capabilityProfile";
@@ -27,6 +29,20 @@ export function SettingsPage() {
   const setLanguage = useSettings((s) => s.setLanguage);
   const units = useSettings((s) => s.units);
   const setUnits = useSettings((s) => s.setUnits);
+  const flagOverrides = useSettings((s) => s.flagOverrides);
+  const setFlagOverride = useSettings((s) => s.setFlagOverride);
+  const resetFlagOverrides = useSettings((s) => s.resetFlagOverrides);
+  const devPanelUnlocked = useSettings((s) => s.devPanelUnlocked);
+  const setDevPanelUnlocked = useSettings((s) => s.setDevPanelUnlocked);
+  const isDev = import.meta.env.DEV;
+  const showExperimental = isDev || devPanelUnlocked;
+  const versionTaps = React.useRef(0);
+  const onVersionTap = () => {
+    if (showExperimental) return;
+    versionTaps.current += 1;
+    if (versionTaps.current >= 5) setDevPanelUnlocked(true);
+  };
+  const flagKeys = Object.keys(FLAGS) as FlagKey[];
   const [tab, setTab] = React.useState<Tab>("general");
   const [active, setActive] = React.useState<CapCategoryId>("panel");
 
@@ -98,10 +114,46 @@ export function SettingsPage() {
             </label>
             <div className="flex items-center justify-between gap-4 py-2">
               <span className="text-[12px] text-foreground">{t("interface.version")}</span>
-              <span className="text-[12px] tabular-nums text-muted-foreground">
+              <span
+                onClick={onVersionTap}
+                className="cursor-default select-none text-[12px] tabular-nums text-muted-foreground"
+              >
                 {version ? `v${version}` : "—"}
               </span>
             </div>
+
+            {showExperimental && (
+              <div className="py-3">
+                <div className="mb-2 flex items-center justify-between gap-4">
+                  <span className="text-[12px] font-medium text-foreground">
+                    {t("interface.experimental")}
+                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                      {isDev ? "dev" : "prod"}
+                    </span>
+                  </span>
+                  <Button variant="ghost" onClick={resetFlagOverrides}>
+                    <RotateCcw className="size-4" /> {t("interface.experimentalReset")}
+                  </Button>
+                </div>
+                <div className="divide-y divide-border/60">
+                  {flagKeys.map((key) => {
+                    const def = FLAGS[key];
+                    const on = resolveFlag(def, flagOverrides[key], isDev);
+                    return (
+                      <label key={key} className="flex items-center justify-between gap-4 py-2">
+                        <span className="min-w-0">
+                          <span className="block text-[12px] text-foreground">{def.label}</span>
+                          {def.description && (
+                            <span className="block text-[11px] text-muted-foreground">{def.description}</span>
+                          )}
+                        </span>
+                        <Switch checked={on} onCheckedChange={(v) => setFlagOverride(key, v)} />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
