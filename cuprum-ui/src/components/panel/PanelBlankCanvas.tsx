@@ -4,7 +4,8 @@ import Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { LocateFixed } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { PanelToolPalette, type PanelTool } from "@/components/panel/PanelToolPalette";
+import { PanelToolPalette } from "@/components/panel/PanelToolPalette";
+import { usePanelTool } from "@/panelToolStore";
 import { ZoomToolbar, ZOOM_STEP } from "@/components/ui/ZoomToolbar";
 import { AdaptiveGrid } from "@/components/editor/AdaptiveGrid";
 import { RulersOverlay } from "@/components/editor/RulersOverlay";
@@ -125,7 +126,8 @@ export function PanelBlankCanvas({
   });
   // Hover crosshair + readout overlay (opt-in, RAF-coalesced, Esc to dismiss).
   const { hoverPx, showCrosshair, setShowCrosshair, queueHover } = useCrosshairState();
-  const [tool, setTool] = useState<PanelTool>("select");
+  const tool = usePanelTool((s) => s.tool);
+  const setTool = usePanelTool((s) => s.setTool);
   const panMode = tool === "pan" || spaceDown;
   // Resolved board extents (mm) keyed by design id — shared hook, fetched once per design.
   const sizes = usePlacedBoardSizes();
@@ -821,7 +823,6 @@ export function PanelBlankCanvas({
       <PanelToolPalette
         tool={tool}
         onToolChange={setTool}
-        onDuplicate={duplicateSelected}
         onAddHole={armAddHole}
         addArmed={addArmed}
         onAddRegistrationSet={() => setRegSetOpen(true)}
