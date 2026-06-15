@@ -1009,7 +1009,7 @@ export function PanelBlankCanvas({
       panelW={W}
       panelH={H}
       existingHoles={holes}
-      onApply={(opts) => void addRegistrationSet(opts)}
+      onApply={(opts) => { void addRegistrationSet(opts); setTool("select"); }}
     />
     <AutoFiducialsDialog
       open={autoFiducialsOpen}
@@ -1018,7 +1018,7 @@ export function PanelBlankCanvas({
       panelH={H}
       existingHoles={holes}
       initialParams={fiducialParams}
-      onApply={({ params, replace }) => void addAutoFiducials(params, replace)}
+      onApply={({ params, replace }) => { void addAutoFiducials(params, replace); setTool("select"); }}
     />
     </>
   );
