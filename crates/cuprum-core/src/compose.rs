@@ -324,16 +324,33 @@ pub fn resolve_panel_placements(
     panel_placements(panel_w_mm, panel_h_mm, &instances)
 }
 
+/// Which axis to mirror the composed screen buffer about.
+///
+/// - `None` – no mirror (default)
+/// - `X` – flip horizontally (each row reversed); emulsion-down when the
+///   fixture flips the board left↔right (around the vertical axis)
+/// - `Y` – flip vertically (row order reversed); emulsion-down when the
+///   fixture flips the board top↔bottom (around the horizontal axis)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MirrorAxis {
+    #[default]
+    None,
+    X,
+    Y,
+}
+
 /// Render + composite a layout into a full-screen exposure mask (row-major
 /// grayscale, `SCREEN_W * SCREEN_H` bytes, 0 = UV off / 255 = on).
 ///
-/// `mirror` flips the whole sheet horizontally (emulsion-down contact); `invert`
-/// swaps lit/dark (positive vs negative resist). `screen_rotate` applies the
-/// printer's native 180° orientation (leave true unless debugging).
-#[tracing::instrument(skip_all, fields(placements = placements.len(), mirror, invert))]
+/// `mirror_axis` flips the whole sheet for emulsion-down contact (X = left/right
+/// flip, Y = top/bottom flip, None = no flip); `invert` swaps lit/dark (positive
+/// vs negative resist). `screen_rotate` applies the printer's native 180°
+/// orientation (leave true unless debugging).
+#[tracing::instrument(skip_all, fields(placements = placements.len(), mirror_axis = ?mirror_axis, invert))]
 pub fn compose_layout(
     placements: &[Placement],
-    mirror: bool,
+    mirror_axis: MirrorAxis,
     invert: bool,
     screen_rotate: bool,
 ) -> Result<Vec<u8>> {
@@ -374,8 +391,10 @@ pub fn compose_layout(
         );
     }
 
-    if mirror {
-        goo::flip_x(&mut screen, SCREEN_W, SCREEN_H);
+    match mirror_axis {
+        MirrorAxis::X => goo::flip_x(&mut screen, SCREEN_W, SCREEN_H),
+        MirrorAxis::Y => goo::flip_y(&mut screen, SCREEN_W, SCREEN_H),
+        MirrorAxis::None => {}
     }
     if invert {
         let _span = tracing::info_span!("invert").entered();

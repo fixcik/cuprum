@@ -9,7 +9,7 @@ import {
   XCircle,
   RotateCcw,
 } from "lucide-react";
-import { api, type ExposeProgress, type ExposeSnapshot } from "@/lib/api";
+import { api, type ExposeProgress, type ExposeSnapshot, type MirrorAxis } from "@/lib/api";
 import { buildExposeRequest } from "@/lib/exposeSnapshot";
 import { footprintBoxMm } from "@/lib/exposeFootprint";
 
@@ -122,7 +122,8 @@ function PanelReadOnlyPreview({ snap }: { snap: ExposeSnapshot }) {
 
 interface ExposeParams {
   side: "top" | "bottom";
-  mirror: boolean;
+  /** "none" = no mirror; "x" = left/right flip; "y" = top/bottom flip. */
+  mirrorAxis: MirrorAxis;
   invert: boolean;
   exposureS: number;
   pwm: number;
@@ -155,7 +156,7 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
   // ── Params ──────────────────────────────────────────────────────────────
   const [params, setParams] = useState<ExposeParams>({
     side: snapshot.side,
-    mirror: snapshot.mirror,
+    mirrorAxis: snapshot.mirrorAxis,
     invert: snapshot.invert,
     exposureS: snapshot.exposureS,
     pwm: snapshot.pwm,
@@ -180,7 +181,7 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
           prefillAppliedRef.current = true;
           setParams((prev) => ({
             side: p.side ?? prev.side,
-            mirror: p.mirror ?? prev.mirror,
+            mirrorAxis: p.mirrorAxis ?? prev.mirrorAxis,
             invert: p.invert ?? prev.invert,
             exposureS: p.exposureS ?? prev.exposureS,
             pwm: p.pwm ?? prev.pwm,
@@ -208,7 +209,7 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
           prefillAppliedRef.current = true;
           setParams((prev) => ({
             side: p.side ?? prev.side,
-            mirror: p.mirror ?? prev.mirror,
+            mirrorAxis: p.mirrorAxis ?? prev.mirrorAxis,
             invert: p.invert ?? prev.invert,
             exposureS: p.exposureS ?? prev.exposureS,
             pwm: p.pwm ?? prev.pwm,
@@ -234,13 +235,13 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
     setParams((prev) => ({
       ...prev,
       side: snapshot.side,
-      mirror: snapshot.mirror,
+      mirrorAxis: snapshot.mirrorAxis,
       invert: snapshot.invert,
       exposureS: snapshot.exposureS,
       pwm: snapshot.pwm,
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot.side, snapshot.mirror, snapshot.invert, snapshot.exposureS, snapshot.pwm]);
+  }, [snapshot.side, snapshot.mirrorAxis, snapshot.invert, snapshot.exposureS, snapshot.pwm]);
 
   // ── Run state ────────────────────────────────────────────────────────────
   const [run, setRun] = useState<RunState>(IDLE_RUN);
@@ -471,24 +472,59 @@ export function ExposeOperationEditor({ snapshot }: { snapshot: ExposeSnapshot }
               </div>
             </div>
 
-            {/* Toggles: mirror + invert */}
+            {/* Toggles: mirror axis + invert */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] text-muted-foreground">{t("editor.params.options")}</label>
-              <div className="flex flex-col gap-1">
-                {(["mirror", "invert"] as const).map((key) => (
-                  <label key={key} className="flex cursor-pointer items-center gap-2">
+              <div className="flex flex-col gap-1.5">
+                {/* Mirror toggle + axis selector */}
+                <div className="flex flex-col gap-1">
+                  <label className="flex cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
                       disabled={run.active}
-                      checked={params[key]}
-                      onChange={(e) => setParams((p) => ({ ...p, [key]: e.target.checked }))}
+                      checked={params.mirrorAxis !== "none"}
+                      onChange={(e) =>
+                        setParams((p) => ({
+                          ...p,
+                          mirrorAxis: e.target.checked ? "x" : "none",
+                        }))
+                      }
                       className="h-3.5 w-3.5 cursor-pointer rounded-sm accent-primary disabled:cursor-not-allowed disabled:opacity-50"
                     />
-                    <span className="text-[12px] text-foreground">
-                      {t(`editor.params.${key}`)}
-                    </span>
+                    <span className="text-[12px] text-foreground">{t("editor.params.mirror")}</span>
                   </label>
-                ))}
+                  {/* Axis selector — visible only when mirror is enabled */}
+                  {params.mirrorAxis !== "none" && (
+                    <div className="ml-5 flex gap-2">
+                      {(["x", "y"] as const).map((axis) => (
+                        <button
+                          key={axis}
+                          type="button"
+                          disabled={run.active}
+                          onClick={() => setParams((p) => ({ ...p, mirrorAxis: axis }))}
+                          className={`flex-1 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+                            params.mirrorAxis === axis
+                              ? "border-primary/60 bg-primary/15 text-primary"
+                              : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                          {t(`editor.params.mirror_axis_${axis}`)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* Invert toggle */}
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    disabled={run.active}
+                    checked={params.invert}
+                    onChange={(e) => setParams((p) => ({ ...p, invert: e.target.checked }))}
+                    className="h-3.5 w-3.5 cursor-pointer rounded-sm accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <span className="text-[12px] text-foreground">{t("editor.params.invert")}</span>
+                </label>
               </div>
             </div>
           </div>

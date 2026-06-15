@@ -19,6 +19,8 @@
       "pwm": "PWM",
       "options": "Options",
       "mirror": "Mirror",
+      "mirror_axis_x": "X (left/right)",
+      "mirror_axis_y": "Y (top/bottom)",
       "invert": "Invert"
     },
     "run": {

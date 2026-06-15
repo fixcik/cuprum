@@ -1,6 +1,7 @@
 import type {
   ExposeSnapshot,
   ExposeRunRequest,
+  MirrorAxis,
   Manifest,
 } from "@/lib/api";
 
@@ -17,7 +18,7 @@ export function buildExposeSnapshot(args: {
   manifest: Manifest | null;
   placedSizes?: Record<string, { w: number; h: number }>;
   side?: "top" | "bottom";
-  mirror?: boolean;
+  mirrorAxis?: MirrorAxis;
   invert?: boolean;
   exposureS?: number;
   pwm?: number;
@@ -28,7 +29,7 @@ export function buildExposeSnapshot(args: {
     manifest: args.manifest,
     placedSizes: args.placedSizes ?? {},
     side: args.side ?? "top",
-    mirror: args.mirror ?? false,
+    mirrorAxis: args.mirrorAxis ?? "none",
     invert: args.invert ?? false,
     exposureS: args.exposureS ?? DEFAULT_EXPOSURE_S,
     pwm: args.pwm ?? DEFAULT_PWM,
@@ -44,7 +45,7 @@ export function buildExposeRequest(
   snap: ExposeSnapshot,
   params: {
     side: "top" | "bottom";
-    mirror: boolean;
+    mirrorAxis: MirrorAxis;
     invert: boolean;
     exposureS: number;
     pwm: number;
@@ -89,7 +90,7 @@ export function buildExposeRequest(
     },
     designs,
     side: params.side,
-    mirror: params.mirror,
+    mirrorAxis: params.mirrorAxis,
     invert: params.invert,
     exposureS: params.exposureS,
     pwm: params.pwm,

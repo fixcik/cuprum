@@ -19,6 +19,8 @@
       "pwm": "ШИМ",
       "options": "Опции",
       "mirror": "Зеркало",
+      "mirror_axis_x": "X (лево/право)",
+      "mirror_axis_y": "Y (верх/низ)",
       "invert": "Инвертировать"
     },
     "run": {

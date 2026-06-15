@@ -526,6 +526,7 @@ dependencies = [
  "png 0.17.16",
  "rayon",
  "resvg",
+ "serde",
  "tracing",
  "usvg",
 ]
