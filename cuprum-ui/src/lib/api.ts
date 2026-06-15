@@ -9,11 +9,19 @@ import type { FlagKey } from "@/lib/flags";
 // import cycle with settingsStore (which imports screen constants from here).
 import type { Language } from "@/settingsStore";
 
+// Last invoked Tauri command name — included in frontend crash reports as the
+// "last operation" breadcrumb.
+let lastInvokedCommand = "";
+export function getLastInvokedCommand(): string {
+  return lastInvokedCommand;
+}
+
 /** Dev-only IPC tracer. Tauri's `invoke` is NOT HTTP, so command calls never
  *  appear in the browser Network tab — in dev builds we log every command (args,
  *  result/error, timing) to the console instead. Production is a passthrough.
  *  Filter the console by "[ipc]" to see all backend round-trips. */
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  lastInvokedCommand = cmd;
   if (!import.meta.env.DEV) return rawInvoke<T>(cmd, args);
   const t0 = performance.now();
   return rawInvoke<T>(cmd, args).then(
@@ -1372,7 +1380,41 @@ export const api = {
   mill: {
     plan: (input: MillPlanInput) => invoke<MillPlanResult>("mill_plan", { input }),
   },
+
+  /** Frontend crash reporting. Captures JS errors and stores them locally for
+   *  later inspection and optional submission. Phase 3 adds the send/dismiss UI. */
+  crash: {
+    listPending: () =>
+      invoke<Array<{ id: number; ts: string; kind: string; message: string }>>(
+        "list_pending_crashes",
+      ),
+    reportFrontend: (message: string, stack: string, lastOp: string) =>
+      invoke<void>("report_frontend_crash", { message, stack, lastOp }),
+    markReported: (id: number) => invoke<void>("mark_crash_reported", { id }),
+    dismiss: (id: number) => invoke<void>("dismiss_crash", { id }),
+    buildReport: (id: number | null) =>
+      invoke<{ id: number | null; title: string; body: string; logDir: string }>(
+        "build_crash_report",
+        { id },
+      ),
+  },
 };
+
+// Best-effort crash reporter with a re-entrancy guard: if report_frontend_crash
+// itself rejects, its rejected promise would re-enter unhandledrejection and loop
+// forever. The in-flight flag breaks that cycle. Always logs to console first so
+// the error is visible even if the backend write fails.
+let crashReportInFlight = false;
+export function reportCrashSafe(message: string, stack: string): void {
+  console.error("[crash]", message, stack);
+  if (crashReportInFlight) return;
+  crashReportInFlight = true;
+  void api.crash
+    .reportFrontend(message, stack, getLastInvokedCommand())
+    .finally(() => {
+      crashReportInFlight = false;
+    });
+}
 
 /** Zeroed kinematics placeholder for `DrillPlanInput`: the backend overwrites it
  *  with its cached GRBL limits, but serde requires the (non-Option) field. */
