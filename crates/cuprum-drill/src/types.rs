@@ -99,7 +99,7 @@ pub struct PanelBounds {
 
 /// Machine-space XY point. Mirrors the TS `{ x, y }` object shape (NOT a tuple —
 /// a tuple would serialize as a JSON array and break the frontend contract).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MachineXY {
     pub x: f64,
     pub y: f64,

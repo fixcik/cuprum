@@ -1,18 +1,30 @@
 // 2D rigid-body (+ optional uniform scale) transform fitting for fiducial
-// registration: maps panel coordinates to machine coordinates.
+// registration: corrects board-placement error within the machine frame.
+//
+// The transform operates entirely in machine space. `fit_transform` learns it
+// from pairs of (ideal machine point, measured machine point): the ideal point
+// is where a fiducial *should* land after the nominal datum transform, the
+// measured point is where the probe actually found it. `apply` then nudges any
+// machine-space hole coordinate by the same small correction.
 //
 // Usage pattern:
-//   1. Collect pairs (ideal panel point, measured machine point).
+//   1. For each fiducial, compute its ideal machine point (datum transform of
+//      the panel coordinate) and probe its measured machine point.
 //   2. Call `fit_transform` to get a `Registration` (or an error on degenerate input).
-//   3. Call `reg.apply(panel_x, panel_y)` to get the machine-space coordinate.
+//   3. Call `reg.apply(mx, my)` on an already-datum-transformed (machine-space)
+//      hole coordinate to get the corrected machine-space coordinate.
 //   4. Inspect `reg.rms_residual_mm` for fit quality.
 //
-// Coordinate convention: both panel and machine spaces are f64 mm. No unit
-// conversion is done here; callers are responsible.
+// Coordinate convention: everything is machine-space f64 mm. No unit conversion
+// is done here; callers are responsible.
+
+use crate::types::MachineXY;
 
 /// A 2D similarity transform: optional uniform scale, rotation, translation.
 ///
-/// Transforms a panel-space point `p` to machine space as:
+/// Both input and output are machine-space points (mm). It corrects a small
+/// board-placement error, mapping an ideal machine point `p` to the corrected
+/// machine point as:
 ///   `scale * R(angle) * p + translation`
 ///
 /// where `R(angle)` is the 2×2 rotation matrix.
@@ -25,14 +37,15 @@ pub struct Registration {
     pub scale: f64,
     /// Rotation angle in radians (counter-clockwise).
     pub angle_rad: f64,
-    /// Translation vector in machine space (mm).
-    pub translation: (f64, f64),
+    /// Translation vector in machine space (mm). Named object (not a tuple) so it
+    /// serializes as `{ x, y }` for the frontend, matching the `MachineXY` convention.
+    pub translation: MachineXY,
     /// RMS residual (mm) between transformed ideal points and measured points.
     /// Zero for exact fits (2-point rigid).
     pub rms_residual_mm: f64,
 }
 
-/// A single correspondence: ideal panel point and measured machine point (both in mm).
+/// A single correspondence: ideal machine point and measured machine point (both in mm).
 pub type PointPair = ((f64, f64), (f64, f64));
 
 /// Errors returned by `fit_transform`.
@@ -68,18 +81,19 @@ impl std::fmt::Display for FitError {
 impl std::error::Error for FitError {}
 
 impl Registration {
-    /// Apply this transform to a panel-space point, returning the machine-space point.
+    /// Apply this correction to a machine-space point (already datum-transformed),
+    /// returning the corrected machine-space point.
     #[inline]
     pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
         let cos_a = self.angle_rad.cos();
         let sin_a = self.angle_rad.sin();
         let rx = self.scale * (cos_a * x - sin_a * y);
         let ry = self.scale * (sin_a * x + cos_a * y);
-        (rx + self.translation.0, ry + self.translation.1)
+        (rx + self.translation.x, ry + self.translation.y)
     }
 }
 
-/// Fit a `Registration` from a list of `(ideal_panel, measured_machine)` pairs.
+/// Fit a `Registration` from a list of `(ideal_machine, measured_machine)` pairs.
 ///
 /// # Algorithm
 /// - **2 pairs**: Exact rigid + uniform-scale similarity from the two-vector
@@ -180,7 +194,10 @@ fn fit_exact_2pt(p0: PointPair, p1: PointPair) -> Result<Registration, FitError>
     let sin_a = angle_rad.sin();
     let rx = scale * (cos_a * a0.0 - sin_a * a0.1);
     let ry = scale * (sin_a * a0.0 + cos_a * a0.1);
-    let translation = (b0.0 - rx, b0.1 - ry);
+    let translation = MachineXY {
+        x: b0.0 - rx,
+        y: b0.1 - ry,
+    };
 
     Ok(Registration {
         scale,
@@ -262,7 +279,10 @@ fn fit_umeyama(pairs: &[PointPair]) -> Result<Registration, FitError> {
     // Translation: mu_t - scale * R * mu_s.
     let rx = scale * (cos_a * mu_s.0 - sin_a * mu_s.1);
     let ry = scale * (sin_a * mu_s.0 + cos_a * mu_s.1);
-    let translation = (mu_t.0 - rx, mu_t.1 - ry);
+    let translation = MachineXY {
+        x: mu_t.0 - rx,
+        y: mu_t.1 - ry,
+    };
 
     let reg = Registration {
         scale,
@@ -327,7 +347,7 @@ mod tests {
         Registration {
             scale,
             angle_rad,
-            translation: (tx, ty),
+            translation: MachineXY { x: tx, y: ty },
             rms_residual_mm: 0.0,
         }
     }
@@ -402,8 +422,8 @@ mod tests {
         let fit = fit_transform(&pairs).unwrap();
         assert_approx(fit.scale, 1.0, EPS, "scale");
         assert_approx(fit.angle_rad, 0.0, EPS, "angle");
-        assert_approx(fit.translation.0, 15.0, EPS, "tx");
-        assert_approx(fit.translation.1, -7.0, EPS, "ty");
+        assert_approx(fit.translation.x, 15.0, EPS, "tx");
+        assert_approx(fit.translation.y, -7.0, EPS, "ty");
         assert_approx(fit.rms_residual_mm, 0.0, EPS, "rms");
         // Roundtrip on a third point not in the fit.
         let pred = fit.apply(20.0, 3.0);
@@ -438,8 +458,8 @@ mod tests {
         let fit = fit_transform(&pairs).unwrap();
         assert_approx(fit.scale, 1.0, 1e-10, "scale");
         assert_approx(fit.angle_rad, angle, 1e-10, "angle");
-        assert_approx(fit.translation.0, 5.0, 1e-10, "tx");
-        assert_approx(fit.translation.1, -3.0, 1e-10, "ty");
+        assert_approx(fit.translation.x, 5.0, 1e-10, "tx");
+        assert_approx(fit.translation.y, -3.0, 1e-10, "ty");
         // Verify roundtrip for a fresh point.
         let pt = (15.0, 8.0);
         let pred = fit.apply(pt.0, pt.1);
@@ -472,8 +492,8 @@ mod tests {
         let fit = fit_transform(&pairs).unwrap();
         assert_approx(fit.scale, 1.0, 1e-10, "scale");
         assert_approx(fit.angle_rad, 0.0, 1e-10, "angle");
-        assert_approx(fit.translation.0, -4.0, 1e-10, "tx");
-        assert_approx(fit.translation.1, 11.0, 1e-10, "ty");
+        assert_approx(fit.translation.x, -4.0, 1e-10, "tx");
+        assert_approx(fit.translation.y, 11.0, 1e-10, "ty");
         assert_approx(fit.rms_residual_mm, 0.0, 1e-9, "rms");
     }
 
@@ -498,8 +518,8 @@ mod tests {
         let fit = fit_transform(&pairs).unwrap();
         assert_approx(fit.scale, 1.0, 1e-9, "scale");
         assert_approx(fit.angle_rad, angle, 1e-9, "angle");
-        assert_approx(fit.translation.0, 8.0, 1e-9, "tx");
-        assert_approx(fit.translation.1, -5.0, 1e-9, "ty");
+        assert_approx(fit.translation.x, 8.0, 1e-9, "tx");
+        assert_approx(fit.translation.y, -5.0, 1e-9, "ty");
         assert_approx(fit.rms_residual_mm, 0.0, 1e-7, "rms");
         // Roundtrip on new point.
         let pred = fit.apply(5.0, 5.0);
@@ -537,8 +557,8 @@ mod tests {
         // Fitted transform should still be close to the truth.
         assert_approx(fit.scale, 1.0, 0.01, "scale");
         assert_approx(fit.angle_rad, 0.1, 0.01, "angle");
-        assert_approx(fit.translation.0, 3.0, 0.15, "tx");
-        assert_approx(fit.translation.1, -2.0, 0.15, "ty");
+        assert_approx(fit.translation.x, 3.0, 0.15, "tx");
+        assert_approx(fit.translation.y, -2.0, 0.15, "ty");
     }
 
     #[test]

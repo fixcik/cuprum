@@ -190,6 +190,12 @@ pub fn emit_drill_program(plan: &PanelDrillPlan, ctx: EmitCtx) -> DrillProgram {
             spindle_up_lines.push("M3".to_string());
         }
 
+        // Registration is a *small* correction (sub-mm offset + fractions of a
+        // degree): the route order below (order_nearest), keep-out detour routing
+        // and the time estimate all run on pre-registration machine coordinates.
+        // For corrections this small the resulting divergence from the emitted
+        // (post-registration) G-code is negligible, so we deliberately do NOT
+        // re-route or re-estimate. Only the emitted hole coordinates are corrected.
         let machine_pts: Vec<(f64, f64)> = g
             .holes
             .iter()
@@ -720,7 +726,7 @@ M2
         let identity = Registration {
             scale: 1.0,
             angle_rad: 0.0,
-            translation: (0.0, 0.0),
+            translation: MachineXY { x: 0.0, y: 0.0 },
             rms_residual_mm: 0.0,
         };
         let prog_identity = emit_drill_program(
@@ -756,7 +762,7 @@ M2
         let reg = Registration {
             scale: 1.0,
             angle_rad: 0.0,
-            translation: (tx, ty),
+            translation: MachineXY { x: tx, y: ty },
             rms_residual_mm: 0.0,
         };
         let prog = emit_drill_program(
@@ -794,7 +800,7 @@ M2
         let reg = Registration {
             scale: 1.0,
             angle_rad: std::f64::consts::FRAC_PI_2, // 90°
-            translation: (0.0, 0.0),
+            translation: MachineXY { x: 0.0, y: 0.0 },
             rms_residual_mm: 0.0,
         };
         let prog = emit_drill_program(
