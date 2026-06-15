@@ -179,7 +179,7 @@ mod tests {
         // 5mm in 2.4 format == 0050000.
         const OPENING: &[u8] =
             b"%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,2.0*%\nD10*\nX0050000Y0050000D03*\nM02*\n";
-        let polys = mask_polygons(&board, OPENING).unwrap();
+        let polys = mask_polygons(&board, OPENING, &[]).unwrap();
         assert_eq!(polys.len(), 1, "one mask polygon expected: {polys:?}");
         assert_eq!(
             polys[0].holes.len(),
@@ -213,7 +213,7 @@ mod tests {
         assert!(pad_area > 0.5, "sanity: roundrect pad has area: {pad_area}");
         // Same opening cut from a 4×4 board.
         let board = vec![vec![[-2.0, -2.0], [2.0, -2.0], [2.0, 2.0], [-2.0, 2.0]]];
-        let polys = mask_polygons(&board, RR).unwrap();
+        let polys = mask_polygons(&board, RR, &[]).unwrap();
         assert_eq!(polys.len(), 1, "one mask polygon: {polys:?}");
         let hole_area: f64 = polys[0].holes.iter().map(|h| area(h)).sum();
         assert!(
@@ -227,11 +227,38 @@ mod tests {
     fn mask_with_no_openings_is_full_board() {
         let board = vec![vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]];
         const EMPTY: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\nM02*\n";
-        let polys = mask_polygons(&board, EMPTY).unwrap();
+        let polys = mask_polygons(&board, EMPTY, &[]).unwrap();
         assert_eq!(polys.len(), 1, "full board polygon expected: {polys:?}");
         assert!(
             polys[0].holes.is_empty(),
             "no openings → no holes: {polys:?}"
+        );
+    }
+
+    /// A drill hole through a fully-masked (tented) area must be cut from the mask
+    /// film too — a drilled bore removes ALL material there. Otherwise the
+    /// soldermask spans the bore in the 3D view, so a trace's tented via never
+    /// "punches through" (copper + FR4 are drilled, the mask is not).
+    #[test]
+    fn mask_subtracts_tented_drill() {
+        let board = vec![vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]];
+        // No openings → the whole board is masked; the drill sits under solid mask.
+        const EMPTY: &[u8] = b"%FSLAX24Y24*%\n%MOMM*%\nM02*\n";
+        let polys = mask_polygons(
+            &board,
+            EMPTY,
+            &[Hole {
+                x: 5.0,
+                y: 5.0,
+                d: 1.0,
+            }],
+        )
+        .unwrap();
+        assert_eq!(polys.len(), 1, "full board minus one drill: {polys:?}");
+        assert_eq!(
+            polys[0].holes.len(),
+            1,
+            "tented drill must cut the mask film: {polys:?}"
         );
     }
 

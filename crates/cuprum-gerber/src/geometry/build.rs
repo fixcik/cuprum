@@ -79,8 +79,17 @@ pub fn region_polygons_from(layer: &GerberLayer, holes: &[Hole]) -> Vec<Poly> {
 /// exposed pads). We build them as solid contours and subtract them from the
 /// board, so the result is the green soldermask film with the pad openings cut
 /// out — `difference(board_outline, openings)`.
-#[tracing::instrument(skip_all, fields(rings = outline_rings.len()))]
-pub fn mask_polygons(outline_rings: &[Vec<[f64; 2]>], mask_bytes: &[u8]) -> Result<Vec<Poly>> {
+///
+/// Drill holes are subtracted too: a drilled bore removes ALL material at that
+/// spot, so the mask film must be cut there as well — otherwise a tented via
+/// (no opening) leaves the green film spanning the bore, and the hole never
+/// "punches through" in the 3D view (copper + FR4 are drilled, the mask is not).
+#[tracing::instrument(skip_all, fields(rings = outline_rings.len(), holes = holes.len()))]
+pub fn mask_polygons(
+    outline_rings: &[Vec<[f64; 2]>],
+    mask_bytes: &[u8],
+    holes: &[Hole],
+) -> Result<Vec<Poly>> {
     let board: Vec<Vec<[f64; 2]>> = outline_rings
         .iter()
         .filter(|r| r.len() >= 3)
@@ -99,16 +108,23 @@ pub fn mask_polygons(outline_rings: &[Vec<[f64; 2]>], mask_bytes: &[u8]) -> Resu
     // out → the mask covers the pad corners (dark "bites"). All-CCW makes each
     // opening a solid clip that subtracts fully. (Same root cause as the copper
     // "mouse bites" — see fill_polygons.)
-    let openings: Vec<Vec<[f64; 2]>> = contours_of(layer.primitives())
+    let mut clip: Vec<Vec<[f64; 2]>> = contours_of(layer.primitives())
         .into_iter()
         .map(to_ccw)
         .collect();
+    // Drill bores join the clip: both openings and drills are cut from the board.
+    clip.extend(
+        holes
+            .iter()
+            .filter(|h| h.d > 0.0)
+            .map(|h| circle(h.x, h.y, h.d / 2.0, CIRCLE_SEGS)),
+    );
 
-    // No openings → the whole board is masked.
-    let shapes = if openings.is_empty() {
+    // No openings and no drills → the whole board is masked.
+    let shapes = if clip.is_empty() {
         FloatOverlay::with_subj(&board).overlay(OverlayRule::Subject, FillRule::NonZero)
     } else {
-        FloatOverlay::with_subj_and_clip(&board, &openings)
+        FloatOverlay::with_subj_and_clip(&board, &clip)
             .overlay(OverlayRule::Difference, FillRule::NonZero)
     };
 

@@ -87,7 +87,7 @@ fn build_surface_layer(
             if outline.is_empty() {
                 return None;
             }
-            geometry::mask_polygons(outline, layer.bytes).ok()?
+            geometry::mask_polygons(outline, layer.bytes, holes).ok()?
         } else {
             geometry::layer_polygons(layer.bytes, holes).ok()?
         }
