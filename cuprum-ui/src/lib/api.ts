@@ -4,6 +4,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { type NestSettings } from "@/lib/nest";
 import type { CncProfile } from "@/lib/cncProfile";
 import type { Tool } from "@/lib/toolLibrary";
+import type { FlagKey } from "@/lib/flags";
 // Type-only import: erased at compile time, so it does not create a runtime
 // import cycle with settingsStore (which imports screen constants from here).
 import type { Language } from "@/settingsStore";
@@ -1159,6 +1160,14 @@ export const api = {
   emitLanguage: (language: Language): Promise<void> => emit("settings://language", { language }),
   onLanguage: (cb: (language: Language) => void): Promise<UnlistenFn> =>
     listen<{ language: Language }>("settings://language", (e) => cb(e.payload.language)),
+
+  // Cross-window feature-flag override sync. Same rationale as language: each OS
+  // window is a separate webview; the experimental panel lives only in the main
+  // window's Settings, so broadcast overrides to already-open siblings.
+  emitFlagOverrides: (overrides: Partial<Record<FlagKey, boolean>>): Promise<void> =>
+    emit("settings://flags", { overrides }),
+  onFlagOverrides: (cb: (overrides: Partial<Record<FlagKey, boolean>>) => void): Promise<UnlistenFn> =>
+    listen<{ overrides: Partial<Record<FlagKey, boolean>> }>("settings://flags", (e) => cb(e.payload.overrides)),
 
   machine: {
     listPorts: () => invoke<SerialPortInfo[]>("list_serial_ports"),
