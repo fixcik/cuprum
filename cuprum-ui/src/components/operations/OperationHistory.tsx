@@ -7,22 +7,26 @@ import {
   Loader2,
   History as HistoryIcon,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import { api, type OperationRun } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useFlag } from "@/hooks/useFlag";
 import { relativeTime } from "@/i18n/relativeTime";
+import { operationKind } from "@/lib/operationKind";
+import { formatDuration } from "@/lib/runHistoryFormat";
+import {
+  filterRuns,
+  statusCounts,
+  groupByDay,
+  runMetaLine,
+  statusKey,
+  type StatusFilter,
+  type RunLabels,
+} from "@/lib/runHistoryFilter";
 
 /** Runs fetched per page; "load more" appends the next page. */
 const PAGE_SIZE = 20;
-
-/** Compact duration ("Xm Ys" / "Ys") from whole seconds. */
-function formatDuration(sec: number, minShort: string, secShort: string): string {
-  if (sec < 60) return `${sec}${secShort}`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return s ? `${m}${minShort} ${s}${secShort}` : `${m}${minShort}`;
-}
 
 interface DrillParams {
   toolCount?: number;
@@ -60,25 +64,35 @@ async function repeatRun(run: OperationRun) {
   }
 }
 
-/** Operation history as a card list — every journalled run across all op types,
- *  newest first, paginated and filterable. Lives in the Operations view beside the
- *  operation buttons; a card expands to read-only run details with a "repeat" action. */
-export function OperationHistory() {
+const CHIPS: StatusFilter[] = ["all", "completed", "stopped", "interrupted"];
+
+/** Operation history as a grouped, searchable, status-filterable run log. Lives in
+ *  the Operations view beside the production steps; selecting a step filters this
+ *  list to that op type. Rows expand to read-only detail with a "repeat" action. */
+export function OperationHistory({
+  selStep,
+  onClearStep,
+}: {
+  selStep: string | null;
+  onClearStep: () => void;
+}) {
   const { t } = useTranslation("project");
   const currentPath = useShell((s) => s.currentPath);
   // Gate the "repeat" action for expose runs the same way the operation card is
   // gated, so a past run can't reopen the expose window when the flag is off.
   const showExpose = useFlag("uvExposure");
   const [runs, setRuns] = useState<OperationRun[] | null>(null);
-  const [filter, setFilter] = useState<string>("all");
+  const [status, setStatus] = useState<StatusFilter>("all");
+  const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // First page on project change (resets filter/expansion so stale state can't hide
-  // the new project's runs).
+  // First page on project change (resets filter/search/expansion so stale state
+  // can't hide the new project's runs).
   useEffect(() => {
-    setFilter("all");
+    setStatus("all");
+    setQuery("");
     setExpanded(null);
     setHasMore(false);
     if (!currentPath) {
@@ -109,17 +123,13 @@ export function OperationHistory() {
     loadedCountRef.current = runs?.length ?? 0;
   }, [runs]);
 
-  // Live refresh: a run launched/finished/reconciled in another window (drill /
-  // expose / mill) broadcasts `operation-runs://changed`. Refetch the loaded
-  // window so a new run appears and "Идёт" flips to its outcome without reopening
-  // the project. StrictMode-safe listener lifecycle (mirrors useBridgeListeners).
+  // Live refresh: a run launched/finished/reconciled in another window broadcasts
+  // `operation-runs://changed`. Refetch the loaded window so a new run appears and
+  // "Идёт" flips to its outcome. StrictMode-safe listener lifecycle.
   useEffect(() => {
     if (!currentPath) return;
     let active = true;
     let unlisten: (() => void) | null = null;
-    // Per-fetch generation: a start→finish pair emits two events back-to-back, so
-    // two refetches can be in flight at once. Drop a late-resolving older response
-    // so a stale "Идёт" can't overwrite the fresh outcome.
     let fetchGen = 0;
     void api.operationLog
       .onChanged(() => {
@@ -158,43 +168,91 @@ export function OperationHistory() {
       .finally(() => setLoadingMore(false));
   };
 
-  const types = useMemo(() => [...new Set((runs ?? []).map((r) => r.opType))], [runs]);
-  const shown = useMemo(
-    () => (filter === "all" ? (runs ?? []) : (runs ?? []).filter((r) => r.opType === filter)),
-    [runs, filter],
+  const labels: RunLabels = useMemo(
+    () => ({
+      holes: t("runHistory.holesLabel"),
+      tools: t("runHistory.toolsLabel"),
+      typeLabel: (op: string) => t(operationKind(op).titleKey),
+    }),
+    [t],
+  );
+  const durLabels = useMemo(
+    () => ({
+      h: t("runHistory.hourShort"),
+      m: t("runHistory.minShort"),
+      s: t("runHistory.secShort"),
+    }),
+    [t],
   );
 
-  const typeLabel = (op: string) => t([`runHistory.type.${op}`, "runHistory.type.unknown"], { op });
+  const base = useMemo(
+    () => (selStep ? (runs ?? []).filter((r) => r.opType === selStep) : (runs ?? [])),
+    [runs, selStep],
+  );
+  const counts = useMemo(() => statusCounts(base), [base]);
+  const filtered = useMemo(
+    () => filterRuns({ runs: runs ?? [], selStep, status, query, labels }),
+    [runs, selStep, status, query, labels],
+  );
+  const groups = useMemo(() => groupByDay(filtered), [filtered]);
+
+  const dayLabel = (days: number) =>
+    days === 0 ? t("runHistory.day.today") : t("runHistory.day.daysAgo", { count: days });
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Header + filter chips */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-2 px-1 pb-3">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
           <HistoryIcon className="size-3.5" />
           {t("runHistory.title")}
         </div>
-        {types.length > 1 && (
-          <div className="flex items-center gap-1">
-            {["all", ...types].map((op) => (
-              <button
-                key={op}
-                type="button"
-                onClick={() => setFilter(op)}
-                className={`rounded-md px-2 py-0.5 text-[11px] ${
-                  filter === op
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-                }`}
-              >
-                {op === "all" ? t("runHistory.filterAll") : typeLabel(op)}
-              </button>
-            ))}
-          </div>
+        {selStep && (
+          <button
+            type="button"
+            onClick={onClearStep}
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/15 px-2 py-0.5 text-[11px] text-primary"
+          >
+            {t(operationKind(selStep).titleKey)}
+            <span aria-hidden>✕</span>
+          </button>
         )}
+        <span className="ml-auto text-[11.5px] text-muted-foreground tabular-nums">
+          {t("runHistory.resultCount", { count: filtered.length })}
+        </span>
       </div>
 
-      {/* Card list */}
+      {/* Toolbar */}
+      <div className="mb-3 flex flex-wrap items-center gap-2.5 px-1">
+        <div className="relative max-w-[280px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("runHistory.searchPlaceholder")}
+            className="w-full rounded-lg border border-border bg-card/70 py-2 pl-8 pr-3 text-[12.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary/50 focus:outline-none"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {CHIPS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setStatus(c)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold tabular-nums transition-colors ${
+                status === c
+                  ? "bg-primary text-primary-foreground"
+                  : "border border-border bg-card/70 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {c === "all" ? t("runHistory.filterAll") : t(`runHistory.filter.${c}`)}
+              <span className="opacity-60">{counts[c]}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* List */}
       {runs === null ? (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <Loader2 className="size-5 animate-spin" />
@@ -203,29 +261,42 @@ export function OperationHistory() {
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
           {t("runHistory.noProject")}
         </div>
-      ) : shown.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
-          {t("runHistory.empty")}
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+          <Search className="size-8 text-muted-foreground/60" />
+          <div className="text-[13px] text-muted-foreground">{t("runHistory.notFound.title")}</div>
+          <div className="text-[11.5px] text-muted-foreground/70">{t("runHistory.notFound.hint")}</div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-          {shown.map((r) => (
-            <RunCard
-              key={r.runUid}
-              run={r}
-              t={t}
-              typeLabel={typeLabel}
-              showExpose={showExpose}
-              expanded={expanded === r.runUid}
-              onToggle={() => setExpanded((cur) => (cur === r.runUid ? null : r.runUid))}
-            />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
+          {groups.map((g) => (
+            <div key={g.days} className="flex flex-col gap-1.5">
+              <div className="sticky top-0 z-10 flex items-center gap-3 bg-background px-0.5 pb-2 pt-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                  {dayLabel(g.days)}
+                </span>
+                <span className="h-px flex-1 bg-border/60" />
+              </div>
+              {g.runs.map((r) => (
+                <RunRow
+                  key={r.runUid}
+                  run={r}
+                  t={t}
+                  labels={labels}
+                  durLabels={durLabels}
+                  showExpose={showExpose}
+                  expanded={expanded === r.runUid}
+                  onToggle={() => setExpanded((cur) => (cur === r.runUid ? null : r.runUid))}
+                />
+              ))}
+            </div>
           ))}
           {hasMore && (
             <button
               type="button"
               onClick={loadMore}
               disabled={loadingMore}
-              className="mt-1 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] text-muted-foreground hover:bg-card hover:text-foreground disabled:opacity-60"
+              className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] text-muted-foreground hover:bg-card hover:text-foreground disabled:opacity-60"
             >
               {loadingMore && <Loader2 className="size-3.5 animate-spin" />}
               {t("runHistory.loadMore")}
@@ -237,67 +308,63 @@ export function OperationHistory() {
   );
 }
 
-function RunCard({
+function RunRow({
   run,
   t,
-  typeLabel,
+  labels,
+  durLabels,
   showExpose,
   expanded,
   onToggle,
 }: {
   run: OperationRun;
   t: (k: string | string[], opts?: Record<string, unknown>) => string;
-  typeLabel: (op: string) => string;
+  labels: RunLabels;
+  durLabels: { h: string; m: string; s: string };
   showExpose: boolean;
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const op = operationKind(run.opType);
+  const Icon = op.icon;
   const rel = relativeTime(run.startedAt);
-  const minShort = t("runHistory.minShort");
-  const secShort = t("runHistory.secShort");
   const dur =
     run.endedAt != null
-      ? formatDuration(Math.max(0, run.endedAt - run.startedAt), minShort, secShort)
+      ? formatDuration(Math.max(0, run.endedAt - run.startedAt), durLabels)
       : null;
+  const meta = runMetaLine(run, { holes: labels.holes, tools: labels.tools });
   const drill = run.opType === "drill" ? parseDrillParams(run.paramsJson) : null;
   const canRepeat = OPENABLE.has(run.opType) && (run.opType !== "expose" || showExpose);
 
   return (
-    <div className="rounded-lg border border-border bg-card/50">
-      {/* Header row — toggles the detail */}
+    <div className="rounded-[10px] border border-border/70 bg-card/60">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full px-3 py-2 text-left transition-colors hover:bg-card"
+        className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-card"
       >
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[13px] font-medium text-foreground">{typeLabel(run.opType)}</span>
-          <OutcomeBadge outcome={run.outcome} t={t} />
+        <div className={`grid size-[34px] shrink-0 place-items-center rounded-[9px] ${op.tile}`}>
+          <Icon className="size-4" />
         </div>
-        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <span className="tabular-nums">
-            {run.progressTotal != null && (
-              <span>
-                {t("runHistory.holesLabel")} {run.progressTotal}
-              </span>
-            )}
-            {drill?.toolCount != null && (
-              <span>
-                {" · "}
-                {t("runHistory.toolsLabel")} {drill.toolCount}
-              </span>
-            )}
-          </span>
-          <span className="shrink-0 tabular-nums">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13.5px] font-semibold text-foreground">
+            {labels.typeLabel(run.opType)}
+          </div>
+          {meta && (
+            <div className="mt-0.5 text-[11.5px] text-muted-foreground tabular-nums">{meta}</div>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <StatusPill outcome={run.outcome} t={t} />
+          <span className="text-[11px] text-muted-foreground/80 tabular-nums">
             {t(rel.key, rel.params)}
             {dur ? ` · ${dur}` : ""}
           </span>
         </div>
       </button>
 
-      {/* Read-only detail */}
       {expanded && (
-        <div className="border-t border-border/60 px-3 py-2">
+        <div className="border-t border-border/60 px-3.5 py-2.5">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
             {run.progressTotal != null && (
               <Row
@@ -318,7 +385,7 @@ function RunCard({
             {drill?.estimateSec != null && drill.estimateSec > 0 && (
               <Row
                 label={t("runHistory.estimateLabel")}
-                value={formatDuration(Math.round(drill.estimateSec), minShort, secShort)}
+                value={formatDuration(Math.round(drill.estimateSec), durLabels)}
               />
             )}
           </dl>
@@ -347,48 +414,37 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function OutcomeBadge({
+function StatusPill({
   outcome,
   t,
 }: {
   outcome: string | null;
   t: (k: string) => string;
 }) {
-  if (outcome === "completed") {
+  const k = statusKey(outcome);
+  if (k === "completed")
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-success">
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-success">
         <CheckCircle2 className="size-3.5" />
         {t("runHistory.outcome.completed")}
       </span>
     );
-  }
-  if (outcome === "stopped") {
+  if (k === "stopped")
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-warning">
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-warning">
         <XCircle className="size-3.5" />
         {t("runHistory.outcome.stopped")}
       </span>
     );
-  }
-  if (outcome === "error") {
+  if (k === "interrupted")
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
-        <XCircle className="size-3.5" />
-        {t("runHistory.outcome.error")}
-      </span>
-    );
-  }
-  if (outcome === "interrupted") {
-    // Orphaned run: its window closed mid-run, reconciled at the next project open.
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-destructive">
         <CircleSlash className="size-3.5" />
         {t("runHistory.outcome.interrupted")}
       </span>
     );
-  }
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground">
       <Loader2 className="size-3.5 animate-spin" />
       {t("runHistory.outcome.running")}
     </span>
