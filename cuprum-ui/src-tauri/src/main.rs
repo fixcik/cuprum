@@ -20,6 +20,7 @@ struct MenuLabels {
     edit: String,
     window: String,
     check_updates: String,
+    report_issue: String,
 }
 
 use commands::project::working_base;
@@ -45,6 +46,7 @@ fn default_menu_labels() -> MenuLabels {
         edit: "Edit".into(),
         window: "Window".into(),
         check_updates: "Check for Updates\u{2026}".into(),
+        report_issue: "Report an Issue\u{2026}".into(),
     }
 }
 
@@ -59,6 +61,7 @@ fn build_app_menu<R: Runtime>(
         .about(Some(AboutMetadata::default()))
         .separator()
         .text("check-updates", &labels.check_updates)
+        .text("report-issue", &labels.report_issue)
         .separator();
     // Services/Hide/Show All are macOS-only predefined items (cfg'd shadowing keeps
     // `app_b` un-`mut` so non-macOS builds don't trip the unused_mut lint).
@@ -117,6 +120,10 @@ fn main() {
             if event.id().as_ref() == "check-updates" {
                 let _ = app.emit("menu://check-updates", ());
             }
+            // "Report an Issue…" → the main window opens a prefilled GitHub issue.
+            if event.id().as_ref() == "report-issue" {
+                let _ = app.emit("menu://report-issue", ());
+            }
         })
         .on_window_event(|window, event| {
             // When the main window closes (app quit), tear down any child
@@ -146,6 +153,7 @@ fn main() {
             }
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         // Single-instance: a second launch (Win/Linux file double-click passes the
