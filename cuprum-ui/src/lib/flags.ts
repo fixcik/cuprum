@@ -4,7 +4,7 @@
  *
  *  Flag labels are plain strings (NOT i18n): these are transient internal toggles,
  *  not worth the en/ru parity-gate churn. See the design spec. */
-export type FlagKey = "uvExposure" | "cncMilling";
+export type FlagKey = "uvExposure" | "cncMilling" | "fiducialRegistration";
 
 export interface FlagDef {
   /** Label shown in the experimental panel. Plain string, not localized. */
@@ -20,6 +20,7 @@ export interface FlagDef {
 export const FLAGS: Record<FlagKey, FlagDef> = {
   uvExposure: { label: "UV-засветка", description: "Засветка медной графики через UV-LCD" },
   cncMilling: { label: "CNC-фрезеровка", description: "Изоляционная фрезеровка меди" },
+  fiducialRegistration: { label: "Центровка по реперам", description: "Привязка сверловки к реперным отверстиям (в разработке)", defaultDev: false, defaultProd: false },
 };
 
 /** Effective default for the current build mode, ignoring any override. */

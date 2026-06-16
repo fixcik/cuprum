@@ -27,6 +27,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { formatXYViolations } from "@/lib/xyGate";
 import { formatZReasons } from "@/lib/zGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
+import { useFlag } from "@/hooks/useFlag";
 import { getRegistrationHoles } from "@/lib/fiducialRegistration";
 
 export interface DrillPlanInspectorProps {
@@ -168,13 +169,20 @@ export function DrillPlanInspector({
   useEffect(() => {
     if (isRunActive) setPanelMode("plan");
   }, [isRunActive]);
-
   // Registration mode toggle: "corner" (classic datum bind) or "fiducial".
   // Persisted only for the session (ephemeral state). Defaults to "corner".
   const [registrationMode, setRegistrationMode] = useState<"corner" | "fiducial">("corner");
 
   // Detect whether the panel has any registration holes so the toggle can be shown.
   const hasRegistrationHoles = getRegistrationHoles(toolingHoles).length > 0;
+  // Feature flag: fiducial registration is still rough — hide behind an explicit opt-in.
+  const fiducialRegistrationEnabled = useFlag("fiducialRegistration");
+
+  // When the fiducial-registration flag is turned off, reset any stale "fiducial"
+  // registrationMode so the corner-based flow is always used.
+  useEffect(() => {
+    if (!fiducialRegistrationEnabled) setRegistrationMode("corner");
+  }, [fiducialRegistrationEnabled]);
 
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
@@ -344,8 +352,8 @@ export function DrillPlanInspector({
             {/* Work zero — compact status card-button (opens the zero-binding mode).
                 Shows a registration-mode toggle when the panel has registration holes. */}
             <div className="border-t border-border">
-              {/* Registration mode toggle (shown only when registration holes exist) */}
-              {hasRegistrationHoles && (
+              {/* Registration mode toggle (shown only when flag + registration holes are present) */}
+              {fiducialRegistrationEnabled && hasRegistrationHoles && (
                 <div className="flex items-center gap-2 px-4 pt-3 pb-1">
                   <span className="text-[11px] font-medium text-muted-foreground">
                     {t("workzero.title")}
@@ -362,7 +370,7 @@ export function DrillPlanInspector({
                 </div>
               )}
 
-              {registrationMode === "fiducial" && hasRegistrationHoles ? (
+              {fiducialRegistrationEnabled && registrationMode === "fiducial" && hasRegistrationHoles ? (
                 /* Fiducial mode: compact status card-button opens fiducial panel */
                 <div className="px-4 py-2">
                   <button
