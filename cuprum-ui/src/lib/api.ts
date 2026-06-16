@@ -1036,6 +1036,9 @@ export const api = {
   /** Subscribe to the native menu's "Check for Updates…" item. */
   onMenuCheckUpdates: (cb: () => void): Promise<UnlistenFn> =>
     listen("menu://check-updates", () => cb()),
+  /** Subscribe to the native menu's "Report an Issue…" item. */
+  onMenuReportIssue: (cb: () => void): Promise<UnlistenFn> =>
+    listen("menu://report-issue", () => cb()),
   pickProjectFile: () =>
     open({ multiple: false, filters: [{ name: "Cuprum", extensions: ["cu", "cuprum"] }] }) as Promise<
       string | null

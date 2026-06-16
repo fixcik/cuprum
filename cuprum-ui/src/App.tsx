@@ -19,6 +19,7 @@ import { useBridgeListeners } from "@/hooks/useTauriListeners";
 import { useConsoleBridge } from "@/hooks/useConsoleBridge";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { CrashPrompt } from "@/components/CrashPrompt";
 import i18n from "@/i18n";
 
 // Module-scoped so cold-start restore runs once even under React StrictMode's
@@ -144,6 +145,7 @@ export default function App() {
         {view === "settings" && <SettingsPage />}
       </div>
       <UpdateBanner />
+      <CrashPrompt />
     </div>
   );
 }
