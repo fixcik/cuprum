@@ -15,6 +15,7 @@ export function ProductionSteps({
 }) {
   const { t } = useTranslation("project");
   const showExpose = useFlag("uvExposure");
+  const showMill = useFlag("cncMilling");
   const currentPath = useShell((s) => s.currentPath);
   const manifestName = useShell((s) => s.currentManifest?.name ?? "");
   const [lastByKind, setLastByKind] = useState<Record<OpKind, OperationRun | null>>({
@@ -52,7 +53,9 @@ export function ProductionSteps({
     };
   }, [currentPath]);
 
-  const kinds = OPERATION_KINDS.filter((op) => op.kind !== "expose" || showExpose);
+  const kinds = OPERATION_KINDS.filter(
+    (op) => (op.kind !== "expose" || showExpose) && (op.kind !== "mill" || showMill),
+  );
 
   return (
     <div className="flex h-full min-h-0 w-[43%] shrink-0 flex-col">
