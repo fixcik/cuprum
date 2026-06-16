@@ -12,6 +12,8 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "opener:allow-open-url",
+    "opener:allow-reveal-item-in-dir"
   ]
 }
