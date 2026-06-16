@@ -253,7 +253,14 @@ pub(crate) fn build_crash_report(app: AppHandle, id: Option<u64>) -> CrashReport
         let all = all_records(d);
         match id {
             Some(want) => all.into_iter().find(|r| r.id == want),
-            None => all.into_iter().next_back(),
+            // Prefer the latest still-pending crash; fall back to the latest of
+            // any to keep a non-empty template when all are reported/dismissed.
+            None => all
+                .iter()
+                .rev()
+                .find(|r| !r.reported && !r.dismissed)
+                .or_else(|| all.last())
+                .cloned(),
         }
     });
     match rec {

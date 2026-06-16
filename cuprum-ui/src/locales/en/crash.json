@@ -7,11 +7,7 @@
   },
   "boundary": {
     "title": "An error occurred",
-    "reload": "Reload",
-    "report": "Report"
-  },
-  "menu": {
-    "reportIssue": "Report an Issue…"
+    "reload": "Reload"
   },
   "openLogs": "Open log folder"
 }

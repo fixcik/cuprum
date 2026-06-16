@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
 import { issueUrl } from "@/lib/crashReport";
@@ -15,32 +14,59 @@ interface PendingCrash {
   message: string;
 }
 
+interface PrefetchedReport {
+  id: number | null;
+  title: string;
+  body: string;
+  logDir: string;
+}
+
 /** Non-intrusive bottom-right banner shown when unreported crashes exist from
  *  the previous session. Offers to open a prefilled GitHub issue or dismiss.
  *  Must be mounted only in the main window. */
 export function CrashPrompt() {
   const { t } = useTranslation("crash");
   const [crash, setCrash] = useState<PendingCrash | null>(null);
-  const [logDir, setLogDir] = useState<string>("");
+  // Prefetched on mount so the report (and its logDir) is ready before any click:
+  // building it inside the click handler then flipping `visible` off batched the
+  // logDir state update away, leaving the reveal button permanently unreachable.
+  const [report, setReport] = useState<PrefetchedReport | null>(null);
   const [visible, setVisible] = useState(false);
 
-  // Check for pending crashes on mount.
+  // Check for pending crashes on mount; if any, prefetch the report for the
+  // latest one so the reveal-logs button is shown immediately and the report
+  // click reuses it. A prefetch failure degrades silently (no logs button; the
+  // report click rebuilds in its own try/catch).
   useEffect(() => {
-    void api.crash.listPending().then((pending) => {
-      if (pending.length > 0) {
-        setCrash(pending[0]);
+    void (async () => {
+      try {
+        const pending = await api.crash.listPending();
+        if (pending.length === 0) return;
+        const latest = pending[pending.length - 1];
+        setCrash(latest);
         setVisible(true);
+        try {
+          const r = await api.crash.buildReport(latest.id);
+          setReport(r);
+        } catch (e) {
+          console.error("[crash] prefetch report failed", e);
+        }
+      } catch (e) {
+        console.error("[crash] listPending failed", e);
       }
-    });
+    })();
   }, []);
 
-  /** Build report for a specific crash id, open GitHub, mark as reported. */
+  /** Report the prompted crash: reuse the prefetched report when available,
+   *  else rebuild on the fly. Guarded so an openUrl/build reject does not surface
+   *  as a global unhandledrejection (which would log a false crash record). */
   const handleReport = async (id: number) => {
     try {
-      const report = await api.crash.buildReport(id);
-      setLogDir(report.logDir);
-      await openUrl(issueUrl(report.title, report.body));
+      const r = report ?? (await api.crash.buildReport(id));
+      await openUrl(issueUrl(r.title, r.body));
       await api.crash.markReported(id);
+    } catch (e) {
+      console.error("[crash] report failed", e);
     } finally {
       setVisible(false);
     }
@@ -48,19 +74,28 @@ export function CrashPrompt() {
 
   /** Dismiss the crash without reporting. */
   const handleLater = async (id: number) => {
-    await api.crash.dismiss(id);
-    setVisible(false);
+    try {
+      await api.crash.dismiss(id);
+    } catch (e) {
+      console.error("[crash] dismiss failed", e);
+    } finally {
+      setVisible(false);
+    }
   };
 
   /** Handle the native menu "Report an Issue…" item: build a report (or empty
-   *  template if no crashes) and open GitHub. */
+   *  template if no crashes) and open GitHub. Guarded so a reject does not surface
+   *  as a global unhandledrejection (which would log a false crash record). */
   const handleMenuReport = async () => {
-    const report = await api.crash.buildReport(null);
-    setLogDir(report.logDir);
-    await openUrl(issueUrl(report.title, report.body));
-    if (report.id !== null) {
-      await api.crash.markReported(report.id);
-      setVisible(false);
+    try {
+      const r = await api.crash.buildReport(null);
+      await openUrl(issueUrl(r.title, r.body));
+      if (r.id !== null) {
+        await api.crash.markReported(r.id);
+        setVisible(false);
+      }
+    } catch (e) {
+      console.error("[crash] menu report failed", e);
     }
   };
 
@@ -94,12 +129,12 @@ export function CrashPrompt() {
           <Button size="sm" variant="ghost" onClick={() => void handleLater(crash.id)}>
             {t("prompt.later")}
           </Button>
-          {logDir && (
+          {report?.logDir && (
             <Button
               size="sm"
               variant="ghost"
               className="ml-auto text-[12px]"
-              onClick={() => void revealItemInDir(logDir)}
+              onClick={() => void revealItemInDir(report.logDir).catch((e) => console.error("[crash] reveal failed", e))}
             >
               {t("openLogs")}
             </Button>
