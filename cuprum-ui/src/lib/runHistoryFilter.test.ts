@@ -4,6 +4,7 @@ import {
   filterRuns,
   statusCounts,
   groupByDay,
+  runMetaLine,
 } from "./runHistoryFilter";
 import type { OperationRun } from "@/lib/api";
 
@@ -54,6 +55,28 @@ describe("filterRuns", () => {
   it("query matches the type label", () => {
     const r = filterRuns({ runs, selStep: null, status: "all", query: "mill", t: id });
     expect(r.length).toBe(1);
+  });
+  it("query matches meta content (progress count)", () => {
+    const meta = [run({ progressTotal: 84 }), run({ progressTotal: 12 })];
+    const r = filterRuns({ runs: meta, selStep: null, status: "all", query: "84", t: id });
+    expect(r.length).toBe(1);
+    expect(r[0].progressTotal).toBe(84);
+  });
+});
+
+describe("runMetaLine", () => {
+  const id = (k: string) => k;
+  it("joins holes and tool count from progress + params", () => {
+    const r = run({ progressTotal: 84, paramsJson: JSON.stringify({ toolCount: 3 }) });
+    expect(runMetaLine(r, id)).toBe("runHistory.holesLabel 84 · runHistory.toolsLabel 3");
+  });
+  it("empty when no progress and no toolCount", () => {
+    const r = run({ progressTotal: null, paramsJson: "{}" });
+    expect(runMetaLine(r, id)).toBe("");
+  });
+  it("swallows malformed params and keeps the holes part", () => {
+    const r = run({ progressTotal: 12, paramsJson: "{not json" });
+    expect(runMetaLine(r, id)).toBe("runHistory.holesLabel 12");
   });
 });
 
