@@ -261,6 +261,10 @@ export function OperationHistory({
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
           {t("runHistory.noProject")}
         </div>
+      ) : (runs?.length ?? 0) === 0 ? (
+        <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] text-muted-foreground">
+          {t("runHistory.empty")}
+        </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-16 text-center">
           <Search className="size-8 text-muted-foreground/60" />
