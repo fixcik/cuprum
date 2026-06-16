@@ -24,6 +24,8 @@ function run(p: Partial<OperationRun>): OperationRun {
   };
 }
 
+const labels = { holes: "Отв.", tools: "Свёрла", typeLabel: (op: string) => op };
+
 describe("statusKey", () => {
   it("maps error and interrupted both to 'interrupted'", () => {
     expect(statusKey("error")).toBe("interrupted");
@@ -42,41 +44,40 @@ describe("filterRuns", () => {
     run({ opType: "drill", outcome: "error" }),
     run({ opType: "mill", outcome: "stopped" }),
   ];
-  const id = (k: string) => k;
 
   it("selStep narrows by opType", () => {
-    expect(filterRuns({ runs, selStep: "mill", status: "all", query: "", t: id }).length).toBe(1);
+    expect(filterRuns({ runs, selStep: "mill", status: "all", query: "", labels }).length).toBe(1);
   });
   it("status 'interrupted' catches error", () => {
-    const r = filterRuns({ runs, selStep: null, status: "interrupted", query: "", t: id });
+    const r = filterRuns({ runs, selStep: null, status: "interrupted", query: "", labels });
     expect(r.length).toBe(1);
     expect(r[0].outcome).toBe("error");
   });
   it("query matches the type label", () => {
-    const r = filterRuns({ runs, selStep: null, status: "all", query: "mill", t: id });
+    const r = filterRuns({ runs, selStep: null, status: "all", query: "mill", labels });
     expect(r.length).toBe(1);
   });
   it("query matches meta content (progress count)", () => {
     const meta = [run({ progressTotal: 84 }), run({ progressTotal: 12 })];
-    const r = filterRuns({ runs: meta, selStep: null, status: "all", query: "84", t: id });
+    const r = filterRuns({ runs: meta, selStep: null, status: "all", query: "84", labels });
     expect(r.length).toBe(1);
     expect(r[0].progressTotal).toBe(84);
   });
 });
 
 describe("runMetaLine", () => {
-  const id = (k: string) => k;
+  const L = { holes: "Отв.", tools: "Свёрла" };
   it("joins holes and tool count from progress + params", () => {
     const r = run({ progressTotal: 84, paramsJson: JSON.stringify({ toolCount: 3 }) });
-    expect(runMetaLine(r, id)).toBe("runHistory.holesLabel 84 · runHistory.toolsLabel 3");
+    expect(runMetaLine(r, L)).toBe("Отв. 84 · Свёрла 3");
   });
   it("empty when no progress and no toolCount", () => {
     const r = run({ progressTotal: null, paramsJson: "{}" });
-    expect(runMetaLine(r, id)).toBe("");
+    expect(runMetaLine(r, L)).toBe("");
   });
   it("swallows malformed params and keeps the holes part", () => {
     const r = run({ progressTotal: 12, paramsJson: "{not json" });
-    expect(runMetaLine(r, id)).toBe("runHistory.holesLabel 12");
+    expect(runMetaLine(r, L)).toBe("Отв. 12");
   });
 });
 

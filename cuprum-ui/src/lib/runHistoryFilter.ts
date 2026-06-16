@@ -1,5 +1,4 @@
 import type { OperationRun } from "@/lib/api";
-import { operationKind } from "@/lib/operationKind";
 import { dayBucket } from "@/lib/runHistoryFormat";
 
 /** Status filter values (chip ids). `interrupted` folds in `error`. */
@@ -15,19 +14,25 @@ export function statusKey(outcome: string | null): RunStatus {
   return "running";
 }
 
-/** Human-facing label for an op type, via the i18n resolver. */
-function typeLabel(opType: string, t: (k: string) => string): string {
-  return t(operationKind(opType).titleKey);
+/** Labels resolved by the caller (which owns the i18n namespace). Keeping i18n
+ *  out of this module lets the static i18n checker scope keys correctly. */
+export interface RunLabels {
+  /** Resolved meta prefix, e.g. t("runHistory.holesLabel"). */
+  holes: string;
+  /** Resolved meta prefix, e.g. t("runHistory.toolsLabel"). */
+  tools: string;
+  /** Resolved op-type display name by opType, e.g. (op) => t(operationKind(op).titleKey). */
+  typeLabel: (opType: string) => string;
 }
 
-/** Short meta line shown under the op name in a history row; also the search
- *  haystack. Built from cheap run fields (progress + drill tool count). */
-export function runMetaLine(run: OperationRun, t: (k: string) => string): string {
+/** Short meta line under the op name in a history row; also the search haystack.
+ *  Built from cheap run fields (progress + drill tool count). */
+export function runMetaLine(run: OperationRun, L: Pick<RunLabels, "holes" | "tools">): string {
   const parts: string[] = [];
-  if (run.progressTotal != null) parts.push(`${t("runHistory.holesLabel")} ${run.progressTotal}`);
+  if (run.progressTotal != null) parts.push(`${L.holes} ${run.progressTotal}`);
   try {
     const p = JSON.parse(run.paramsJson) as { toolCount?: number };
-    if (p.toolCount != null) parts.push(`${t("runHistory.toolsLabel")} ${p.toolCount}`);
+    if (p.toolCount != null) parts.push(`${L.tools} ${p.toolCount}`);
   } catch {
     /* ignore malformed params */
   }
@@ -39,17 +44,17 @@ export interface FilterInput {
   selStep: string | null;
   status: StatusFilter;
   query: string;
-  t: (k: string) => string;
+  labels: RunLabels;
 }
 
 /** base (selStep) → status → query (case-insensitive substring over type label + meta). */
-export function filterRuns({ runs, selStep, status, query, t }: FilterInput): OperationRun[] {
+export function filterRuns({ runs, selStep, status, query, labels }: FilterInput): OperationRun[] {
   let out = selStep ? runs.filter((r) => r.opType === selStep) : runs;
   if (status !== "all") out = out.filter((r) => statusKey(r.outcome) === status);
   const q = query.trim().toLowerCase();
   if (q) {
     out = out.filter((r) =>
-      `${typeLabel(r.opType, t)} ${runMetaLine(r, t)}`.toLowerCase().includes(q),
+      `${labels.typeLabel(r.opType)} ${runMetaLine(r, labels)}`.toLowerCase().includes(q),
     );
   }
   return out;
