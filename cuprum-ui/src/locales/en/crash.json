@@ -1,0 +1,17 @@
+{
+  "prompt": {
+    "title": "A crash occurred last session",
+    "body": "Would you like to report the issue to the developer?",
+    "report": "Report",
+    "later": "Later"
+  },
+  "boundary": {
+    "title": "An error occurred",
+    "reload": "Reload",
+    "report": "Report"
+  },
+  "menu": {
+    "reportIssue": "Report an Issue…"
+  },
+  "openLogs": "Open log folder"
+}
