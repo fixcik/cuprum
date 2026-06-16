@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { api, type OperationRun } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { OPERATION_KINDS, type OpKind } from "@/lib/operationKind";
+import { useFlag } from "@/hooks/useFlag";
 import { StepCard } from "./StepCard";
 
 export function ProductionSteps({
@@ -13,6 +14,7 @@ export function ProductionSteps({
   onSelect: (kind: string) => void;
 }) {
   const { t } = useTranslation("project");
+  const showExpose = useFlag("uvExposure");
   const currentPath = useShell((s) => s.currentPath);
   const manifestName = useShell((s) => s.currentManifest?.name ?? "");
   const [lastByKind, setLastByKind] = useState<Record<OpKind, OperationRun | null>>({
@@ -50,6 +52,8 @@ export function ProductionSteps({
     };
   }, [currentPath]);
 
+  const kinds = OPERATION_KINDS.filter((op) => op.kind !== "expose" || showExpose);
+
   return (
     <div className="flex h-full min-h-0 w-[43%] shrink-0 flex-col">
       <div className="flex items-center gap-3 px-1 pb-3">
@@ -64,7 +68,7 @@ export function ProductionSteps({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
-        {OPERATION_KINDS.map((op) => (
+        {kinds.map((op) => (
           <StepCard
             key={op.kind}
             op={op}
