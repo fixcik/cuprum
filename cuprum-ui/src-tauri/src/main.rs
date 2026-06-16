@@ -20,6 +20,7 @@ struct MenuLabels {
     edit: String,
     window: String,
     check_updates: String,
+    report_issue: String,
 }
 
 use commands::project::working_base;
@@ -45,6 +46,7 @@ fn default_menu_labels() -> MenuLabels {
         edit: "Edit".into(),
         window: "Window".into(),
         check_updates: "Check for Updates\u{2026}".into(),
+        report_issue: "Report an Issue\u{2026}".into(),
     }
 }
 
@@ -59,6 +61,7 @@ fn build_app_menu<R: Runtime>(
         .about(Some(AboutMetadata::default()))
         .separator()
         .text("check-updates", &labels.check_updates)
+        .text("report-issue", &labels.report_issue)
         .separator();
     // Services/Hide/Show All are macOS-only predefined items (cfg'd shadowing keeps
     // `app_b` un-`mut` so non-macOS builds don't trip the unused_mut lint).
@@ -116,6 +119,10 @@ fn main() {
             // "up to date"/errors, unlike the silent startup check).
             if event.id().as_ref() == "check-updates" {
                 let _ = app.emit("menu://check-updates", ());
+            }
+            // "Report an Issue…" → the main window opens a prefilled GitHub issue.
+            if event.id().as_ref() == "report-issue" {
+                let _ = app.emit("menu://report-issue", ());
             }
         })
         .on_window_event(|window, event| {

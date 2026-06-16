@@ -1433,4 +1433,5 @@ export interface MenuLabels {
   edit: string;
   window: string;
   checkUpdates: string;
+  reportIssue: string;
 }

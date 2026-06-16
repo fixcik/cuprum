@@ -63,6 +63,7 @@ export default function App() {
         edit: i18n.t("menu:edit"),
         window: i18n.t("menu:window"),
         checkUpdates: i18n.t("menu:checkUpdates"),
+        reportIssue: i18n.t("menu:reportIssue"),
       });
     sync();
     i18n.on("languageChanged", sync);
