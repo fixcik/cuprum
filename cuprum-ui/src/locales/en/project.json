@@ -284,6 +284,15 @@
       "title": "Isolation milling",
       "desc": "Preview isolation cut paths, bit parameters, and gap checks before a run.",
       "status": "preview"
+    },
+    "banner": {
+      "running": "RUNNING",
+      "paused": "PAUSED",
+      "toolChange": "TOOL CHANGE",
+      "stopping": "STOPPING",
+      "hole": "Hole",
+      "tool": "Drill Ø{{mm}} mm",
+      "stop": "Stop"
     }
   },
   "setup": {
