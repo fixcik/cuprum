@@ -293,6 +293,13 @@
       "hole": "Отверстие",
       "tool": "Сверло Ø{{mm}} мм",
       "stop": "Стоп"
+    },
+    "meta": {
+      "holes": "отв.",
+      "tools_one": "{{count}} сверло",
+      "tools_few": "{{count}} сверла",
+      "tools_many": "{{count}} свёрл",
+      "side": { "top": "Верх", "bottom": "Низ" }
     }
   },
   "setup": {
