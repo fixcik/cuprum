@@ -293,6 +293,14 @@
       "hole": "Hole",
       "tool": "Drill Ø{{mm}} mm",
       "stop": "Stop"
+    },
+    "meta": {
+      "holes": "holes",
+      "tools_one": "{{count}} drill",
+      "tools_few": "{{count}} drills",
+      "tools_many": "{{count}} drills",
+      "tools_other": "{{count}} drills",
+      "side": { "top": "Top", "bottom": "Bottom" }
     }
   },
   "setup": {

@@ -1,9 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { Play, Eye, CheckCircle2 } from "lucide-react";
+import { Play, Eye, CheckCircle2, Wrench } from "lucide-react";
 import type { OperationKind } from "@/lib/operationKind";
 import type { OperationRun } from "@/lib/api";
 import { relativeTime } from "@/i18n/relativeTime";
 import { formatDuration } from "@/lib/runHistoryFormat";
+import { stepMetaLine } from "@/lib/stepMetaLine";
 
 export function StepCard({
   op,
@@ -19,6 +20,14 @@ export function StepCard({
   const { t } = useTranslation("project");
   const Icon = op.icon;
   const ready = op.mode === "ready";
+
+  const meta = stepMetaLine(lastRun, {
+    holes: t("operations.meta.holes"),
+    tools: (n) => t("operations.meta.tools", { count: n }),
+    dur: { h: t("runHistory.hourShort"), m: t("runHistory.minShort"), s: t("runHistory.secShort") },
+    sec: t("runHistory.secShort"),
+    side: (s) => t(s === "top" ? "operations.meta.side.top" : "operations.meta.side.bottom"),
+  });
 
   return (
     <div
@@ -55,6 +64,13 @@ export function StepCard({
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{t(op.descKey)}</p>
         </div>
       </div>
+
+      {meta && (
+        <div className="mt-3.5 flex items-center gap-2 border-t border-border/60 pt-3 text-[11.5px] tabular-nums text-muted-foreground">
+          <Wrench className="size-3.5 shrink-0" />
+          <span className="truncate">{meta}</span>
+        </div>
+      )}
 
       <div className="mt-3.5 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
         <LastRun run={lastRun} />
