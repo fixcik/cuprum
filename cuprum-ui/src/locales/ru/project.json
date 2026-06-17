@@ -299,6 +299,7 @@
       "tools_one": "{{count}} сверло",
       "tools_few": "{{count}} сверла",
       "tools_many": "{{count}} свёрл",
+      "tools_other": "{{count}} сверла",
       "side": { "top": "Верх", "bottom": "Низ" }
     }
   },
