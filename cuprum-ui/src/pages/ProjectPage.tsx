@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2, Drill, ArrowRight, Scissors, Sun } from "lucide-react";
+import { LayoutGrid, Layers, ListChecks, Settings, Undo2, Redo2, Save, History, Loader2 } from "lucide-react";
 import { DesignsGallery } from "@/components/project/DesignsGallery";
 import { PanelEditor } from "@/components/project/PanelEditor";
-import { OperationHistory } from "@/components/operations/OperationHistory";
+import { OperationsView } from "@/components/operations/OperationsView";
 import { ProjectSettingsModal } from "@/components/project/ProjectSettingsModal";
-import { api } from "@/lib/api";
 import { useShell } from "@/shellStore";
 import { useArtifacts } from "@/artifactsStore";
 import { useHistory } from "@/historyStore";
@@ -13,8 +12,6 @@ import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
-import { useFlag } from "@/hooks/useFlag";
-
 type ProjectTab = "panel" | "designs" | "operations";
 
 export function ProjectPage() {
@@ -22,9 +19,6 @@ export function ProjectPage() {
   const manifest = useShell((s) => s.currentManifest);
   const [tab, setTab] = useState<ProjectTab>("panel");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const showExpose = useFlag("uvExposure");
-  const showMill = useFlag("cncMilling");
-
   const workingDir = useShell((s) => s.workingDir);
   const undo = useHistory((s) => s.undo);
   const redo = useHistory((s) => s.redo);
@@ -36,7 +30,6 @@ export function ProjectPage() {
   const historyBusy = useHistory((s) => s.historyBusy);
   const saving = useShell((s) => s.saving);
   const [pointsOpen, setPointsOpen] = useState(false);
-  // Which operation card is open inline (null = list view).
 
   const artifactProgress = useArtifacts((s) => s.artifactProgress);
   const pruneArtifactProgress = useArtifacts((s) => s.pruneArtifactProgress);
@@ -188,111 +181,7 @@ export function ProjectPage() {
       <div className="min-h-0 flex-1">
         {tab === "panel" && <PanelEditor />}
         {tab === "designs" && <DesignsGallery />}
-        {tab === "operations" && (
-          /* Operations view: operation buttons (left) + run history (right). */
-          <div className="flex h-full flex-col overflow-hidden p-6">
-            {/* Section heading */}
-            <div className="mb-5 flex items-center gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                {t("operations.heading")}
-              </span>
-              {manifest.name && (
-                <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                  {manifest.name}
-                </span>
-              )}
-            </div>
-
-            <div className="flex min-h-0 flex-1 gap-6">
-              {/* Operation cards (left) */}
-              <div className="flex w-full max-w-md shrink-0 flex-col gap-3 overflow-y-auto pr-1">
-                {/* Drill card — active */}
-                <button
-                  type="button"
-                  onClick={() => void api.openDrillWindow()}
-                  className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
-                >
-                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
-                    <Drill className="size-6" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[16px] font-semibold text-foreground">
-                        {t("operations.drill.title")}
-                      </span>
-                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
-                        {t("operations.drill.status")}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                      {t("operations.drill.desc")}
-                    </p>
-                  </div>
-                  <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                </button>
-
-                {/* Expose card — gated behind the uvExposure flag (unfinished) */}
-                {showExpose && (
-                <button
-                  type="button"
-                  onClick={() => void api.openExposeWindow()}
-                  className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
-                >
-                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-amber-400/15 text-amber-400">
-                    <Sun className="size-6" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[16px] font-semibold text-foreground">
-                        {t("operations.expose.title")}
-                      </span>
-                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
-                        {t("operations.expose.status")}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                      {t("operations.expose.desc")}
-                    </p>
-                  </div>
-                  <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                </button>
-                )}
-
-                {/* Milling card — gated behind the cncMilling flag (unfinished) */}
-                {showMill && (
-                <button
-                  type="button"
-                  onClick={() => void api.openMillWindow()}
-                  className="flex w-full cursor-pointer items-start gap-4 rounded-xl border border-border bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-card"
-                >
-                  <div className="grid size-14 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
-                    <Scissors className="size-6" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[16px] font-semibold text-foreground">
-                        {t("operations.mill.title")}
-                      </span>
-                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
-                        {t("operations.mill.status")}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                      {t("operations.mill.desc")}
-                    </p>
-                  </div>
-                  <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                </button>
-                )}
-              </div>
-
-              {/* Run history (right) */}
-              <div className="min-w-0 flex-1 border-l border-border pl-6">
-                <OperationHistory />
-              </div>
-            </div>
-          </div>
-        )}
+        {tab === "operations" && <OperationsView />}
       </div>
 
       <ProjectSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

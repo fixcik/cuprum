@@ -69,6 +69,26 @@
     "estimateLabel": "Est.:",
     "minShort": "m",
     "secShort": "s",
+    "hourShort": "h",
+    "searchPlaceholder": "Search runs",
+    "filter": {
+      "completed": "Completed",
+      "stopped": "Stopped",
+      "interrupted": "Interrupted"
+    },
+    "day": {
+      "today": "Today",
+      "daysAgo_one": "{{count}} day ago",
+      "daysAgo_few": "{{count}} days ago",
+      "daysAgo_many": "{{count}} days ago"
+    },
+    "resultCount_one": "{{count}} run",
+    "resultCount_few": "{{count}} runs",
+    "resultCount_many": "{{count}} runs",
+    "notFound": {
+      "title": "No runs found",
+      "hint": "Change the filter or search query"
+    },
     "type": {
       "drill": "Drill",
       "expose": "Exposure",
@@ -243,6 +263,10 @@
   "operations": {
     "heading": "Production steps",
     "back": "Operations",
+    "run": "Run",
+    "preview": "Preview",
+    "lastRun": "Last run",
+    "neverRun": "Not run yet",
     "placeholder": {
       "title": "Operations",
       "desc": "The process-step editor lands later."
