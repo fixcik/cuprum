@@ -1,10 +1,4 @@
-const ACTIVE_PHASES = new Set([
-  "running",
-  "pausing",
-  "paused",
-  "stopping",
-  "awaitingToolChange",
-]);
+import { ACTIVE_PHASES } from "@/drillRunStore";
 
 /** Banner shows only for a live run in an active phase. */
 export function isBannerVisible(active: boolean, phase: string): boolean {

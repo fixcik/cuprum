@@ -1,7 +1,8 @@
 import { create } from "zustand";
 
-/** Phases from the Rust drill runner (`DrillRunState.phase`). */
-const ACTIVE_PHASES = new Set([
+/** Phases from the Rust drill runner (`DrillRunState.phase`) that mean a run is
+ *  live. Canonical set — `drillRunBannerView` imports it for visibility checks. */
+export const ACTIVE_PHASES = new Set([
   "running",
   "pausing",
   "paused",
