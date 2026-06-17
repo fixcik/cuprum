@@ -9,13 +9,17 @@ import { isBannerVisible, phaseLabel, percent } from "@/lib/drillRunBannerView";
  *  "Стоп" → graceful stop; clicking the body focuses the drill window. */
 export function DrillRunBanner() {
   const { t } = useTranslation("project");
-  const run = useDrillRunStore();
+  const active = useDrillRunStore((s) => s.active);
+  const phase = useDrillRunStore((s) => s.phase);
+  const holesCompleted = useDrillRunStore((s) => s.holesCompleted);
+  const holesTotal = useDrillRunStore((s) => s.holesTotal);
+  const diameterMm = useDrillRunStore((s) => s.diameterMm);
 
-  if (!isBannerVisible(run.active, run.phase)) return null;
+  if (!isBannerVisible(active, phase)) return null;
 
-  const { key, pulsing } = phaseLabel(run.phase);
-  const pct = percent(run.holesCompleted, run.holesTotal);
-  const stopping = run.phase === "stopping";
+  const { key, pulsing } = phaseLabel(phase);
+  const pct = percent(holesCompleted, holesTotal);
+  const stopping = phase === "stopping";
 
   return (
     <div
@@ -60,15 +64,15 @@ export function DrillRunBanner() {
       {/* Row 2: hole counter + tool · percent */}
       <div className="mt-2.5 flex items-center justify-between gap-2 text-[12px] tabular-nums">
         <span className="min-w-0 truncate text-muted-foreground">
-          {run.holesTotal > 0 && (
+          {holesTotal > 0 && (
             <>
-              {t("operations.banner.hole")} {run.holesCompleted}/{run.holesTotal}
+              {t("operations.banner.hole")} {holesCompleted}/{holesTotal}
             </>
           )}
-          {run.diameterMm != null && (
+          {diameterMm != null && (
             <>
-              {run.holesTotal > 0 ? " · " : ""}
-              {t("operations.banner.tool", { mm: run.diameterMm })}
+              {holesTotal > 0 ? " · " : ""}
+              {t("operations.banner.tool", { mm: diameterMm })}
             </>
           )}
         </span>
