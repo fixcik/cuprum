@@ -70,7 +70,6 @@
     "minShort": "m",
     "secShort": "s",
     "hourShort": "h",
-    "searchPlaceholder": "Search runs",
     "filter": {
       "completed": "Completed",
       "stopped": "Stopped",
@@ -87,7 +86,7 @@
     "resultCount_many": "{{count}} runs",
     "notFound": {
       "title": "No runs found",
-      "hint": "Change the filter or search query"
+      "hint": "Change the filter"
     },
     "type": {
       "drill": "Drill",

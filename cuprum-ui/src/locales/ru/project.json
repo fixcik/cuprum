@@ -70,7 +70,6 @@
     "minShort": "м",
     "secShort": "с",
     "hourShort": "ч",
-    "searchPlaceholder": "Поиск по прогонам",
     "filter": {
       "completed": "Завершён",
       "stopped": "Остановлен",
@@ -87,7 +86,7 @@
     "resultCount_many": "{{count}} прогонов",
     "notFound": {
       "title": "Прогонов не найдено",
-      "hint": "Измените фильтр или поисковый запрос"
+      "hint": "Измените фильтр"
     },
     "type": {
       "drill": "Сверловка",

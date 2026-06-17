@@ -83,16 +83,14 @@ export function OperationHistory({
   const showExpose = useFlag("uvExposure");
   const [runs, setRuns] = useState<OperationRun[] | null>(null);
   const [status, setStatus] = useState<StatusFilter>("all");
-  const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // First page on project change (resets filter/search/expansion so stale state
+  // First page on project change (resets filter/expansion so stale state
   // can't hide the new project's runs).
   useEffect(() => {
     setStatus("all");
-    setQuery("");
     setExpanded(null);
     setHasMore(false);
     if (!currentPath) {
@@ -191,8 +189,8 @@ export function OperationHistory({
   );
   const counts = useMemo(() => statusCounts(base), [base]);
   const filtered = useMemo(
-    () => filterRuns({ runs: runs ?? [], selStep, status, query, labels }),
-    [runs, selStep, status, query, labels],
+    () => filterRuns({ runs: runs ?? [], selStep, status, query: "", labels }),
+    [runs, selStep, status, labels],
   );
   const groups = useMemo(() => groupByDay(filtered), [filtered]);
 
@@ -222,17 +220,8 @@ export function OperationHistory({
         </span>
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — status filter chips */}
       <div className="mb-3 flex flex-wrap items-center gap-2.5 px-1">
-        <div className="relative max-w-[280px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("runHistory.searchPlaceholder")}
-            className="w-full rounded-lg border border-border bg-card/70 py-2 pl-8 pr-3 text-[12.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary/50 focus:outline-none"
-          />
-        </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {CHIPS.map((c) => (
             <button
