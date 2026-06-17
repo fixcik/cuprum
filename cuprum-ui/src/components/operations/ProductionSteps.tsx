@@ -5,6 +5,7 @@ import { useShell } from "@/shellStore";
 import { OPERATION_KINDS, type OpKind } from "@/lib/operationKind";
 import { useFlag } from "@/hooks/useFlag";
 import { StepCard } from "./StepCard";
+import { DrillRunBanner } from "./DrillRunBanner";
 
 export function ProductionSteps({
   selStep,
@@ -71,6 +72,7 @@ export function ProductionSteps({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+        <DrillRunBanner />
         {kinds.map((op) => (
           <StepCard
             key={op.kind}

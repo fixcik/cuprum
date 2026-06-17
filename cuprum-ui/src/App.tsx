@@ -17,6 +17,7 @@ import { useMillBridge } from "@/hooks/useMillBridge";
 import { useMachineBridge } from "@/hooks/useMachineBridge";
 import { useBridgeListeners } from "@/hooks/useTauriListeners";
 import { useConsoleBridge } from "@/hooks/useConsoleBridge";
+import { useDrillRunLiveListeners } from "@/hooks/useDrillRunLiveListeners";
 import { useUpdater } from "@/updaterStore";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { CrashPrompt } from "@/components/CrashPrompt";
@@ -38,6 +39,7 @@ export default function App() {
   useMillBridge();
   useMachineBridge();
   useConsoleBridge();
+  useDrillRunLiveListeners();
 
   useEffect(() => {
     loadDisplayScale();
