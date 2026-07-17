@@ -96,6 +96,18 @@ pub fn set_work_zero(x: bool, y: bool, z: bool) -> String {
     s
 }
 
+/// Set the G54 work offset directly in machine coordinates: `G10 L2 P1 X.. Y..`.
+/// Unlike `G10 L20` this does not reference the current position, so it works
+/// without moving the spindle. Values are rounded to 1 µm (mm with 3 decimals),
+/// matching the precision GRBL reports positions with.
+pub fn set_work_offset_xy(x: f64, y: f64) -> String {
+    // Round half-away-from-zero via the same trick as gcode's fmt_mm to avoid
+    // `{:.3}`'s half-to-even last-digit drift.
+    let rx = (x * 1000.0).round() / 1000.0;
+    let ry = (y * 1000.0).round() / 1000.0;
+    format!("G10 L2 P1 X{rx:.3} Y{ry:.3}")
+}
+
 /// Strict straight-probe toward the work: `G38.2 Z-<max_dist> F<feed>`. Descends
 /// until the probe pin triggers (sets the work Z reference at contact) or, on no
 /// contact within `max_dist` mm, raises a probe-fail ALARM (G38.2 = strict).
@@ -154,6 +166,18 @@ mod tests {
         assert_eq!(set_work_zero(true, true, true), "G10 L20 P1 X0 Y0 Z0");
         assert_eq!(set_work_zero(true, false, true), "G10 L20 P1 X0 Z0");
         assert_eq!(set_work_zero(false, false, false), "G10 L20 P1");
+    }
+
+    #[test]
+    fn set_work_offset_xy_is_machine_frame_g10_l2() {
+        assert_eq!(
+            set_work_offset_xy(120.0, 80.5),
+            "G10 L2 P1 X120.000 Y80.500"
+        );
+        assert_eq!(
+            set_work_offset_xy(-3.25678, 0.0004),
+            "G10 L2 P1 X-3.257 Y0.000"
+        );
     }
 
     #[test]

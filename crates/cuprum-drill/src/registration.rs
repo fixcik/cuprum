@@ -1,24 +1,28 @@
 // 2D rigid-body (+ optional uniform scale) transform fitting for fiducial
 // registration: corrects board-placement error within the work frame (G54).
 //
-// The transform operates in work space (G54). `fit_transform` learns it
-// from pairs of (ideal work point, measured work point): the ideal point
-// is where a fiducial *should* land after the nominal datum transform (= the
-// WPos the spindle shows when centred over the nominal hole), the measured
-// point is the WPos actually captured. `apply` then nudges any
-// work-frame hole coordinate by the same small correction.
+// `fit_transform` learns a similarity from (ideal, measured) point pairs;
+// `apply` then maps any coordinate through it. The registration workflow feeds
+// it machine-frame captures: the ideal point is the datum-relative work
+// coordinate a fiducial should get once the zero is set (via `machine_point`),
+// the measured point is the MPos captured with the spindle centred over it —
+// no pre-set work zero is required. `solve_machine_frame` splits the fitted
+// transform into the G54 origin (machine coords) plus a residual work-frame
+// `Registration` with zero translation, which `apply` then uses to nudge
+// datum-transformed hole coordinates during G-code emission.
 //
 // Usage pattern:
-//   1. For each fiducial, compute its ideal work point (datum transform of
-//      the panel coordinate via `machine_point`) and capture the WPos the
-//      spindle shows when centred over it.
-//   2. Call `fit_transform` to get a `Registration` (or an error on degenerate input).
+//   1. For each fiducial, compute its ideal datum-relative point
+//      (`machine_point`) and capture the MPos with the spindle centred over it.
+//   2. Call `solve_machine_frame` to get the G54 origin to program into the
+//      controller plus the residual `Registration` (or an error on degenerate
+//      input).
 //   3. Call `reg.apply(wx, wy)` on an already-datum-transformed (work-frame)
 //      hole coordinate to get the corrected work-frame coordinate.
 //   4. Inspect `reg.rms_residual_mm` for fit quality.
 //
-// Coordinate convention: everything is work-frame f64 mm. No unit conversion
-// is done here; callers are responsible.
+// Coordinate convention: f64 mm throughout. No unit conversion is done here;
+// callers are responsible.
 
 use crate::types::MachineXY;
 
@@ -153,6 +157,44 @@ pub fn fit_transform(pairs: &[PointPair]) -> Result<Registration, FitError> {
 
     // 3+ points: closed-form Umeyama (2D).
     fit_umeyama(pairs)
+}
+
+/// Result of `solve_machine_frame`: a machine-frame fit split into a work
+/// origin (to be programmed as the G54 offset) plus a residual work-frame
+/// `Registration` whose translation is zero by construction.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineFrameSolve {
+    /// Machine coordinates of the new G54 origin (= `T(0,0)`).
+    pub work_origin: MachineXY,
+    /// Residual work-frame registration (translation is zero by construction;
+    /// `rms_residual_mm` is inherited from the underlying fit).
+    pub registration: Registration,
+}
+
+/// Fit a panel→machine similarity from `(ideal_panel, measured_machine)` pairs
+/// and split it into a work-coordinate origin plus a residual work-frame
+/// `Registration`.
+///
+/// `T(p) = s·R(θ)·p + t` maps ideal panel/work coordinates to machine
+/// coordinates. Setting the G54 origin at `T(0,0) = t` (a pure translation)
+/// leaves the residual work-frame mapping `m_work = s·R(θ)·p`, i.e. a
+/// `Registration` with zero translation. This lets the caller program the work
+/// zero from the solve instead of requiring a pre-set G54 origin.
+///
+/// # Errors
+/// Same degenerate-input errors as [`fit_transform`].
+pub fn solve_machine_frame(pairs: &[PointPair]) -> Result<MachineFrameSolve, FitError> {
+    let full = fit_transform(pairs)?;
+    let work_origin = full.translation;
+    let registration = Registration {
+        translation: MachineXY { x: 0.0, y: 0.0 },
+        ..full
+    };
+    Ok(MachineFrameSolve {
+        work_origin,
+        registration,
+    })
 }
 
 // --- Internal helpers -------------------------------------------------------
@@ -592,6 +634,88 @@ mod tests {
         let (x, y) = r.apply(7.5, -3.2);
         assert_approx(x, 7.5, EPS, "x");
         assert_approx(y, -3.2, EPS, "y");
+    }
+
+    // -----------------------------------------------------------------------
+    // solve_machine_frame — origin split
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn machine_frame_two_pt_origin_and_residual() {
+        // Panel rotated 5° and its datum sitting at machine (120, 80).
+        let angle = 5.0_f64.to_radians();
+        let t = reg(1.0, angle, 120.0, 80.0);
+        let pts = [(10.0, 5.0), (90.0, 5.0)];
+        let pairs = make_pairs(&t, &pts);
+        let solve = solve_machine_frame(&pairs).unwrap();
+        // T(0,0) must land on the machine position of the panel datum.
+        assert_approx(solve.work_origin.x, 120.0, EPS, "origin x");
+        assert_approx(solve.work_origin.y, 80.0, EPS, "origin y");
+        // Residual translation is zero by construction.
+        assert_approx(solve.registration.translation.x, 0.0, EPS, "res tx");
+        assert_approx(solve.registration.translation.y, 0.0, EPS, "res ty");
+        // residual.apply(ideal) == measured − work_origin for every pair.
+        for &((ix, iy), (mx, my)) in &pairs {
+            let (rx, ry) = solve.registration.apply(ix, iy);
+            assert_approx(rx, mx - solve.work_origin.x, EPS, "res x");
+            assert_approx(ry, my - solve.work_origin.y, EPS, "res y");
+        }
+    }
+
+    #[test]
+    fn machine_frame_three_pt_origin_and_residual() {
+        let angle = -2.0_f64.to_radians();
+        let t = reg(1.0, angle, 55.5, 210.25);
+        let pts = [(10.0, 5.0), (90.0, 5.0), (50.0, 60.0)];
+        let pairs = make_pairs(&t, &pts);
+        let solve = solve_machine_frame(&pairs).unwrap();
+        assert_approx(solve.work_origin.x, 55.5, EPS, "origin x");
+        assert_approx(solve.work_origin.y, 210.25, EPS, "origin y");
+        assert_approx(solve.registration.translation.x, 0.0, EPS, "res tx");
+        assert_approx(solve.registration.translation.y, 0.0, EPS, "res ty");
+        assert_angle_approx(solve.registration.angle_rad, angle, EPS, "res angle");
+        // rms is preserved from the underlying fit (exact input → 0).
+        assert_approx(solve.registration.rms_residual_mm, 0.0, 1e-9, "rms");
+        for &((ix, iy), (mx, my)) in &pairs {
+            let (rx, ry) = solve.registration.apply(ix, iy);
+            assert_approx(rx, mx - solve.work_origin.x, EPS, "res x");
+            assert_approx(ry, my - solve.work_origin.y, EPS, "res y");
+        }
+    }
+
+    #[test]
+    fn machine_frame_degenerate_propagates_error() {
+        assert_eq!(solve_machine_frame(&[]), Err(FitError::TooFewPoints));
+        let pairs = [((1.0, 1.0), (2.0, 3.0)), ((1.0, 1.0), (5.0, 6.0))];
+        assert_eq!(
+            solve_machine_frame(&pairs),
+            Err(FitError::CoincidentIdealPoints)
+        );
+    }
+
+    #[test]
+    fn machine_frame_noise_preserves_rms() {
+        let t = reg(1.0, 0.05, 200.0, 150.0);
+        let pts = [(0.0, 0.0), (50.0, 0.0), (50.0, 30.0), (0.0, 30.0)];
+        let noise = [(0.05, -0.03), (-0.04, 0.02), (0.03, 0.06), (-0.05, -0.04)];
+        let pairs: Vec<_> = pts
+            .iter()
+            .zip(noise.iter())
+            .map(|(&(x, y), &(nx, ny))| {
+                let (tx, ty) = t.apply(x, y);
+                ((x, y), (tx + nx, ty + ny))
+            })
+            .collect();
+        let full = fit_transform(&pairs).unwrap();
+        let solve = solve_machine_frame(&pairs).unwrap();
+        assert_approx(
+            solve.registration.rms_residual_mm,
+            full.rms_residual_mm,
+            EPS,
+            "rms preserved",
+        );
+        assert_approx(solve.work_origin.x, full.translation.x, EPS, "origin x");
+        assert_approx(solve.work_origin.y, full.translation.y, EPS, "origin y");
     }
 
     #[test]
