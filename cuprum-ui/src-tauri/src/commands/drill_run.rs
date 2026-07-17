@@ -33,6 +33,10 @@ pub async fn drill_plan(
     // Inject the solved registration (if any); None keeps the existing field value
     // (which the frontend may have set explicitly for playback / testing). When both
     // are Some the backend-side registration wins — it is the authoritative live solve.
+    // Note: since the machine-frame solve, `fiducial_solve` programs the G54 origin
+    // itself (G10 L2), so the residual registration has zero translation — applying
+    // it here in the work frame after `machine_point()` corrects only the remaining
+    // rotation/scale, exactly as before.
     if let Some(reg) = fiducial.solved_registration() {
         input.registration = Some(reg);
     }

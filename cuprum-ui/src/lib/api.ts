@@ -694,7 +694,7 @@ export interface Registration {
 export interface FiducialDto {
   /** Ideal (nominal) work-frame (G54) XY position (mm). */
   ideal: { x: number; y: number };
-  /** Measured work-frame (G54) XY (WPos snapshot) captured by `fiducial_capture`; null if not yet captured. */
+  /** Measured machine-frame XY (MPos snapshot) captured by `fiducial_capture`; null if not yet captured. */
   measured: { x: number; y: number } | null;
   /** True when this fiducial has been captured. */
   captured: boolean;
@@ -710,11 +710,22 @@ export interface FiducialStateDto {
   hasRegistration: boolean;
   /** RMS residual of the solved registration (mm); 0 when none. */
   rmsResidualMm: number;
+  /** Mean (measured − ideal) over captured fiducials (machine frame, mm);
+   *  null until the first capture. Use to auto-approach the next fiducial:
+   *  machine_target ≈ ideal + coarseOffset. */
+  coarseOffset: { x: number; y: number } | null;
+  /** Machine coordinates of the G54 origin programmed by the last successful
+   *  solve; null until `fiducial_solve` succeeds. */
+  workOrigin: { x: number; y: number } | null;
 }
 
 /** Result of a successful `fiducial_solve`. Mirrors Rust `FiducialSolveResult`. */
 export interface FiducialSolveResult {
+  /** Residual work-frame correction; translation is zero by construction (the
+   *  whole translation went into the programmed G54 origin). */
   registration: Registration;
+  /** Machine coordinates of the G54 origin programmed on the controller. */
+  workOrigin: { x: number; y: number };
 }
 
 /** Everything the backend needs to plan a drill run. Mirrors Rust
@@ -1353,26 +1364,31 @@ export const api = {
       listen("operation-runs://changed", () => cb()),
   },
 
-  /** Fiducial-registration commands. Capture real work-frame (G54) positions for
-   *  fiducial markers, fit a 2D correction transform, and inject it into the drill planner.
+  /** Fiducial-registration commands. Capture real machine-frame (MPos) positions
+   *  for fiducial markers, fit a panel→machine transform, program the G54 origin
+   *  from the solve, and inject the residual correction into the drill planner.
+   *  No pre-set work zero is required — the zero is set programmatically.
    *
    *  Workflow:
-   *    1. `init` — set ideal work-frame (G54) XY for every fiducial; resets measurements.
+   *    1. `init` — set the ideal work XY (the coordinates each point should get
+   *                once the zero is set) for every fiducial; resets measurements.
    *    2. `capture(index)` — jog spindle over fiducial N, then call this;
-   *                          snapshots the current WPos (work-frame XY) from GRBL.
-   *    3. `solve` — fit Registration from ≥2 captured pairs; returns the result.
+   *                          snapshots the current MPos (machine-frame XY) from GRBL.
+   *    3. `solve` — fit from ≥2 captured pairs, program G54 (`G10 L2`) on the
+   *                 controller (awaits `ok`), store the residual Registration.
    *    4. `reset` — clear everything (need `init` again for next session).
    *    5. `state` — inspect what is captured and whether a transform is ready. */
   fiducial: {
-    /** Set the ideal work-frame (G54) XY positions for the current session's fiducials.
+    /** Set the ideal work XY positions for the current session's fiducials.
      *  Resets any previous measurements and the solved transform. */
     init: (entries: Array<{ ideal: { x: number; y: number } }>) =>
       invoke<void>("fiducial_init", { entries }),
-    /** Snapshot the current WPos (work-frame XY) as the measured position for fiducial
+    /** Snapshot the current MPos (machine-frame XY) as the measured position for fiducial
      *  `index`. The spindle must already be positioned over the fiducial. */
     capture: (index: number) => invoke<void>("fiducial_capture", { index }),
-    /** Fit a Registration from all captured (ideal, measured) pairs.
-     *  Requires at least 2 captured fiducials; rejects otherwise. */
+    /** Fit from all captured (ideal, measured) pairs, program the G54 origin
+     *  on the controller and store the residual Registration. Requires ≥2
+     *  captured fiducials and a connected machine; rejects otherwise. */
     solve: () => invoke<FiducialSolveResult>("fiducial_solve"),
     /** Clear all measurements, the solved Registration, and the fiducial list. */
     reset: () => invoke<void>("fiducial_reset"),
