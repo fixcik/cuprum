@@ -31,7 +31,7 @@ const BASE_SNAP: ExposeSnapshot = {
     layer_colors: {},
     stackup: null,
     panel: {
-      schema_version: 1,
+      schema_version: 5,
       width_mm: 100,
       height_mm: 80,
       origin_x_mm: 0,

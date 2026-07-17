@@ -271,9 +271,11 @@ impl PanelDoc {
 
     /// Explicit alignment points plus registration tooling holes (each
     /// tooling hole with role `Registration` acts as an alignment point
-    /// snapped to its own hole). Tooling-hole entries reuse the hole id.
+    /// snapped to its own hole). Tooling-hole entries reuse the hole id;
+    /// an explicit point sharing a hole id is dropped so ids stay unique.
     pub fn effective_alignment_points(&self) -> Vec<AlignmentPoint> {
-        self.tooling_holes
+        let hole_points: Vec<AlignmentPoint> = self
+            .tooling_holes
             .iter()
             .filter(|th| th.role == ToolingHoleRole::Registration)
             .map(|th| AlignmentPoint {
@@ -282,8 +284,13 @@ impl PanelDoc {
                 y_mm: th.y_mm,
                 hole_diameter_mm: Some(th.diameter_mm),
             })
-            .chain(self.alignment_points.iter().cloned())
-            .collect()
+            .collect();
+        let explicit = self
+            .alignment_points
+            .iter()
+            .filter(|p| hole_points.iter().all(|hp| hp.id != p.id))
+            .cloned();
+        hole_points.iter().cloned().chain(explicit).collect()
     }
 }
 
@@ -798,6 +805,40 @@ mod tests {
         assert_eq!(eff[0].hole_diameter_mm, Some(3.0));
         assert_eq!(eff[1].id, "ap-1");
         assert_eq!(eff[1].hole_diameter_mm, None);
+    }
+
+    /// An explicit point sharing a registration hole's id must not yield two
+    /// entries with the same id — the hole-derived point wins.
+    #[test]
+    fn effective_alignment_points_drops_explicit_id_collision() {
+        let mut p = PanelDoc::new(200.0, 100.0);
+        p.tooling_holes = vec![ToolingHole {
+            id: "th-1".into(),
+            x_mm: 10.0,
+            y_mm: 20.0,
+            diameter_mm: 3.0,
+            role: ToolingHoleRole::Registration,
+        }];
+        p.alignment_points = vec![
+            AlignmentPoint {
+                id: "th-1".into(),
+                x_mm: 99.0,
+                y_mm: 99.0,
+                hole_diameter_mm: None,
+            },
+            AlignmentPoint {
+                id: "ap-1".into(),
+                x_mm: 70.0,
+                y_mm: 80.0,
+                hole_diameter_mm: None,
+            },
+        ];
+
+        let eff = p.effective_alignment_points();
+        assert_eq!(eff.len(), 2);
+        assert_eq!(eff[0].id, "th-1");
+        assert_eq!(eff[0].x_mm, 10.0, "hole-derived point wins the collision");
+        assert_eq!(eff[1].id, "ap-1");
     }
 
     /// count < 2 is defensively floored to 2 (reachable from a hand-edited .cuprum).

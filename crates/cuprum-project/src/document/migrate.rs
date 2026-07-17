@@ -49,8 +49,16 @@ pub fn manifest_from_value(mut v: Value) -> Result<Manifest> {
     m.schema_version = CURRENT_SCHEMA_VERSION;
     // Panel doc upgrades are additive (serde defaults fill missing fields),
     // so stamping the canonical version after load is the whole migration —
-    // same pattern as the manifest version stamp above.
+    // same pattern as the manifest version stamp above. A panel newer than we
+    // support must be rejected, not silently downgraded (rewriting would drop
+    // its unknown fields).
     if let Some(panel) = m.panel.as_mut() {
+        if panel.schema_version > CURRENT_PANEL_SCHEMA_VERSION {
+            anyhow::bail!(
+                "panel schema version {} is newer than supported ({CURRENT_PANEL_SCHEMA_VERSION}); update Cuprum to open this project",
+                panel.schema_version
+            );
+        }
         panel.schema_version = CURRENT_PANEL_SCHEMA_VERSION;
     }
     Ok(m)
@@ -108,6 +116,13 @@ mod tests {
     #[test]
     fn rejects_future_schema_version() {
         let bytes = br#"{"schema_version":999,"name":"x","designs":[]}"#;
+        assert!(manifest_from_slice(bytes).is_err());
+    }
+
+    #[test]
+    fn rejects_future_panel_schema_version() {
+        let bytes = br#"{"schema_version":5,"name":"x","designs":[],
+            "panel":{"schema_version":999,"width_mm":100.0,"height_mm":80.0}}"#;
         assert!(manifest_from_slice(bytes).is_err());
     }
 
