@@ -10,8 +10,8 @@ pub mod parse;
 
 pub use actor::{connect, Dir, GrblError, GrblEvent, GrblHandle, GrblLease};
 pub use command::{
-    home, jog, jog_to, probe_z, set_work_zero, spindle_off, spindle_on, unlock, CYCLE_START,
-    FEED_HOLD, FEED_OVERRIDE_100, FEED_OVERRIDE_MINUS_1, FEED_OVERRIDE_MINUS_10,
+    home, jog, jog_to, probe_z, set_work_offset_xy, set_work_zero, spindle_off, spindle_on, unlock,
+    CYCLE_START, FEED_HOLD, FEED_OVERRIDE_100, FEED_OVERRIDE_MINUS_1, FEED_OVERRIDE_MINUS_10,
     FEED_OVERRIDE_PLUS_1, FEED_OVERRIDE_PLUS_10, JOG_CANCEL, RAPID_OVERRIDE_100, RAPID_OVERRIDE_25,
     RAPID_OVERRIDE_50, SOFT_RESET, SPINDLE_OVERRIDE_100, SPINDLE_OVERRIDE_MINUS_1,
     SPINDLE_OVERRIDE_MINUS_10, SPINDLE_OVERRIDE_PLUS_1, SPINDLE_OVERRIDE_PLUS_10,
