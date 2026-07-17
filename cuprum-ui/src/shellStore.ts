@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import i18n from "@/i18n";
-import { api, type AddDesignResult, type BoardInstance, type DrillClass, type FiducialParams, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
+import { api, type AddDesignResult, type AlignmentPoint, type BoardInstance, type DrillClass, type FiducialParams, type KeepOutZone, type LayerType, type Manifest, type PanelDoc, type ProjectDesign, type RecentProject, type Stackup, type ToolingHole, type ToolingHoleRole } from "@/lib/api";
+import { nextAlignmentPointId } from "@/lib/alignmentPoints";
 import { buildAddDesignSnapshot } from "@/lib/addDesignSnapshot";
 import { DEFAULT_STACKUP, DEFAULT_TOOLING_DIAMETER_MM, newPanelDoc } from "@/lib/panel";
 import { panelObstacles, clampToolingHoleCenter, registrationSetPositions, clampZoneRect, placeFiducials, KEEPOUT_MIN_MM } from "@/lib/panelPlacement";
@@ -122,6 +123,14 @@ interface ShellStore {
   setToolingHoleDiameter: (id: string, diameterMm: number) => Promise<void>;
   /** Change the role of a tooling hole. */
   setToolingHoleRole: (id: string, role: ToolingHoleRole) => Promise<void>;
+  /** Add an alignment point at (xMm, yMm), optionally snapped to a hole of the
+   *  given diameter. Returns the new point id, or "" when no panel is open. */
+  addAlignmentPoint: (xMm: number, yMm: number, holeDiameterMm?: number) => Promise<string>;
+  /** Remove an alignment point by id. */
+  removeAlignmentPoint: (id: string) => Promise<void>;
+  /** Move an alignment point to an absolute position (mm), updating (or
+   *  clearing, when undefined) the hole it is snapped to. */
+  moveAlignmentPoint: (id: string, xMm: number, yMm: number, holeDiameterMm?: number) => Promise<void>;
   /** Set or clear (klass=null) the drill-class override for a diameter bucket
    *  (key = round(diameterMm*1000) as string). Persisted in the panel manifest. */
   setDrillClassOverride: (diameterKey: string, klass: DrillClass | null) => Promise<void>;
@@ -641,6 +650,48 @@ export const useShell = create<ShellStore>((set, get) => ({
     const stackup = get().currentManifest?.stackup;
     if (!panel || !stackup) return;
     const next: PanelDoc = { ...panel, tooling_holes: panel.tooling_holes.filter((h) => h.id !== id) };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  addAlignmentPoint: async (xMm, yMm, holeDiameterMm) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return "";
+    // Keep the point on the blank; a snapped point is at a hole centre already.
+    const x = Math.min(panel.width_mm, Math.max(0, xMm));
+    const y = Math.min(panel.height_mm, Math.max(0, yMm));
+    // Defensive fallback: panels round-trip through Rust (serde default fills
+    // alignment_points), but a stale in-memory doc may predate the field.
+    const points = panel.alignment_points ?? [];
+    const id = nextAlignmentPointId(points);
+    const point: AlignmentPoint = { id, x_mm: x, y_mm: y, ...(holeDiameterMm != null ? { hole_diameter_mm: holeDiameterMm } : {}) };
+    const next: PanelDoc = { ...panel, alignment_points: [...points, point] };
+    await get().savePanelConfig(next, stackup);
+    return id;
+  },
+
+  removeAlignmentPoint: async (id) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const next: PanelDoc = { ...panel, alignment_points: (panel.alignment_points ?? []).filter((p) => p.id !== id) };
+    await get().savePanelConfig(next, stackup);
+  },
+
+  moveAlignmentPoint: async (id, xMm, yMm, holeDiameterMm) => {
+    const panel = get().currentManifest?.panel;
+    const stackup = get().currentManifest?.stackup;
+    if (!panel || !stackup) return;
+    const x = Math.min(panel.width_mm, Math.max(0, xMm));
+    const y = Math.min(panel.height_mm, Math.max(0, yMm));
+    const next: PanelDoc = {
+      ...panel,
+      alignment_points: (panel.alignment_points ?? []).map((p) =>
+        p.id === id
+          ? { id: p.id, x_mm: x, y_mm: y, ...(holeDiameterMm != null ? { hole_diameter_mm: holeDiameterMm } : {}) }
+          : p,
+      ),
+    };
     await get().savePanelConfig(next, stackup);
   },
 

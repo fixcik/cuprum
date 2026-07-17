@@ -8,8 +8,11 @@ import {
   Layers,
   ShieldCheck,
   ChevronDown,
+  Crosshair,
+  Plus,
   RotateCw,
   Save,
+  Trash2,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -23,6 +26,14 @@ import { StackupDiagram } from "@/components/project/StackupDiagram";
 import { COPPER_WEIGHTS, type PanelPreset } from "@/lib/panel";
 import { usePanelFindings } from "@/hooks/usePanelFindings";
 import { usePanelSelection } from "@/panelSelectionStore";
+import { usePanelTool } from "@/panelToolStore";
+import { useShell } from "@/shellStore";
+import {
+  effectiveAlignmentPoints,
+  isProbeable,
+  PROBEABLE_MIN_HOLE_DIAMETER_MM,
+} from "@/lib/alignmentPoints";
+import type { AlignmentPoint, ToolingHole } from "@/lib/api";
 import { SEVERITY } from "@/lib/severity";
 import { overallVerdict } from "@/lib/feasibility";
 import type { PanelFinding } from "@/lib/panelFeasibility";
@@ -97,6 +108,102 @@ function FindingRow({ finding, onSelect }: { finding: PanelFinding; onSelect: (i
   );
 }
 
+const EMPTY_HOLES: ToolingHole[] = [];
+const EMPTY_APOINTS: AlignmentPoint[] = [];
+
+/** "Alignment points" accordion body: the EFFECTIVE point list (registration
+ *  tooling holes first, then user-placed points — mirrors Rust
+ *  `effective_alignment_points`), an add-point call-to-action that arms the
+ *  canvas tool, and a probeability footnote. */
+function AlignmentPointsSection() {
+  const { t } = useTranslation("project");
+  const { fmtLen } = useUnitFormat();
+  const holes = useShell((s) => s.currentManifest?.panel?.tooling_holes ?? EMPTY_HOLES);
+  const points = useShell((s) => s.currentManifest?.panel?.alignment_points ?? EMPTY_APOINTS);
+  const removeAlignmentPoint = useShell((s) => s.removeAlignmentPoint);
+  const setTool = usePanelTool((s) => s.setTool);
+
+  const effective = effectiveAlignmentPoints(holes, points);
+  // Per-source display numbering: fiducials and user points count separately.
+  let fidN = 0;
+  let userN = 0;
+
+  const badge = (text: string, cls = "bg-muted text-muted-foreground") => (
+    <span className={`rounded px-1.5 py-px text-[10px] ${cls}`}>{text}</span>
+  );
+
+  return (
+    <>
+      {effective.length === 0 && (
+        <p className="mb-2 text-[11px] text-muted-foreground">{t("panel.alignpt.empty")}</p>
+      )}
+      <div className="flex flex-col gap-1">
+        {effective.map(({ point, source }) => {
+          const isFid = source === "registration";
+          const name = isFid
+            ? t("panel.alignpt.fiducialName", { n: ++fidN })
+            : t("panel.alignpt.userName", { n: ++userN });
+          const probeable = isProbeable(point);
+          return (
+            <div
+              key={`${source}-${point.id}`}
+              className="group flex items-start gap-2 rounded-md border border-border px-2 py-1.5"
+            >
+              <span
+                className={`mt-1 size-2 shrink-0 rounded-full ${isFid ? "bg-primary" : "bg-info"}`}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-[11.5px] font-medium text-foreground">{name}</span>
+                  {isFid
+                    ? badge(t("panel.alignpt.badgeAuto"))
+                    : badge(t("panel.alignpt.badgeUser"))}
+                </div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10.5px] tabular-nums text-muted-foreground">
+                    {fmtLen(point.x_mm)} × {fmtLen(point.y_mm)}
+                  </span>
+                  {probeable
+                    ? badge(
+                        t("panel.alignpt.badgeProbeable", { d: fmtLen(point.hole_diameter_mm ?? 0) }),
+                        "bg-success/15 text-success",
+                      )
+                    : badge(t("panel.alignpt.badgeManualOnly"))}
+                </div>
+              </div>
+              {!isFid && (
+                <button
+                  type="button"
+                  title={t("panel.alignpt.delete")}
+                  aria-label={t("panel.alignpt.delete")}
+                  onClick={() => void removeAlignmentPoint(point.id)}
+                  className="mt-0.5 grid size-6 shrink-0 place-items-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/20 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Arm the canvas tool — the next canvas click drops a point. */}
+      <button
+        type="button"
+        onClick={() => setTool("alignpoint")}
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:border-primary/50 hover:text-foreground"
+      >
+        <Plus className="size-3.5" />
+        {t("panel.alignpt.add")}
+      </button>
+
+      <p className="mt-2 text-[10.5px] leading-snug text-muted-foreground">
+        {t("panel.alignpt.footer", { d: fmtLen(PROBEABLE_MIN_HOLE_DIAMETER_MM) })}
+      </p>
+    </>
+  );
+}
+
 // ---- main component ----
 
 interface PanelInspectorProps {
@@ -148,6 +255,13 @@ export function PanelInspector({
   // Panel-level findings — single source of truth.
   const { findings: panelFindings } = usePanelFindings();
   const setSelection = usePanelSelection((s) => s.set);
+
+  // Effective alignment-point count for the section header (primitive selector).
+  const alignCount = useShell(
+    (s) =>
+      (s.currentManifest?.panel?.tooling_holes ?? []).filter((h) => h.role === "registration").length +
+      (s.currentManifest?.panel?.alignment_points ?? []).length,
+  );
 
   // Resize drag state — stored in refs so pointer handlers don't trigger re-renders.
   const resizeDrag = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -387,6 +501,20 @@ export function PanelInspector({
                     ))}
                 </div>
               )}
+            </AccordionSection>
+
+            {/* Alignment points accordion */}
+            <AccordionSection
+              icon={Crosshair}
+              title={
+                alignCount > 0
+                  ? `${t("panel.alignpt.sectionTitle")} · ${alignCount}`
+                  : t("panel.alignpt.sectionTitle")
+              }
+              open={ui.alignOpen}
+              onToggle={() => setUi({ alignOpen: !ui.alignOpen })}
+            >
+              <AlignmentPointsSection />
             </AccordionSection>
           </div>
         </div>

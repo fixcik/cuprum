@@ -139,6 +139,17 @@ export function ToolOptionsBar({
         </>
       );
       break;
+    case "alignpoint":
+      // The active-tool banner: label + placement/snap hint, centred at the top
+      // of the canvas (this bar already clears the rulers and the tool palette).
+      content = (
+        <>
+          {label(Crosshair, t("panel.tool.alignpoint"))}
+          {divider}
+          {hint(t("panel.toolbar.alignHint"))}
+        </>
+      );
+      break;
     case "keepout":
       content = (
         <>

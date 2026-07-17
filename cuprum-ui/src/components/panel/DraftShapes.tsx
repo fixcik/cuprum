@@ -1,6 +1,6 @@
 import { Group, Circle, Line, Rect } from "react-konva";
 import { DEFAULT_TOOLING_DIAMETER_MM } from "@/lib/panel";
-import { COPPER_STROKE } from "@/components/editor/canvasStyle";
+import { ALIGN_POINT_STROKE, COPPER_STROKE } from "@/components/editor/canvasStyle";
 
 /** Ephemeral preview shapes drawn on the panel-blank canvas while a tool is mid-gesture
  *  (placing a tooling hole, marquee-selecting, drawing a keep-out zone). All render in
@@ -25,6 +25,44 @@ export function ToolingGhostCrosshair({ x, y, pxPerMm }: { x: number; y: number;
         <>
           <Line points={[-arm, 0, arm, 0]} stroke={COPPER_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
           <Line points={[0, -arm, 0, arm]} stroke={COPPER_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
+        </>
+      )}
+    </Group>
+  );
+}
+
+/** Blue crosshair preview that tracks the cursor while the alignment-point tool
+ *  is active. When the cursor is within snap range of a hole the ghost sits at
+ *  the hole centre and shows its bore as a dashed ring; free positions show the
+ *  cross only. Constant screen-px arms via `pxPerMm`. */
+export function AlignPointGhost({
+  x,
+  y,
+  pxPerMm,
+  holeDiameterMm,
+}: {
+  x: number;
+  y: number;
+  pxPerMm: number;
+  holeDiameterMm?: number;
+}) {
+  const k = pxPerMm > 0 ? 1 / pxPerMm : 0;
+  const arm = 6 * k;
+  return (
+    <Group x={x} y={y} listening={false} opacity={0.8}>
+      {holeDiameterMm != null && (
+        <Circle
+          radius={holeDiameterMm / 2}
+          stroke={ALIGN_POINT_STROKE}
+          strokeWidth={1.5}
+          strokeScaleEnabled={false}
+          dash={[2, 2]}
+        />
+      )}
+      {arm > 0 && (
+        <>
+          <Line points={[-arm, 0, arm, 0]} stroke={ALIGN_POINT_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
+          <Line points={[0, -arm, 0, arm]} stroke={ALIGN_POINT_STROKE} strokeWidth={1} strokeScaleEnabled={false} />
         </>
       )}
     </Group>

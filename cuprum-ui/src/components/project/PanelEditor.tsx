@@ -190,8 +190,8 @@ export function PanelEditor() {
         const { dx: cdx, dy: cdy } = clampDeltaToPanel(boxesForInstances(picked, sizesRef.current), dx0, dy0, panelW, panelH);
         void useShell.getState().moveInstances(sel, cdx, cdy);
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        // Unmodified letters pick the active tool (V/H/T/K), mirroring the rail.
-        const map: Record<string, PanelTool> = { v: "select", h: "pan", t: "tooling", k: "keepout", m: "measure" };
+        // Unmodified letters pick the active tool (V/H/T/C/K/M), mirroring the rail.
+        const map: Record<string, PanelTool> = { v: "select", h: "pan", t: "tooling", c: "alignpoint", k: "keepout", m: "measure" };
         const next = map[e.key.toLowerCase()];
         if (next) {
           e.preventDefault();

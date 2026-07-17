@@ -36,15 +36,18 @@ import { RenestDialog } from "@/components/panel/RenestDialog";
 import { RegistrationSetDialog } from "@/components/panel/RegistrationSetDialog";
 import { AutoFiducialsDialog } from "@/components/panel/AutoFiducialsDialog";
 import { ToolingHoleLayer } from "@/components/panel/ToolingHoleLayer";
+import { AlignmentPointLayer } from "@/components/panel/AlignmentPointLayer";
+import { usePanelSnapHoles } from "@/hooks/usePanelSnapHoles";
+import { snapAlignmentPoint } from "@/lib/alignmentPoints";
 import { KeepOutLayer, type ZoneCorner } from "@/components/panel/KeepOutLayer";
 import { ClampZoneLayer } from "@/components/panel/ClampZoneLayer";
 import { usePlacedBoardSizes } from "@/hooks/usePlacedBoardSizes";
 import { useDesignPreviewImages } from "@/hooks/useDesignPreviewImages";
-import { type BoardInstance, type KeepOutZone, type ToolingHole } from "@/lib/api";
+import { type AlignmentPoint, type BoardInstance, type KeepOutZone, type ToolingHole } from "@/lib/api";
 import { useKeepOutSelection } from "@/keepOutSelectionStore";
 import { usePanelContextActions } from "@/hooks/usePanelContextActions";
 import { usePanelKeyHandlers } from "@/hooks/usePanelKeyHandlers";
-import { ToolingGhostCrosshair, MarqueeRect, KeepOutDrawRect } from "@/components/panel/DraftShapes";
+import { ToolingGhostCrosshair, AlignPointGhost, MarqueeRect, KeepOutDrawRect } from "@/components/panel/DraftShapes";
 import { MeasureOverlay, type MeasurePoint } from "@/components/panel/MeasureOverlay";
 import { InstanceLayer } from "@/components/panel/InstanceLayer";
 import { PanelContextMenuContent } from "@/components/panel/PanelContextMenuContent";
@@ -64,6 +67,7 @@ const ROT_KNOB_R_PX = 5.5;  // knob (copper ring) radius
 const EMPTY_INSTANCES: BoardInstance[] = [];
 const EMPTY_HOLES: ToolingHole[] = [];
 const EMPTY_ZONES: KeepOutZone[] = [];
+const EMPTY_APOINTS: AlignmentPoint[] = [];
 
 /** Schematic preview of an empty FR4 blank, in the dark CAD-canvas style of the
  *  exposure editor. Structure stays NEUTRAL (copper is reserved for selection):
@@ -95,6 +99,10 @@ export function PanelBlankCanvas({
   const addRegistrationSet = useShell((s) => s.addRegistrationSet);
   const addAutoFiducials = useShell((s) => s.addAutoFiducials);
   const fiducialParams = useShell((s) => s.currentManifest?.panel?.fiducial_params);
+  const alignPoints = useShell((s) => s.currentManifest?.panel?.alignment_points ?? EMPTY_APOINTS);
+  const addAlignmentPoint = useShell((s) => s.addAlignmentPoint);
+  const removeAlignmentPoint = useShell((s) => s.removeAlignmentPoint);
+  const moveAlignmentPoint = useShell((s) => s.moveAlignmentPoint);
   const addKeepOutZone = useShell((s) => s.addKeepOutZone);
   const moveKeepOutZones = useShell((s) => s.moveKeepOutZones);
   const removeKeepOutZones = useShell((s) => s.removeKeepOutZones);
@@ -305,9 +313,10 @@ export function PanelBlankCanvas({
   const onInstanceClick = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
     if (tool !== "select") return;
     e.cancelBubble = true; // don't trigger the empty-canvas click → clear
-    // Clicking a board clears zone + hole selection (selection is exclusive).
+    // Clicking a board clears zone + hole + point selection (selection is exclusive).
     clearKeepOutSelection();
     setSelectedHoleId(null);
+    setSelectedApId(null);
     const native = e.evt;
     if (native.shiftKey || native.ctrlKey || native.metaKey) toggleSelection(id);
     else setSelection([id]);
@@ -322,6 +331,7 @@ export function PanelBlankCanvas({
     // selection so only the board's HUD/menu shows, not a stale hole inspector.
     clearKeepOutSelection();
     setSelectedHoleId(null);
+    setSelectedApId(null);
     if (!usePanelSelection.getState().selected.has(id)) setSelection([id]);
   };
 
@@ -330,6 +340,7 @@ export function PanelBlankCanvas({
     e.cancelBubble = true;
     clearKeepOutSelection();
     setSelectedHoleId(null);
+    setSelectedApId(null);
     if (!selected.has(id)) setSelection([id]);
     dragStart.current = pointerMm();
     setDragDelta({ dx: 0, dy: 0 });
@@ -401,10 +412,11 @@ export function PanelBlankCanvas({
   // --- Tooling hole interaction handlers ---
   const onHoleMouseDown = (id: string, e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
-    // Selecting a hole is exclusive: clear any board/zone selection so the inspector
-    // and Delete/Backspace act on the hole, not a lingering board/zone selection.
+    // Selecting a hole is exclusive: clear any board/zone/point selection so the
+    // inspector and Delete/Backspace act on the hole, not a lingering selection.
     clearSelection();
     clearKeepOutSelection();
+    setSelectedApId(null);
     setSelectedHoleId(id);
   };
 
@@ -426,12 +438,39 @@ export function PanelBlankCanvas({
     if (dx !== 0 || dy !== 0) void moveToolingHole(id, dx, dy);
   };
 
+  // --- Alignment-point interaction handlers (select tool) ---
+  const onApMouseDown = (id: string, e: KonvaEventObject<MouseEvent>) => {
+    e.cancelBubble = true;
+    // Selecting a point is exclusive — drop board/zone/hole selection.
+    clearSelection();
+    clearKeepOutSelection();
+    setSelectedHoleId(null);
+    setSelectedApId(id);
+  };
+
+  const onApDragEnd = (id: string, e: KonvaEventObject<DragEvent>) => {
+    e.cancelBubble = true;
+    const point = alignPoints.find((p) => p.id === id);
+    if (!point) return;
+    const node = e.target;
+    const raw = { x: node.x(), y: node.y() };
+    // Reset the node to the committed pose; the store mutation re-renders it.
+    node.x(point.x_mm);
+    node.y(point.y_mm);
+    // Snap the drop position to the nearest hole, same rule as placement.
+    const s = snapAlignmentPoint(raw, snapHoles);
+    if (s.x !== point.x_mm || s.y !== point.y_mm || (s.holeDiameterMm ?? null) !== (point.hole_diameter_mm ?? null)) {
+      void moveAlignmentPoint(id, s.x, s.y, s.holeDiameterMm);
+    }
+  };
+
   // --- Keep-out zone interaction handlers ---
   const onZoneMouseDown = (id: string, e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
-    // Clicking a zone clears board + hole selection and selects this zone.
+    // Clicking a zone clears board + hole + point selection and selects this zone.
     clearSelection();
     setSelectedHoleId(null);
+    setSelectedApId(null);
     const native = e.evt;
     // Only replace the selection when this zone isn't already in it — otherwise
     // dragging one of several selected zones would collapse the selection to it.
@@ -518,6 +557,24 @@ export function PanelBlankCanvas({
       }
       return;
     }
+    if (tool === "alignpoint") {
+      // Alignment points can snap to holes of PLACED BOARDS, so the click is
+      // accepted anywhere on the canvas (not just empty), like measure.
+      if (e.evt.button !== 0) return;
+      const p = pointerMm();
+      if (!p) return;
+      // Ignore clicks outside the blank.
+      if (p.x < 0 || p.y < 0 || p.x > W || p.y > H) return;
+      const snap = snapAlignmentPoint(p, snapHoles);
+      setAlignGhost(null);
+      void (async () => {
+        const id = await addAlignmentPoint(snap.x, snap.y, snap.holeDiameterMm);
+        if (id) setSelectedApId(id);
+        // One-shot: drop back to Select after placing, so the next click edits.
+        setTool("select");
+      })();
+      return;
+    }
     if (!isEmptyTarget(e)) return;
     if (tool === "tooling") {
       // Edit-first: a bare click just deselects. A hole is placed only when the
@@ -550,9 +607,10 @@ export function PanelBlankCanvas({
       return;
     }
     if (tool !== "select") return;
-    // On select tool: clear keep-out + hole selection too when clicking empty canvas.
+    // On select tool: clear keep-out + hole + point selection too when clicking empty canvas.
     clearKeepOutSelection();
     setSelectedHoleId(null);
+    setSelectedApId(null);
     const p = pointerMm();
     if (!p) return;
     marqueeStart.current = p;
@@ -601,6 +659,16 @@ export function PanelBlankCanvas({
     if (tool === "tooling" && addArmed) {
       const p = pointerMm();
       setGhostMm(p ? { x: p.x, y: p.y } : null);
+    }
+    // Blue ghost follows the cursor (snapped) while the alignment tool is active.
+    if (tool === "alignpoint") {
+      const p = pointerMm();
+      if (!p) {
+        setAlignGhost(null);
+      } else {
+        const s = snapAlignmentPoint(p, snapHoles);
+        setAlignGhost({ x: s.x, y: s.y, holeDiameterMm: s.holeDiameterMm });
+      }
     }
     // Live keep-out zone draw preview.
     if (tool === "keepout" && keepOutDrawStart.current) {
@@ -705,6 +773,17 @@ export function PanelBlankCanvas({
     setAddArmed(true);
   }, []);
 
+  // --- Alignment-point tool state ---
+  // One-shot placement: while the tool is active a blue ghost follows the cursor
+  // (snapped to the nearest hole within range); a click drops the point and
+  // returns to Select. The selection survives into Select (markers are
+  // selectable/draggable there), like tooling holes.
+  const [selectedApId, setSelectedApId] = useState<string | null>(null);
+  const [alignGhost, setAlignGhost] = useState<{ x: number; y: number; holeDiameterMm?: number } | null>(null);
+  // Snap candidates (tooling holes + placed designs' drill holes), fetched lazily
+  // while the tool is active or a point is selected (a drag needs them too).
+  const snapHoles = usePanelSnapHoles(tool === "alignpoint" || selectedApId != null, sizes);
+
   // --- Measure tool (click-click ruler over the blank, mm endpoints) ---
   // mA is the placed start; mB the placed end. With both set (or none), the next
   // click begins a new line; otherwise it places mB. `measureHover` is the live
@@ -717,6 +796,37 @@ export function PanelBlankCanvas({
     setMB(null);
     setMeasureHover(null);
   }, []);
+
+  // Alignment-point tool lifecycle: ghost only while the tool is active; the
+  // point selection survives into Select (markers are selectable there).
+  useEffect(() => {
+    if (tool !== "alignpoint") setAlignGhost(null);
+    if (tool !== "select") setSelectedApId(null);
+  }, [tool]);
+
+  // Prune the point selection when the point disappears (delete / undo).
+  useEffect(() => {
+    if (selectedApId && !alignPoints.some((p) => p.id === selectedApId)) setSelectedApId(null);
+  }, [alignPoints, selectedApId]);
+
+  // Delete/Backspace removes the selected alignment point; Esc deselects it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (tool !== "select" || !selectedApId) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        const id = selectedApId;
+        setSelectedApId(null);
+        void removeAlignmentPoint(id);
+      } else if (e.key === "Escape") {
+        setSelectedApId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tool, selectedApId, removeAlignmentPoint]);
 
   // Keyboard + lifecycle effects (tool-change cleanup, Delete/Esc on the selected
   // tooling hole / keep-out zones, commit resize on mouseup outside the window).
@@ -744,7 +854,7 @@ export function PanelBlankCanvas({
       <ContextMenuTrigger asChild>
     <div
       ref={containerRef}
-      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : addArmed || tool === "keepout" || tool === "measure" ? "cursor-crosshair" : ""}`}
+      className={`relative h-full w-full overflow-hidden bg-[#0a0c10] ${panMode ? "cursor-grab" : addArmed || tool === "alignpoint" || tool === "keepout" || tool === "measure" ? "cursor-crosshair" : ""}`}
     >
       <Stage
         ref={stageRef}
@@ -755,7 +865,7 @@ export function PanelBlankCanvas({
         onWheel={onWheel}
         onMouseDown={onBgMouseDown}
         onMouseMove={onStageMouseMove}
-        onMouseLeave={() => { queueHover(null); setGhostMm(null); setMeasureHover(null); }}
+        onMouseLeave={() => { queueHover(null); setGhostMm(null); setAlignGhost(null); setMeasureHover(null); }}
         onMouseUp={onBgMouseUp}
         onDragStart={() => setCursor("grabbing")}
         onDragMove={syncViewport}
@@ -865,9 +975,27 @@ export function PanelBlankCanvas({
               onHoleMouseDown={onHoleMouseDown}
               onHoleDragEnd={onHoleDragEnd}
             />
+            {/* User alignment points (registration holes are drawn by ToolingHoleLayer). */}
+            <AlignmentPointLayer
+              points={alignPoints}
+              selectedId={tool === "select" ? selectedApId : null}
+              pxPerMm={viewport.pxPerMm}
+              interactive={tool === "select"}
+              onPointMouseDown={onApMouseDown}
+              onPointDragEnd={onApDragEnd}
+            />
             {/* Ghost crosshair preview of the hole-to-be while placement is armed. */}
             {tool === "tooling" && addArmed && ghostMm && (
               <ToolingGhostCrosshair x={ghostMm.x} y={ghostMm.y} pxPerMm={viewport.pxPerMm} />
+            )}
+            {/* Blue snapped ghost of the alignment point to be placed. */}
+            {tool === "alignpoint" && alignGhost && (
+              <AlignPointGhost
+                x={alignGhost.x}
+                y={alignGhost.y}
+                pxPerMm={viewport.pxPerMm}
+                holeDiameterMm={alignGhost.holeDiameterMm}
+              />
             )}
             {marquee && <MarqueeRect rect={marquee} />}
             {/* Keep-out zone draw preview while dragging in keepout tool mode. */}
