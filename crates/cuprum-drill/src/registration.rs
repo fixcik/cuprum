@@ -1,24 +1,28 @@
 // 2D rigid-body (+ optional uniform scale) transform fitting for fiducial
 // registration: corrects board-placement error within the work frame (G54).
 //
-// The transform operates in work space (G54). `fit_transform` learns it
-// from pairs of (ideal work point, measured work point): the ideal point
-// is where a fiducial *should* land after the nominal datum transform (= the
-// WPos the spindle shows when centred over the nominal hole), the measured
-// point is the WPos actually captured. `apply` then nudges any
-// work-frame hole coordinate by the same small correction.
+// `fit_transform` learns a similarity from (ideal, measured) point pairs;
+// `apply` then maps any coordinate through it. The registration workflow feeds
+// it machine-frame captures: the ideal point is the datum-relative work
+// coordinate a fiducial should get once the zero is set (via `machine_point`),
+// the measured point is the MPos captured with the spindle centred over it —
+// no pre-set work zero is required. `solve_machine_frame` splits the fitted
+// transform into the G54 origin (machine coords) plus a residual work-frame
+// `Registration` with zero translation, which `apply` then uses to nudge
+// datum-transformed hole coordinates during G-code emission.
 //
 // Usage pattern:
-//   1. For each fiducial, compute its ideal work point (datum transform of
-//      the panel coordinate via `machine_point`) and capture the WPos the
-//      spindle shows when centred over it.
-//   2. Call `fit_transform` to get a `Registration` (or an error on degenerate input).
+//   1. For each fiducial, compute its ideal datum-relative point
+//      (`machine_point`) and capture the MPos with the spindle centred over it.
+//   2. Call `solve_machine_frame` to get the G54 origin to program into the
+//      controller plus the residual `Registration` (or an error on degenerate
+//      input).
 //   3. Call `reg.apply(wx, wy)` on an already-datum-transformed (work-frame)
 //      hole coordinate to get the corrected work-frame coordinate.
 //   4. Inspect `reg.rms_residual_mm` for fit quality.
 //
-// Coordinate convention: everything is work-frame f64 mm. No unit conversion
-// is done here; callers are responsible.
+// Coordinate convention: f64 mm throughout. No unit conversion is done here;
+// callers are responsible.
 
 use crate::types::MachineXY;
 
