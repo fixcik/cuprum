@@ -231,6 +231,23 @@ export function WorkZeroPointsWizard({
     return false;
   }, []);
 
+  /** Wait until a status report shows machine Z at/above the given height.
+   *
+   * Deliberately position-based, not state-based: a stale status snapshot
+   * still carries the old (lower) Z, so it keeps us waiting — the XY leg can
+   * never start while the tool is actually down. A rejected or cancelled
+   * retract never satisfies the predicate and fails closed via the timeout. */
+  const waitZAtOrAbove = useCallback(async (machineZ: number, token: number) => {
+    const deadline = Date.now() + 30_000;
+    const tolMm = 0.05;
+    while (Date.now() < deadline) {
+      if (navCancelRef.current !== token) return false;
+      if (useMachine.getState().status.mpos[2] >= machineZ - tolMm) return true;
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    return false;
+  }, []);
+
   /** Step 1 → 2: freeze the selection, init the backend session, raise Z. */
   const handleBegin = useCallback(async () => {
     const sel = points.filter((p) => selectedIds.has(p.point.id));
@@ -269,9 +286,11 @@ export function WorkZeroPointsWizard({
     try {
       const { machineZ, wcoZ } = retractMachineZ();
       await jogTo({ z: machineZ - wcoZ }, RAPID_JOG_FEED);
-      // jogTo cancels the previous jog before sending a new one — wait out the
-      // Z retract so the XY move can't cut it short mid-air.
-      if (!(await waitMotionDone(token))) return;
+      // Gate the XY leg on the REPORTED Z height, not on the jog state: the
+      // cached status may still predate the retract, and "not jogging" on a
+      // stale snapshot must not launch XY while the tool is down (see
+      // waitZAtOrAbove).
+      if (!(await waitZAtOrAbove(machineZ, token))) return;
       setNavPhase("navigating-xy");
       const { mpos, wpos } = useMachine.getState().status;
       const wcoX = mpos[0] - wpos[0];
@@ -283,7 +302,7 @@ export function WorkZeroPointsWizard({
     } finally {
       if (navCancelRef.current === token) setNavPhase("idle");
     }
-  }, [enabled, homed, targetMachine, retractMachineZ, jogTo, waitMotionDone]);
+  }, [enabled, homed, targetMachine, retractMachineZ, jogTo, waitMotionDone, waitZAtOrAbove]);
 
   /** STOP: cancel any in-flight motion (jog or auto-navigate). */
   const handleStop = useCallback(() => {
