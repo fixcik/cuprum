@@ -206,8 +206,12 @@ export function DrillManualZBar(props: DrillManualZBarProps) {
   const zPropsSafe = (dz: number) => ({
     onClick: () => {
       if (!enabled || typeof step !== "number") return;
+      // The step is shared with the XY jog pad, which may offer coarser steps
+      // (e.g. 1/10 mm for a long approach) — clamp Z moves to the fine safe
+      // range so a coarse XY step can't turn into a deep slow plunge.
+      const zStep = Math.min(step, Math.max(...safeSteps!));
       const { wpos } = useMachine.getState().status;
-      const targetWorkZ = wpos[2] + dz * step;
+      const targetWorkZ = wpos[2] + dz * zStep;
       const feed = dz < 0 ? descentFeed! : undefined;
       void jogTo({ z: targetWorkZ }, feed ?? undefined);
     },

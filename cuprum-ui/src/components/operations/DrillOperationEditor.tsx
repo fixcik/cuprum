@@ -317,6 +317,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
     zeroError,
     handleBindZero,
     handleClearZero,
+    registerSolvedZero,
     xyGate,
     zGate,
   } = useDrillGates({
@@ -629,6 +630,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             workZeroSet={workZeroSet}
             onBind={handleBindZero}
             onClear={handleClearZero}
+            onZeroSolved={registerSolvedZero}
             maxXMm={cncProfile.workEnvelopeMm.x}
             maxYMm={cncProfile.workEnvelopeMm.y}
             maxZMm={cncProfile.workEnvelopeMm.z}
