@@ -1,8 +1,8 @@
 //! FR4 blank definition (`PanelDoc`): size, panel-space origin, board instances,
 //! tooling holes, keep-out zones, and per-diameter drill-class overrides.
 //! Embedded in `Manifest::panel` (manifest schema v4+; previously a separate
-//! `panel.json` entry). `PanelDoc` itself is schema v4 (added
-//! `drill_class_overrides`).
+//! `panel.json` entry). `PanelDoc` itself is schema v5 (added
+//! `alignment_points`).
 
 use std::collections::BTreeMap;
 
@@ -74,11 +74,39 @@ pub struct ToolingHole {
     pub role: ToolingHoleRole,
 }
 
+/// Minimum hole diameter a touch-probe stylus can centre in (ball + margin).
+/// Provisional until verified on hardware (issue #675).
+pub const PROBEABLE_MIN_HOLE_DIAMETER_MM: f32 = 2.0;
+
+/// A user-placed alignment point in panel space (mm). Used by work-zero
+/// registration (manual 2+ point capture and probe-based capture).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AlignmentPoint {
+    /// Stable id within the panel, e.g. "ap-1".
+    pub id: String,
+    pub x_mm: f32,
+    pub y_mm: f32,
+    /// Diameter of the physical hole this point is snapped to, if any.
+    /// `None` = free point (visual capture only, not probeable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hole_diameter_mm: Option<f32>,
+}
+
+impl AlignmentPoint {
+    /// Whether a touch probe can centre in this point's hole. Free points
+    /// (no hole) are never probeable.
+    pub fn is_probeable(&self) -> bool {
+        self.hole_diameter_mm
+            .is_some_and(|d| d >= PROBEABLE_MIN_HOLE_DIAMETER_MM)
+    }
+}
+
 /// Bump when the on-disk shape changes incompatibly.
 /// v2: panel carries board instances and tooling holes.
 /// v3: panel carries keep-out zones (`keep_out_zones`).
 /// v4: panel carries per-diameter drill-class overrides (`drill_class_overrides`).
-pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 4;
+/// v5: panel carries alignment points (`alignment_points`).
+pub const CURRENT_PANEL_SCHEMA_VERSION: u32 = 5;
 
 /// Which axis the fiducial row runs along.
 ///
@@ -218,6 +246,9 @@ pub struct PanelDoc {
     /// `FiducialParams::default()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fiducial_params: Option<FiducialParams>,
+    /// User-placed alignment points for work-zero registration.
+    #[serde(default)]
+    pub alignment_points: Vec<AlignmentPoint>,
 }
 
 impl PanelDoc {
@@ -234,7 +265,25 @@ impl PanelDoc {
             keep_out_zones: Vec::new(),
             drill_class_overrides: BTreeMap::new(),
             fiducial_params: None,
+            alignment_points: Vec::new(),
         }
+    }
+
+    /// Explicit alignment points plus registration tooling holes (each
+    /// tooling hole with role `Registration` acts as an alignment point
+    /// snapped to its own hole). Tooling-hole entries reuse the hole id.
+    pub fn effective_alignment_points(&self) -> Vec<AlignmentPoint> {
+        self.tooling_holes
+            .iter()
+            .filter(|th| th.role == ToolingHoleRole::Registration)
+            .map(|th| AlignmentPoint {
+                id: th.id.clone(),
+                x_mm: th.x_mm,
+                y_mm: th.y_mm,
+                hole_diameter_mm: Some(th.diameter_mm),
+            })
+            .chain(self.alignment_points.iter().cloned())
+            .collect()
     }
 }
 
@@ -318,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn panel_new_is_schema_v4_empty() {
+    fn panel_new_is_current_schema_empty() {
         let p = PanelDoc::new(150.0, 100.0);
         assert_eq!(p.schema_version, CURRENT_PANEL_SCHEMA_VERSION);
         assert!(p.instances.is_empty());
@@ -641,6 +690,114 @@ mod tests {
             !json.contains("fiducial_params"),
             "fiducial_params key should be absent: {json}"
         );
+    }
+
+    // ── AlignmentPoint & effective_alignment_points ─────────────────────────────
+
+    #[test]
+    fn alignment_point_round_trips() {
+        let ap = AlignmentPoint {
+            id: "ap-1".into(),
+            x_mm: 12.5,
+            y_mm: 34.0,
+            hole_diameter_mm: Some(3.0),
+        };
+        let json = serde_json::to_string(&ap).unwrap();
+        assert_eq!(serde_json::from_str::<AlignmentPoint>(&json).unwrap(), ap);
+    }
+
+    /// A point without `hole_diameter_mm` must deserialise to `None`, and
+    /// `None` must be omitted from serialisation.
+    #[test]
+    fn alignment_point_hole_diameter_optional() {
+        let json = r#"{"id":"ap-1","x_mm":1.0,"y_mm":2.0}"#;
+        let ap: AlignmentPoint = serde_json::from_str(json).unwrap();
+        assert_eq!(ap.hole_diameter_mm, None);
+
+        let out = serde_json::to_string(&ap).unwrap();
+        assert!(
+            !out.contains("hole_diameter_mm"),
+            "None hole_diameter_mm should be absent: {out}"
+        );
+    }
+
+    /// Old v4 panel docs (no `alignment_points`) must load with an empty vec
+    /// and come out stamped with the current schema version via the manifest
+    /// migration path.
+    #[test]
+    fn panel_v4_loads_with_empty_alignment_points() {
+        let json = r#"{"schema_version":4,"width_mm":200.0,"height_mm":100.0}"#;
+        let p: PanelDoc = serde_json::from_str(json).unwrap();
+        assert!(p.alignment_points.is_empty());
+
+        let manifest_json =
+            format!(r#"{{"schema_version":5,"name":"x","designs":[],"panel":{json}}}"#);
+        let m = crate::document::migrate::manifest_from_slice(manifest_json.as_bytes()).unwrap();
+        let panel = m.panel.unwrap();
+        assert!(panel.alignment_points.is_empty());
+        assert_eq!(panel.schema_version, CURRENT_PANEL_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn alignment_point_probeable_threshold() {
+        let mut ap = AlignmentPoint {
+            id: "ap-1".into(),
+            x_mm: 0.0,
+            y_mm: 0.0,
+            hole_diameter_mm: Some(1.9),
+        };
+        assert!(!ap.is_probeable(), "1.9mm is below the stylus threshold");
+
+        ap.hole_diameter_mm = Some(PROBEABLE_MIN_HOLE_DIAMETER_MM);
+        assert!(ap.is_probeable(), "2.0mm is exactly at the threshold");
+
+        ap.hole_diameter_mm = None;
+        assert!(!ap.is_probeable(), "free points are never probeable");
+    }
+
+    #[test]
+    fn effective_alignment_points_merges_registration_holes_and_explicit() {
+        let mut p = PanelDoc::new(200.0, 100.0);
+        p.tooling_holes = vec![
+            ToolingHole {
+                id: "th-1".into(),
+                x_mm: 10.0,
+                y_mm: 20.0,
+                diameter_mm: 3.0,
+                role: ToolingHoleRole::Registration,
+            },
+            ToolingHole {
+                id: "th-2".into(),
+                x_mm: 30.0,
+                y_mm: 40.0,
+                diameter_mm: 4.0,
+                role: ToolingHoleRole::Flip,
+            },
+            ToolingHole {
+                id: "th-3".into(),
+                x_mm: 50.0,
+                y_mm: 60.0,
+                diameter_mm: 5.0,
+                role: ToolingHoleRole::Unused,
+            },
+        ];
+        p.alignment_points = vec![AlignmentPoint {
+            id: "ap-1".into(),
+            x_mm: 70.0,
+            y_mm: 80.0,
+            hole_diameter_mm: None,
+        }];
+
+        let eff = p.effective_alignment_points();
+        // Registration holes first (storage order), then explicit points;
+        // Flip/Unused roles must not appear.
+        assert_eq!(eff.len(), 2);
+        assert_eq!(eff[0].id, "th-1");
+        assert_eq!(eff[0].x_mm, 10.0);
+        assert_eq!(eff[0].y_mm, 20.0);
+        assert_eq!(eff[0].hole_diameter_mm, Some(3.0));
+        assert_eq!(eff[1].id, "ap-1");
+        assert_eq!(eff[1].hole_diameter_mm, None);
     }
 
     /// count < 2 is defensively floored to 2 (reachable from a hand-edited .cuprum).
