@@ -271,6 +271,14 @@ pub fn open_project(db_path: &Path, container: &Path, now: i64) -> Result<Manife
         if let Ok(Some(mut legacy)) = container::read_legacy_panel(container) {
             // Serde defaults already filled any newer fields; stamp the
             // canonical current panel schema version (same as migrate.rs).
+            // A newer-than-supported panel must not be silently downgraded.
+            if legacy.schema_version > panel::CURRENT_PANEL_SCHEMA_VERSION {
+                anyhow::bail!(
+                    "panel schema version {} is newer than supported ({}); update Cuprum to open this project",
+                    legacy.schema_version,
+                    panel::CURRENT_PANEL_SCHEMA_VERSION
+                );
+            }
             legacy.schema_version = panel::CURRENT_PANEL_SCHEMA_VERSION;
             manifest.panel = Some(legacy);
             let _ = container::update_manifest(container, &manifest);

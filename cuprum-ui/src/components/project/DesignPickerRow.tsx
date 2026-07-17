@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Layers, Loader2 } from "lucide-react";
 import { api, type PanelDoc, type ProjectDesign } from "@/lib/api";
+import { newPanelDoc } from "@/lib/panel";
 import { useSettings } from "@/settingsStore";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useDesignVerdict } from "@/hooks/useDesignVerdict";
@@ -35,18 +36,7 @@ export function DesignPickerRow({
   // Minimal PanelDoc so the verdict's size check runs against this panel. Never
   // persisted — only fed to the client-side feasibility check.
   const panelDoc = useMemo<PanelDoc>(
-    () => ({
-      schema_version: 3,
-      width_mm: panel.widthMm,
-      height_mm: panel.heightMm,
-      origin_x_mm: 0,
-      origin_y_mm: 0,
-      instances: [],
-      tooling_holes: [],
-      keep_out_zones: [],
-      alignment_points: [],
-      drill_class_overrides: {},
-    }),
+    () => newPanelDoc(panel.widthMm, panel.heightMm),
     [panel.widthMm, panel.heightMm],
   );
   const { verdict, size } = useDesignVerdict(workingDir, design.gerbers, profile, { panel: panelDoc });

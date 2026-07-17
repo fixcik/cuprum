@@ -16,6 +16,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PanelLayoutPreview } from "@/components/panel/PanelLayoutPreview";
 import { NestingControls } from "@/components/panel/NestingControls";
 import { packLayoutAvoiding, panelObstacles, boxesForInstances } from "@/lib/panelPlacement";
+import { newPanelDoc } from "@/lib/panel";
 import { solvePanelPlacements, type SolvedPack } from "@/lib/packSolve";
 import { usePreviewData } from "@/hooks/usePreviewData";
 import { useBridgeListeners, useSnapshotSubscription } from "@/hooks/useTauriListeners";
@@ -94,18 +95,10 @@ export function AddDesignWindow() {
   }, [designs]);
 
   // PanelDoc for DFM evaluate — minimal, never persisted.
-  const panelDoc: PanelDoc = useMemo(() => ({
-    schema_version: 3,
-    width_mm: panel.widthMm,
-    height_mm: panel.heightMm,
-    origin_x_mm: 0,
-    origin_y_mm: 0,
-    instances: [],
-    tooling_holes: [],
-    keep_out_zones: [],
-    alignment_points: [],
-    drill_class_overrides: {},
-  }), [panel.widthMm, panel.heightMm]);
+  const panelDoc: PanelDoc = useMemo(
+    () => newPanelDoc(panel.widthMm, panel.heightMm),
+    [panel.widthMm, panel.heightMm],
+  );
 
   // All preview data for the selected design (SVG layers, mesh, metrics, DRC).
   const pv = usePreviewData(

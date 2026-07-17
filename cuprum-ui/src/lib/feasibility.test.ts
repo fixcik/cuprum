@@ -102,7 +102,7 @@ describe("evaluate — size", () => {
   it("warns when it fits only rotated and rotation is allowed (panel present)", () => {
     // Board 90×150: direct 90≤160 but 150>100 → fails; rotated 150≤160 and 90≤100 → fits.
     const metrics = makeMetrics({ board: { widthMm: 90, heightMm: 150 } });
-    const panel = { schema_version: 3, width_mm: 160, height_mm: 100, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [], alignment_points: [], drill_class_overrides: {} };
+    const panel = { schema_version: 5, width_mm: 160, height_mm: 100, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [], alignment_points: [], drill_class_overrides: {} };
     const findings = evaluate(metrics, makeProfile({ allowRotateToFit: true }), panel);
     const size = findings.find((f) => f.id === "size.fits");
     expect(size?.severity).toBe("warn");
@@ -110,7 +110,7 @@ describe("evaluate — size", () => {
 
   it("blocks when the board does not fit the panel in any orientation", () => {
     const metrics = makeMetrics({ board: { widthMm: 250, heightMm: 250 } });
-    const panel = { schema_version: 3, width_mm: 200, height_mm: 200, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [], alignment_points: [], drill_class_overrides: {} };
+    const panel = { schema_version: 5, width_mm: 200, height_mm: 200, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [], alignment_points: [], drill_class_overrides: {} };
     const findings = evaluate(metrics, makeProfile(), panel);
     const size = findings.find((f) => f.id === "size.fits");
     expect(size?.severity).toBe("block");
@@ -119,7 +119,7 @@ describe("evaluate — size", () => {
   it("checks against the panel dimensions when a panel is configured", () => {
     const metrics = makeMetrics({ board: { widthMm: 70, heightMm: 40 } });
     const panel = {
-      schema_version: 3,
+      schema_version: 5,
       width_mm: 60,
       height_mm: 60,
       origin_x_mm: 0,
