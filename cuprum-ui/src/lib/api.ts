@@ -237,6 +237,15 @@ export interface ToolingHole {
   role: ToolingHoleRole;
 }
 
+/** A user-placed alignment point in panel space (mm), for work-zero registration. */
+export interface AlignmentPoint {
+  id: string;
+  x_mm: number;
+  y_mm: number;
+  /** Diameter of the hole this point is snapped to; absent = free point (not probeable). */
+  hole_diameter_mm?: number | null;
+}
+
 export interface PanelDoc {
   schema_version: number;
   width_mm: number;
@@ -246,6 +255,8 @@ export interface PanelDoc {
   instances: BoardInstance[];
   tooling_holes: ToolingHole[];
   keep_out_zones: KeepOutZone[];
+  /** Alignment points for work-zero registration (panel schema v5+). */
+  alignment_points: AlignmentPoint[];
   drill_class_overrides: Record<string, DrillClass>;
   /** Persisted auto-fiducial parameters; absent when the user hasn't configured them yet. */
   fiducial_params?: FiducialParams | null;

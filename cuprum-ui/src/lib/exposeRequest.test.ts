@@ -42,6 +42,7 @@ const BASE_SNAP: ExposeSnapshot = {
       ],
       tooling_holes: [],
       keep_out_zones: [],
+      alignment_points: [],
       drill_class_overrides: {},
     },
   },

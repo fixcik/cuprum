@@ -268,7 +268,10 @@ pub fn open_project(db_path: &Path, container: &Path, now: i64) -> Result<Manife
     // Migration (schema v4): fold a legacy `panel.json` into the manifest, then
     // rewrite so the container is upgraded and the stray entry can be dropped.
     if manifest.panel.is_none() {
-        if let Ok(Some(legacy)) = container::read_legacy_panel(container) {
+        if let Ok(Some(mut legacy)) = container::read_legacy_panel(container) {
+            // Serde defaults already filled any newer fields; stamp the
+            // canonical current panel schema version (same as migrate.rs).
+            legacy.schema_version = panel::CURRENT_PANEL_SCHEMA_VERSION;
             manifest.panel = Some(legacy);
             let _ = container::update_manifest(container, &manifest);
         }

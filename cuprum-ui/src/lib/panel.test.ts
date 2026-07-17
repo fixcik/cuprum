@@ -12,7 +12,7 @@ describe("newPanelDoc", () => {
   it("builds a fresh panel at origin with the given dimensions and no contents", () => {
     const doc = newPanelDoc(120, 80);
     expect(doc).toEqual({
-      schema_version: 4,
+      schema_version: 5,
       width_mm: 120,
       height_mm: 80,
       origin_x_mm: 0,
@@ -20,6 +20,7 @@ describe("newPanelDoc", () => {
       instances: [],
       tooling_holes: [],
       keep_out_zones: [],
+      alignment_points: [],
       drill_class_overrides: {},
     });
   });

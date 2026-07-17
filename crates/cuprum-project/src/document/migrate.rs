@@ -12,6 +12,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::manifest::{Manifest, CURRENT_SCHEMA_VERSION};
+use super::panel::CURRENT_PANEL_SCHEMA_VERSION;
 
 /// Migrate a raw JSON value to the current `Manifest`.
 pub fn manifest_from_value(mut v: Value) -> Result<Manifest> {
@@ -46,6 +47,12 @@ pub fn manifest_from_value(mut v: Value) -> Result<Manifest> {
 
     let mut m: Manifest = serde_json::from_value(v)?;
     m.schema_version = CURRENT_SCHEMA_VERSION;
+    // Panel doc upgrades are additive (serde defaults fill missing fields),
+    // so stamping the canonical version after load is the whole migration —
+    // same pattern as the manifest version stamp above.
+    if let Some(panel) = m.panel.as_mut() {
+        panel.schema_version = CURRENT_PANEL_SCHEMA_VERSION;
+    }
     Ok(m)
 }
 
