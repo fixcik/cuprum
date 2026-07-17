@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ListChecks } from "lucide-react";
 import { AlarmActions } from "@/components/machine/AlarmActions";
 import { LimitRecoveryNotice } from "@/components/machine/LimitRecoveryNotice";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
-import type { DrillClass, DrillEstimate, ToolingHole } from "@/lib/api";
+import type { AlignmentPoint, DrillClass, DrillEstimate, ToolingHole } from "@/lib/api";
 import type { DrillRoute } from "@/lib/drillRoute";
 import type { UseDrillRun } from "@/hooks/useDrillRun";
 import type { DatumCorner } from "@/lib/datum";
@@ -24,11 +24,16 @@ import { ConnBar } from "@/components/machine/ConnBar";
 import { DrillZeroInspector } from "@/components/drill/DrillZeroInspector";
 import { FiducialPanel } from "@/components/drill/FiducialPanel";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { api } from "@/lib/api";
 import { formatXYViolations } from "@/lib/xyGate";
 import { formatZReasons } from "@/lib/zGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
 import { useFlag } from "@/hooks/useFlag";
 import { getRegistrationHoles } from "@/lib/fiducialRegistration";
+import { effectiveAlignmentPoints, isProbeable } from "@/lib/alignmentPoints";
+import { cardState, methodAvailability } from "@/lib/workZeroMethods";
+import { useWorkZeroMethod } from "@/workZeroMethodStore";
+import { WorkZeroMethodPicker } from "@/components/drill/WorkZeroMethodPicker";
 
 export interface DrillPlanInspectorProps {
   /** The full (unfiltered) drill plan — passed to DrillSelectionControls for id-based presets. */
@@ -104,6 +109,8 @@ export interface DrillPlanInspectorProps {
   plungeDepthMm: number;
   /** All panel tooling holes — used by the fiducial registration panel. */
   toolingHoles: ToolingHole[];
+  /** User-placed panel alignment points — drive method 2/3 availability facts. */
+  alignmentPoints: AlignmentPoint[];
 }
 
 /** Right-panel inspector for the drill operation.
@@ -150,6 +157,7 @@ export function DrillPlanInspector({
   groupMotionSecs,
   plungeDepthMm,
   toolingHoles,
+  alignmentPoints,
 }: DrillPlanInspectorProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -161,9 +169,10 @@ export function DrillPlanInspector({
   // Whether pass switching and plan editing are blocked.
   const isRunActive = mode === "run";
 
-  // Inspector sub-mode within "plan": the plan list ⇄ the zero-binding controls ⇄ fiducial registration.
+  // Inspector sub-mode within "plan": the plan list ⇄ the registration-method
+  // picker ⇄ the zero-binding controls (method 1) ⇄ flag-gated fiducial mode.
   // The canvas does not change when switching — only the right sidebar swaps.
-  const [panelMode, setPanelMode] = useState<"plan" | "zero" | "fiducial">("plan");
+  const [panelMode, setPanelMode] = useState<"plan" | "method" | "zero" | "fiducial">("plan");
   // A run takes over the inspector; collapse back to the plan list so we don't
   // return into the zero mode after the run ends.
   useEffect(() => {
@@ -184,6 +193,40 @@ export function DrillPlanInspector({
     if (!fiducialRegistrationEnabled) setRegistrationMode("corner");
   }, [fiducialRegistrationEnabled]);
 
+  // Method metadata of the current bind (session-scoped). The machine-side
+  // "zero is bound" fact is owned by useDrillGates; keep the annotation in sync —
+  // any invalidation (homing, disconnect, manual clear) also drops the method.
+  const workZeroBinding = useWorkZeroMethod((s) => s.workZero);
+  const setWorkZeroBinding = useWorkZeroMethod((s) => s.setWorkZero);
+  const clearWorkZeroBinding = useWorkZeroMethod((s) => s.clearWorkZero);
+  useEffect(() => {
+    if (!workZeroSet) clearWorkZeroBinding();
+  }, [workZeroSet, clearWorkZeroBinding]);
+
+  // Effective alignment points (auto fiducials + user points) → method 2/3 facts.
+  const alignPoints = useMemo(
+    () => effectiveAlignmentPoints(toolingHoles, alignmentPoints),
+    [toolingHoles, alignmentPoints],
+  );
+  const probeableCount = useMemo(() => alignPoints.filter((p) => isProbeable(p.point)).length, [alignPoints]);
+
+  // Method availability for the picker screen. probeReady is hard false in this
+  // phase — the 3D-touch-probe equipment config (and both wizards) land next.
+  const availability = methodAvailability({
+    connected,
+    pointCount: alignPoints.length,
+    probeReady: false,
+    probeableCount,
+  });
+
+  // Presentation state of the work-zero status card.
+  const zeroCardState = cardState({
+    connected,
+    workZeroSet,
+    binding: workZeroBinding,
+    xyOverrun: xyGate.valid === false && xyGate.reason === "out-of-bounds",
+  });
+
   // Gate: the footer start button is disabled when any of these conditions hold.
   const startDisabled =
     !connected || !hasHoles || xyGate.valid === false || zGate.valid === false || isRunActive;
@@ -201,7 +244,7 @@ export function DrillPlanInspector({
     startHint =
       xyGate.reason === "out-of-bounds"
         ? t("workzero.xyOutOfBounds", { detail: formatXYViolations(xyGate.violations, fmtLen) })
-        : t("workzero.notZeroedHint");
+        : t("zeroMethod.startHint");
   } else if (zGate.valid === false) {
     startHint = t("workzero.zDoesNotFit", {
       detail: formatZReasons(zGate.reasons, (r) => t(`workzero.zReason.${r}`)),
@@ -279,12 +322,30 @@ export function DrillPlanInspector({
             firstMaxDistMm: cncProfile.workEnvelopeMm.z,
           }}
         />
+      ) : panelMode === "method" ? (
+        /* ── METHOD-SELECTION mode ── */
+        <WorkZeroMethodPicker
+          onBack={() => setPanelMode("plan")}
+          onPickMethod={(m) => {
+            // Phase B: only method 1 (corner datum) has a flow; the picker never
+            // calls this for unavailable methods, and 2/3 are always unavailable.
+            if (m === 1) setPanelMode("zero");
+          }}
+          availability={availability}
+          pointCount={alignPoints.length}
+          probeableCount={probeableCount}
+          onOpenPanelEditor={() => void api.openPanelEditorInMain()}
+        />
       ) : panelMode === "zero" ? (
-        /* ── ZERO-BINDING mode ── */
+        /* ── ZERO-BINDING mode (method 1 · corner datum) ── */
         <DrillZeroInspector
           datum={datum}
           onDatumChange={onDatumChange}
-          onBack={() => setPanelMode("plan")}
+          onBack={() => setPanelMode("method")}
+          onDone={() => {
+            setWorkZeroBinding({ method: 1, rmsMm: null, angleDeg: null });
+            setPanelMode("plan");
+          }}
           workZeroSet={workZeroSet}
           plan={plan}
           panelWidthMm={panelWidthMm}
@@ -434,15 +495,16 @@ export function DrillPlanInspector({
                   </button>
                 </div>
               ) : (
-                /* Corner mode: classic work-zero status card */
+                /* Work-zero status card → registration method picker */
                 <WorkZeroStatusCard
-                  isSet={workZeroSet}
-                  datum={datum}
-                  xyGate={xyGate}
-                  disabled={!connected}
+                  state={zeroCardState}
                   onOpen={() => {
                     onClearHole();
-                    setPanelMode("zero");
+                    setPanelMode("method");
+                  }}
+                  onReset={() => {
+                    onClear();
+                    clearWorkZeroBinding();
                   }}
                 />
               )}

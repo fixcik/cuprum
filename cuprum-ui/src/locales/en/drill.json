@@ -113,6 +113,65 @@
     "zTouchTitle": "Z touch-off",
     "zTouchHint": "Taken per bit — at start and on each tool change."
   },
+  "zeroMethod": {
+    "title": "Work zero",
+    "back": "Plan",
+    "backMethods": "Methods",
+    "sectionLabel": "How to register the board to the table",
+    "explainFooter": "Methods 2–3 measure both the offset and the rotation of the board — the blank doesn't need to lie perfectly straight, skew is compensated in software.",
+    "startHint": "Bind the work zero — pick a method in the card above",
+    "skewAdvice": "This method does not compensate blank skew — for double-sided boards use methods 2–3.",
+    "methodName": {
+      "1": "corner datum",
+      "2": "by points, manually",
+      "3": "by holes, with probe"
+    },
+    "methodTitle": {
+      "1": "Corner datum",
+      "2": "By points, manually",
+      "3": "By holes, with probe"
+    },
+    "methodDesc": {
+      "1": "Jog the bit into the board corner and zero there. Fast; the blank must lie straight.",
+      "2": "Drive onto 2+ alignment points and capture each. Blank skew goes away.",
+      "3": "A 3D touch probe finds the centres of 2+ holes by itself. Highest accuracy."
+    },
+    "chip": {
+      "offsetOnly": "offset only",
+      "offsetRotation": "offset + rotation",
+      "eyeAccuracy": "accuracy: by eye",
+      "probeAccuracy": "accuracy: ~0.01 mm",
+      "noPrep": "no preparation",
+      "points_one": "points: {{count}}",
+      "points_few": "points: {{count}}",
+      "points_many": "points: {{count}}",
+      "points_other": "points: {{count}}",
+      "holes_one": "holes: {{count}}",
+      "holes_few": "holes: {{count}}",
+      "holes_many": "holes: {{count}}",
+      "holes_other": "holes: {{count}}"
+    },
+    "unavailable": {
+      "noPoints": "the panel has no alignment points",
+      "openEditor": "Open editor",
+      "wizardPending": "wizard in development — coming soon",
+      "probeNotConfigured": "probe not configured — equipment settings",
+      "noProbeableHoles": "no holes Ø ≥ {{dia}} mm"
+    },
+    "card": {
+      "configure": "Set up",
+      "change": "Change",
+      "reset": "reset",
+      "disconnected": "machine not connected — actions unavailable",
+      "statusSet": "set · {{method}}",
+      "rmsChip": "RMS {{value}} mm",
+      "noEstimate": "no estimate",
+      "noteSkew": "skew is not compensated",
+      "noteRotation": "rotation {{deg}}° is compensated",
+      "noteBad": "recapture the points",
+      "overrun": "At this zero some holes run past the machine travel"
+    }
+  },
   "zeroMode": {
     "title": "Work Zero",
     "back": "Plan",

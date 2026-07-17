@@ -27,6 +27,7 @@ import { useMachinePosition } from "@/hooks/useMachinePosition";
 import { useDrillPhaseProgress } from "@/hooks/useDrillPhaseProgress";
 import { shouldShowMarker, drillMarkerStatus } from "@/lib/machineMarker";
 import { useSettings } from "@/settingsStore";
+import { useWorkZeroMethod } from "@/workZeroMethodStore";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { useDrillGates } from "@/hooks/useDrillGates";
@@ -91,6 +92,17 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   // Set when an explicit "repeat run" prefill arrives — the default last-params fetch
   // then must not clobber it if it resolves later (it raced the user's repeat click).
   const repeatPrefillRef = useRef(false);
+
+  // The work-zero method metadata (RMS/angle chip) is solved against one panel's
+  // alignment points; a project switch with the drill window open keeps the
+  // physical G54 offset but invalidates that metadata — drop it so the status
+  // card doesn't claim a registration that was never measured for this board.
+  const workZeroProjectRef = useRef(snap.currentPath);
+  useEffect(() => {
+    if (workZeroProjectRef.current === snap.currentPath) return;
+    workZeroProjectRef.current = snap.currentPath;
+    useWorkZeroMethod.getState().clearWorkZero();
+  }, [snap.currentPath]);
 
   // Fetch the most recent drill run's params once per project (saved path only).
   useEffect(() => {
@@ -634,6 +646,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             groupFeedSecs={groupFeedSecs}
             plungeDepthMm={targetDepthMm}
             toolingHoles={panel.tooling_holes ?? []}
+            alignmentPoints={panel.alignment_points ?? []}
           />
       )}
     </div>
