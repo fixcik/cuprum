@@ -22,14 +22,11 @@ import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary"
 import { WorkZeroStatusCard } from "@/components/drill/WorkZeroStatusCard";
 import { ConnBar } from "@/components/machine/ConnBar";
 import { DrillZeroInspector } from "@/components/drill/DrillZeroInspector";
-import { FiducialPanel } from "@/components/drill/FiducialPanel";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { WorkZeroPointsWizard } from "@/components/drill/WorkZeroPointsWizard";
 import { api } from "@/lib/api";
 import { formatXYViolations } from "@/lib/xyGate";
 import { formatZReasons } from "@/lib/zGate";
 import { useUnitFormat } from "@/i18n/useUnitFormat";
-import { useFlag } from "@/hooks/useFlag";
-import { getRegistrationHoles } from "@/lib/fiducialRegistration";
 import { effectiveAlignmentPoints, isProbeable } from "@/lib/alignmentPoints";
 import { cardState, methodAvailability } from "@/lib/workZeroMethods";
 import { useWorkZeroMethod } from "@/workZeroMethodStore";
@@ -75,6 +72,9 @@ export interface DrillPlanInspectorProps {
   onBind: () => boolean | Promise<boolean>;
   /** Called when operator resets the captured work zero. */
   onClear: () => void;
+  /** Record a zero programmed by the points-wizard solve (fiducial_solve sets
+   *  G54 itself); forwards the solved machine origin to useDrillGates. */
+  onZeroSolved: (workOrigin: { x: number; y: number }) => void;
   /** Machine travel limits (mm) forwarded to DrillZeroInspector for jog clamping. */
   maxXMm: number;
   maxYMm: number;
@@ -140,6 +140,7 @@ export function DrillPlanInspector({
   workZeroSet,
   onBind,
   onClear,
+  onZeroSolved,
   maxXMm,
   maxYMm,
   maxZMm,
@@ -170,28 +171,14 @@ export function DrillPlanInspector({
   const isRunActive = mode === "run";
 
   // Inspector sub-mode within "plan": the plan list ⇄ the registration-method
-  // picker ⇄ the zero-binding controls (method 1) ⇄ flag-gated fiducial mode.
+  // picker ⇄ the zero-binding controls (method 1) ⇄ the points wizard (method 2).
   // The canvas does not change when switching — only the right sidebar swaps.
-  const [panelMode, setPanelMode] = useState<"plan" | "method" | "zero" | "fiducial">("plan");
+  const [panelMode, setPanelMode] = useState<"plan" | "method" | "zero" | "wizard2">("plan");
   // A run takes over the inspector; collapse back to the plan list so we don't
   // return into the zero mode after the run ends.
   useEffect(() => {
     if (isRunActive) setPanelMode("plan");
   }, [isRunActive]);
-  // Registration mode toggle: "corner" (classic datum bind) or "fiducial".
-  // Persisted only for the session (ephemeral state). Defaults to "corner".
-  const [registrationMode, setRegistrationMode] = useState<"corner" | "fiducial">("corner");
-
-  // Detect whether the panel has any registration holes so the toggle can be shown.
-  const hasRegistrationHoles = getRegistrationHoles(toolingHoles).length > 0;
-  // Feature flag: fiducial registration is still rough — hide behind an explicit opt-in.
-  const fiducialRegistrationEnabled = useFlag("fiducialRegistration");
-
-  // When the fiducial-registration flag is turned off, reset any stale "fiducial"
-  // registrationMode so the corner-based flow is always used.
-  useEffect(() => {
-    if (!fiducialRegistrationEnabled) setRegistrationMode("corner");
-  }, [fiducialRegistrationEnabled]);
 
   // Method metadata of the current bind (session-scoped). The machine-side
   // "zero is bound" fact is owned by useDrillGates; keep the annotation in sync —
@@ -211,7 +198,7 @@ export function DrillPlanInspector({
   const probeableCount = useMemo(() => alignPoints.filter((p) => isProbeable(p.point)).length, [alignPoints]);
 
   // Method availability for the picker screen. probeReady is hard false in this
-  // phase — the 3D-touch-probe equipment config (and both wizards) land next.
+  // phase — the 3D-touch-probe equipment config (and its wizard) land next.
   const availability = methodAvailability({
     connected,
     pointCount: alignPoints.length,
@@ -327,9 +314,10 @@ export function DrillPlanInspector({
         <WorkZeroMethodPicker
           onBack={() => setPanelMode("plan")}
           onPickMethod={(m) => {
-            // Phase B: only method 1 (corner datum) has a flow; the picker never
-            // calls this for unavailable methods, and 2/3 are always unavailable.
+            // The picker never calls this for unavailable methods; method 3
+            // (probe wizard) stays unavailable until its phase ships.
             if (m === 1) setPanelMode("zero");
+            else if (m === 2) setPanelMode("wizard2");
           }}
           availability={availability}
           pointCount={alignPoints.length}
@@ -344,6 +332,9 @@ export function DrillPlanInspector({
           onBack={() => setPanelMode("method")}
           onDone={() => {
             setWorkZeroBinding({ method: 1, rmsMm: null, angleDeg: null });
+            // A corner bind replaces any earlier points registration — drop the
+            // backend's residual rotation so drill_plan doesn't keep applying it.
+            void api.fiducial.reset();
             setPanelMode("plan");
           }}
           workZeroSet={workZeroSet}
@@ -358,18 +349,25 @@ export function DrillPlanInspector({
           onClear={onClear}
           zeroError={zeroError}
         />
-      ) : panelMode === "fiducial" ? (
-        /* ── FIDUCIAL REGISTRATION mode ── */
-        <FiducialPanel
-          toolingHoles={toolingHoles}
+      ) : panelMode === "wizard2" ? (
+        /* ── POINTS WIZARD mode (method 2 · manual capture) ── */
+        <WorkZeroPointsWizard
+          points={alignPoints}
           datum={datum}
           panelWidthMm={panelWidthMm}
           panelHeightMm={panelHeightMm}
           maxXMm={maxXMm}
           maxYMm={maxYMm}
           maxZMm={maxZMm}
-          workZeroSet={workZeroSet}
-          onBack={() => setPanelMode("plan")}
+          plan={plan}
+          onCancel={() => setPanelMode("method")}
+          onApplied={({ rmsMm, angleDeg, workOrigin }) => {
+            // The solve already programmed G54 on the controller; record the
+            // solved origin in the gates, annotate the binding, back to plan.
+            onZeroSolved(workOrigin);
+            setWorkZeroBinding({ method: 2, rmsMm, angleDeg });
+            setPanelMode("plan");
+          }}
         />
       ) : (
         /* ── PLAN mode ── */
@@ -410,104 +408,19 @@ export function DrillPlanInspector({
               </div>
             )}
 
-            {/* Work zero — compact status card-button (opens the zero-binding mode).
-                Shows a registration-mode toggle when the panel has registration holes. */}
+            {/* Work zero — compact status card-button (opens the method picker). */}
             <div className="border-t border-border">
-              {/* Registration mode toggle (shown only when flag + registration holes are present) */}
-              {fiducialRegistrationEnabled && hasRegistrationHoles && (
-                <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-                  <span className="text-[11px] font-medium text-muted-foreground">
-                    {t("workzero.title")}
-                  </span>
-                  <SegmentedControl
-                    options={[
-                      { value: "corner" as const, label: t("fiducial.modeCorner") },
-                      { value: "fiducial" as const, label: t("fiducial.modeFiducial") },
-                    ]}
-                    value={registrationMode}
-                    onChange={setRegistrationMode}
-                    className="ml-auto text-[11px]"
-                  />
-                </div>
-              )}
-
-              {fiducialRegistrationEnabled && registrationMode === "fiducial" && hasRegistrationHoles ? (
-                /* Fiducial mode: compact status card-button opens fiducial panel */
-                <div className="px-4 py-2">
-                  <button
-                    type="button"
-                    disabled={!connected}
-                    onClick={() => {
-                      onClearHole();
-                      setPanelMode("fiducial");
-                    }}
-                    className={
-                      "flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2.5 text-left transition-colors " +
-                      (!connected
-                        ? "border-border bg-card/30 opacity-60 cursor-not-allowed"
-                        : "border-primary/40 bg-primary/5 hover:border-primary/60 cursor-pointer")
-                    }
-                  >
-                    <div
-                      className={
-                        "grid size-9 shrink-0 place-items-center rounded-lg " +
-                        (!connected ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary")
-                      }
-                    >
-                      {/* Crosshair icon from lucide */}
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="size-5"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="22" y1="12" x2="18" y2="12" />
-                        <line x1="6" y1="12" x2="2" y2="12" />
-                        <line x1="12" y1="6" x2="12" y2="2" />
-                        <line x1="12" y1="22" x2="12" y2="18" />
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-medium text-foreground">
-                        {t("fiducial.title")}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {!connected ? t("workzero.connectFirst") : t("workzero.openSettings")}
-                      </div>
-                    </div>
-                    {connected && (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="size-4 shrink-0 text-primary"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              ) : (
-                /* Work-zero status card → registration method picker */
-                <WorkZeroStatusCard
-                  state={zeroCardState}
-                  onOpen={() => {
-                    onClearHole();
-                    setPanelMode("method");
-                  }}
-                  onReset={() => {
-                    onClear();
-                    clearWorkZeroBinding();
-                  }}
-                />
-              )}
+              <WorkZeroStatusCard
+                state={zeroCardState}
+                onOpen={() => {
+                  onClearHole();
+                  setPanelMode("method");
+                }}
+                onReset={() => {
+                  onClear();
+                  clearWorkZeroBinding();
+                }}
+              />
             </div>
 
             {/* Divider */}

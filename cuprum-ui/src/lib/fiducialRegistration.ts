@@ -1,26 +1,28 @@
 /**
- * Pure logic for fiducial-registration workflow in the drill operation.
+ * Pure logic for the manual points registration workflow (work-zero method 2)
+ * in the drill operation.
  *
  * Responsibilities:
- *  - Build the work-frame (G54) ideal positions for fiducials from panel tooling holes.
- *  - Derive the envelope jog clamp box around a specific fiducial (capture zone).
+ *  - Build the datum-relative ideal positions for alignment points.
+ *  - Derive the envelope jog clamp box around a capture target.
  *  - Classify the RMS residual into a severity level.
  *  - Validate the minimum number of captures required for solve.
+ *  - Compute per-point residuals of a solved machine-frame registration.
  *
  * Coordinate convention
  * ---------------------
- * `ideal`    -- work-frame (G54) XY; `machinePoint()` output = datum corner is the
- *              G54 origin, so the result is directly the WPos the spindle should read
- *              when centred over the fiducial.
- * `measured` -- WPos captured at the moment the operator confirms alignment.
- * machineBounds / captureMachineXY -- machine-frame (G53) coordinates used by
+ * `ideal`    -- datum-relative XY (`machinePoint()` output): the WPos each point
+ *              gets once the solved work zero is programmed. No pre-set zero is
+ *              required -- the solve derives the G54 origin itself.
+ * `measured` -- machine-frame MPos snapshot captured by `fiducial_capture`.
+ * machineBounds / capture centre -- machine-frame (G53) coordinates used by
  *              the jog-clamp envelope (useJog bounds are always machine-frame).
  *
- * The fit (ideal->measured) is therefore work->work: a small correction for board
- * placement offset, rotation and scale, with no WCO contamination.
+ * The backend fit (`solve_machine_frame`) maps ideal -> measured as
+ * `measured ≈ workOrigin + s·R(θ)·ideal`: the translation becomes the G54
+ * origin, scale + rotation stay as the residual `Registration`.
  */
 
-import type { ToolingHole } from "@/lib/api";
 import { machinePoint } from "@/lib/datum";
 import type { DatumCorner } from "@/lib/datum";
 import type { JogBounds } from "@/lib/jogBounds";
@@ -62,58 +64,40 @@ export function classifyRms(rmsResidualMm: number): RmsSeverity {
   return "bad";
 }
 
-/** Extract the tooling holes with role "registration" from the panel. */
-export function getRegistrationHoles(toolingHoles: ToolingHole[]): ToolingHole[] {
-  return toolingHoles.filter((h) => h.role === "registration");
-}
-
 /**
- * Build fiducial init entries (ideal work-frame G54 XY) from panel registration
- * holes. Applies the datum-corner transform (same as the drill route planner).
+ * Build fiducial init entries (ideal datum-relative XY) from panel alignment
+ * points (or any panel-space `{x_mm, y_mm}` markers). Applies the datum-corner
+ * transform (same as the drill route planner).
  *
  * Panel space: Y-down, origin top-left.
- * Work space (G54): Y-up, origin at the datum corner (= the G54 work zero).
- * The output `ideal` values equal the WPos the spindle should show when centred
- * over the fiducial, regardless of the machine WCO.
+ * Datum space: Y-up, origin at the datum corner (= the future G54 work zero).
+ * The output `ideal` values equal the WPos each point gets once the solved
+ * work zero is programmed on the controller.
  */
 export function buildFiducialEntries(
-  registrationHoles: ToolingHole[],
+  points: ReadonlyArray<{ x_mm: number; y_mm: number }>,
   datum: DatumCorner,
   panelWidthMm: number,
   panelHeightMm: number,
 ): FiducialInitEntry[] {
-  return registrationHoles.map((h) => {
-    const [wx, wy] = machinePoint(h.x_mm, h.y_mm, datum, panelWidthMm, panelHeightMm);
+  return points.map((p) => {
+    const [wx, wy] = machinePoint(p.x_mm, p.y_mm, datum, panelWidthMm, panelHeightMm);
     return { ideal: { x: wx, y: wy } };
   });
 }
 
 /**
- * Derive the jog clamp bounds for capturing a fiducial.
- *
- * useJog bounds are always machine-frame (G53), so the +/-r box must be centred on
- * the machine position of the fiducial:
- *   machineXY = ideal (work) + WCO,  where WCO = mpos - wpos.
- *
- * @param idealX  Work-frame X of the fiducial (from buildFiducialEntries).
- * @param idealY  Work-frame Y of the fiducial.
- * @param mpos    Live MPos (machine-frame, 3-element array).
- * @param wpos    Live WPos (work-frame, 3-element array).
- * @param machineBounds  Full machine travel envelope (machine-frame).
+ * Derive the jog clamp bounds for capturing a point: a +/-r box centred on the
+ * expected machine-frame position of the point (ideal + coarse offset),
+ * intersected with the machine travel envelope. useJog bounds are always
+ * machine-frame (G53).
  */
-export function fiducialCaptureBounds(
-  idealX: number,
-  idealY: number,
-  mpos: readonly number[],
-  wpos: readonly number[],
+export function captureBoundsAroundMachine(
+  centerMachineX: number,
+  centerMachineY: number,
   machineBounds: JogBounds,
 ): JogBounds {
   const r = FIDUCIAL_CAPTURE_RADIUS_MM;
-  // Convert work-frame ideal to machine-frame so the box aligns with machineBounds.
-  const wcoX = mpos[0] - wpos[0];
-  const wcoY = mpos[1] - wpos[1];
-  const centerMachineX = idealX + wcoX;
-  const centerMachineY = idealY + wcoY;
   return {
     x: [
       Math.max(machineBounds.x[0], centerMachineX - r),
@@ -131,4 +115,35 @@ export function fiducialCaptureBounds(
 /** Whether enough fiducials have been captured to attempt a solve. */
 export function canSolve(capturedCount: number): boolean {
   return capturedCount >= MIN_CAPTURES_FOR_SOLVE;
+}
+
+/**
+ * Per-point residuals (mm) of a solved machine-frame registration.
+ *
+ * The backend fit models `measured ≈ workOrigin + s·R(θ)·ideal` (see
+ * `solve_machine_frame`: the fit translation is programmed as the G54 origin,
+ * scale + rotation stay in the residual `Registration` whose own translation is
+ * zero). The residual of point i is the distance between its measured MPos and
+ * that prediction. Uncaptured points yield `null`.
+ *
+ * The backend reports only the aggregate RMS, so the per-point breakdown for
+ * the wizard result screen is recomputed here from the same pairs.
+ */
+export function pointResiduals(
+  fiducials: ReadonlyArray<{
+    ideal: { x: number; y: number };
+    measured: { x: number; y: number } | null;
+  }>,
+  registration: { scale: number; angleRad: number },
+  workOrigin: { x: number; y: number },
+): Array<number | null> {
+  const { scale, angleRad } = registration;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  return fiducials.map((f) => {
+    if (!f.measured) return null;
+    const px = workOrigin.x + scale * (cos * f.ideal.x - sin * f.ideal.y);
+    const py = workOrigin.y + scale * (sin * f.ideal.x + cos * f.ideal.y);
+    return Math.hypot(f.measured.x - px, f.measured.y - py);
+  });
 }

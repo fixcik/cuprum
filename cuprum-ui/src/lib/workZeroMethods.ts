@@ -44,16 +44,17 @@ export interface MethodAvailabilityArgs {
   probeReady: boolean;
   /** Number of probeable points/holes (Ø ≥ threshold) on the panel (method 3). */
   probeableCount: number;
-  /** Whether the method 2/3 wizards are implemented. False until the wizard
-   *  phase ships — a panel with points then shows a "coming soon" notice. */
-  wizardsReady?: boolean;
+  /** Whether the method 3 probe wizard is implemented. False until that phase
+   *  ships — a probe-ready panel then shows a "coming soon" notice. The manual
+   *  points wizard (method 2) has shipped and needs no gate. */
+  probeWizardReady?: boolean;
 }
 
 /** Availability (+ blocking reason) for each of the three method cards. */
 export function methodAvailability(
   args: MethodAvailabilityArgs,
 ): Record<WorkZeroMethod, MethodAvailability> {
-  const { connected, pointCount, probeReady, probeableCount, wizardsReady = false } = args;
+  const { connected, pointCount, probeReady, probeableCount, probeWizardReady = false } = args;
   const blocked = (reason: MethodUnavailableReason): MethodAvailability => ({
     available: false,
     reason,
@@ -62,13 +63,12 @@ export function methodAvailability(
   if (!connected) {
     return { 1: blocked("disconnected"), 2: blocked("disconnected"), 3: blocked("disconnected") };
   }
-  const m2 =
-    pointCount < 2 ? blocked("noPoints") : wizardsReady ? ok : blocked("wizardPending");
+  const m2 = pointCount < 2 ? blocked("noPoints") : ok;
   const m3 = !probeReady
     ? blocked("probeNotConfigured")
     : probeableCount < 2
       ? blocked("noProbeableHoles")
-      : wizardsReady
+      : probeWizardReady
         ? ok
         : blocked("wizardPending");
   return { 1: ok, 2: m2, 3: m3 };

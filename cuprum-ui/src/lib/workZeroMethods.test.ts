@@ -5,7 +5,7 @@ describe("methodAvailability", () => {
   const base = { connected: true, pointCount: 0, probeReady: false, probeableCount: 0 };
 
   it("blocks all three methods while disconnected", () => {
-    const a = methodAvailability({ ...base, connected: false, pointCount: 5, probeReady: true, probeableCount: 3, wizardsReady: true });
+    const a = methodAvailability({ ...base, connected: false, pointCount: 5, probeReady: true, probeableCount: 3, probeWizardReady: true });
     expect(a[1]).toEqual({ available: false, reason: "disconnected" });
     expect(a[2]).toEqual({ available: false, reason: "disconnected" });
     expect(a[3]).toEqual({ available: false, reason: "disconnected" });
@@ -20,15 +20,12 @@ describe("methodAvailability", () => {
     expect(methodAvailability({ ...base, pointCount: 1 })[2].reason).toBe("noPoints");
   });
 
-  it("method 2 with points is still pending until the wizard ships", () => {
+  it("method 2 opens as soon as 2+ points exist (wizard has shipped)", () => {
     expect(methodAvailability({ ...base, pointCount: 2 })[2]).toEqual({
-      available: false,
-      reason: "wizardPending",
+      available: true,
+      reason: null,
     });
-  });
-
-  it("method 2 opens when the wizard is ready and points exist", () => {
-    expect(methodAvailability({ ...base, pointCount: 2, wizardsReady: true })[2]).toEqual({
+    expect(methodAvailability({ ...base, pointCount: 5 })[2]).toEqual({
       available: true,
       reason: null,
     });
@@ -44,12 +41,12 @@ describe("methodAvailability", () => {
     );
   });
 
-  it("method 3 with probe + holes is pending until the wizard ships", () => {
+  it("method 3 with probe + holes is pending until its wizard ships", () => {
     expect(methodAvailability({ ...base, probeReady: true, probeableCount: 2 })[3].reason).toBe(
       "wizardPending",
     );
     expect(
-      methodAvailability({ ...base, probeReady: true, probeableCount: 2, wizardsReady: true })[3],
+      methodAvailability({ ...base, probeReady: true, probeableCount: 2, probeWizardReady: true })[3],
     ).toEqual({ available: true, reason: null });
   });
 });

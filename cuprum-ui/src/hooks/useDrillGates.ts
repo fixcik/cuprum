@@ -27,6 +27,9 @@ export interface DrillGates {
   handleBindZero: () => Promise<boolean>;
   /** Forget the bound work zero. */
   handleClearZero: () => void;
+  /** Record a zero already programmed on the controller by a registration solve
+   *  (fiducial_solve sets G54 itself); `workOrigin` is its machine XY. */
+  registerSolvedZero: (workOrigin: { x: number; y: number }) => void;
   /** XY gate: does the run's hole bbox fit the machine envelope at the bound zero? */
   xyGate: XYGateResult;
   /** Z gate: do depth / tool-change retract / their span fit the Z travel? */
@@ -102,6 +105,14 @@ export function useDrillGates(args: {
     setWorkZeroMachineXY(null);
   }, []);
 
+  // A registration solve programs G54 on the controller itself (G10 L2 inside
+  // fiducial_solve) — mirror that fact here so the gates and the status card see
+  // the zero as bound, with the solved origin feeding the XY gate.
+  const registerSolvedZero = useCallback((workOrigin: { x: number; y: number }) => {
+    setZeroError(null);
+    setWorkZeroMachineXY({ x: workOrigin.x, y: workOrigin.y });
+  }, []);
+
   // Machine-frame bbox of the holes that will actually run (selected sub-plan),
   // for the XY gate. Recomputes on selection/datum/panel change.
   const workExtent = useMemo(() => {
@@ -133,6 +144,7 @@ export function useDrillGates(args: {
     zeroError,
     handleBindZero,
     handleClearZero,
+    registerSolvedZero,
     xyGate,
     zGate,
   };
