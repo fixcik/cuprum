@@ -48,5 +48,5 @@ export const REGISTRATION_SET_MARGIN_MM = 5;
 
 /** Build a fresh PanelDoc at origin (0,0). */
 export function newPanelDoc(widthMm: number, heightMm: number): PanelDoc {
-  return { schema_version: 4, width_mm: widthMm, height_mm: heightMm, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [], drill_class_overrides: {} };
+  return { schema_version: 5, width_mm: widthMm, height_mm: heightMm, origin_x_mm: 0, origin_y_mm: 0, instances: [], tooling_holes: [], keep_out_zones: [], alignment_points: [], drill_class_overrides: {} };
 }
