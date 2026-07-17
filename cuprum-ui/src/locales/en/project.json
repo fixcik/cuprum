@@ -178,7 +178,8 @@
       "registrationSet": "Registration set",
       "autoFiducials": "Auto-place fiducials",
       "keepout": "Forbidden zone",
-      "measure": "Measure"
+      "measure": "Measure",
+      "alignpoint": "Alignment point"
     },
     "toolbar": {
       "single": "Single hole",
@@ -186,7 +187,8 @@
       "auto": "Auto",
       "snapGrid": "Snap to grid",
       "selectHint": "Click to select · Shift to add",
-      "panHint": "Drag the canvas · wheel to zoom · space to grab"
+      "panHint": "Drag the canvas · wheel to zoom · space to grab",
+      "alignHint": "Click the panel to drop a point · near a hole it snaps to the hole centre"
     },
     "keepout": {
       "delete": "Delete",
@@ -257,6 +259,19 @@
       "rotate": "Rotate 90°",
       "duplicate": "Duplicate",
       "delete": "Delete"
+    },
+    "alignpt": {
+      "sectionTitle": "Alignment points",
+      "empty": "No alignment points yet",
+      "fiducialName": "Fiducial {{n}}",
+      "userName": "Point {{n}}",
+      "badgeAuto": "fiducial · auto",
+      "badgeUser": "user",
+      "badgeProbeable": "probeable · Ø {{d}}",
+      "badgeManualOnly": "manual only",
+      "add": "Add point — click the panel",
+      "delete": "Delete point",
+      "footer": "A point is “probeable” when it coincides with a hole Ø ≥ {{d}} — the 3D touch probe can find it."
     }
   },
   "operations": {
@@ -300,7 +315,10 @@
       "tools_few": "{{count}} drills",
       "tools_many": "{{count}} drills",
       "tools_other": "{{count}} drills",
-      "side": { "top": "Top", "bottom": "Bottom" }
+      "side": {
+        "top": "Top",
+        "bottom": "Bottom"
+      }
     }
   },
   "setup": {

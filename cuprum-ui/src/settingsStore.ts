@@ -201,6 +201,7 @@ interface SettingsStore {
     sizeOpen: boolean;
     stackupOpen: boolean;
     feasibilityOpen: boolean;
+    alignOpen: boolean;
   };
   setPanelInspector: (patch: Partial<SettingsStore["panelInspector"]>) => void;
 
@@ -349,6 +350,7 @@ export const useSettings = create<SettingsStore>()(
         sizeOpen: true,
         stackupOpen: true,
         feasibilityOpen: true,
+        alignOpen: true,
       },
       setPanelInspector: (patch) =>
         set((s) => ({ panelInspector: { ...s.panelInspector, ...patch } })),
@@ -453,6 +455,7 @@ export const useSettings = create<SettingsStore>()(
             sizeOpen: true,
             stackupOpen: true,
             feasibilityOpen: true,
+            alignOpen: true,
             ...(p?.panelInspector ?? {}),
           },
           machines,

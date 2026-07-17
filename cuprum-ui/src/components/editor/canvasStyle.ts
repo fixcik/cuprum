@@ -55,6 +55,11 @@ export const rulerCornerOffset = () => ({
   top: RULER_TOP + RULER_OVERLAY_GAP,
 });
 
+// Alignment-point marker — the app's info blue (styles.css `--info: 205 88% 56%`)
+// as a concrete colour, since Konva paints onto a 2D context where `var(--…)`
+// can't resolve. Distinct from copper (selection) and the neutral structure grey.
+export const ALIGN_POINT_STROKE = "hsl(205 88% 56%)";
+
 // Keep-out zone palette — a single slate-blue hue distinct from INSTANCE_OFF
 // (red) and INSTANCE_WARN (amber), so zones read as annotations, not errors.
 // Zones are one uniform type (no kind), see #248.
