@@ -1,5 +1,6 @@
 import { invoke as rawInvoke, Channel } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { type NestSettings } from "@/lib/nest";
 import type { CncProfile } from "@/lib/cncProfile";
@@ -1133,6 +1134,16 @@ export const api = {
   /** Drill window → main: reclassify a drill diameter (project mutation). */
   emitDrillSetClassOverride: (diameterKey: string, klass: DrillClass | null) =>
     emit("drill:set-class-override", { diameterKey, klass }),
+  /** Drill window → main: focus the main window and open the panel editor tab
+   *  (the work-zero method picker's "no alignment points → open editor" action). */
+  openPanelEditorInMain: async (): Promise<void> => {
+    await emit("drill:open-panel-editor");
+    const main = await WebviewWindow.getByLabel("main");
+    await main?.show();
+    await main?.setFocus();
+  },
+  onOpenPanelEditor: (cb: () => void): Promise<UnlistenFn> =>
+    listen("drill:open-panel-editor", () => cb()),
   onDrillSetClassOverride: (
     cb: (p: { diameterKey: string; klass: DrillClass | null }) => void,
   ): Promise<UnlistenFn> =>

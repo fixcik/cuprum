@@ -12,13 +12,20 @@ import { relativeTime } from "@/i18n/relativeTime";
 import { overallProgress } from "@/lib/artifactProgress";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { NavTabs, type NavTab } from "@/components/ui/NavTabs";
-type ProjectTab = "panel" | "designs" | "operations";
+import { useNavigation, type ProjectTab } from "@/navigationStore";
 
 export function ProjectPage() {
   const { t, i18n } = useTranslation("project");
   const manifest = useShell((s) => s.currentManifest);
   const [tab, setTab] = useState<ProjectTab>("panel");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Cross-window tab requests (e.g. the drill window's "open panel editor").
+  const pendingProjectTab = useNavigation((s) => s.pendingProjectTab);
+  const consumeProjectTab = useNavigation((s) => s.consumeProjectTab);
+  useEffect(() => {
+    const requested = consumeProjectTab();
+    if (requested) setTab(requested);
+  }, [pendingProjectTab, consumeProjectTab]);
   const workingDir = useShell((s) => s.workingDir);
   const undo = useHistory((s) => s.undo);
   const redo = useHistory((s) => s.redo);

@@ -1,89 +1,125 @@
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ChevronRight, Crosshair, CheckCircle2, Lock } from "lucide-react";
-import type { DatumCorner } from "@/lib/datum";
-import type { XYGateResult } from "@/lib/xyGate";
+import { AlertTriangle, ChevronRight, Crosshair } from "lucide-react";
+import type { WorkZeroCardState } from "@/lib/workZeroMethods";
 
 export interface WorkZeroStatusCardProps {
-  /** Whether the work zero has been bound (MPos captured). */
-  isSet: boolean;
-  /** The active datum corner — shown in the "set" sub-status. */
-  datum: DatumCorner;
-  /** XY gate result — a bound-but-overrunning zero flips the card to a warning. */
-  xyGate: XYGateResult;
-  /** Open the zero-binding inspector mode. */
+  /** Resolved presentation state (see lib/workZeroMethods.cardState). */
+  state: WorkZeroCardState;
+  /** Open the method-selection screen. */
   onOpen: () => void;
-  /** Locked until the machine is connected — zero binding needs jog/probe, so
-   *  there is nothing to do in that mode offline. */
-  disabled?: boolean;
+  /** Forget the bound work zero. */
+  onReset: () => void;
 }
 
-/** Compact plan-mode card-button for the work zero. Shows the bind status
- *  (not set / set · corner / warning when the bound zero overruns the travel)
- *  and opens the dedicated zero-binding inspector mode. The jog/Z/bind controls
- *  live in that mode, not here. Locked while the machine is disconnected. */
-export function WorkZeroStatusCard({
-  isSet,
-  datum,
-  xyGate,
-  onOpen,
-  disabled = false,
-}: WorkZeroStatusCardProps) {
+/** Plan-mode "Work zero" status card. Shows the bind status (not set / set via
+ *  method N with an RMS-quality chip / disconnected) and opens the registration
+ *  method-selection screen. The jog/bind controls live in the method flows, not
+ *  here. Actions are locked while the machine is disconnected. */
+export function WorkZeroStatusCard({ state, onOpen, onReset }: WorkZeroStatusCardProps) {
   const { t } = useTranslation("drill");
 
-  const warn = !disabled && isSet && xyGate.valid === false && xyGate.reason === "out-of-bounds";
+  const disabled = state.kind === "disconnected";
+  const isSet = state.kind === "set";
 
-  // Card / tile colouring by state: disabled > warning > set > unset.
-  const cardCls = disabled
-    ? "border-border bg-card/30 opacity-60 cursor-not-allowed"
-    : warn
-      ? "border-amber-500/40 bg-amber-500/[0.06] hover:border-amber-500/60 cursor-pointer"
-      : isSet
-        ? "border-primary/40 bg-primary/5 hover:border-primary/60 cursor-pointer"
-        : "border-border bg-card/40 hover:border-primary/50 cursor-pointer";
-  const tileCls = disabled
-    ? "bg-muted text-muted-foreground"
-    : warn
-      ? "bg-amber-500/15 text-amber-300"
-      : isSet
-        ? "bg-primary/15 text-primary"
-        : "bg-muted text-muted-foreground";
-  const Icon = disabled ? Lock : warn ? AlertTriangle : isSet ? CheckCircle2 : Crosshair;
+  // Card border tinted by registration quality (good / bad); neutral otherwise.
+  const borderCls =
+    state.quality === "good"
+      ? "border-success/35"
+      : state.quality === "bad"
+        ? "border-destructive/50"
+        : "border-border";
+
+  const tileCls = isSet ? "bg-primary/[0.18] text-primary" : "bg-muted text-muted-foreground";
 
   const subStatus = disabled
-    ? t("workzero.connectFirst")
-    : warn
-      ? t("workzero.statusOverrun")
-      : isSet
-        ? t("workzero.statusSet", { corner: t(`datum.${datum}`) })
-        : t("workzero.statusNotSet");
+    ? t("zeroMethod.card.disconnected")
+    : isSet
+      ? t("zeroMethod.card.statusSet", { method: t(`zeroMethod.methodName.${state.method ?? 1}`) })
+      : t("workzero.statusNotSet");
+
+  // RMS chip: severity colour for methods 2–3; neutral "no estimate" for method 1.
+  const chipCls =
+    state.quality === "good"
+      ? "bg-success/[0.14] text-success"
+      : state.quality === "warn"
+        ? "bg-warning/[0.14] text-warning"
+        : state.quality === "bad"
+          ? "bg-destructive/[0.14] text-destructive"
+          : "bg-muted text-muted-foreground";
+
+  // Note next to the chip: skew warning for method 1, rotation compensation for
+  // 2–3 (when the angle is known), recapture advice on a bad fit.
+  const note =
+    state.quality === "bad"
+      ? t("zeroMethod.card.noteBad")
+      : state.method === 1
+        ? t("zeroMethod.card.noteSkew")
+        : state.angleDeg != null
+          ? t("zeroMethod.card.noteRotation", { deg: state.angleDeg.toFixed(2) })
+          : null;
 
   return (
     <div className="px-4 py-3">
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={disabled}
-        className={
-          "flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2.5 text-left transition-colors " +
-          cardCls
-        }
-      >
-        <div className={"grid size-9 shrink-0 place-items-center rounded-lg " + tileCls}>
-          <Icon className="size-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-foreground">{t("workzero.cardTitle")}</div>
-          <div className={"text-[11px] " + (warn ? "text-amber-300" : "text-muted-foreground")}>
-            {subStatus}
+      <div className={"rounded-xl border bg-card p-3.5 " + borderCls}>
+        {/* Status row — clickable, opens the method-selection screen */}
+        <button
+          type="button"
+          onClick={onOpen}
+          disabled={disabled}
+          className={
+            "flex w-full items-center gap-2.5 text-left " +
+            (disabled ? "cursor-not-allowed" : "cursor-pointer")
+          }
+        >
+          <div className={"grid size-10 shrink-0 place-items-center rounded-[10px] " + tileCls}>
+            <Crosshair className="size-5" />
           </div>
-        </div>
-        {!disabled && (
-          <span className="flex shrink-0 items-center gap-0.5 text-[12px] text-primary">
-            {t("workzero.openSettings")}
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-foreground">{t("workzero.cardTitle")}</div>
+            <div className="text-xs text-muted-foreground">{subStatus}</div>
+          </div>
+          <span
+            className={
+              "flex shrink-0 items-center gap-0.5 text-[12px] font-semibold " +
+              (disabled ? "text-muted-foreground/50" : "text-primary")
+            }
+          >
+            {isSet ? t("zeroMethod.card.change") : t("zeroMethod.card.configure")}
             <ChevronRight className="size-4" />
           </span>
+        </button>
+
+        {/* Quality row — only when a zero is bound */}
+        {isSet && (
+          <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5">
+            <span
+              className={
+                "shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums " + chipCls
+              }
+            >
+              {state.rmsMm != null
+                ? t("zeroMethod.card.rmsChip", { value: state.rmsMm.toFixed(2) })
+                : t("zeroMethod.card.noEstimate")}
+            </span>
+            {note && <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{note}</span>}
+            <button
+              type="button"
+              onClick={onReset}
+              className="ml-auto shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {t("zeroMethod.card.reset")}
+            </button>
+          </div>
         )}
-      </button>
+
+        {/* XY-gate overrun — the bound zero puts holes outside the machine travel */}
+        {isSet && state.overrun && (
+          <div className="mt-2.5 flex items-start gap-1.5 rounded-lg bg-warning/[0.13] px-2.5 py-1.5 text-[11.5px] text-warning">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            <span>{t("zeroMethod.card.overrun")}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useShell } from "@/shellStore";
 import { useMachine } from "@/machineStore";
+import { useNavigation } from "@/navigationStore";
 import { api } from "@/lib/api";
 import { useDrillScreenData } from "@/hooks/useDrillScreenData";
 import { useBridgeListeners } from "@/hooks/useTauriListeners";
@@ -56,5 +57,8 @@ export function useDrillBridge() {
     api.onDrillSetClassOverride(({ diameterKey, klass }) =>
       void useShell.getState().setDrillClassOverride(diameterKey, klass),
     ),
+    // Drill window asks to open the panel editor (work-zero method 2 needs
+    // alignment points, placed there). Window focus is handled by the sender.
+    api.onOpenPanelEditor(() => useNavigation.getState().openProjectTab("panel")),
   ]);
 }

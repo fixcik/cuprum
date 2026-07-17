@@ -4,6 +4,10 @@ import { api } from "@/lib/api";
 /** The top-level views the shell can show. */
 export type View = "home" | "project" | "equipment" | "settings";
 
+/** Tabs of the project view (owned by ProjectPage; typed here for cross-window
+ *  navigation requests). */
+export type ProjectTab = "panel" | "designs" | "operations";
+
 interface NavigationStore {
   view: View;
   /** Last error surfaced on the Home screen (project open/list failures). */
@@ -16,6 +20,14 @@ interface NavigationStore {
   /** Private guard — true once the native value has been fetched. */
   _scaleLoaded: boolean;
   loadDisplayScale: () => Promise<void>;
+
+  /** Pending project-tab request (e.g. from a child window); ProjectPage
+   *  consumes it via consumeProjectTab and switches its local tab state. */
+  pendingProjectTab: ProjectTab | null;
+  /** Switch to the project view and request the given tab. */
+  openProjectTab: (tab: ProjectTab) => void;
+  /** Take (and clear) the pending project-tab request. */
+  consumeProjectTab: () => ProjectTab | null;
 
   setView: (v: View) => void;
   goHome: () => void;
@@ -40,6 +52,14 @@ export const useNavigation = create<NavigationStore>((set, get) => ({
     } catch {
       set({ _scaleLoaded: true });
     }
+  },
+
+  pendingProjectTab: null,
+  openProjectTab: (tab) => set({ view: "project", pendingProjectTab: tab }),
+  consumeProjectTab: () => {
+    const tab = get().pendingProjectTab;
+    if (tab) set({ pendingProjectTab: null });
+    return tab;
   },
 
   setView: (v) => set({ view: v }),

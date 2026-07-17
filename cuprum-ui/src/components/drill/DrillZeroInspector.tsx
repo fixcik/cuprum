@@ -18,8 +18,10 @@ export interface DrillZeroInspectorProps {
   /** Active datum corner. */
   datum: DatumCorner;
   onDatumChange: (d: DatumCorner) => void;
-  /** Back to the plan inspector. */
+  /** Back to the method-selection screen. */
   onBack: () => void;
+  /** Called after a successful bind — closes the flow back to the plan. */
+  onDone: () => void;
   /** Whether the XY work zero is bound (drives the "set" header badge). */
   workZeroSet: boolean;
   /** Selected sub-plan — holes drawn as dots on the board-on-bed map. */
@@ -45,6 +47,7 @@ export function DrillZeroInspector({
   datum,
   onDatumChange,
   onBack,
+  onDone,
   workZeroSet,
   plan,
   panelWidthMm,
@@ -80,7 +83,7 @@ export function DrillZeroInspector({
           className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
         >
           <ChevronLeft className="size-4" />
-          {t("zeroMode.back")}
+          {t("zeroMethod.backMethods")}
         </button>
         <span className="text-sm font-semibold text-foreground">{t("zeroMode.title")}</span>
         {workZeroSet && (
@@ -98,6 +101,12 @@ export function DrillZeroInspector({
             {t("zeroMode.datumLabel")}
           </p>
           <DatumCornerPicker value={datum} onChange={onDatumChange} />
+        </div>
+
+        {/* Method-1 limitation: a single-point bind cannot compensate board skew */}
+        <div className="mx-4 mb-3 flex items-start gap-1.5 rounded-lg bg-warning/[0.13] px-2.5 py-1.5 text-[11.5px] text-warning">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <span>{t("zeroMethod.skewAdvice")}</span>
         </div>
 
         {/* Board-on-bed mini-map: travel-fit check + click-to-move */}
@@ -180,7 +189,7 @@ export function DrillZeroInspector({
             setIsBinding(true);
             try {
               // On a successful bind, leave the zero mode and return to the plan.
-              if (await onBind()) onBack();
+              if (await onBind()) onDone();
             } finally {
               setIsBinding(false);
             }

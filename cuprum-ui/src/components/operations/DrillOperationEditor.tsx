@@ -634,6 +634,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             groupFeedSecs={groupFeedSecs}
             plungeDepthMm={targetDepthMm}
             toolingHoles={panel.tooling_holes ?? []}
+            alignmentPoints={panel.alignment_points ?? []}
           />
       )}
     </div>
