@@ -3,10 +3,11 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { ALIGN_POINT_STROKE, COPPER_STROKE } from "@/components/editor/canvasStyle";
 import type { AlignmentPoint } from "@/lib/api";
 
-/** Konva layer rendering USER alignment points inside the mm fit-group: a blue
- *  ring with a cross, constant screen size. Registration tooling holes act as
- *  alignment points too, but they are already drawn by ToolingHoleLayer — this
- *  layer intentionally renders only the explicit (user-placed) points. */
+/** Konva layer rendering alignment points inside the mm fit-group: a blue ring
+ *  with a cross, constant screen size. The panel editor passes only the explicit
+ *  (user-placed) points — registration tooling holes are already drawn there by
+ *  ToolingHoleLayer. The drill map passes the full effective set (fiducials +
+ *  user points) with display labels. */
 export function AlignmentPointLayer({
   points,
   selectedId,
