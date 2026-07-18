@@ -5,6 +5,7 @@ import {
   captureBoundsAroundMachine,
   canSolve,
   pointResiduals,
+  undoRegistration,
   FIDUCIAL_CAPTURE_RADIUS_MM,
   MIN_CAPTURES_FOR_SOLVE,
   RMS_WARN_MM,
@@ -170,3 +171,25 @@ describe("pointResiduals", () => {
     expect(rms).toBeCloseTo(0.1);
   });
 });
+
+describe("undoRegistration", () => {
+  it("inverts the emitter's forward transform (work = s\u00b7R\u00b7ideal)", () => {
+    const reg = { scale: 1.002, angleRad: (1.3 * Math.PI) / 180 };
+    const ideal = { x: 25.5, y: 50 };
+    const cos = Math.cos(reg.angleRad);
+    const sin = Math.sin(reg.angleRad);
+    const work = {
+      x: reg.scale * (cos * ideal.x - sin * ideal.y),
+      y: reg.scale * (sin * ideal.x + cos * ideal.y),
+    };
+    const back = undoRegistration(work, reg);
+    expect(back.x).toBeCloseTo(ideal.x, 9);
+    expect(back.y).toBeCloseTo(ideal.y, 9);
+  });
+
+  it("is the identity for the identity registration", () => {
+    const back = undoRegistration({ x: 12.3, y: -4.5 }, { scale: 1, angleRad: 0 });
+    expect(back).toEqual({ x: 12.3, y: -4.5 });
+  });
+});
+
