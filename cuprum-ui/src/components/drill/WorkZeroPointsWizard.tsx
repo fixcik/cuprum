@@ -21,7 +21,7 @@ import { api, type FiducialSolveResult, type FiducialStateDto } from "@/lib/api"
 import type { DatumCorner } from "@/lib/datum";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { EffectiveAlignmentPoint } from "@/lib/alignmentPoints";
-import { isProbeable } from "@/lib/alignmentPoints";
+import { alignmentPointOrdinals, isProbeable } from "@/lib/alignmentPoints";
 import {
   buildFiducialEntries,
   captureBoundsAroundMachine,
@@ -131,13 +131,13 @@ export function WorkZeroPointsWizard({
   const navCancelRef = useRef(0);
 
   // Display names: "Fiducial N" for registration-derived points, "Point N" for
-  // user-placed ones, numbered independently per source.
+  // user-placed ones, numbered independently per source (shared ordinals with
+  // the drill-map overlay so both label the same point identically).
   const names = useMemo(() => {
+    const ord = alignmentPointOrdinals(points);
     const m = new Map<string, string>();
-    let reg = 0;
-    let usr = 0;
     for (const p of points) {
-      const n = p.source === "registration" ? ++reg : ++usr;
+      const n = ord.get(p.point.id) ?? 0;
       m.set(
         p.point.id,
         p.source === "registration"

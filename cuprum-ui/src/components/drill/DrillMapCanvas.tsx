@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text } from "react-konva";
 import Konva from "konva";
 import { ZoomToolbar, ZOOM_STEP } from "@/components/ui/ZoomToolbar";
@@ -20,6 +21,8 @@ import { nearestPlanHole } from "@/lib/drillHitTest";
 import { enumerateHoles } from "@/lib/drillSelection";
 import { useDrillHoleHover } from "@/hooks/useDrillHoleHover";
 import { DrillCanvasToolPalette } from "./DrillCanvasToolPalette";
+import { AlignmentPointLayer } from "@/components/panel/AlignmentPointLayer";
+import { alignmentPointOrdinals, type EffectiveAlignmentPoint } from "@/lib/alignmentPoints";
 
 // Re-export Viewport so callers (Task 2 rulers) can import it from here directly.
 export type { Viewport };
@@ -298,6 +301,9 @@ export interface DrillMapCanvasProps {
   onInspectHole?: (id: string | null) => void;
   /** Stable id of the inspected hole (drives the copper selection ring). */
   inspectedHoleId?: string | null;
+  /** Effective alignment points (auto fiducials + user points) drawn as labelled
+   *  crosshair markers so the map matches the work-zero wizard list. */
+  alignmentPoints?: EffectiveAlignmentPoint[];
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
@@ -305,7 +311,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, currentBitColor, runIdle, currentPhaseLabel, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, currentBitColor, runIdle, currentPhaseLabel, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId, alignmentPoints }: DrillMapCanvasProps) {
   // Ref to the fit-group for pointer → mm coordinate conversion.
   const fitGroupRef = useRef<Konva.Group>(null);
   const W = Math.max(widthMm, 1);
@@ -320,6 +326,30 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
   const [tool, setTool] = useState<"select" | "pan">("select");
   const panMode = tool === "pan" || spaceDown;
   const { fmtLen } = useUnitFormat();
+  const { t } = useTranslation("drill");
+
+  // Alignment-point markers + display labels. Labels reuse the work-zero wizard
+  // naming ("Fiducial N" / "Point N", numbered per source) so the map and the
+  // wizard list refer to the same point by the same name.
+  const alignPointList = useMemo(
+    () => (alignmentPoints ?? []).map((p) => p.point),
+    [alignmentPoints],
+  );
+  const alignLabels = useMemo(() => {
+    if (!alignmentPoints?.length) return undefined;
+    const ord = alignmentPointOrdinals(alignmentPoints);
+    const m = new Map<string, string>();
+    for (const p of alignmentPoints) {
+      const n = ord.get(p.point.id) ?? 0;
+      m.set(
+        p.point.id,
+        p.source === "registration"
+          ? t("wizard2.pointNameRegistration", { n })
+          : t("wizard2.pointNameUser", { n }),
+      );
+    }
+    return m;
+  }, [alignmentPoints, t]);
 
   // Hover state machine (rAF-coalesced pointer px + hovered hole id). The Stage
   // onClick below stays here (part of the single Stage integrator); the hook only
@@ -429,6 +459,18 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
               selectedHoleIds={selectedHoleIds}
               drilledHoleIds={drilledHoleIds}
             />
+
+            {/* Alignment points (fiducials + user points) with labels, matching
+                the work-zero wizard list. Above the holes, constant screen size. */}
+            {alignPointList.length > 0 && viewport.pxPerMm > 0 && (
+              <AlignmentPointLayer
+                points={alignPointList}
+                selectedId={null}
+                pxPerMm={viewport.pxPerMm}
+                interactive={false}
+                labels={alignLabels}
+              />
+            )}
 
             {/* Single-node overlay rings drawn on top of the holes layer. Each is a
                 cheap lookup by stable id, so hover/inspect/run progress never force

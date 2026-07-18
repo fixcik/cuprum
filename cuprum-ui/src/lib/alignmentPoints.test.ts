@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALIGN_SNAP_RADIUS_MM,
   PROBEABLE_MIN_HOLE_DIAMETER_MM,
+  alignmentPointOrdinals,
   effectiveAlignmentPoints,
   isProbeable,
   nextAlignmentPointId,
@@ -79,6 +80,22 @@ describe("effectiveAlignmentPoints", () => {
 
   it("is empty when there are no registration holes and no explicit points", () => {
     expect(effectiveAlignmentPoints([th("th-1", 0, 0, 3, "flip")], [])).toEqual([]);
+  });
+});
+
+describe("alignmentPointOrdinals", () => {
+  it("numbers registration and user points independently, in list order", () => {
+    const holes = [th("th-1", 5, 5, 3, "registration"), th("th-2", 5, 90, 3, "registration")];
+    const explicit: AlignmentPoint[] = [
+      { id: "ap-7", x_mm: 20, y_mm: 20, hole_diameter_mm: null },
+      { id: "ap-2", x_mm: 40, y_mm: 40, hole_diameter_mm: null },
+    ];
+    const ord = alignmentPointOrdinals(effectiveAlignmentPoints(holes, explicit));
+    expect(ord.get("th-1")).toBe(1);
+    expect(ord.get("th-2")).toBe(2);
+    // User points restart from 1 regardless of their ids.
+    expect(ord.get("ap-7")).toBe(1);
+    expect(ord.get("ap-2")).toBe(2);
   });
 });
 

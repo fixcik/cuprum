@@ -1,4 +1,4 @@
-import { Group, Circle, Line } from "react-konva";
+import { Group, Circle, Line, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { ALIGN_POINT_STROKE, COPPER_STROKE } from "@/components/editor/canvasStyle";
 import type { AlignmentPoint } from "@/lib/api";
@@ -12,6 +12,7 @@ export function AlignmentPointLayer({
   selectedId,
   pxPerMm,
   interactive,
+  labels,
   onPointMouseDown,
   onPointDragEnd,
 }: {
@@ -19,6 +20,9 @@ export function AlignmentPointLayer({
   selectedId: string | null;
   pxPerMm: number;
   interactive: boolean;
+  /** Optional display label per point id, drawn beside the marker (constant
+   *  screen size). Used by the drill map so points match the wizard list. */
+  labels?: Map<string, string>;
   onPointMouseDown?: (id: string, e: KonvaEventObject<MouseEvent>) => void;
   onPointDragEnd?: (id: string, e: KonvaEventObject<DragEvent>) => void;
 }) {
@@ -96,6 +100,19 @@ export function AlignmentPointLayer({
                   listening={false}
                 />
               </>
+            )}
+
+            {/* Label beside the marker (constant screen size) */}
+            {labels?.get(p.id) && k > 0 && (
+              <Text
+                x={arm + 3 * k}
+                y={-5.5 * k}
+                text={labels.get(p.id)}
+                fontSize={11 * k}
+                fontStyle="600"
+                fill={ALIGN_POINT_STROKE}
+                listening={false}
+              />
             )}
           </Group>
         );
