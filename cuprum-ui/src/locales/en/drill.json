@@ -152,8 +152,6 @@
       "holes_other": "holes: {{count}}"
     },
     "unavailable": {
-      "noPoints": "needs 2+ alignment points on the panel",
-      "openEditor": "Open editor",
       "wizardPending": "wizard in development — coming soon",
       "probeNotConfigured": "probe not configured — equipment settings",
       "noProbeableHoles": "no holes Ø ≥ {{dia}} mm"
@@ -297,10 +295,12 @@
     "deselectAll": "clear all",
     "badgeRegistration": "fiducial",
     "badgeUser": "custom",
+    "badgeCorner": "corner",
     "badgeProbeable": "probeable",
-    "spreadHint": "The farther apart the points, the more precisely the rotation is computed. Points are placed beforehand in the panel editor.",
+    "spreadHint": "The farther apart the points, the more precisely the rotation is computed. Points are placed beforehand in the panel editor; the panel corners are available with no preparation.",
     "pointNameRegistration": "Fiducial {{n}}",
     "pointNameUser": "Point {{n}}",
+    "pointNameCorner": "Corner · {{corner}}",
     "begin_one": "Start capture · {{count}} point",
     "begin_few": "Start capture · {{count}} points",
     "begin_many": "Start capture · {{count}} points",

@@ -15,8 +15,6 @@ export interface WorkZeroMethodPickerProps {
   pointCount: number;
   /** Probeable point/hole count (method 3 fact chip). */
   probeableCount: number;
-  /** Jump to the panel editor in the main window (method 2 "no points" action). */
-  onOpenPanelEditor: () => void;
 }
 
 /** One method card: number-in-circle, name, description, fact chips, chevron.
@@ -90,14 +88,12 @@ export function WorkZeroMethodPicker({
   availability,
   pointCount,
   probeableCount,
-  onOpenPanelEditor,
 }: WorkZeroMethodPickerProps) {
   const { t } = useTranslation("drill");
 
-  // Amber reason plate for an unavailable method; the "no points" case carries
-  // an action jumping to the panel editor. The wizard-pending case is a neutral
-  // (muted) notice — nothing is wrong with the setup, the feature just isn't
-  // shipped yet.
+  // Amber reason plate for an unavailable method. The wizard-pending case is a
+  // neutral (muted) notice — nothing is wrong with the setup, the feature just
+  // isn't shipped yet.
   const plate = (m: WorkZeroMethod): ReactNode | null => {
     const reason = availability[m].reason;
     if (reason === null || reason === "disconnected") return null;
@@ -119,15 +115,6 @@ export function WorkZeroMethodPicker({
               : t(`zeroMethod.unavailable.${reason}`)}
           </span>
         </div>
-        {reason === "noPoints" && (
-          <button
-            type="button"
-            onClick={onOpenPanelEditor}
-            className="mt-1.5 rounded-md border border-warning/40 px-2 py-1 text-[11px] font-medium hover:bg-warning/10"
-          >
-            {t("zeroMethod.unavailable.openEditor")}
-          </button>
-        )}
       </div>
     );
   };

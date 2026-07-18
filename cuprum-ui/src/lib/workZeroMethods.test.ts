@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { cardState, methodAvailability } from "./workZeroMethods";
 
 describe("methodAvailability", () => {
-  const base = { connected: true, pointCount: 0, probeReady: false, probeableCount: 0 };
+  const base = { connected: true, probeReady: false, probeableCount: 0 };
 
   it("blocks all three methods while disconnected", () => {
-    const a = methodAvailability({ ...base, connected: false, pointCount: 5, probeReady: true, probeableCount: 3, probeWizardReady: true });
+    const a = methodAvailability({ ...base, connected: false, probeReady: true, probeableCount: 3, probeWizardReady: true });
     expect(a[1]).toEqual({ available: false, reason: "disconnected" });
     expect(a[2]).toEqual({ available: false, reason: "disconnected" });
     expect(a[3]).toEqual({ available: false, reason: "disconnected" });
@@ -15,20 +15,8 @@ describe("methodAvailability", () => {
     expect(methodAvailability(base)[1]).toEqual({ available: true, reason: null });
   });
 
-  it("method 2 needs at least 2 alignment points", () => {
-    expect(methodAvailability({ ...base, pointCount: 0 })[2].reason).toBe("noPoints");
-    expect(methodAvailability({ ...base, pointCount: 1 })[2].reason).toBe("noPoints");
-  });
-
-  it("method 2 opens as soon as 2+ points exist (wizard has shipped)", () => {
-    expect(methodAvailability({ ...base, pointCount: 2 })[2]).toEqual({
-      available: true,
-      reason: null,
-    });
-    expect(methodAvailability({ ...base, pointCount: 5 })[2]).toEqual({
-      available: true,
-      reason: null,
-    });
+  it("method 2 is always available once connected (panel corners always exist)", () => {
+    expect(methodAvailability(base)[2]).toEqual({ available: true, reason: null });
   });
 
   it("method 3 reports probe-not-configured first", () => {

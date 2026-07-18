@@ -201,7 +201,6 @@ export function DrillPlanInspector({
   // phase — the 3D-touch-probe equipment config (and its wizard) land next.
   const availability = methodAvailability({
     connected,
-    pointCount: alignPoints.length,
     probeReady: false,
     probeableCount,
   });
@@ -322,7 +321,6 @@ export function DrillPlanInspector({
           availability={availability}
           pointCount={alignPoints.length}
           probeableCount={probeableCount}
-          onOpenPanelEditor={() => void api.openPanelEditorInMain()}
         />
       ) : panelMode === "zero" ? (
         /* ── ZERO-BINDING mode (method 1 · corner datum) ── */

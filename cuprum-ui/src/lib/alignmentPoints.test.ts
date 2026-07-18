@@ -3,9 +3,11 @@ import {
   ALIGN_SNAP_RADIUS_MM,
   PROBEABLE_MIN_HOLE_DIAMETER_MM,
   alignmentPointOrdinals,
+  cornerOfPoint,
   effectiveAlignmentPoints,
   isProbeable,
   nextAlignmentPointId,
+  panelCornerPoints,
   snapAlignmentPoint,
   type HoleCandidate,
 } from "@/lib/alignmentPoints";
@@ -96,6 +98,37 @@ describe("alignmentPointOrdinals", () => {
     // User points restart from 1 regardless of their ids.
     expect(ord.get("ap-7")).toBe(1);
     expect(ord.get("ap-2")).toBe(2);
+  });
+
+  it("skips synthetic corner points (they are named, not numbered)", () => {
+    const explicit: AlignmentPoint[] = [{ id: "ap-1", x_mm: 20, y_mm: 20, hole_diameter_mm: null }];
+    const pts = [...effectiveAlignmentPoints([], explicit), ...panelCornerPoints(60, 100)];
+    const ord = alignmentPointOrdinals(pts);
+    expect(ord.get("ap-1")).toBe(1);
+    expect(ord.get("corner:bottom-left")).toBeUndefined();
+    expect(ord.size).toBe(1);
+  });
+});
+
+describe("panelCornerPoints", () => {
+  it("yields the four panel corners in panel space (Y-down, origin top-left)", () => {
+    const pts = panelCornerPoints(60, 100);
+    const byCorner = new Map(pts.map((p) => [cornerOfPoint(p), p.point]));
+    expect(pts).toHaveLength(4);
+    expect(pts.every((p) => p.source === "corner")).toBe(true);
+    expect(byCorner.get("top-left")).toMatchObject({ x_mm: 0, y_mm: 0 });
+    expect(byCorner.get("top-right")).toMatchObject({ x_mm: 60, y_mm: 0 });
+    expect(byCorner.get("bottom-left")).toMatchObject({ x_mm: 0, y_mm: 100 });
+    expect(byCorner.get("bottom-right")).toMatchObject({ x_mm: 60, y_mm: 100 });
+  });
+
+  it("corner points carry no hole and are not probeable", () => {
+    for (const p of panelCornerPoints(60, 100)) expect(isProbeable(p.point)).toBe(false);
+  });
+
+  it("cornerOfPoint is null for real points", () => {
+    const real = effectiveAlignmentPoints([], [{ id: "ap-1", x_mm: 1, y_mm: 2 }]);
+    expect(cornerOfPoint(real[0])).toBeNull();
   });
 });
 

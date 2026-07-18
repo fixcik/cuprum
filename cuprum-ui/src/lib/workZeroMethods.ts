@@ -25,7 +25,6 @@ export interface WorkZeroBinding {
 /** Why a method card is unavailable. */
 export type MethodUnavailableReason =
   | "disconnected"
-  | "noPoints"
   | "wizardPending"
   | "probeNotConfigured"
   | "noProbeableHoles";
@@ -38,8 +37,6 @@ export interface MethodAvailability {
 export interface MethodAvailabilityArgs {
   /** Machine connection — offline blocks all three methods. */
   connected: boolean;
-  /** Number of effective alignment points on the panel (method 2). */
-  pointCount: number;
   /** Whether a 3D touch probe is configured in equipment (method 3). */
   probeReady: boolean;
   /** Number of probeable points/holes (Ø ≥ threshold) on the panel (method 3). */
@@ -54,7 +51,7 @@ export interface MethodAvailabilityArgs {
 export function methodAvailability(
   args: MethodAvailabilityArgs,
 ): Record<WorkZeroMethod, MethodAvailability> {
-  const { connected, pointCount, probeReady, probeableCount, probeWizardReady = false } = args;
+  const { connected, probeReady, probeableCount, probeWizardReady = false } = args;
   const blocked = (reason: MethodUnavailableReason): MethodAvailability => ({
     available: false,
     reason,
@@ -63,7 +60,9 @@ export function methodAvailability(
   if (!connected) {
     return { 1: blocked("disconnected"), 2: blocked("disconnected"), 3: blocked("disconnected") };
   }
-  const m2 = pointCount < 2 ? blocked("noPoints") : ok;
+  // Method 2 always has candidates: the wizard offers the four panel corners
+  // alongside the panel's alignment points, so no preparation is required.
+  const m2 = ok;
   const m3 = !probeReady
     ? blocked("probeNotConfigured")
     : probeableCount < 2
