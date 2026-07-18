@@ -147,3 +147,27 @@ export function pointResiduals(
     return Math.hypot(f.measured.x - px, f.measured.y - py);
   });
 }
+
+/**
+ * Undo a solved registration on a live work-frame position: map the head WPos
+ * back to the ideal (datum-frame) coordinates the drill map is drawn in.
+ *
+ * The G-code emitter transforms every ideal hole position as
+ * `work = s·R(θ)·ideal` (translation is zero — the solve programs it into the
+ * G54 origin), so the inverse is `ideal = R(−θ)·work / s`. Without this the
+ * map marker drifts from the drawn holes by the board's rotation/scale residual,
+ * growing with distance from the work origin.
+ */
+export function undoRegistration(
+  work: { x: number; y: number },
+  registration: { scale: number; angleRad: number },
+): { x: number; y: number } {
+  const { scale, angleRad } = registration;
+  const s = scale !== 0 ? scale : 1;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  return {
+    x: (cos * work.x + sin * work.y) / s,
+    y: (-sin * work.x + cos * work.y) / s,
+  };
+}

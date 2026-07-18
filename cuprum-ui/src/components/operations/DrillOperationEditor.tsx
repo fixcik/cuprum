@@ -8,7 +8,9 @@ import {
   type DrillSnapshot,
   type DrillPlanInput,
   type DrillPlanResult,
+  type Registration,
 } from "@/lib/api";
+import { undoRegistration } from "@/lib/fiducialRegistration";
 import { useDrillPlan } from "@/hooks/useDrillPlan";
 import { useDrillRun } from "@/hooks/useDrillRun";
 import { classAtRunIndex } from "@/lib/drillRoute";
@@ -335,6 +337,16 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
   const run = useDrillRun();
   const machineWork = useMachinePosition();
 
+  // Registration applied to the RUNNING program's hole coordinates (echoed by
+  // drill_plan at start). The map marker undoes its rotation/scale when mapping
+  // the live WPos back to panel space — without this the marker drifts from the
+  // drawn holes by the board-placement residual (grows away from the origin).
+  const [runRegistration, setRunRegistration] = useState<Registration | null>(null);
+  const markerWork = useMemo(() => {
+    if (!machineWork || !runRegistration) return machineWork;
+    return { ...undoRegistration(machineWork, runRegistration), z: machineWork.z };
+  }, [machineWork, runRegistration]);
+
   // run_uid of the journalled run, set only once the machine actually starts
   // cutting (see pendingRunRef); cleared when the terminal outcome is written.
   const runUidRef = useRef<string | null>(null);
@@ -367,6 +379,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
       return;
     }
     const steps = exec.program.steps;
+    setRunRegistration(exec.registration ?? null);
     void run.start(steps);
     // Stash the run for the journal, but DON'T write it yet — the row is created
     // only when the machine actually starts cutting (see the flush effect below),
@@ -609,7 +622,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
               showDiameters={showDiameters}
               zones={zones}
               datum={drillDatumCorner}
-              machineWork={showMarker ? machineWork : null}
+              machineWork={showMarker ? markerWork : null}
               currentHolePhase={currentHolePhase}
               currentBitColor={currentBitColor}
               runIdle={runIdle}

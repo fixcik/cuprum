@@ -39,6 +39,11 @@ pub struct DrillPlanResult {
     pub route: DrillRoute,
     pub program: DrillProgram,
     pub estimate: DrillEstimate,
+    /// The registration actually applied to the program's hole coordinates
+    /// (echo of the effective `DrillPlanInput.registration`). The UI needs it to
+    /// undo rotation/scale when mapping the live head WPos back to panel space
+    /// (the map marker); `None` = identity, no correction needed.
+    pub registration: Option<Registration>,
 }
 
 /// The datum corner expressed in panel space (Y-down, origin top-left) — the
@@ -97,6 +102,7 @@ pub fn drill_plan(input: DrillPlanInput) -> DrillPlanResult {
         route,
         program,
         estimate,
+        registration: input.registration,
     }
 }
 

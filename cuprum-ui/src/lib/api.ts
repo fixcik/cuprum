@@ -806,6 +806,10 @@ export interface DrillPlanResult {
   route: DrillRoute;
   program: DrillProgram;
   estimate: DrillEstimate;
+  /** The registration actually applied to the program's hole coordinates (echo
+   *  of the effective server-side solve). The map marker undoes it when mapping
+   *  the live head WPos back to panel space; null/absent = identity. */
+  registration?: Registration | null;
 }
 
 // ── Isolation-milling planning DTOs (mirror cuprum-mill serde camelCase) ──────
