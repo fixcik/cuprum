@@ -22,7 +22,7 @@ import { DrillPreflightSummary } from "@/components/drill/DrillPreflightSummary"
 import { WorkZeroStatusCard } from "@/components/drill/WorkZeroStatusCard";
 import { ConnBar } from "@/components/machine/ConnBar";
 import { DrillZeroInspector } from "@/components/drill/DrillZeroInspector";
-import { WorkZeroPointsWizard } from "@/components/drill/WorkZeroPointsWizard";
+import { WorkZeroPointsWizard, type WizardMapState } from "@/components/drill/WorkZeroPointsWizard";
 import { api } from "@/lib/api";
 import { formatXYViolations } from "@/lib/xyGate";
 import { formatZReasons } from "@/lib/zGate";
@@ -81,6 +81,9 @@ export interface DrillPlanInspectorProps {
   maxZMm: number;
   /** Last work-zero bind error from GRBL (null = none). Shown as a banner. */
   zeroError: string | null;
+  /** Points-wizard state relay for the drill map (dim non-selected points,
+   *  highlight the one being captured). See WorkZeroPointsWizard. */
+  onWizardMapStateChange?: (state: WizardMapState | null) => void;
   /** Pre-computed XY gate result (hole bbox vs machine envelope) for the start button. */
   xyGate: XYGateResult;
   /** Pre-computed Z gate result (depth / tool-change retract vs Z travel). */
@@ -127,6 +130,7 @@ export function DrillPlanInspector({
   run,
   onStart,
   onSetClass,
+  onWizardMapStateChange,
   onSetBitOverride,
   selectedHoleId,
   onClearHole,
@@ -351,6 +355,7 @@ export function DrillPlanInspector({
         /* ── POINTS WIZARD mode (method 2 · manual capture) ── */
         <WorkZeroPointsWizard
           points={alignPoints}
+          onMapStateChange={onWizardMapStateChange}
           datum={datum}
           panelWidthMm={panelWidthMm}
           panelHeightMm={panelHeightMm}

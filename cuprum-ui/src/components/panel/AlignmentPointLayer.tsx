@@ -14,6 +14,7 @@ export function AlignmentPointLayer({
   pxPerMm,
   interactive,
   labels,
+  dimmedIds,
   onPointMouseDown,
   onPointDragEnd,
 }: {
@@ -24,6 +25,9 @@ export function AlignmentPointLayer({
   /** Optional display label per point id, drawn beside the marker (constant
    *  screen size). Used by the drill map so points match the wizard list. */
   labels?: Map<string, string>;
+  /** Points rendered dimmed (same opacity as unselected holes) and without a
+   *  label — the drill map dims points excluded from the wizard selection. */
+  dimmedIds?: Set<string>;
   onPointMouseDown?: (id: string, e: KonvaEventObject<MouseEvent>) => void;
   onPointDragEnd?: (id: string, e: KonvaEventObject<DragEvent>) => void;
 }) {
@@ -39,11 +43,14 @@ export function AlignmentPointLayer({
     <>
       {points.map((p) => {
         const isSelected = p.id === selectedId;
+        const isDimmed = !isSelected && (dimmedIds?.has(p.id) ?? false);
         return (
           <Group
             key={p.id}
             x={p.x_mm}
             y={p.y_mm}
+            // Same dim level as unselected holes in the drill map (0.25).
+            opacity={isDimmed ? 0.25 : 1}
             listening={interactive}
             draggable={interactive}
             onMouseDown={
@@ -103,8 +110,9 @@ export function AlignmentPointLayer({
               </>
             )}
 
-            {/* Label beside the marker (constant screen size) */}
-            {labels?.get(p.id) && k > 0 && (
+            {/* Label beside the marker (constant screen size); dimmed points
+             *  carry no label — they read as background, like unselected holes. */}
+            {!isDimmed && labels?.get(p.id) && k > 0 && (
               <Text
                 x={arm + 3 * k}
                 y={-5.5 * k}

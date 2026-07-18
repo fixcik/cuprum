@@ -77,6 +77,18 @@ export interface WorkZeroPointsWizardProps {
    *  G54 atomically with the fit) — this callback only records the binding
    *  metadata and returns to the plan. */
   onApplied: (result: { rmsMm: number; angleDeg: number; workOrigin: { x: number; y: number } }) => void;
+  /** Mirrors the wizard's point state onto the drill map: which points are in
+   *  the selection (others are dimmed) and which one is being captured now.
+   *  Reported null when the wizard unmounts (map returns to normal). */
+  onMapStateChange?: (state: WizardMapState | null) => void;
+}
+
+/** Wizard point state projected onto the drill map (see onMapStateChange). */
+export interface WizardMapState {
+  /** Ids of the points in the wizard selection (or the frozen capture session). */
+  selectedIds: Set<string>;
+  /** Id of the point currently being captured; null outside the capture step. */
+  currentId: string | null;
 }
 
 type WizardStep = "select" | "capture" | "result";
@@ -107,6 +119,7 @@ export function WorkZeroPointsWizard({
   plan,
   onCancel,
   onApplied,
+  onMapStateChange,
 }: WorkZeroPointsWizardProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -143,6 +156,16 @@ export function WorkZeroPointsWizard({
   const [solve, setSolve] = useState<FiducialSolveResult | null>(null);
   // Cancels an in-flight auto-navigate sequence (STOP / leave).
   const navCancelRef = useRef(0);
+
+  // Mirror the wizard's point state onto the drill map (dim non-selected points,
+  // highlight the one being captured); cleared when the wizard unmounts.
+  useEffect(() => {
+    onMapStateChange?.({
+      selectedIds,
+      currentId: step === "capture" ? (sessionPoints[curIdx]?.point.id ?? null) : null,
+    });
+  }, [onMapStateChange, selectedIds, step, sessionPoints, curIdx]);
+  useEffect(() => () => onMapStateChange?.(null), [onMapStateChange]);
 
   // Display names: "Fiducial N" for registration-derived points, "Point N" for
   // user-placed ones, numbered independently per source (shared ordinals with
