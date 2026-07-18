@@ -625,7 +625,9 @@ export function WorkZeroPointsWizard({
               )}
             </div>
 
-            {/* Table map — click-to-move for the fully manual first approach */}
+            {/* Table map — click-to-move for the fully manual first approach.
+             *  Anchored at the point being approached (not the datum corner),
+             *  so the board is drawn around the spindle correctly. */}
             {!targetMachine && (
               <DrillTableMap
                 plan={plan}
@@ -635,6 +637,7 @@ export function WorkZeroPointsWizard({
                 maxXMm={maxXMm}
                 maxYMm={maxYMm}
                 maxZMm={maxZMm}
+                anchorWork={curEntry.ideal}
               />
             )}
 

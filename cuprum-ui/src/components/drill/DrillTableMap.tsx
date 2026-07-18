@@ -25,14 +25,19 @@ export interface DrillTableMapProps {
   /** Z travel (mm, positive) — only needed to satisfy the jog bounds; Z is not
    *  driven from the map. */
   maxZMm: number;
+  /** Datum-frame (work) offset of the panel point sitting under the spindle.
+   *  Defaults to the datum corner (0,0) — the method-1 touch-off semantics.
+   *  The points wizard passes the ideal of the point being approached, so the
+   *  board is drawn anchored at that point instead of the corner. */
+  anchorWork?: { x: number; y: number };
 }
 
-/** Board-on-bed mini-map: the machine travel (dashed), the board placed at the
- *  live spindle XY (= the prospective work zero), red overflow bars where the
- *  board would run past the travel, selected-hole dots, and the datum marker.
- *  Clicking jogs the spindle so the datum corner moves under the clicked table
- *  point ("click — bring zero here"). Any click resets a bound zero (handled by
- *  the jog, mirroring WorkZeroCard). */
+/** Board-on-bed mini-map: the machine travel (dashed), the board placed so the
+ *  anchor point (datum corner by default, or `anchorWork`) sits at the live
+ *  spindle XY, red overflow bars where the board would run past the travel,
+ *  selected-hole dots, and the anchor marker. Clicking jogs the spindle so the
+ *  anchor point moves under the clicked table point ("click — bring it here").
+ *  Any click resets a bound zero (handled by the jog, mirroring WorkZeroCard). */
 export function DrillTableMap({
   plan,
   datum,
@@ -41,6 +46,7 @@ export function DrillTableMap({
   maxXMm,
   maxYMm,
   maxZMm,
+  anchorWork,
 }: DrillTableMapProps) {
   const { t } = useTranslation("drill");
   const { fmtLen } = useUnitFormat();
@@ -57,9 +63,13 @@ export function DrillTableMap({
     flipY: boolean;
   } | null>(null);
 
-  // Live spindle position (machine frame) = where the datum corner currently sits.
+  // Live spindle position (machine frame) = where the anchor point currently sits.
   const mposX = useMachine((s) => s.status.mpos[0]);
   const mposY = useMachine((s) => s.status.mpos[1]);
+  // Machine position of the datum corner: the spindle sits on the anchor point,
+  // which is `anchorWork` away from the corner in the datum (work) frame.
+  const anchorX = anchorWork?.x ?? 0;
+  const anchorY = anchorWork?.y ?? 0;
 
   // Machine-frame jog bounds (= the travel envelope), matching WorkZeroCard and
   // useJog's contract: jogTo's clampWork() converts the work-space target to the
@@ -74,7 +84,7 @@ export function DrillTableMap({
     },
   });
 
-  const datumMachine = { x: mposX, y: mposY };
+  const datumMachine = { x: mposX - anchorX, y: mposY - anchorY };
   const rect = panelOnTable(datumMachine, datum, panelWidthMm, panelHeightMm);
   const fit = envelopeFit(rect, maxXMm, maxYMm);
   const holes = holeTablePoints(plan, datumMachine, datum, panelWidthMm, panelHeightMm);
@@ -95,7 +105,7 @@ export function DrillTableMap({
 
   /** Pointer event → prospective machine target (clamped to travel) + pointer px
    *  relative to the svg. mx/my are machine-frame coords; onClick converts to the
-   *  work frame before jogging, but the datum corner ends up at exactly mx/my — so
+   *  work frame before jogging, but the anchor point ends up at exactly mx/my — so
    *  the hover label (which shows mx/my) matches where the click drives the spindle. */
   const pointerTarget = (e: React.MouseEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -191,7 +201,8 @@ export function DrillTableMap({
           />
         ))}
 
-        {/* Datum marker (copper dot + ring) at the live spindle position */}
+        {/* Anchor marker (copper dot + ring) at the live spindle position —
+         *  the datum corner by default, or the point given via `anchorWork`. */}
         <circle cx={sx(mposX)} cy={sy(mposY)} r={datumR} fill="#e07b3e" />
         <circle
           cx={sx(mposX)}
