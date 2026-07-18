@@ -31,7 +31,8 @@ import { useWorkZeroMethod } from "@/workZeroMethodStore";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { useDrillGates } from "@/hooks/useDrillGates";
-import { effectiveAlignmentPoints } from "@/lib/alignmentPoints";
+import { effectiveAlignmentPoints, panelCornerPoints } from "@/lib/alignmentPoints";
+import type { WizardMapState } from "@/components/drill/WorkZeroPointsWizard";
 
 /** Phases in which a run is live; a transition out of this set into done/error/idle
  *  is the run's terminal event (used to journal the outcome). */
@@ -535,12 +536,32 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
 
   const hasAnyHoles = !!(plan && plan.totalHoles > 0);
 
+  // Points-wizard state relayed from the inspector: while the wizard is open,
+  // the map dims points outside its selection and highlights the one being
+  // captured. Null = wizard closed, map renders all points normally.
+  const [wizardMapState, setWizardMapState] = useState<WizardMapState | null>(null);
+
   // Effective alignment points (auto fiducials + user points) drawn on the map
-  // with labels matching the work-zero wizard list.
-  const mapAlignmentPoints = useMemo(
-    () => effectiveAlignmentPoints(panel?.tooling_holes ?? [], panel?.alignment_points ?? []),
-    [panel?.tooling_holes, panel?.alignment_points],
-  );
+  // with labels matching the work-zero wizard list. While the wizard is open,
+  // panel corners it has in the selection are appended so they show up too.
+  const mapAlignmentPoints = useMemo(() => {
+    const base = effectiveAlignmentPoints(panel?.tooling_holes ?? [], panel?.alignment_points ?? []);
+    if (!wizardMapState || !panel) return base;
+    const corners = panelCornerPoints(panel.width_mm, panel.height_mm).filter((p) =>
+      wizardMapState.selectedIds.has(p.point.id),
+    );
+    return [...base, ...corners];
+  }, [panel, wizardMapState]);
+
+  // Ids outside the wizard selection → dimmed, unlabelled markers.
+  const dimmedAlignmentIds = useMemo(() => {
+    if (!wizardMapState) return undefined;
+    return new Set(
+      mapAlignmentPoints
+        .filter((p) => !wizardMapState.selectedIds.has(p.point.id))
+        .map((p) => p.point.id),
+    );
+  }, [wizardMapState, mapAlignmentPoints]);
 
   if (!hasProject || (plan !== null && !loading && !hasAnyHoles)) {
     return (
@@ -603,6 +624,8 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
               }
               onInspectHole={setInspectedHoleId}
               alignmentPoints={mapAlignmentPoints}
+              dimmedAlignmentIds={dimmedAlignmentIds}
+              activeAlignmentPointId={wizardMapState?.currentId ?? null}
             />
           )}
         </div>
@@ -644,6 +667,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
             maxYMm={cncProfile.workEnvelopeMm.y}
             maxZMm={cncProfile.workEnvelopeMm.z}
             zeroError={zeroError}
+            onWizardMapStateChange={setWizardMapState}
             xyGate={xyGate}
             zGate={zGate}
             connected={machineConnected}

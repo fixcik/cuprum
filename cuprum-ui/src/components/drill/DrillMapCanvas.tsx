@@ -22,7 +22,11 @@ import { enumerateHoles } from "@/lib/drillSelection";
 import { useDrillHoleHover } from "@/hooks/useDrillHoleHover";
 import { DrillCanvasToolPalette } from "./DrillCanvasToolPalette";
 import { AlignmentPointLayer } from "@/components/panel/AlignmentPointLayer";
-import { alignmentPointOrdinals, type EffectiveAlignmentPoint } from "@/lib/alignmentPoints";
+import {
+  alignmentPointOrdinals,
+  cornerOfPoint,
+  type EffectiveAlignmentPoint,
+} from "@/lib/alignmentPoints";
 
 // Re-export Viewport so callers (Task 2 rulers) can import it from here directly.
 export type { Viewport };
@@ -301,9 +305,16 @@ export interface DrillMapCanvasProps {
   onInspectHole?: (id: string | null) => void;
   /** Stable id of the inspected hole (drives the copper selection ring). */
   inspectedHoleId?: string | null;
-  /** Effective alignment points (auto fiducials + user points) drawn as labelled
-   *  crosshair markers so the map matches the work-zero wizard list. */
+  /** Effective alignment points (auto fiducials + user points, plus selected
+   *  panel corners while the points wizard is open) drawn as labelled crosshair
+   *  markers so the map matches the work-zero wizard list. */
   alignmentPoints?: EffectiveAlignmentPoint[];
+  /** Alignment points excluded from the wizard selection — rendered dimmed and
+   *  unlabelled, like unselected holes. Absent = no dimming (wizard closed). */
+  dimmedAlignmentIds?: Set<string>;
+  /** Point currently being captured in the wizard — gets a copper highlight
+   *  ring so the operator sees on the map which point the machine is after. */
+  activeAlignmentPointId?: string | null;
 }
 
 /** Read-only 2D drill map canvas: panel outline, holes by tool colour, traverse
@@ -311,7 +322,7 @@ export interface DrillMapCanvasProps {
  *  indicator. Hole coordinates are panel-space mm (0,0 = top-left of blank). The
  *  work-zero marker is placed at the chosen datum corner (default: bottom-left).
  *  Supports pinch/scroll zoom and Space-to-pan, mirroring PanelBlankCanvas. */
-export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, currentBitColor, runIdle, currentPhaseLabel, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId, alignmentPoints }: DrillMapCanvasProps) {
+export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineWork, datum = "bottom-left", selectedHoleIds, drilledHoleIds, currentHoleId, showPath = true, showDiameters = false, currentHolePhase, currentBitColor, runIdle, currentPhaseLabel, onViewportChange, onToggleHole, onInspectHole, inspectedHoleId, alignmentPoints, dimmedAlignmentIds, activeAlignmentPointId }: DrillMapCanvasProps) {
   // Ref to the fit-group for pointer → mm coordinate conversion.
   const fitGroupRef = useRef<Konva.Group>(null);
   const W = Math.max(widthMm, 1);
@@ -340,6 +351,11 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
     const ord = alignmentPointOrdinals(alignmentPoints);
     const m = new Map<string, string>();
     for (const p of alignmentPoints) {
+      const corner = cornerOfPoint(p);
+      if (corner) {
+        m.set(p.point.id, t("wizard2.pointNameCorner", { corner: t(`datum.${corner}`) }));
+        continue;
+      }
       const n = ord.get(p.point.id) ?? 0;
       m.set(
         p.point.id,
@@ -465,10 +481,11 @@ export function DrillMapCanvas({ widthMm, heightMm, plan, route, zones, machineW
             {alignPointList.length > 0 && viewport.pxPerMm > 0 && (
               <AlignmentPointLayer
                 points={alignPointList}
-                selectedId={null}
+                selectedId={activeAlignmentPointId ?? null}
                 pxPerMm={viewport.pxPerMm}
                 interactive={false}
                 labels={alignLabels}
+                dimmedIds={dimmedAlignmentIds}
               />
             )}
 
