@@ -21,7 +21,12 @@ import { api, type FiducialSolveResult, type FiducialStateDto } from "@/lib/api"
 import type { DatumCorner } from "@/lib/datum";
 import type { PanelDrillPlan } from "@/lib/panelDrill";
 import type { EffectiveAlignmentPoint } from "@/lib/alignmentPoints";
-import { alignmentPointOrdinals, isProbeable } from "@/lib/alignmentPoints";
+import {
+  alignmentPointOrdinals,
+  cornerOfPoint,
+  isProbeable,
+  panelCornerPoints,
+} from "@/lib/alignmentPoints";
 import {
   buildFiducialEntries,
   captureBoundsAroundMachine,
@@ -116,8 +121,17 @@ export function WorkZeroPointsWizard({
   const { mpos: liveMpos } = useMachine((s) => s.status);
 
   const [step, setStep] = useState<WizardStep>("select");
+  // Real panel points selected by default; synthetic corner points offered but
+  // opted into explicitly (they are eyeballed, hence less precise).
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set(points.map((p) => p.point.id)),
+  );
+
+  // Selectable capture points: the panel's alignment points plus the four bare
+  // panel corners, so a zero can be registered off two corners alone.
+  const allPoints = useMemo(
+    () => [...points, ...panelCornerPoints(panelWidthMm, panelHeightMm)],
+    [points, panelWidthMm, panelHeightMm],
   );
   // Points of the capture session, frozen at "begin" in list order.
   const [sessionPoints, setSessionPoints] = useState<EffectiveAlignmentPoint[]>([]);
@@ -132,11 +146,17 @@ export function WorkZeroPointsWizard({
 
   // Display names: "Fiducial N" for registration-derived points, "Point N" for
   // user-placed ones, numbered independently per source (shared ordinals with
-  // the drill-map overlay so both label the same point identically).
+  // the drill-map overlay so both label the same point identically). Corner
+  // points are named after their panel corner instead of a number.
   const names = useMemo(() => {
-    const ord = alignmentPointOrdinals(points);
+    const ord = alignmentPointOrdinals(allPoints);
     const m = new Map<string, string>();
-    for (const p of points) {
+    for (const p of allPoints) {
+      const corner = cornerOfPoint(p);
+      if (corner) {
+        m.set(p.point.id, t("wizard2.pointNameCorner", { corner: t(`datum.${corner}`) }));
+        continue;
+      }
       const n = ord.get(p.point.id) ?? 0;
       m.set(
         p.point.id,
@@ -146,7 +166,7 @@ export function WorkZeroPointsWizard({
       );
     }
     return m;
-  }, [points, t]);
+  }, [allPoints, t]);
 
   // Ideal datum-relative entries for the frozen session points.
   const entries = useMemo(
@@ -250,7 +270,7 @@ export function WorkZeroPointsWizard({
 
   /** Step 1 → 2: freeze the selection, init the backend session, raise Z. */
   const handleBegin = useCallback(async () => {
-    const sel = points.filter((p) => selectedIds.has(p.point.id));
+    const sel = allPoints.filter((p) => selectedIds.has(p.point.id));
     if (sel.length < MIN_CAPTURES_FOR_SOLVE) return;
     setBusy(true);
     setError(null);
@@ -275,7 +295,7 @@ export function WorkZeroPointsWizard({
     } finally {
       setBusy(false);
     }
-  }, [points, selectedIds, datum, panelWidthMm, panelHeightMm, refreshState, homed, raiseToSafeZ]);
+  }, [allPoints, selectedIds, datum, panelWidthMm, panelHeightMm, refreshState, homed, raiseToSafeZ]);
 
   /** Auto-approach the current point: raise Z, drive XY to ideal + offset. */
   const handleNavigate = useCallback(async () => {
@@ -503,18 +523,18 @@ export function WorkZeroPointsWizard({
                 type="button"
                 onClick={() =>
                   setSelectedIds(
-                    selectedCount === points.length
+                    selectedCount === allPoints.length
                       ? new Set()
-                      : new Set(points.map((p) => p.point.id)),
+                      : new Set(allPoints.map((p) => p.point.id)),
                   )
                 }
                 className="text-[12px] font-semibold text-primary hover:underline underline-offset-2"
               >
-                {selectedCount === points.length ? t("wizard2.deselectAll") : t("wizard2.selectAll")}
+                {selectedCount === allPoints.length ? t("wizard2.deselectAll") : t("wizard2.selectAll")}
               </button>
             </div>
 
-            {points.map((p) => {
+            {allPoints.map((p) => {
               const checked = selectedIds.has(p.point.id);
               return (
                 <button
@@ -557,7 +577,9 @@ export function WorkZeroPointsWizard({
                   <span className="flex shrink-0 gap-1">
                     {p.source === "registration"
                       ? badge("bg-primary/15 text-primary", t("wizard2.badgeRegistration"))
-                      : badge("bg-muted text-muted-foreground", t("wizard2.badgeUser"))}
+                      : p.source === "corner"
+                        ? badge("bg-muted text-muted-foreground", t("wizard2.badgeCorner"))
+                        : badge("bg-muted text-muted-foreground", t("wizard2.badgeUser"))}
                     {isProbeable(p.point) &&
                       badge("bg-success/[0.13] text-success", t("wizard2.badgeProbeable"))}
                   </span>

@@ -1,4 +1,5 @@
 import type { AlignmentPoint, ToolingHole } from "@/lib/api";
+import { DATUM_CORNERS, datumCornerPanelPoint, type DatumCorner } from "@/lib/datum";
 
 /** Minimum hole diameter a touch-probe stylus can centre in (mm).
  *  Keep in sync with `PROBEABLE_MIN_HOLE_DIAMETER_MM` in
@@ -57,8 +58,33 @@ export function isProbeable(p: Pick<AlignmentPoint, "hole_diameter_mm">): boolea
 export interface EffectiveAlignmentPoint {
   point: AlignmentPoint;
   /** "registration" = derived from a registration tooling hole (auto, not
-   *  removable); "user" = explicit user-placed point. */
-  source: "registration" | "user";
+   *  removable); "user" = explicit user-placed point; "corner" = a synthetic
+   *  panel-corner point (capture-wizard only, never stored on the panel). */
+  source: "registration" | "user" | "corner";
+}
+
+/** Id prefix of synthetic panel-corner points (`corner:bottom-left` etc). */
+const CORNER_ID_PREFIX = "corner:";
+
+/** Synthetic capture points at the four panel corners (panel space, Y-down).
+ *  Offered by the points wizard alongside the panel's alignment points, so a
+ *  work zero can be registered off two bare corners with no preparation. */
+export function panelCornerPoints(
+  panelWidthMm: number,
+  panelHeightMm: number,
+): EffectiveAlignmentPoint[] {
+  return DATUM_CORNERS.map((c) => {
+    const { xMm, yMm } = datumCornerPanelPoint(c, panelWidthMm, panelHeightMm);
+    return {
+      point: { id: CORNER_ID_PREFIX + c, x_mm: xMm, y_mm: yMm },
+      source: "corner",
+    };
+  });
+}
+
+/** Which panel corner a synthetic corner point stands for; null for real points. */
+export function cornerOfPoint(p: EffectiveAlignmentPoint): DatumCorner | null {
+  return p.source === "corner" ? (p.point.id.slice(CORNER_ID_PREFIX.length) as DatumCorner) : null;
 }
 
 /** Explicit alignment points plus registration tooling holes (each acting as a
@@ -83,12 +109,14 @@ export function effectiveAlignmentPoints(
 
 /** Display ordinal per point id, numbered independently per source (fiducials
  *  "1..N" and user points "1..M"). Shared by the wizard list and the drill map
- *  overlay so both label the same point identically. */
+ *  overlay so both label the same point identically. Synthetic corner points
+ *  are named after their corner, not numbered — they get no ordinal. */
 export function alignmentPointOrdinals(points: EffectiveAlignmentPoint[]): Map<string, number> {
   const m = new Map<string, number>();
   let reg = 0;
   let usr = 0;
   for (const p of points) {
+    if (p.source === "corner") continue;
     m.set(p.point.id, p.source === "registration" ? ++reg : ++usr);
   }
   return m;

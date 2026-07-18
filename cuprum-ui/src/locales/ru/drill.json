@@ -152,8 +152,6 @@
       "holes_other": "отверстий: {{count}}"
     },
     "unavailable": {
-      "noPoints": "нужно ≥ 2 точек центровки в панели",
-      "openEditor": "Открыть редактор",
       "wizardPending": "мастер в разработке — скоро",
       "probeNotConfigured": "щуп не настроен — настройки оборудования",
       "noProbeableHoles": "нет отверстий Ø ≥ {{dia}} мм"
@@ -297,10 +295,12 @@
     "deselectAll": "снять все",
     "badgeRegistration": "репер",
     "badgeUser": "своя",
+    "badgeCorner": "угол",
     "badgeProbeable": "щупабельна",
-    "spreadHint": "Чем дальше точки друг от друга — тем точнее вычислится поворот. Точки ставятся заранее в редакторе панели.",
+    "spreadHint": "Чем дальше точки друг от друга — тем точнее вычислится поворот. Точки ставятся заранее в редакторе панели; углы платы доступны без подготовки.",
     "pointNameRegistration": "Репер {{n}}",
     "pointNameUser": "Точка {{n}}",
+    "pointNameCorner": "Угол · {{corner}}",
     "begin_one": "Начать захват · {{count}} точка",
     "begin_few": "Начать захват · {{count}} точки",
     "begin_many": "Начать захват · {{count}} точек",
