@@ -1,17 +1,19 @@
-import { Group, Circle, Line } from "react-konva";
+import { Group, Circle, Line, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { ALIGN_POINT_STROKE, COPPER_STROKE } from "@/components/editor/canvasStyle";
 import type { AlignmentPoint } from "@/lib/api";
 
-/** Konva layer rendering USER alignment points inside the mm fit-group: a blue
- *  ring with a cross, constant screen size. Registration tooling holes act as
- *  alignment points too, but they are already drawn by ToolingHoleLayer — this
- *  layer intentionally renders only the explicit (user-placed) points. */
+/** Konva layer rendering alignment points inside the mm fit-group: a blue ring
+ *  with a cross, constant screen size. The panel editor passes only the explicit
+ *  (user-placed) points — registration tooling holes are already drawn there by
+ *  ToolingHoleLayer. The drill map passes the full effective set (fiducials +
+ *  user points) with display labels. */
 export function AlignmentPointLayer({
   points,
   selectedId,
   pxPerMm,
   interactive,
+  labels,
   onPointMouseDown,
   onPointDragEnd,
 }: {
@@ -19,6 +21,9 @@ export function AlignmentPointLayer({
   selectedId: string | null;
   pxPerMm: number;
   interactive: boolean;
+  /** Optional display label per point id, drawn beside the marker (constant
+   *  screen size). Used by the drill map so points match the wizard list. */
+  labels?: Map<string, string>;
   onPointMouseDown?: (id: string, e: KonvaEventObject<MouseEvent>) => void;
   onPointDragEnd?: (id: string, e: KonvaEventObject<DragEvent>) => void;
 }) {
@@ -96,6 +101,19 @@ export function AlignmentPointLayer({
                   listening={false}
                 />
               </>
+            )}
+
+            {/* Label beside the marker (constant screen size) */}
+            {labels?.get(p.id) && k > 0 && (
+              <Text
+                x={arm + 3 * k}
+                y={-5.5 * k}
+                text={labels.get(p.id)}
+                fontSize={11 * k}
+                fontStyle="600"
+                fill={ALIGN_POINT_STROKE}
+                listening={false}
+              />
             )}
           </Group>
         );

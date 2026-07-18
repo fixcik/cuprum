@@ -81,6 +81,19 @@ export function effectiveAlignmentPoints(
   return [...fromHoles, ...explicit];
 }
 
+/** Display ordinal per point id, numbered independently per source (fiducials
+ *  "1..N" and user points "1..M"). Shared by the wizard list and the drill map
+ *  overlay so both label the same point identically. */
+export function alignmentPointOrdinals(points: EffectiveAlignmentPoint[]): Map<string, number> {
+  const m = new Map<string, number>();
+  let reg = 0;
+  let usr = 0;
+  for (const p of points) {
+    m.set(p.point.id, p.source === "registration" ? ++reg : ++usr);
+  }
+  return m;
+}
+
 /** Next "ap-N" id beyond the current max — stable across deletions. */
 export function nextAlignmentPointId(points: AlignmentPoint[]): string {
   const max = points.reduce((m, p) => {

@@ -31,6 +31,7 @@ import { useWorkZeroMethod } from "@/workZeroMethodStore";
 import { useMachine } from "@/machineStore";
 import { api } from "@/lib/api";
 import { useDrillGates } from "@/hooks/useDrillGates";
+import { effectiveAlignmentPoints } from "@/lib/alignmentPoints";
 
 /** Phases in which a run is live; a transition out of this set into done/error/idle
  *  is the run's terminal event (used to journal the outcome). */
@@ -534,6 +535,13 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
 
   const hasAnyHoles = !!(plan && plan.totalHoles > 0);
 
+  // Effective alignment points (auto fiducials + user points) drawn on the map
+  // with labels matching the work-zero wizard list.
+  const mapAlignmentPoints = useMemo(
+    () => effectiveAlignmentPoints(panel?.tooling_holes ?? [], panel?.alignment_points ?? []),
+    [panel?.tooling_holes, panel?.alignment_points],
+  );
+
   if (!hasProject || (plan !== null && !loading && !hasAnyHoles)) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-[#0a0c10] text-slate-500 text-sm">
@@ -594,6 +602,7 @@ export function DrillOperationEditor({ snapshot }: { snapshot: DrillSnapshot }) 
                 })
               }
               onInspectHole={setInspectedHoleId}
+              alignmentPoints={mapAlignmentPoints}
             />
           )}
         </div>
