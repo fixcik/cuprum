@@ -254,10 +254,14 @@ export function WorkZeroPointsWizard({
     };
   }, [cncProfile.safeZMm, cncProfile.machineSafeZMm]);
 
-  /** Raise Z to the machine-frame safe retract height (rapid). */
+  /** Raise Z to the machine-frame safe retract height (rapid). Never descends:
+   *  the retract height is a modest clearance above the work zero, so when the
+   *  tool is already at/above it this is a no-op — jogging down to it would
+   *  LOWER the tool (a "safe Z" button must only ever move up). */
   const raiseToSafeZ = useCallback(async () => {
     if (!enabled || !homed) return;
     const { machineZ, wcoZ } = retractMachineZ();
+    if (useMachine.getState().status.mpos[2] >= machineZ) return;
     await jogTo({ z: machineZ - wcoZ }, RAPID_JOG_FEED);
   }, [enabled, homed, retractMachineZ, jogTo]);
 
@@ -328,12 +332,16 @@ export function WorkZeroPointsWizard({
     setNavPhase("raising-z");
     try {
       const { machineZ, wcoZ } = retractMachineZ();
-      await jogTo({ z: machineZ - wcoZ }, RAPID_JOG_FEED);
-      // Gate the XY leg on the REPORTED Z height, not on the jog state: the
-      // cached status may still predate the retract, and "not jogging" on a
-      // stale snapshot must not launch XY while the tool is down (see
-      // waitZAtOrAbove).
-      if (!(await waitZAtOrAbove(machineZ, token))) return;
+      // Retract only when actually below the safe height — jogging down to it
+      // from above would LOWER the tool toward the stock before the XY leg.
+      if (useMachine.getState().status.mpos[2] < machineZ) {
+        await jogTo({ z: machineZ - wcoZ }, RAPID_JOG_FEED);
+        // Gate the XY leg on the REPORTED Z height, not on the jog state: the
+        // cached status may still predate the retract, and "not jogging" on a
+        // stale snapshot must not launch XY while the tool is down (see
+        // waitZAtOrAbove).
+        if (!(await waitZAtOrAbove(machineZ, token))) return;
+      }
       setNavPhase("navigating-xy");
       const { mpos, wpos } = useMachine.getState().status;
       const wcoX = mpos[0] - wpos[0];
