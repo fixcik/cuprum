@@ -18,6 +18,7 @@ import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { gotoWorkZero, safeRetractMachineZ } from "@/lib/gotoZero";
 import { useJog } from "@/hooks/useJog";
+import { useJogHotkeys } from "@/hooks/useJogHotkeys";
 import { JogStepControl } from "@/components/machine/JogStepControl";
 
 const jogBtn =
@@ -49,10 +50,12 @@ export function JogPad() {
   // case itself).
   useEffect(() => () => stopContinuous(), [stopContinuous]);
 
-  // Keyboard jog: skip while typing in an input/textarea/select. In step mode a
-  // keydown emits one move (auto-repeat keeps stepping). In continuous mode the
-  // first keydown starts the move and keyup stops it — auto-repeat (`e.repeat`)
-  // is ignored so the hold is a single jog, not a stream of re-starts.
+  // Keyboard jog (arrows / PgUp / PgDn) — shared hook, same behaviour as the
+  // buttons including hold-to-move in continuous mode.
+  useJogHotkeys({ enabled, continuous, go, startContinuous, stopContinuous });
+
+  // 1·2·3 pick the first three jog steps (step mode only — continuous has no
+  // numeric step). Allow switching back out of continuous via the digits too.
   useEffect(() => {
     const isTyping = (el: HTMLElement | null) =>
       !!el &&
@@ -61,42 +64,8 @@ export function JogPad() {
         el.tagName === "SELECT" ||
         el.isContentEditable);
 
-    // Map a key to its jog direction (XY via arrows, Z via PgUp/PgDn).
-    const dirOf = (key: string): [number, number, number] | null => {
-      switch (key) {
-        case "ArrowUp":
-          return [0, 1, 0];
-        case "ArrowDown":
-          return [0, -1, 0];
-        case "ArrowLeft":
-          return [-1, 0, 0];
-        case "ArrowRight":
-          return [1, 0, 0];
-        case "PageUp":
-          return [0, 0, 1];
-        case "PageDown":
-          return [0, 0, -1];
-        default:
-          return null;
-      }
-    };
-
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e.target as HTMLElement | null)) return;
-      const dir = dirOf(e.key);
-      if (dir) {
-        e.preventDefault();
-        if (continuous) {
-          // Ignore the OS key-repeat: hold = one continuous move.
-          if (e.repeat) return;
-          void startContinuous(dir[0], dir[1], dir[2]);
-        } else {
-          go(dir[0], dir[1], dir[2]);
-        }
-        return;
-      }
-      // 1·2·3 pick the first three jog steps (step mode only — continuous has no
-      // numeric step). Allow switching back out of continuous via the digits too.
       if (e.key === "1" || e.key === "2" || e.key === "3") {
         const s = cnc.jogStepsMm[Number(e.key) - 1];
         if (s !== undefined) {
@@ -107,21 +76,9 @@ export function JogPad() {
       }
     };
 
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (!continuous) return;
-      if (dirOf(e.key)) {
-        e.preventDefault();
-        stopContinuous();
-      }
-    };
-
     window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-    };
-  }, [go, startContinuous, stopContinuous, continuous, cnc.jogStepsMm]);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [stopContinuous, setStep, cnc.jogStepsMm]);
 
   // A direction button: click in step mode, press-and-hold in continuous mode.
   const dirBtn = (dx: number, dy: number, dz: number, title: string, icon: ReactNode) => {

@@ -16,6 +16,7 @@ import {
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { useJog } from "@/hooks/useJog";
+import { useJogHotkeys } from "@/hooks/useJogHotkeys";
 import { type XYGateResult, formatXYViolations } from "@/lib/xyGate";
 import { JogStepControl } from "@/components/machine/JogStepControl";
 import { ZTouchOffStrip } from "@/components/drill/ZTouchOffStrip";
@@ -72,6 +73,9 @@ export function WorkZeroCard({ workZeroSet, maxXMm, maxYMm, maxZMm, xyGate }: Wo
 
   // Stop any in-flight continuous jog on unmount.
   useEffect(() => () => stopContinuous(), [stopContinuous]);
+
+  // Keyboard jog (arrows XY, PgUp/PgDn Z) — same behaviour as the pad buttons.
+  useJogHotkeys({ enabled, continuous, go, startContinuous, stopContinuous });
 
   // Step config from settings (same source as JogPad and ZBar).
   const steps = useSettings((s) => s.cncProfile.jogStepsMm);

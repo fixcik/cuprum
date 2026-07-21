@@ -42,6 +42,7 @@ import {
 } from "@/lib/fiducialRegistration";
 import type { JogBounds } from "@/lib/jogBounds";
 import { useJog, RAPID_JOG_FEED } from "@/hooks/useJog";
+import { useJogHotkeys } from "@/hooks/useJogHotkeys";
 import { useMachine } from "@/machineStore";
 import { useSettings } from "@/settingsStore";
 import { safeRetractMachineZ } from "@/lib/gotoZero";
@@ -258,6 +259,32 @@ export function WorkZeroPointsWizard({
 
   // Stop any in-flight continuous jog on unmount.
   useEffect(() => () => stopContinuous(), [stopContinuous]);
+
+  // Hotkey Z step mirrors the safe-descent Z-bar buttons: the step is clamped
+  // to the fine capture range (a coarse XY step must not become a deep plunge)
+  // and descents run at the slow capture feed.
+  const hotkeyZStep = useCallback(
+    (dz: 1 | -1) => {
+      if (!enabled || typeof jogStep !== "number") return;
+      const zStep = Math.min(jogStep, Math.max(...FIDUCIAL_CAPTURE_STEPS_MM));
+      const { wpos } = useMachine.getState().status;
+      void jogTo(
+        { z: wpos[2] + dz * zStep },
+        dz < 0 ? FIDUCIAL_Z_DESCENT_FEED_MM_MIN : undefined,
+      );
+    },
+    [enabled, jogStep, jogTo],
+  );
+
+  // Keyboard jog on the capture step only: arrows XY, PgUp/PgDn Z (safe step).
+  useJogHotkeys({
+    enabled: enabled && step === "capture",
+    continuous,
+    go,
+    startContinuous,
+    stopContinuous,
+    onZStep: hotkeyZStep,
+  });
 
   const refreshState = useCallback(async (): Promise<FiducialStateDto> => {
     const st = await api.fiducial.state();
