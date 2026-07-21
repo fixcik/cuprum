@@ -30,8 +30,11 @@ import {
 import {
   buildFiducialEntries,
   captureBoundsAroundMachine,
+  captureDeviationMm,
   classifyRms,
   pointResiduals,
+  predictPointMachine,
+  type CapturedPair,
   FIDUCIAL_CAPTURE_RADIUS_MM,
   FIDUCIAL_CAPTURE_STEPS_MM,
   FIDUCIAL_Z_DESCENT_FEED_MM_MIN,
@@ -208,18 +211,36 @@ export function WorkZeroPointsWizard({
     [maxXMm, maxYMm, maxZMm],
   );
 
-  // Expected machine-frame target of the current point: ideal + coarse offset.
-  // Unknown (null) until the first capture establishes the offset — the first
-  // point is approached fully manually.
   const coarseOffset = fidState?.coarseOffset ?? null;
   const curEntry = step === "capture" ? entries[curIdx] : undefined;
-  const targetMachine =
-    curEntry && coarseOffset
-      ? { x: curEntry.ideal.x + coarseOffset.x, y: curEntry.ideal.y + coarseOffset.y }
-      : null;
+
+  // Captured pairs EXCLUDING the point being (re)captured — they anchor the
+  // prediction/deviation of the current point.
+  const capturedPairs = useMemo(() => {
+    const fids = fidState?.fiducials ?? [];
+    const out: CapturedPair[] = [];
+    fids.forEach((f, i) => {
+      if (i !== curIdx && f.measured) out.push({ ideal: f.ideal, measured: f.measured });
+    });
+    return out;
+  }, [fidState, curIdx]);
+
+  // Expected machine-frame target of the current point. One capture anchors a
+  // pure translation; 2+ captures add the estimated board rotation. Null until
+  // the first capture — that point is approached fully manually.
+  const targetMachine = curEntry ? predictPointMachine(capturedPairs, curEntry.ideal) : null;
 
   const distMm = targetMachine
     ? Math.hypot(liveMpos[0] - targetMachine.x, liveMpos[1] - targetMachine.y)
+    : null;
+
+  // Capture-gate deviation (same 3 mm threshold as before, but rotation-honest):
+  // with ONE capture the rotation is unknown, so the metric is the ring distance
+  // | |cur − m₁| − d₁₂ | (point spacing is rotation-invariant); with 2+ captures
+  // it is the distance to the rotation-aware prediction. A tilted board no longer
+  // false-blocks an operator who is exactly on the point.
+  const deviationMm = curEntry
+    ? captureDeviationMm(capturedPairs, curEntry.ideal, { x: liveMpos[0], y: liveMpos[1] })
     : null;
 
   // Fine-capture clamp: once the spindle is inside the ±r capture box around the
@@ -491,10 +512,10 @@ export function WorkZeroPointsWizard({
   const sevBorder = (s: "good" | "warn" | "bad") =>
     s === "good" ? "border-success/40" : s === "warn" ? "border-warning/40" : "border-destructive/50";
 
-  // Capture CTA gate: motion always blocks; the 3 mm distance gate applies only
-  // when a target is known (points 2+) — the first capture is free-form.
-  const captureTooFar =
-    targetMachine !== null && distMm !== null && distMm > FIDUCIAL_CAPTURE_RADIUS_MM;
+  // Capture CTA gate: motion always blocks; the 3 mm gate uses the rotation-
+  // honest deviation (see deviationMm) and applies only for points 2+ — the
+  // first capture is free-form.
+  const captureTooFar = deviationMm !== null && deviationMm > FIDUCIAL_CAPTURE_RADIUS_MM;
   const captureDisabled = !enabled || busy || moving || captureTooFar;
 
   const badge = (cls: string, label: string) => (
@@ -659,20 +680,20 @@ export function WorkZeroPointsWizard({
               <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
                 {targetMachine ? t("wizard2.hintNext") : t("wizard2.hintFirst")}
               </p>
-              {targetMachine && distMm !== null && (
+              {targetMachine && deviationMm !== null && (
                 <div className="mt-2.5 flex items-center gap-2">
                   <span className="text-[11.5px] text-muted-foreground">{t("wizard2.distLabel")}</span>
                   <span
                     className={
                       "text-[15px] font-semibold tabular-nums " +
-                      (distMm <= DIST_GOOD_MM
+                      (deviationMm <= DIST_GOOD_MM
                         ? "text-success"
-                        : distMm <= FIDUCIAL_CAPTURE_RADIUS_MM
+                        : deviationMm <= FIDUCIAL_CAPTURE_RADIUS_MM
                           ? "text-warning"
                           : "text-muted-foreground")
                     }
                   >
-                    {fmtLen(distMm)}
+                    {fmtLen(deviationMm)}
                   </span>
                   <button
                     type="button"

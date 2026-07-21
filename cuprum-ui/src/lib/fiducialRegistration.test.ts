@@ -6,6 +6,9 @@ import {
   canSolve,
   pointResiduals,
   undoRegistration,
+  estimateRotationRad,
+  predictPointMachine,
+  captureDeviationMm,
   FIDUCIAL_CAPTURE_RADIUS_MM,
   MIN_CAPTURES_FOR_SOLVE,
   RMS_WARN_MM,
@@ -190,6 +193,51 @@ describe("undoRegistration", () => {
   it("is the identity for the identity registration", () => {
     const back = undoRegistration({ x: 12.3, y: -4.5 }, { scale: 1, angleRad: 0 });
     expect(back).toEqual({ x: 12.3, y: -4.5 });
+  });
+});
+
+describe("capture-gate math (rotation-honest)", () => {
+  // A board rotated by theta: measured = R(theta)·ideal + t.
+  const theta = (7 * Math.PI) / 180;
+  const t = { x: 100, y: 40 };
+  const place = (p: { x: number; y: number }) => ({
+    x: t.x + Math.cos(theta) * p.x - Math.sin(theta) * p.y,
+    y: t.y + Math.sin(theta) * p.x + Math.cos(theta) * p.y,
+  });
+  const i1 = { x: 0, y: 0 };
+  const i2 = { x: 60, y: 0 };
+  const i3 = { x: 0, y: 40 };
+
+  it("one capture: ring deviation is ~0 on the true point despite rotation", () => {
+    const pairs = [{ ideal: i1, measured: place(i1) }];
+    expect(captureDeviationMm(pairs, i2, place(i2))).toBeCloseTo(0, 9);
+    // Translation-only prediction would be off by ~theta * spacing (>3 mm).
+    const pred = predictPointMachine(pairs, i2) as { x: number; y: number };
+    const drift = Math.hypot(place(i2).x - pred.x, place(i2).y - pred.y);
+    expect(drift).toBeGreaterThan(3);
+  });
+
+  it("one capture: being on the wrong radius is flagged", () => {
+    const pairs = [{ ideal: i1, measured: place(i1) }];
+    const wrong = place({ x: 55, y: 0 }); // 5 mm short of the true spacing
+    expect(captureDeviationMm(pairs, i2, wrong)).toBeCloseTo(5, 6);
+  });
+
+  it("two captures: rotation is estimated and the prediction lands on the point", () => {
+    const pairs = [
+      { ideal: i1, measured: place(i1) },
+      { ideal: i2, measured: place(i2) },
+    ];
+    expect(estimateRotationRad(pairs)).toBeCloseTo(theta, 9);
+    const pred = predictPointMachine(pairs, i3) as { x: number; y: number };
+    expect(pred.x).toBeCloseTo(place(i3).x, 9);
+    expect(pred.y).toBeCloseTo(place(i3).y, 9);
+    expect(captureDeviationMm(pairs, i3, place(i3))).toBeCloseTo(0, 9);
+  });
+
+  it("no captures: null (free first approach)", () => {
+    expect(captureDeviationMm([], i2, { x: 0, y: 0 })).toBeNull();
+    expect(predictPointMachine([], i2)).toBeNull();
   });
 });
 

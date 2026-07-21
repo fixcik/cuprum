@@ -171,3 +171,79 @@ export function undoRegistration(
     y: (-sin * work.x + cos * work.y) / s,
   };
 }
+
+/** A captured fiducial pair used by the live capture-gate math. */
+export interface CapturedPair {
+  ideal: { x: number; y: number };
+  measured: { x: number; y: number };
+}
+
+/**
+ * Estimate the board rotation (rad, CCW) from 2+ captured pairs: the angle
+ * that best aligns ideal-space deltas (relative to the first pair) with the
+ * measured machine-space deltas (`atan2(Σcross, Σdot)`). Degenerate input
+ * (all points coincident) yields 0.
+ */
+export function estimateRotationRad(pairs: ReadonlyArray<CapturedPair>): number {
+  const [p0, ...rest] = pairs;
+  if (!p0 || rest.length === 0) return 0;
+  let dot = 0;
+  let cross = 0;
+  for (const p of rest) {
+    const ix = p.ideal.x - p0.ideal.x;
+    const iy = p.ideal.y - p0.ideal.y;
+    const mx = p.measured.x - p0.measured.x;
+    const my = p.measured.y - p0.measured.y;
+    dot += ix * mx + iy * my;
+    cross += ix * my - iy * mx;
+  }
+  if (dot === 0 && cross === 0) return 0;
+  return Math.atan2(cross, dot);
+}
+
+/**
+ * Predicted machine position of an ideal point given the captured pairs.
+ * One pair → pure translation (rotation unknown). Two-plus pairs → translation
+ * anchored at the first pair with the estimated rotation applied. Null when
+ * nothing is captured yet (free approach).
+ */
+export function predictPointMachine(
+  pairs: ReadonlyArray<CapturedPair>,
+  ideal: { x: number; y: number },
+): { x: number; y: number } | null {
+  const p0 = pairs[0];
+  if (!p0) return null;
+  const dx = ideal.x - p0.ideal.x;
+  const dy = ideal.y - p0.ideal.y;
+  const th = pairs.length >= 2 ? estimateRotationRad(pairs) : 0;
+  const cos = Math.cos(th);
+  const sin = Math.sin(th);
+  return { x: p0.measured.x + cos * dx - sin * dy, y: p0.measured.y + sin * dx + cos * dy };
+}
+
+/**
+ * Rotation-agnostic deviation (mm) of the live machine position from the point
+ * being captured — the capture-gate metric.
+ *
+ * With ONE captured pair the rotation is unknown, but the ideal spacing between
+ * the two points is rotation-invariant: the true point lies on a circle of that
+ * radius around the captured one, so the deviation is the ring distance
+ * `| |cur − m₁| − d₁₂ |` — zero on a tilted board when the tip is truly on the
+ * point. With 2+ pairs the rotation estimate makes a full prediction possible
+ * and the deviation is the plain distance to it. Null when nothing is captured.
+ */
+export function captureDeviationMm(
+  pairs: ReadonlyArray<CapturedPair>,
+  ideal: { x: number; y: number },
+  cur: { x: number; y: number },
+): number | null {
+  const p0 = pairs[0];
+  if (!p0) return null;
+  if (pairs.length === 1) {
+    const rCur = Math.hypot(cur.x - p0.measured.x, cur.y - p0.measured.y);
+    const rIdeal = Math.hypot(ideal.x - p0.ideal.x, ideal.y - p0.ideal.y);
+    return Math.abs(rCur - rIdeal);
+  }
+  const pred = predictPointMachine(pairs, ideal) as { x: number; y: number };
+  return Math.hypot(cur.x - pred.x, cur.y - pred.y);
+}
