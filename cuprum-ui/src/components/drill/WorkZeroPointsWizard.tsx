@@ -939,9 +939,24 @@ export function WorkZeroPointsWizard({
               {t("wizard2.capture")}
             </Button>
             {captureTooFar && !moving && (
-              <p className="text-center text-[11px] text-muted-foreground">
-                {t("wizard2.captureTooFar", { mm: FIDUCIAL_CAPTURE_RADIUS_MM })}
-              </p>
+              <>
+                {/* The predicted target is ideal + pure translation from the
+                 *  first capture — board ROTATION is unknown until the solve, so
+                 *  on a visibly tilted board the prediction drifts by ~angle ×
+                 *  point spacing and the 3 mm gate false-blocks an operator who
+                 *  is exactly on the point. Offer an explicit override. */}
+                <p className="text-center text-[11px] text-muted-foreground">
+                  {t("wizard2.captureTooFar", { mm: FIDUCIAL_CAPTURE_RADIUS_MM })}
+                </p>
+                <button
+                  type="button"
+                  disabled={!enabled || busy}
+                  onClick={() => void handleCapture()}
+                  className="w-full rounded-[10px] border border-warning/50 bg-warning/10 px-3 py-2 text-[12.5px] font-semibold text-warning transition-colors hover:bg-warning/20 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {t("wizard2.captureAnyway")}
+                </button>
+              </>
             )}
           </>
         )}
