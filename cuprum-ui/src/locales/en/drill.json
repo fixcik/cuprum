@@ -297,7 +297,7 @@
     "badgeUser": "custom",
     "badgeCorner": "corner",
     "badgeProbeable": "probeable",
-    "spreadHint": "The farther apart the points, the more precisely the rotation is computed. Points are placed beforehand in the panel editor; the panel corners are available with no preparation.",
+    "spreadHint": "The farther apart the points, the more precisely the rotation is computed. Capture order = selection order: tick first the point the tool is already at. The panel corners are available with no preparation.",
     "pointNameRegistration": "Fiducial {{n}}",
     "pointNameUser": "Point {{n}}",
     "pointNameCorner": "Corner · {{corner}}",

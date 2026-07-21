@@ -295,9 +295,13 @@ export function WorkZeroPointsWizard({
     return false;
   }, []);
 
-  /** Step 1 → 2: freeze the selection, init the backend session, raise Z. */
+  /** Step 1 → 2: freeze the selection, init the backend session, raise Z.
+   *  Session order = SELECTION order (Set insertion order), not list order —
+   *  the operator picks the first point to be the one the spindle is already
+   *  near, so the fully manual first approach starts where they expect. */
   const handleBegin = useCallback(async () => {
-    const sel = allPoints.filter((p) => selectedIds.has(p.point.id));
+    const byId = new Map(allPoints.map((p) => [p.point.id, p]));
+    const sel = [...selectedIds].flatMap((id) => byId.get(id) ?? []);
     if (sel.length < MIN_CAPTURES_FOR_SOLVE) return;
     setBusy(true);
     setError(null);
@@ -553,10 +557,13 @@ export function WorkZeroPointsWizard({
               <button
                 type="button"
                 onClick={() =>
+                  // Select-all keeps the already-clicked order and appends the
+                  // rest in list order (Set dedup preserves first insertion).
                   setSelectedIds(
-                    selectedCount === allPoints.length
-                      ? new Set()
-                      : new Set(allPoints.map((p) => p.point.id)),
+                    (prev) =>
+                      selectedCount === allPoints.length
+                        ? new Set()
+                        : new Set([...prev, ...allPoints.map((p) => p.point.id)]),
                   )
                 }
                 className="text-[12px] font-semibold text-primary hover:underline underline-offset-2"
@@ -567,6 +574,9 @@ export function WorkZeroPointsWizard({
 
             {allPoints.map((p) => {
               const checked = selectedIds.has(p.point.id);
+              // Capture ordinal (1-based) by selection order — shown in the
+              // checkbox so the operator sees which point will be first.
+              const selOrder = checked ? [...selectedIds].indexOf(p.point.id) + 1 : 0;
               return (
                 <button
                   key={p.point.id}
@@ -592,7 +602,11 @@ export function WorkZeroPointsWizard({
                         : "border-muted-foreground/50 bg-transparent")
                     }
                   >
-                    {checked && <Check className="size-3" strokeWidth={3.5} />}
+                    {checked && (
+                      <span className="text-[10.5px] font-bold tabular-nums leading-none">
+                        {selOrder}
+                      </span>
+                    )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="text-[13px] font-semibold text-foreground">
